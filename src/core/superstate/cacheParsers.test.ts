@@ -115,4 +115,54 @@ describe("parseContextTableToCache property materialization", () => {
       "manual",
     ]);
   });
+
+  it("keeps adding new frontmatter properties to property-backed contexts", () => {
+    const result = parseContextTableToCache(
+      space,
+      {
+        files: {
+          schema: defaultContextDBSchema,
+          cols: [
+            ...(defaultContextFields.rows as any),
+            { name: "status", type: "text", value: "", schemaId: "files" },
+          ],
+          rows: [{ File: "a.md", status: "active" }],
+        },
+      },
+      ["a.md"],
+      true,
+      new Map<string, any>([
+        ["Relays & Devices", { path: "Relays & Devices", type: "space" }],
+        [
+          "a.md",
+          {
+            path: "a.md",
+            metadata: {
+              property: {
+                status: "active",
+                area: "Veg",
+              },
+            },
+          },
+        ],
+      ]),
+      new IndexMap(),
+      null as any,
+      settings,
+      new Map(),
+      { calculate: false }
+    );
+
+    expect(result.cache.contextTable.cols.map((col) => col.name)).toEqual([
+      "File",
+      "Created",
+      "status",
+      "area",
+    ]);
+    expect(result.cache.contextTable.rows[0]).toMatchObject({
+      File: "a.md",
+      status: "active",
+      area: "Veg",
+    });
+  });
 });

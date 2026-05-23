@@ -3,6 +3,7 @@ import { defaultContextFields } from "shared/schemas/fields";
 import { MakeMDSettings } from "shared/types/settings";
 import {
   contextHasOnlyDefaultColumns,
+  contextHasOnlyDefaultOrFrontmatterColumns,
   discoverFrontmatterPropertiesFromPathStates,
 } from "./allProperties";
 
@@ -91,6 +92,50 @@ describe("contextHasOnlyDefaultColumns", () => {
         ...(defaultContextFields.rows as any),
         { name: "status", type: "text", value: "", schemaId: "files" },
       ])
+    ).toBe(false);
+  });
+});
+
+describe("contextHasOnlyDefaultOrFrontmatterColumns", () => {
+  it("returns true for contexts already backed by discovered frontmatter properties", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "a.md",
+        pathState({
+          status: "active",
+          area: "Veg",
+        }),
+      ],
+    ]);
+
+    expect(
+      contextHasOnlyDefaultOrFrontmatterColumns(
+        [
+          ...(defaultContextFields.rows as any),
+          { name: "status", type: "text", value: "", schemaId: "files" },
+        ],
+        pathsIndex,
+        ["a.md"],
+        settings
+      )
+    ).toBe(true);
+  });
+
+  it("returns false when a context has a non-frontmatter user column", () => {
+    const pathsIndex = new Map<string, any>([
+      ["a.md", pathState({ status: "active" })],
+    ]);
+
+    expect(
+      contextHasOnlyDefaultOrFrontmatterColumns(
+        [
+          ...(defaultContextFields.rows as any),
+          { name: "manual", type: "text", value: "", schemaId: "files" },
+        ],
+        pathsIndex,
+        ["a.md"],
+        settings
+      )
     ).toBe(false);
   });
 });

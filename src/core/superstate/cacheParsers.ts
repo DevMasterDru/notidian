@@ -9,7 +9,7 @@ import { orderStringArrayByArray, uniq } from "shared/utils/array";
 import { builtinSpaces } from "core/types/space";
 import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow } from "core/utils/contexts/linkContextRow";
 import {
-    contextHasOnlyDefaultColumns,
+    contextHasOnlyDefaultOrFrontmatterColumns,
     discoverFrontmatterPropertiesFromPathStates,
 } from "core/utils/properties/allProperties";
 import { pathByJoins } from "core/utils/spaces/query";
@@ -57,7 +57,12 @@ export const parseContextTableToCache = (space: SpaceInfo, mdb: SpaceTables, pat
     const shouldAutoImportProperties =
         settings.autoImportObsidianPropertiesToContexts !== false &&
         !space.path.startsWith("spaces://") &&
-        contextHasOnlyDefaultColumns(sourceCols);
+        contextHasOnlyDefaultOrFrontmatterColumns(
+            sourceCols,
+            pathsIndex,
+            paths,
+            settings
+        );
     const discoveredCols = shouldAutoImportProperties
         ? discoverFrontmatterPropertiesFromPathStates(
             pathsIndex,

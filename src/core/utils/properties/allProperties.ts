@@ -37,6 +37,32 @@ export const contextHasOnlyDefaultColumns = (
   );
 };
 
+export const contextHasOnlyDefaultOrFrontmatterColumns = (
+  cols: Pick<SpaceProperty, "name" | "type" | "value">[] = [],
+  pathsIndex: Map<string, Pick<PathState, "metadata">>,
+  paths: string[],
+  settings: MakeMDSettings
+): boolean => {
+  if (contextHasOnlyDefaultColumns(cols)) return true;
+
+  const excluded = excludedFrontmatterPropertyNames(settings);
+  const frontmatterProperties = new Set<string>();
+
+  for (const path of paths) {
+    const properties = pathsIndex.get(path)?.metadata?.property;
+    if (!properties) continue;
+
+    for (const key of Object.keys(properties)) {
+      if (!excluded.has(key)) frontmatterProperties.add(key);
+    }
+  }
+
+  return cols.every(
+    (col) =>
+      contextHasOnlyDefaultColumns([col]) || frontmatterProperties.has(col.name)
+  );
+};
+
 export const discoverFrontmatterPropertiesFromPathStates = (
   pathsIndex: Map<string, Pick<PathState, "metadata">>,
   paths: string[],
