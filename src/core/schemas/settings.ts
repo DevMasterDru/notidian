@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   contextEnabled: true,
   spaceViewEnabled: true,
   saveAllContextToFrontmatter: true,
+  autoImportObsidianPropertiesToContexts: true,
   autoOpenFileContext: false,
   activeView: "/",
   hideFrontmatter: true,

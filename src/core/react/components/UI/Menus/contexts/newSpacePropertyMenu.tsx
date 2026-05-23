@@ -1,9 +1,8 @@
 import i18n from "shared/i18n";
 
-import { FMMetadataKeys } from "core/types/space";
 import { RepeatTemplate } from "core/utils/contexts/fields/presets";
 import { nameForField } from "core/utils/frames/frames";
-import { allPropertiesForPaths } from "core/utils/properties/allProperties";
+import { discoverFrontmatterPropertiesFromPathStates } from "core/utils/properties/allProperties";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fieldTypeForType, fieldTypes, stickerForField } from "schemas/mdb";
@@ -210,25 +209,14 @@ const NewPropertyMenuComponent = (
     e.stopPropagation();
     const existingCols =
       props.superstate.contextsIndex.get(source)?.contextTable?.cols ?? [];
-    const existingProps: SpaceProperty[] = allPropertiesForPaths(
-      props.superstate,
-      [...(props.superstate.spacesMap.getInverse(source) ?? [])]
-    )
-      .filter(
-        (f) =>
-          !existingCols.some((g) => g.name == f.name) &&
-          ![
-            ...FMMetadataKeys(props.superstate.settings),
-            props.superstate.settings.fmKeyAlias,
-            "tags",
-          ].some((g) => g == f.name)
-      )
-      .map((f) => ({
-        name: f.name,
-        type: f.type,
-        value: "",
-        schemaId: props.schemaId,
-      }));
+    const existingProps: SpaceProperty[] =
+      discoverFrontmatterPropertiesFromPathStates(
+        props.superstate.pathsIndex,
+        [...(props.superstate.spacesMap.getInverse(source) ?? [])],
+        props.superstate.settings,
+        existingCols,
+        props.schemaId
+      );
     if (existingProps.length == 0) {
       props.superstate.ui.notify(i18n.notice.noPropertiesFound);
       return;

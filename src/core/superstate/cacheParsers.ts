@@ -8,6 +8,10 @@ import { orderStringArrayByArray, uniq } from "shared/utils/array";
 
 import { builtinSpaces } from "core/types/space";
 import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow } from "core/utils/contexts/linkContextRow";
+import {
+    contextHasOnlyDefaultColumns,
+    discoverFrontmatterPropertiesFromPathStates,
+} from "core/utils/properties/allProperties";
 import { pathByJoins } from "core/utils/spaces/query";
 import { ensureArray, initiateString, tagSpacePathFromTag } from "core/utils/strings";
 import { builtinSpacePathPrefix, tagsSpacePath } from "shared/schemas/builtin";
@@ -41,19 +45,49 @@ export const parseContextTableToCache = (space: SpaceInfo, mdb: SpaceTables, pat
             mdb: {}
         }}
     }
+    const sourceContextTable = mdb[defaultContextSchemaID] ?? {
+        schema: defaultContextDBSchema,
+        cols: defaultContextFields.rows as SpaceProperty[],
+        rows: [],
+    };
+    const sourceCols = sourceContextTable.cols?.length > 0
+        ? sourceContextTable.cols
+        : defaultContextFields.rows as SpaceProperty[];
+    const sourceRows = sourceContextTable.rows ?? [];
+    const shouldAutoImportProperties =
+        settings.autoImportObsidianPropertiesToContexts !== false &&
+        !space.path.startsWith("spaces://") &&
+        contextHasOnlyDefaultColumns(sourceCols);
+    const discoveredCols = shouldAutoImportProperties
+        ? discoverFrontmatterPropertiesFromPathStates(
+            pathsIndex,
+            paths,
+            settings,
+            sourceCols,
+            defaultContextSchemaID
+        )
+        : [];
+    const materializedContextTable =
+        discoveredCols.length > 0
+            ? {
+                ...sourceContextTable,
+                cols: [...sourceCols, ...discoveredCols],
+                rows: sourceRows,
+            }
+            : { ...sourceContextTable, cols: sourceCols, rows: sourceRows };
     const schemas = Object.values(mdb).map(f => f.schema);
-    let cols = mdb[defaultContextSchemaID]?.cols;
+    let cols = materializedContextTable?.cols;
     if (!cols || cols.length == 0) {
         cols = defaultContextFields.rows as SpaceProperty[];
     }
-    const schema = mdb[defaultContextSchemaID]?.schema ?? defaultContextDBSchema;
-    const contextPaths = mdb[defaultContextSchemaID]?.rows?.map(f => f[PathPropertyName]) ?? [];
+    const schema = materializedContextTable?.schema ?? defaultContextDBSchema;
+    const contextPaths = materializedContextTable?.rows?.map(f => f[PathPropertyName]) ?? [];
     
     const missingPaths = paths.filter(f => !contextPaths.includes(f));
     const newPaths = [...orderStringArrayByArray(paths ?? [], contextPaths), ...missingPaths];
     const dependencies = propertyDependencies(cols);
     const spacePath = pathsIndex.get(space.path);
-    let rows = mergeContextRows(paths, mdb[defaultContextSchemaID]?.rows ?? [], pathsIndex, spacesMap, spacePath)
+    let rows = mergeContextRows(paths, materializedContextTable?.rows ?? [], pathsIndex, spacesMap, spacePath)
      
     rows = rows.map(f => syncContextRow(pathsIndex, f, cols, spacePath))
     if (options?.calculate) {
@@ -81,6 +115,7 @@ export const parseContextTableToCache = (space: SpaceInfo, mdb: SpaceTables, pat
     })
     
     const outlinks = uniq(contextTable.rows.reduce((p, c) => uniq([...p, ...[...contextCols, ...linkCols].flatMap(f => parseMultiString(c[f.name]).map(f => parseLinkString(f)))]), []))
+    const changed = !_.isEqual(contextTable, mdb[defaultContextSchemaID]);
     mdb[defaultContextSchemaID] = contextTable;
     const cache : ContextState = {
         contextTable,
@@ -92,11 +127,6 @@ export const parseContextTableToCache = (space: SpaceInfo, mdb: SpaceTables, pat
         spaceMap,
         dbExists,
         mdb
-    }
-    let changed = false;
-    if (!_.isEqual(contextTable, mdb[defaultContextSchemaID])) {
-
-        changed = true;
     }
     return {changed, cache}
 }

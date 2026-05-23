@@ -1,9 +1,70 @@
+import { FMMetadataKeys } from "core/types/space";
 import { Superstate } from "makemd-core";
-import { detectPropertyType } from "utils/properties";
+import { defaultContextSchemaID } from "shared/schemas/context";
+import { defaultContextFields } from "shared/schemas/fields";
+import { SpaceProperty } from "shared/types/mdb";
+import { PathState } from "shared/types/PathState";
+import { MakeMDSettings } from "shared/types/settings";
+import { detectPropertyType, yamlTypeToMDBType } from "utils/properties";
 
 export type PropertyType = {
   name: string;
   type: string;
+};
+
+export const excludedFrontmatterPropertyNames = (
+  settings: MakeMDSettings
+): Set<string> =>
+  new Set(
+    [
+      ...FMMetadataKeys(settings),
+      settings.fmKeyAlias,
+      "tags",
+    ].filter(Boolean)
+  );
+
+export const contextHasOnlyDefaultColumns = (
+  cols: Pick<SpaceProperty, "name" | "type" | "value">[] = []
+): boolean => {
+  if (cols.length === 0) return true;
+  return cols.every((col) =>
+    (defaultContextFields.rows as SpaceProperty[]).some(
+      (defaultCol) =>
+        defaultCol.name === col.name &&
+        defaultCol.type === col.type &&
+        (defaultCol.value ?? "") === (col.value ?? "")
+    )
+  );
+};
+
+export const discoverFrontmatterPropertiesFromPathStates = (
+  pathsIndex: Map<string, Pick<PathState, "metadata">>,
+  paths: string[],
+  settings: MakeMDSettings,
+  existingCols: Pick<SpaceProperty, "name">[] = [],
+  schemaId = defaultContextSchemaID
+): SpaceProperty[] => {
+  const excluded = excludedFrontmatterPropertyNames(settings);
+  const seen = new Set(existingCols.map((col) => col.name));
+  const discovered: SpaceProperty[] = [];
+
+  for (const path of paths) {
+    const properties = pathsIndex.get(path)?.metadata?.property;
+    if (!properties) continue;
+
+    for (const key of Object.keys(properties)) {
+      if (excluded.has(key) || seen.has(key)) continue;
+      discovered.push({
+        name: key,
+        type: yamlTypeToMDBType(detectPropertyType(properties[key], key)),
+        value: "",
+        schemaId,
+      });
+      seen.add(key);
+    }
+  }
+
+  return discovered;
 };
 
 
@@ -11,25 +72,12 @@ export const allPropertiesForPaths = (
   superstate: Superstate,
   paths: string[]
 ): PropertyType[] => {
-  const properties: { [key: string]: string[] } = {};
-
-  for (const path of paths) {
-     const f = superstate.pathsIndex.get(path)?.metadata?.property;
-      if (f) {
-      Object.keys(f).forEach((k) => {
-        properties[k] = [...(properties[k] ?? []), detectPropertyType(f[k], k)];
-      });
-    }
-  }
-  return Object.keys(properties).reduce((p, c) => {
-    return [...p, { name: c, type: properties[c][0] }];
-  }, [] as PropertyType[]);
-};
-
-const metadatTypeFilterPredicate = (value: any, index: number, self: any[]) => {
-  return (
-    self.findIndex(
-      (v) => value["type"] == v["type"] && value["name"] == v["name"]
-    ) === index
-  );
+  return discoverFrontmatterPropertiesFromPathStates(
+    superstate.pathsIndex,
+    paths,
+    superstate.settings
+  ).map((property) => ({
+    name: property.name,
+    type: property.type,
+  }));
 };

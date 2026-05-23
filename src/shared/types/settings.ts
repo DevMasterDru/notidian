@@ -27,6 +27,7 @@ export interface MakeMDSettings {
   expandedSpaces: string[];
   contextEnabled: boolean;
   saveAllContextToFrontmatter: boolean;
+  autoImportObsidianPropertiesToContexts: boolean;
   activeView: string;
   currentWaypoint: number;
   activeSpace: string;
