@@ -9,8 +9,7 @@ import { orderStringArrayByArray, uniq } from "shared/utils/array";
 import { builtinSpaces } from "core/types/space";
 import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow } from "core/utils/contexts/linkContextRow";
 import {
-    contextHasOnlyDefaultOrFrontmatterColumns,
-    discoverFrontmatterPropertiesFromPathStates,
+    materializeFrontmatterBackedContextTable,
 } from "core/utils/properties/allProperties";
 import { pathByJoins } from "core/utils/spaces/query";
 import { ensureArray, initiateString, tagSpacePathFromTag } from "core/utils/strings";
@@ -56,30 +55,14 @@ export const parseContextTableToCache = (space: SpaceInfo, mdb: SpaceTables, pat
     const sourceRows = sourceContextTable.rows ?? [];
     const shouldAutoImportProperties =
         settings.autoImportObsidianPropertiesToContexts !== false &&
-        !space.path.startsWith("spaces://") &&
-        contextHasOnlyDefaultOrFrontmatterColumns(
-            sourceCols,
-            pathsIndex,
-            paths,
-            settings
-        );
-    const discoveredCols = shouldAutoImportProperties
-        ? discoverFrontmatterPropertiesFromPathStates(
-            pathsIndex,
-            paths,
-            settings,
-            sourceCols,
-            defaultContextSchemaID
-        )
-        : [];
-    const materializedContextTable =
-        discoveredCols.length > 0
-            ? {
-                ...sourceContextTable,
-                cols: [...sourceCols, ...discoveredCols],
-                rows: sourceRows,
-            }
-            : { ...sourceContextTable, cols: sourceCols, rows: sourceRows };
+        !space.path.startsWith("spaces://");
+    const materializedContextTable = materializeFrontmatterBackedContextTable(
+        { ...sourceContextTable, cols: sourceCols, rows: sourceRows },
+        pathsIndex,
+        paths,
+        settings,
+        shouldAutoImportProperties
+    ).table;
     const schemas = Object.values(mdb).map(f => f.schema);
     let cols = materializedContextTable?.cols;
     if (!cols || cols.length == 0) {

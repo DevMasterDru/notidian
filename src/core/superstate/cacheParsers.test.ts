@@ -3,6 +3,7 @@ import { defaultContextDBSchema } from "shared/schemas/context";
 import { defaultContextFields } from "shared/schemas/fields";
 import { IndexMap } from "shared/types/indexMap";
 import { MakeMDSettings } from "shared/types/settings";
+import { frontmatterPropertySource } from "core/utils/properties/allProperties";
 
 const settings = {
   autoImportObsidianPropertiesToContexts: true,
@@ -68,6 +69,26 @@ describe("parseContextTableToCache property materialization", () => {
       "address",
       "ups",
     ]);
+    expect(result.cache.contextTable.cols.slice(2)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "status",
+          source: frontmatterPropertySource,
+        }),
+        expect.objectContaining({
+          name: "area",
+          source: frontmatterPropertySource,
+        }),
+        expect.objectContaining({
+          name: "address",
+          source: frontmatterPropertySource,
+        }),
+        expect.objectContaining({
+          name: "ups",
+          source: frontmatterPropertySource,
+        }),
+      ])
+    );
     expect(result.cache.contextTable.rows[0]).toMatchObject({
       File: "Relays & Devices/Veg - Mix Pump - B3 - Ch 2.md",
       status: "active",
@@ -158,6 +179,16 @@ describe("parseContextTableToCache property materialization", () => {
       "Created",
       "status",
       "area",
+    ]);
+    expect(result.cache.contextTable.cols.slice(2)).toEqual([
+      expect.objectContaining({
+        name: "status",
+        source: frontmatterPropertySource,
+      }),
+      expect.objectContaining({
+        name: "area",
+        source: frontmatterPropertySource,
+      }),
     ]);
     expect(result.cache.contextTable.rows[0]).toMatchObject({
       File: "a.md",

@@ -12,6 +12,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { DefaultSpaceCols } from "core/react/components/SpaceView/Frames/DefaultFrames/DefaultFrames";
 import { SpaceManager } from "core/spaceManager/spaceManager";
 import { metadataPathForSpace } from "core/superstate/utils/spaces";
+import { materializeFrontmatterBackedContextTable } from "core/utils/properties/allProperties";
 import { Superstate } from "makemd-core";
 import { defaultContextFields } from "shared/schemas/fields";
 import { safelyParseJSON } from "shared/utils/json";
@@ -297,39 +298,67 @@ export const updateContextWithProperties = async (
   path: string,
   spaces: SpaceInfo[]
 ): Promise<void[]> => {
-  const updatePath = async (mdb: SpaceTable) => {
-    const objectExists = mdb.rows.some(item => item[PathPropertyName] === path)
+  const updatePath = async (mdb: SpaceTable, space: SpaceInfo) => {
+    const contextPaths = _.uniq([
+      ...mdb.rows
+        .map((item) => item[PathPropertyName])
+        .filter((itemPath) => itemPath?.length > 0)
+        .map((itemPath) =>
+          superstate.spaceManager.resolvePath(itemPath, space.path)
+        ),
+      path,
+    ]);
+    const materializedTable = materializeFrontmatterBackedContextTable(
+      mdb,
+      superstate.pathsIndex,
+      contextPaths,
+      superstate.settings,
+      superstate.settings.autoImportObsidianPropertiesToContexts !== false &&
+        !space.path.startsWith("spaces://")
+    ).table;
+    const objectExists = materializedTable.rows.some(
+      (item) =>
+        superstate.spaceManager.resolvePath(
+          item[PathPropertyName],
+          space.path
+        ) === path
+    );
     const properties = await getPathProperties(
       superstate,
       path,
-      mdb.cols.filter(f => f.name != PathPropertyName && f.type != 'fileprop' && f.type != 'flex')
+      materializedTable.cols.filter(f => f.name != PathPropertyName && f.type != 'fileprop' && f.type != 'flex')
     );
 
     if (objectExists) {
       
-      return mdb.rows.map((f) =>
-            f[PathPropertyName] == path
+      return {
+        ...materializedTable,
+        rows: materializedTable.rows.map((f) =>
+            superstate.spaceManager.resolvePath(
+              f[PathPropertyName],
+              space.path
+            ) == path
               ? {
                   ...f,
                   ...properties,
                 }
               : f
           )
+      };
   } else {
-    return  [...mdb.rows, {
-      [PathPropertyName]: path,
-          ...properties,
-        }
-    ]
+    return {
+      ...materializedTable,
+      rows:  [...materializedTable.rows, {
+        [PathPropertyName]: path,
+            ...properties,
+          }
+      ]
+    };
 }
   }
   const promises = spaces.map((space) => {
     return processContext(superstate.spaceManager, space, async (mdb, space) => {
-      const newRows = await updatePath(mdb);
-      const newDB = {
-        ...mdb,
-        rows: newRows
-      };
+      const newDB = await updatePath(mdb, space);
       if (!_.isEqual(mdb, newDB))
         {
           if (superstate.settings.enhancedLogs) {
@@ -607,5 +636,4 @@ export const removePathsInContext = async (manager: SpaceManager,
         return newDB;
       })
 }
-
 

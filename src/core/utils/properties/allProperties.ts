@@ -16,7 +16,7 @@ export type PropertyType = {
 export const frontmatterPropertySource = "frontmatter";
 
 export const isFrontmatterBackedProperty = (
-  property?: Pick<SpaceProperty, "source">
+  property?: Partial<Pick<SpaceProperty, "name" | "source" | "type" | "value">>
 ): boolean => property?.source === frontmatterPropertySource;
 
 export const excludedFrontmatterPropertyNames = (
