@@ -140,19 +140,26 @@ export const materializeFrontmatterBackedContextTable = (
 
   const excluded = excludedFrontmatterPropertyNames(settings);
   const frontmatterProperties = new Set<string>();
+  const frontmatterPropertyTypes = new Map<string, string>();
   for (const path of paths) {
     const properties = pathsIndex.get(path)?.metadata?.property;
     if (!properties) continue;
 
     for (const key of Object.keys(properties)) {
-      if (!excluded.has(key)) frontmatterProperties.add(key);
+      if (excluded.has(key)) continue;
+      frontmatterProperties.add(key);
+      if (!frontmatterPropertyTypes.has(key)) {
+        frontmatterPropertyTypes.set(
+          key,
+          yamlTypeToMDBType(detectPropertyType(properties[key], key))
+        );
+      }
     }
   }
 
   const normalizedCols = sourceCols.map((col) => {
     if (
       contextHasOnlyDefaultColumns([col]) ||
-      isFrontmatterBackedProperty(col) ||
       !frontmatterProperties.has(col.name)
     ) {
       return col;
@@ -160,6 +167,7 @@ export const materializeFrontmatterBackedContextTable = (
 
     return {
       ...col,
+      type: frontmatterPropertyTypes.get(col.name) ?? col.type,
       source: frontmatterPropertySource,
     };
   });

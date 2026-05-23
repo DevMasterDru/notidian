@@ -160,6 +160,47 @@ describe("materializeFrontmatterBackedContextTable", () => {
     ]);
   });
 
+  it("updates legacy frontmatter column types from observed frontmatter values", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "a.md",
+        pathState({
+          sort_order: 2,
+          ups: true,
+        }),
+      ],
+    ]);
+
+    const result = materializeFrontmatterBackedContextTable(
+      {
+        schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+        cols: [
+          ...(defaultContextFields.rows as any),
+          { name: "sort_order", type: "text", value: "", schemaId: "files" },
+          { name: "ups", type: "text", value: "", schemaId: "files" },
+        ],
+        rows: [{ [PathPropertyName]: "a.md", sort_order: "2", ups: "true" }],
+      },
+      pathsIndex,
+      ["a.md"],
+      settings,
+      true
+    );
+
+    expect(result.table.cols.slice(2)).toEqual([
+      expect.objectContaining({
+        name: "sort_order",
+        type: "number",
+        source: frontmatterPropertySource,
+      }),
+      expect.objectContaining({
+        name: "ups",
+        type: "boolean",
+        source: frontmatterPropertySource,
+      }),
+    ]);
+  });
+
   it("does not convert contexts that contain non-frontmatter user columns", () => {
     const pathsIndex = new Map<string, any>([
       ["a.md", pathState({ status: "active" })],
