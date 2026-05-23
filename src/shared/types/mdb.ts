@@ -49,6 +49,7 @@ export type SpaceProperty = {
   type: string;
   //metadata for field
   value?: string;
+  source?: string;
   hidden?: string;
   //styling for field
   attrs?: string;

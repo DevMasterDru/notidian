@@ -2,7 +2,8 @@ import { FMMetadataKeys } from "core/types/space";
 import { Superstate } from "makemd-core";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { defaultContextFields } from "shared/schemas/fields";
-import { SpaceProperty } from "shared/types/mdb";
+import { PathPropertyName } from "shared/types/context";
+import { SpaceProperty, SpaceTable } from "shared/types/mdb";
 import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
 import { detectPropertyType, yamlTypeToMDBType } from "utils/properties";
@@ -11,6 +12,12 @@ export type PropertyType = {
   name: string;
   type: string;
 };
+
+export const frontmatterPropertySource = "frontmatter";
+
+export const isFrontmatterBackedProperty = (
+  property?: Pick<SpaceProperty, "source">
+): boolean => property?.source === frontmatterPropertySource;
 
 export const excludedFrontmatterPropertyNames = (
   settings: MakeMDSettings
@@ -59,7 +66,9 @@ export const contextHasOnlyDefaultOrFrontmatterColumns = (
 
   return cols.every(
     (col) =>
-      contextHasOnlyDefaultColumns([col]) || frontmatterProperties.has(col.name)
+      contextHasOnlyDefaultColumns([col]) ||
+      isFrontmatterBackedProperty(col) ||
+      frontmatterProperties.has(col.name)
   );
 };
 
@@ -85,12 +94,113 @@ export const discoverFrontmatterPropertiesFromPathStates = (
         type: yamlTypeToMDBType(detectPropertyType(properties[key], key)),
         value: "",
         schemaId,
+        source: frontmatterPropertySource,
       });
       seen.add(key);
     }
   }
 
   return discovered;
+};
+
+export const materializeFrontmatterBackedContextTable = (
+  table: SpaceTable,
+  pathsIndex: Map<string, Pick<PathState, "metadata">>,
+  paths: string[],
+  settings: MakeMDSettings,
+  enabled: boolean
+): { table: SpaceTable; changed: boolean } => {
+  if (!table) return { table, changed: false };
+
+  const sourceCols = table.cols?.length > 0
+    ? table.cols
+    : defaultContextFields.rows as SpaceProperty[];
+
+  if (
+    !enabled ||
+    !contextHasOnlyDefaultOrFrontmatterColumns(
+      sourceCols,
+      pathsIndex,
+      paths,
+      settings
+    )
+  ) {
+    return {
+      table: { ...table, cols: sourceCols, rows: table.rows ?? [] },
+      changed: false,
+    };
+  }
+
+  const excluded = excludedFrontmatterPropertyNames(settings);
+  const frontmatterProperties = new Set<string>();
+  for (const path of paths) {
+    const properties = pathsIndex.get(path)?.metadata?.property;
+    if (!properties) continue;
+
+    for (const key of Object.keys(properties)) {
+      if (!excluded.has(key)) frontmatterProperties.add(key);
+    }
+  }
+
+  const normalizedCols = sourceCols.map((col) => {
+    if (
+      contextHasOnlyDefaultColumns([col]) ||
+      isFrontmatterBackedProperty(col) ||
+      !frontmatterProperties.has(col.name)
+    ) {
+      return col;
+    }
+
+    return {
+      ...col,
+      source: frontmatterPropertySource,
+    };
+  });
+  const discoveredCols = discoverFrontmatterPropertiesFromPathStates(
+    pathsIndex,
+    paths,
+    settings,
+    normalizedCols,
+    defaultContextSchemaID
+  );
+  const nextTable = {
+    ...table,
+    cols: [...normalizedCols, ...discoveredCols],
+    rows: table.rows ?? [],
+  };
+
+  return {
+    table: nextTable,
+    changed:
+      discoveredCols.length > 0 ||
+      normalizedCols.some((col, index) => col !== sourceCols[index]),
+  };
+};
+
+export const stripFrontmatterBackedRowValues = (
+  table: SpaceTable
+): SpaceTable => {
+  if (!table?.rows?.length) return table;
+
+  const frontmatterColumns = new Set(
+    (table.cols ?? [])
+      .filter((col) => col.name !== PathPropertyName)
+      .filter(isFrontmatterBackedProperty)
+      .map((col) => col.name)
+  );
+
+  if (frontmatterColumns.size === 0) return table;
+
+  return {
+    ...table,
+    rows: table.rows.map((row) =>
+      Object.keys(row).reduce(
+        (next, key) =>
+          frontmatterColumns.has(key) ? next : { ...next, [key]: row[key] },
+        {}
+      )
+    ),
+  };
 };
 
 

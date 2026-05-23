@@ -1,10 +1,14 @@
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { defaultContextFields } from "shared/schemas/fields";
+import { PathPropertyName } from "shared/types/context";
 import { MakeMDSettings } from "shared/types/settings";
 import {
   contextHasOnlyDefaultColumns,
   contextHasOnlyDefaultOrFrontmatterColumns,
   discoverFrontmatterPropertiesFromPathStates,
+  frontmatterPropertySource,
+  materializeFrontmatterBackedContextTable,
+  stripFrontmatterBackedRowValues,
 } from "./allProperties";
 
 const settings = {
@@ -44,11 +48,41 @@ describe("discoverFrontmatterPropertiesFromPathStates", () => {
     );
 
     expect(result).toEqual([
-      { name: "record", type: "text", value: "", schemaId: "files" },
-      { name: "status", type: "text", value: "", schemaId: "files" },
-      { name: "sort_order", type: "number", value: "", schemaId: "files" },
-      { name: "updated", type: "date", value: "", schemaId: "files" },
-      { name: "ups", type: "boolean", value: "", schemaId: "files" },
+      {
+        name: "record",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "status",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "sort_order",
+        type: "number",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "updated",
+        type: "date",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "ups",
+        type: "boolean",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
     ]);
   });
 
@@ -75,6 +109,117 @@ describe("discoverFrontmatterPropertiesFromPathStates", () => {
     );
 
     expect(result).toEqual([]);
+  });
+});
+
+describe("materializeFrontmatterBackedContextTable", () => {
+  it("marks existing frontmatter columns and appends newly discovered columns", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "a.md",
+        pathState({
+          status: "active",
+          area: "Veg",
+        }),
+      ],
+    ]);
+
+    const result = materializeFrontmatterBackedContextTable(
+      {
+        schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+        cols: [
+          ...(defaultContextFields.rows as any),
+          { name: "status", type: "text", value: "", schemaId: "files" },
+        ],
+        rows: [{ [PathPropertyName]: "a.md", status: "active" }],
+      },
+      pathsIndex,
+      ["a.md"],
+      settings,
+      true
+    );
+
+    expect(result.changed).toBe(true);
+    expect(result.table.cols).toEqual([
+      ...(defaultContextFields.rows as any),
+      {
+        name: "status",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "area",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+    ]);
+  });
+
+  it("does not convert contexts that contain non-frontmatter user columns", () => {
+    const pathsIndex = new Map<string, any>([
+      ["a.md", pathState({ status: "active" })],
+    ]);
+
+    const result = materializeFrontmatterBackedContextTable(
+      {
+        schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+        cols: [
+          ...(defaultContextFields.rows as any),
+          { name: "manual", type: "text", value: "", schemaId: "files" },
+        ],
+        rows: [{ [PathPropertyName]: "a.md", manual: "local" }],
+      },
+      pathsIndex,
+      ["a.md"],
+      settings,
+      true
+    );
+
+    expect(result.changed).toBe(false);
+    expect(result.table.cols.map((col) => col.name)).toEqual([
+      "File",
+      "Created",
+      "manual",
+    ]);
+  });
+});
+
+describe("stripFrontmatterBackedRowValues", () => {
+  it("removes projected frontmatter values but keeps file and context-only values", () => {
+    const result = stripFrontmatterBackedRowValues({
+      schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+      cols: [
+        ...(defaultContextFields.rows as any),
+        {
+          name: "status",
+          type: "text",
+          value: "",
+          schemaId: "files",
+          source: frontmatterPropertySource,
+        },
+        { name: "manual", type: "text", value: "", schemaId: "files" },
+      ],
+      rows: [
+        {
+          [PathPropertyName]: "a.md",
+          Created: "2026-05-24",
+          status: "active",
+          manual: "local",
+        },
+      ],
+    });
+
+    expect(result.rows).toEqual([
+      {
+        [PathPropertyName]: "a.md",
+        Created: "2026-05-24",
+        manual: "local",
+      },
+    ]);
   });
 });
 

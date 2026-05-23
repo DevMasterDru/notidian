@@ -13,6 +13,7 @@ export const fieldSchema = {
     "schemaId",
     "type",
     "value",
+    "source",
     "attrs",
     "hidden",
     "unique",
