@@ -12,6 +12,7 @@ import { builtinSpaces, spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSor
 import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow } from "core/utils/contexts/linkContextRow";
 import { runFormulaWithContext } from "core/utils/formula/parser";
 import { executeCode } from "core/utils/frames/runner";
+import { stripFrontmatterBackedRowValues } from "core/utils/properties/allProperties";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { defaultContextTable, defaultFramesTable, defaultTablesForContext } from "schemas/mdb";
 import { builtinSpacePathPrefix } from "shared/schemas/builtin";
@@ -530,7 +531,9 @@ const defaultSpaceTemplate = this.defaultFrame(path);
        }
     }
 
-    return this.fileSystem.saveFileFragment(mdbFile, 'mdbTable', table.schema.id, () => table)
+    return this.fileSystem.saveFileFragment(mdbFile, 'mdbTable', table.schema.id, () =>
+      stripFrontmatterBackedRowValues(table)
+    )
   }
   public async deleteTable (path: string, name: string) {
     const mdbFile = await this.fileSystem.getFile(this.spaceInfoForPath(path).dbPath)
