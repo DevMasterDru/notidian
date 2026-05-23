@@ -3,6 +3,14 @@
   "version": "1.3.4",
   "description": "Notidian turns Obsidian folders and properties into database-like workspaces.",
   "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevMasterDru/notidian.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DevMasterDru/notidian/issues"
+  },
+  "homepage": "https://github.com/DevMasterDru/notidian#readme",
   "scripts": {
     "sync-version": "node scripts/sync-version.mjs",
     "dev": "npm run sync-version && node esbuild.config.mjs",
@@ -16,8 +24,13 @@
     "publish": "node scripts/publish.mjs",
     "release": "node scripts/release.mjs"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "obsidian",
+    "notidian",
+    "database",
+    "properties"
+  ],
+  "author": "DevMasterDru",
   "license": "MIT",
   "devDependencies": {
     "@babel/parser": "^7.28.0",

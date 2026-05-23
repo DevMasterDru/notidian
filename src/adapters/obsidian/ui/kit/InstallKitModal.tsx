@@ -3,6 +3,7 @@ import MakeMDPlugin from "main";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React, { useState } from "react";
+import { legacyMakeMdKitUrlPrefix } from "shared/pluginIdentity";
 import { windowFromDocument } from "shared/utils/dom";
 import { safelyParseJSON } from "shared/utils/json";
 import { Dropdown } from "../../../../core/react/components/UI/Dropdown";
@@ -30,7 +31,7 @@ export const InstallKit = (props: {
   const [kit, setKit] = useState(props.kit);
   const [space, setSpace] = useState<string>("/");
   const installKit = () => {
-    if (!kit.startsWith("https://www.make.md/static/kits/")) {
+    if (!kit.startsWith(legacyMakeMdKitUrlPrefix)) {
       props.superstate.ui.notify(i18n.notice.invalidKitURL);
       return;
     }

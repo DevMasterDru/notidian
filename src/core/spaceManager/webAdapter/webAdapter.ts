@@ -10,6 +10,7 @@ import { MDBFrame, MDBFrames } from "shared/types/mframe";
 import { SpaceDefinition } from "shared/types/spaceDef";
 import { SpaceInfo } from "shared/types/spaceInfo";
 import { SpaceAdapter } from "shared/types/spaceManager";
+import { legacyMakeMdWebHost } from "shared/pluginIdentity";
 import { PathCache } from "../../../shared/types/caches";
 import { SpaceManager } from "../spaceManager";
 import { WebCacher } from "./webCache";
@@ -87,7 +88,7 @@ export class WebSpaceAdapter implements SpaceAdapter {
       return [];
     }
     public async pathExists (path: string) {
-      if (!path.startsWith("https://www.make.md")) return false;
+      if (!path.startsWith(legacyMakeMdWebHost)) return false;
       return true;
     }
   public async createItemAtPath (parent: string, type: string, name: string, content?: any) : Promise<string> {
