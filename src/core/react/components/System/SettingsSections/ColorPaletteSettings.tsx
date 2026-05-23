@@ -4,6 +4,7 @@ import { Superstate } from "makemd-core";
 import React, { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import i18n from "shared/i18n";
+import { pluginRepositoryUrl } from "shared/pluginIdentity";
 import {
   ColorPaletteAsset,
   NamedColor,
@@ -804,11 +805,11 @@ export const ColorPaletteSettings = ({ superstate }: SettingsProps) => {
                   <span
                     className="mk-callout-url"
                     onClick={() =>
-                      window.open("https://make.md/community", "_blank")
+                      window.open(pluginRepositoryUrl, "_blank")
                     }
                     style={{ cursor: "pointer" }}
                   >
-                    https://make.md/community
+                    {pluginRepositoryUrl}
                   </span>
                   <br />
                   <small style={{ opacity: 0.7 }}>

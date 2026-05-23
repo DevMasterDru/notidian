@@ -13,7 +13,7 @@ export class IconFileTypeAdapter implements FileTypeAdapter<IconTypeCache, IconT
         this.plugin = plugin;
     }
     public supportedFileTypes = ['svg'];
-    public id = 'icons.make.md';
+    public id = 'icons.notidian';
     public middleware: FilesystemMiddleware;
     public cache: Map<string, IconTypeCache>;
     public initiate (middleware: FilesystemMiddleware) {

@@ -66,6 +66,6 @@ export class ContextExplorerLeafView extends ItemView {
       );
   }
 }
-export const FILE_CONTEXT_VIEW_TYPE = "make-context-view";
+export const FILE_CONTEXT_VIEW_TYPE = "notidian-context-view";
 export const ICON = "component";
 export const VIEW_DISPLAY_TEXT = i18n.views.explorer;

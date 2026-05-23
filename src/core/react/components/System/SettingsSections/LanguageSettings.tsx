@@ -1,5 +1,6 @@
 import { Superstate } from "makemd-core";
 import i18n, { i18nLoader } from "shared/i18n";
+import { pluginRepositoryUrl } from "shared/pluginIdentity";
 import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { SettingsProps } from "./types";
@@ -424,11 +425,11 @@ export const LanguageSettings = ({ superstate }: SettingsProps) => {
                 <span
                   className="mk-callout-url"
                   onClick={() =>
-                    window.open("https://make.md/community", "_blank")
+                    window.open(pluginRepositoryUrl, "_blank")
                   }
                   style={{ cursor: "pointer" }}
                 >
-                  https://make.md/community
+                  {pluginRepositoryUrl}
                 </span>
                 <br />
                 <small style={{ opacity: 0.7 }}>Drag and drop packs from the community here to import</small>

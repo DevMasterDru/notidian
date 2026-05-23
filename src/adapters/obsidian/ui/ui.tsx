@@ -4,6 +4,7 @@ import { InteractionType, ScreenType } from "shared/types/ui";
 import MakeMDPlugin from "main";
 import { Sticker, Superstate, UIAdapter, UIManager } from "makemd-core";
 import i18n from "shared/i18n";
+import { pluginId } from "shared/pluginIdentity";
 import { Menu, Notice, Platform, TFile, getIcon } from "obsidian";
 import React from "react";
 
@@ -212,7 +213,7 @@ export class ObsidianUI implements UIAdapter {
         message: i18n.labels.someFilesHaveInvalidNames,
         description:
           "Files contain invalid characters which may cause issues during sync, use alias to display these characters to prevent the issue",
-        command: "obsidian://make-md:path-fixer",
+        command: `obsidian://${pluginId}:path-fixer`,
       });
     }
     if (this.plugin.app.internalPlugins.config.sync) {
@@ -221,7 +222,7 @@ export class ObsidianUI implements UIAdapter {
           id: "obsidian-sync-space-folder",
           message: i18n.labels.obsidianSyncCurrentlyWontSyncYourSpaces,
           description: "Change the space folder name to a non-hidden folder",
-          command: "obsidian://make-md:move-space-folder",
+          command: `obsidian://${pluginId}:move-space-folder`,
         });
       }
       const allowedTypes = this.plugin.app.internalPlugins.plugins?.sync

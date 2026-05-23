@@ -17,7 +17,7 @@ this.picaInstance = pica();
     }
     public cacheDirectory = ".makemd/thumbnails";
     public supportedFileTypes = ["png", "jpg", "jpeg", "webp", "gif", "avif"];
-    public id = 'images.make.md';
+    public id = 'images.notidian';
     public middleware: FilesystemMiddleware;
     public cache: Map<string, ImageTypeCache>;
     public initiate (middleware: FilesystemMiddleware) {

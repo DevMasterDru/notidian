@@ -6,7 +6,7 @@ import { FileView, TFile, ViewStateResult, WorkspaceLeaf } from "obsidian";
 import React from "react";
 import { Root } from "react-dom/client";
 import { getParentPathFromString } from "utils/path";
-export const MDB_FILE_VIEWER_TYPE = "make-mdb-viewer";
+export const MDB_FILE_VIEWER_TYPE = "notidian-mdb-viewer";
 export const ICON = "sheets-in-box";
 
 export const openContextEditor = async (

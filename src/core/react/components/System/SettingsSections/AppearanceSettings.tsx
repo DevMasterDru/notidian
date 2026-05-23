@@ -1,4 +1,5 @@
 import i18n from "shared/i18n";
+import { pluginRepositoryUrl } from "shared/pluginIdentity";
 import React, { useEffect, useState } from "react";
 import { CoverImage } from "shared/types/assets";
 import { useDebouncedSave } from "./hooks";
@@ -148,11 +149,11 @@ export const CoverImageSettings = ({ superstate }: SettingsProps) => {
               <span
                 className="mk-callout-url"
                 onClick={() =>
-                  window.open("https://make.md/community", "_blank")
+                  window.open(pluginRepositoryUrl, "_blank")
                 }
                 style={{ cursor: "pointer" }}
               >
-                https://make.md/community
+                {pluginRepositoryUrl}
               </span>
             </div>
           </div>

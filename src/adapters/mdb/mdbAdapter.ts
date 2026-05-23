@@ -46,7 +46,7 @@ export class MDBFileTypeAdapter implements FileTypeAdapter<MDB, MDBContent> {
     }
 
     public supportedFileTypes = ['mdb'];
-    public id = "mdb.make.md";
+    public id = "mdb.notidian";
     public cache: Map<string, MDB>
     public middleware: FilesystemMiddleware;
     public initiate (middleware: FilesystemMiddleware) {

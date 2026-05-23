@@ -14,7 +14,7 @@ export class FontsFileTypeAdapter implements FileTypeAdapter<FontTypeCache, Font
         this.plugin = plugin;
     }
     public supportedFileTypes = ['otf', 'ttf', 'woff', 'woff2'];
-    public id = 'fonts.make.md';
+    public id = 'fonts.notidian';
     public middleware: FilesystemMiddleware;
     public cache: Map<string, FontTypeCache>;
     public initiate (middleware: FilesystemMiddleware) {

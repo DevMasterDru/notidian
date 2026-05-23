@@ -1,4 +1,5 @@
 import i18n from "shared/i18n";
+import { pluginDisplayName } from "shared/pluginIdentity";
 
 import { CLIManager } from "core/middleware/commands";
 import { UIManager } from "core/middleware/ui";
@@ -286,7 +287,7 @@ public api: API;
         
         this.refreshMetadata();
         this.dispatchEvent("superstateUpdated", null)
-        this.ui.notify(`Make.md - Superstate Loaded in ${(Date.now()-start)/1000} seconds`, 'console');
+        this.ui.notify(`${pluginDisplayName} - Superstate Loaded in ${(Date.now()-start)/1000} seconds`, 'console');
         this.persister.cleanType('space')
         this.persister.cleanType('path')
         this.persister.cleanType('context')
@@ -501,7 +502,7 @@ public api: API;
             }
         });
         
-        this.ui.notify(`Make.md - ${allFiles.length} Paths Cached in ${(Date.now()-start)/1000} seconds`, 'console')
+        this.ui.notify(`${pluginDisplayName} - ${allFiles.length} Paths Cached in ${(Date.now()-start)/1000} seconds`, 'console')
         
         const allPaths = uniq([...this.spacesIndex.keys(), ...allFiles]);
         [...this.pathsIndex.keys()].filter(f => !allPaths.some(g => g == f)).forEach(f =>

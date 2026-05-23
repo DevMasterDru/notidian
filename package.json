@@ -1,7 +1,7 @@
 {
-  "name": "make-md",
+  "name": "notidian",
   "version": "1.3.4",
-  "description": "make.md",
+  "description": "Notidian turns Obsidian folders and properties into database-like workspaces.",
   "main": "main.js",
   "scripts": {
     "sync-version": "node scripts/sync-version.mjs",

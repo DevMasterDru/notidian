@@ -2,6 +2,7 @@ import { showSpacesMenu } from "core/react/components/UI/Menus/properties/select
 import JSZip from "jszip";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
+import { pluginRepositoryUrl } from "shared/pluginIdentity";
 import React, { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { IconMetadata, IconsetAsset } from "shared/types/assets";
@@ -1009,11 +1010,11 @@ export const IconSettings = ({ superstate }: SettingsProps) => {
                 <span
                   className="mk-callout-url"
                   onClick={() =>
-                    window.open("https://make.md/community", "_blank")
+                    window.open(pluginRepositoryUrl, "_blank")
                   }
                   style={{ cursor: "pointer" }}
                 >
-                  https://make.md/community
+                  {pluginRepositoryUrl}
                 </span>
                 <br />
                 <small style={{ opacity: 0.7 }}>

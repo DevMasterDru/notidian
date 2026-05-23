@@ -12,6 +12,7 @@ import { DEFAULT_SETTINGS } from "core/schemas/settings";
 import { defaultFocusFile } from "core/spaceManager/filesystemAdapter/filesystemAdapter";
 import { parsePathState } from "core/utils/superstate/parser";
 import { DBRows } from "shared/types/mdb";
+import { pluginDataPath, pluginDisplayName } from "shared/pluginIdentity";
 import { uniqueNameFromString } from "shared/utils/array";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { parseURI } from "shared/utils/uri";
@@ -94,9 +95,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         if (!vaultItem) return;
         this.updateFileLabel(path, "tags", serializeMultiDisplayString([...vaultItem.tags.filter(t => t.toLowerCase() != tag.toLowerCase())]))
     }
-    public spacesDBPath  = normalizePath(
-    this.plugin.app.vault.configDir + "/plugins/make-md/Spaces.mdb"
-  );
+    public spacesDBPath = this.vaultDBPath;
   public checkIllegalCharacters (file: {name: string, path: string}) {
     if (illegalCharacters.some(f => file.name.includes(f)))
     {
@@ -159,7 +158,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         const start = Date.now();
         await Promise.all(this.vaultDBCache.map(f => this.middleware.createFileCache(f.path)));
 
-        this.plugin.superstate.ui.notify(`Make.md - File Cache Loaded in ${(Date.now()-start)/1000} seconds ${this.cache.size}`, 'console')
+        this.plugin.superstate.ui.notify(`${pluginDisplayName} - File Cache Loaded in ${(Date.now()-start)/1000} seconds ${this.cache.size}`, 'console')
         this.middleware.eventDispatch.dispatchEvent("onFilesystemIndexed", null);
         this.plugin.registerEvent(this.plugin.app.vault.on("create", this.onCreate));
         this.plugin.registerEvent(this.plugin.app.vault.on("modify", this.onModify));
@@ -190,7 +189,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
                 return;
             }
             
-            if (path == normalizePath(this.plugin.app.vault.configDir + "/plugins/make-md/data.json")) {
+            if (path == normalizePath(pluginDataPath(this.plugin.app.vault.configDir, "data.json"))) {
                 this.plugin.superstate.settings = Object.assign({}, DEFAULT_SETTINGS, await this.plugin.loadData());
                 this.plugin.superstate.dispatchEvent("settingsChanged", null);
             } 

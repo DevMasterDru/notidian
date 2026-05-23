@@ -234,7 +234,7 @@ const flowEditorField = (plugin: MakeBasicsPlugin, superstate: ISuperstate) =>
 
 export class MakeMDEnactor implements Enactor {
   constructor(public makemd: IMakeMDPlugin, public plugin: MakeBasicsPlugin) {}
-  name = "MakeMD";
+  name = "Notidian";
   load() {
     this.plugin.settings = Object.assign(
       {},

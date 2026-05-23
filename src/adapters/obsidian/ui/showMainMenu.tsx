@@ -10,6 +10,7 @@ import { SelectOption, Superstate } from "makemd-core";
 import { WorkspaceLeaf, WorkspaceMobileDrawer } from "obsidian";
 import React from "react";
 import i18n from "shared/i18n";
+import { pluginRepositoryUrl } from "shared/pluginIdentity";
 import { windowFromDocument } from "shared/utils/dom";
 import { FILE_TREE_VIEW_TYPE } from "./navigator/NavigatorView";
 
@@ -161,7 +162,7 @@ export const showMainMenu = (
     name: i18n.menu.getHelp,
     icon: "ui//mk-logo",
     onClick: () => {
-      window.open("https://make.md/community");
+      window.open(pluginRepositoryUrl);
     },
   });
 

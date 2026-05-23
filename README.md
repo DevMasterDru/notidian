@@ -1,52 +1,62 @@
-# make.md
+# Notidian
 
-### Organization and Personalization Engine for your notes
+Notidian is an independent fork of Make.md for Obsidian. The fork is focused on making local Markdown files behave like a durable, Notion-style database system without separating data governance from Obsidian's native properties.
 
-[![Discord Chat](https://img.shields.io/discord/799706244264362024?color=748AD9&label=discord%20chat)](https://make.md/community) [![Obsidian Downloads](https://img.shields.io/badge/dynamic/json?logo=obsidian&color=%23483699&label=downloads&query=%24%5B%22make-md%22%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json)](obsidian://show-plugin?id=make-md)
+## Direction
 
-| ![m1_1.png](https://github.com/Make-md/makemd-docs/blob/main/assets/images/m1_1.png?raw=true) | ![m1_2.png](https://github.com/Make-md/makemd-docs/blob/main/assets/images/m1_2.png?raw=true) |
-| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| ![m1_3.png](https://github.com/Make-md/makemd-docs/blob/main/assets/images/m1_3.png?raw=true) | ![m1_4.png](https://github.com/Make-md/makemd-docs/blob/main/assets/images/m1_4.png?raw=true) |
+Notidian treats Obsidian Markdown files and frontmatter properties as the canonical data layer:
 
-make.md comes with everything you need to organize, label and personalize your notes inside Obsidian without any additional code or 3rd party dependencies. Designed for simplicity and ease-of-use and scales up to any complexity with databases, formulas and two-way relationships.
+- A row is a file.
+- A user-editable property is frontmatter.
+- Folder and table views are projections over files, not a separate source of truth.
+- Existing Obsidian tools such as Properties, Bases, Dataview, scripts, and direct YAML edits should see the same data.
 
-### 🌳 Remove Clutter and Stay Focused
+The first Notidian branch already changes folder contexts so existing frontmatter properties are materialized as visible context columns and kept synchronized as new properties appear.
 
-Organize your notes to quickly focus on what you're working on or into specific categories.
+## Compatibility
 
-### 🍱 Quick Organization with List, Tables, Calendars and Boards
+Notidian uses the Obsidian plugin id `notidian`. This means it installs separately from the original `make-md` plugin.
 
-Visualize your information anyway you want with customizable list views from your notes, use different views for different parts of your workflow with custom filters, sorting and grouping.
+On first load, Notidian prefers its own plugin data directory:
 
-### 🧩 Databases with Two-way Relations, Formulas and Rollups
+```text
+.obsidian/plugins/notidian
+```
 
-Use simple tables or powerful databases to connect your data across your notes and visualize them in different ways to gain deeper insights into your knowledge.
+If Notidian data does not exist yet, it can read legacy Make.md data from:
 
-### 🎨 A Completely Personalizable Workspace
+```text
+.obsidian/plugins/make-md
+```
 
-Express your creativity and customize your workspaces into dashboards, trackers and more, all without any code.
+New writes target the Notidian plugin directory. Keep a backup of your vault before switching plugins.
 
----
+## Status
 
-Join [our Discord community](https://make.md/community), so we can hear your feedback and use cases.
+This fork is in active development. The immediate roadmap is:
 
----
+1. Rebrand the fork as Notidian.
+2. Keep frontmatter properties canonical across contexts.
+3. Move view definitions toward Obsidian Bases semantics.
+4. Reduce Make.md-specific context storage to compatibility and cache behavior.
 
-**Looking for markdown editing tools for Obsidian and editable embeds?**
-Flow Blocks and Flow Styler are still part of Make.md as Make.md Basics, but will soon become its own plug-in.
+## Development
 
----
+```bash
+npm install
+npm test -- --runInBand
+npx tsc -noEmit -skipLibCheck
+npm run build
+```
 
 ## Credits
 
-Thank you for everyone in the Obsidian community that have contributed to testing and bug reporting.
+Notidian is forked from Make.md, which is licensed under the MIT License.
 
-Parts of the Flow Editor is based on Hover Editor
+Original project: https://github.com/Make-md/makemd
+
+Parts of the Flow Editor are based on Hover Editor:
 https://github.com/nothingislost/obsidian-hover-editor
 
-Dataview syncing adapted with the help of Metadata Menu
+Dataview syncing was adapted with help from Metadata Menu:
 https://github.com/mdelobelle/metadatamenu
-
-Some of our inspiration came from the following projects
-https://github.com/chetachiezikeuzor/cMenu-Plugin
-https://github.com/ozntel/file-tree-alternative

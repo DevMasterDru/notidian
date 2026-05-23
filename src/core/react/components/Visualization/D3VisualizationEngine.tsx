@@ -824,7 +824,7 @@ export const D3VisualizationEngine: React.FC<D3VisualizationEngineProps> = ({
       showLegend,
       showXAxisLabel,
       showYAxisLabel,
-      showDataLabels: false, // Not implemented in make-md yet
+      showDataLabels: false, // Not implemented in Notidian yet
       resolveColor,
       colorPaletteId,
       superstate,

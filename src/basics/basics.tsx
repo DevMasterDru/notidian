@@ -3,6 +3,7 @@ import { flowEditorInfo, toggleFlowEditor } from "basics/codemirror/flowEditor";
 import { registerEditorMenus } from "basics/menus/registerMenus";
 import MakeMDPlugin from "main";
 import { App, Platform } from "obsidian";
+import { pluginId } from "shared/pluginIdentity";
 
 import { getActiveCM } from "./codemirror";
 import { Enactor } from "./enactor/enactor";
@@ -27,11 +28,9 @@ export default class MakeBasicsPlugin {
   constructor(public plugin: MakeMDPlugin) {
     this.settings = plugin.superstate.settings.basicsSettings;
     this.app = plugin.app;
-    if (plugin.app.plugins.getPlugin("make-md")) {
-      const mkmdEnactor = new MakeMDEnactor(
-        plugin.app.plugins.getPlugin("make-md"),
-        this
-      );
+    const notidianPlugin = plugin.app.plugins.getPlugin(pluginId) ?? plugin;
+    if (notidianPlugin) {
+      const mkmdEnactor = new MakeMDEnactor(notidianPlugin as any, this);
       this.enactor = mkmdEnactor;
     } else {
       this.enactor = new ObsidianEnactor(this);

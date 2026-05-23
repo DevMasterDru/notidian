@@ -35,7 +35,7 @@ const textCacheExperimental : Record<string, any> = {
 
 export class TextCacher implements FileTypeAdapter<Record<string, any>, Record<string, never>> {
     public supportedFileTypes: string[] = ['md'];
-    public id = 'text.make.md';
+    public id = 'text.notidian';
     public constructor (public plugin: MakeMDPlugin) {
         this.plugin = plugin;
         this.cache = new Map();
