@@ -545,6 +545,19 @@ height: 60px;
   display: flex;
   align-items: center;
 }
+.mk-page-title-cell {
+  width: 100%;
+  min-height: 24px;
+}
+.mk-page-title-cell .mk-path {
+  width: 100%;
+}
+.mk-page-title-cell-editing {
+  padding: 2px 4px;
+  border-radius: 4px;
+  outline: solid 1px var(--mk-ui-active);
+  cursor: text;
+}
 .mk-cell-file-item .mk-path-icon:hover {
   background: var(var(--mk-ui-active-hover));
 }

@@ -625,12 +625,12 @@ public api: API;
 
             const allContextsWithPath = oldSpaces.map(f => this.spacesIndex.get(f)).filter(f => f);
 
-            // Index the new path FIRST so it's available when contexts reload
-            await this.reloadPath(newFilePath, true)
-
+            // Rename context rows before indexing the new path so metadata sync
+            // updates the existing row instead of appending a duplicate row.
             await renamePathInContexts(this.spaceManager, oldPath, newFilePath, allContextsWithPath.map(f => f.space))
             // Remove any orphaned old path entries
             await removePathInContexts(this.spaceManager, oldPath, allContextsWithPath.map(f => f.space))
+            await this.reloadPath(newFilePath, true)
             for(const space of allContextsWithPath) {
                 if (space.metadata?.links?.includes(oldPath)) {
                     this.addToContextStateQueue(() => saveSpaceMetadataValue(this, space.path, "links", space.metadata.links.map(f => f == oldPath ? newPath : f)))

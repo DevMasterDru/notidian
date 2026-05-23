@@ -7,6 +7,7 @@ import {
 } from "core/superstate/utils/spaces";
 import { shouldWriteContextPropertyToFrontmatter } from "core/utils/properties/allProperties";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
+import { renamePageTitleForRow } from "core/utils/contexts/pageTitleRename";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -90,6 +91,7 @@ type ContextEditorContextProps = {
     index: number,
     path: string
   ) => Promise<void>;
+  renameRowTitle: (row: DBRow, value: string) => Promise<string | null>;
   updateFieldValue: (
     column: string,
     fieldValue: string,
@@ -124,6 +126,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   setSearchString: () => null,
   data: [],
   updateValue: () => null,
+  renameRowTitle: () => null,
   updateFieldValue: () => null,
   updateRow: () => null,
   tableData: null,
@@ -654,6 +657,14 @@ export const ContextEditorProvider: React.FC<
       );
     }
   };
+  const renameRowTitle = async (row: DBRow, value: string) => {
+    return renamePageTitleForRow({
+      row,
+      value,
+      contextPath,
+      superstate: props.superstate,
+    });
+  };
   const sortColumn = (sort: Sort) => {
     savePredicate({
       sort: [sort],
@@ -1056,6 +1067,7 @@ export const ContextEditorProvider: React.FC<
         searchString,
         setSearchString,
         updateValue,
+        renameRowTitle,
         updateFieldValue,
         editMode,
         setEditMode,

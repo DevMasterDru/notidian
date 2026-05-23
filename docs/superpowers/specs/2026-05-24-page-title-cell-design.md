@@ -30,9 +30,11 @@ The context table must not store the title separately. After a successful rename
 ## Components
 
 - `pageTitle.ts`: pure utilities for deriving display titles, building same-folder rename targets, and validating title edits.
+- `pageTitleRename.ts`: rename transaction helper that validates conflicts and calls `spaceManager.renamePath`.
 - `PageTitleCell.tsx`: inline editable cell for file-backed primary rows.
 - `DataTypeView.tsx`: routes the built-in `File` column to `PageTitleCell`.
 - `ContextEditorContext.tsx`: exposes an explicit rename operation for context rows so UI cells do not misuse normal value writes.
+- `superstate.ts`: processes path renames by rewriting context rows before indexing the new path, preserving row order.
 
 ## Error Handling
 
@@ -45,6 +47,8 @@ The rename path rejects:
 - target paths that already exist, except exact same-path no-ops
 
 Errors are reported through the existing Notidian notification surface when available. The cell keeps or restores the previous display name after failed commits.
+
+Rename handling must preserve row order. The context row for the old path is rewritten to the new path before metadata sync indexes the renamed file, preventing a duplicate row from being appended and then winning through persistence.
 
 ## Testing
 

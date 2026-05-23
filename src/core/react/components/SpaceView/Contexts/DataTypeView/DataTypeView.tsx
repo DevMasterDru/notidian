@@ -15,6 +15,7 @@ import { LinkCell } from "./LinkCell";
 import { NumberCell } from "./NumberCell";
 import { ObjectCell } from "./ObjectCell";
 import { OptionCell } from "./OptionCell";
+import { PageTitleCell } from "./PageTitleCell";
 
 import { AggregateCell } from "./AggregateCell";
 import { FlexCell } from "./FlexCell";
@@ -36,6 +37,8 @@ export type DataTypeViewProps = {
   contextTable?: SpaceTables;
   compactMode?: boolean;
   source?: string;
+  renameValue?: (value: string) => Promise<string | null>;
+  startEditing?: () => void;
   setEditMode?: (mode: [string, string]) => void;
   contextPath?: string;
 };
@@ -60,6 +63,8 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
   const viewProps = {
     initialValue: initialValue as string,
     saveValue: saveValue,
+    renameValue: props.renameValue,
+    startEditing: props.startEditing,
     editMode: props.editMode,
     setEditMode: props.setEditMode ?? (() => {}),
     superstate: props.superstate,
@@ -74,6 +79,9 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
     return <></>;
   }
   if (fieldType.type == "file") {
+    if (column.name == PathPropertyName && props.renameValue) {
+      return <PageTitleCell {...viewProps}></PageTitleCell>;
+    }
     return (
       <LinkCell
         {...viewProps}

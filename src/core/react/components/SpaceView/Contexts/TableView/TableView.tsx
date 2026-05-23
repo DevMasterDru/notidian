@@ -92,6 +92,8 @@ export type TableCellProp = {
   property: SpaceProperty;
   compactMode: boolean;
   saveValue: (value: string) => void;
+  renameValue?: (value: string) => Promise<string | null>;
+  startEditing?: () => void;
   editMode?: CellEditMode;
   setEditMode?: (editMode: [string, string]) => void;
   superstate: Superstate;
@@ -125,6 +127,7 @@ export const TableView = (props: { superstate: Superstate }) => {
 
     updateFieldValue,
     updateValue,
+    renameRowTitle,
   } = useContext(ContextEditorContext);
 
   const pageSize = props.superstate.settings.contextPagination ?? 25;
@@ -377,9 +380,13 @@ export const TableView = (props: { superstate: Superstate }) => {
               compactMode: false,
               initialValue: initialValue as string,
               updateValue: saveValue,
+              renameValue: (value: string) =>
+                renameRowTitle(data[index] as DBRow, value),
               updateFieldValue: saveFieldValue,
               superstate: props.superstate,
               setEditMode: setCurrentEdit,
+              startEditing: () =>
+                setCurrentEdit([f.name + f.table, tableIndex.toString()]),
               column: f,
               editMode,
               row: data[index] as DBRow,

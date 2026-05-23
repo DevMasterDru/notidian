@@ -108,16 +108,17 @@ Run: `npx jest src/core/utils/contexts/pageTitle.test.ts --runInBand`
 
 Expected: PASS.
 
-### Task 2: Add Rename Operation To Context Editor
+### Task 2: Add Rename Operation For File-Backed Rows
 
 **Files:**
+- Create: `src/core/utils/contexts/pageTitleRename.ts`
+- Test: `src/core/utils/contexts/pageTitleRename.test.ts`
 - Modify: `src/core/react/context/ContextEditorContext.tsx`
-- Test: `src/core/react/context/pageTitleRename.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
 
 ```typescript
-import { renamePageTitleForRow } from "./ContextEditorContext";
+import { renamePageTitleForRow } from "./pageTitleRename";
 import { PathPropertyName } from "shared/types/context";
 
 describe("renamePageTitleForRow", () => {
@@ -176,17 +177,17 @@ describe("renamePageTitleForRow", () => {
 
 - [ ] **Step 2: Run the tests to verify RED**
 
-Run: `npx jest src/core/react/context/pageTitleRename.test.ts --runInBand`
+Run: `npx jest src/core/utils/contexts/pageTitleRename.test.ts --runInBand`
 
-Expected: FAIL because `renamePageTitleForRow` is not exported.
+Expected: FAIL because `pageTitleRename.ts` does not exist.
 
 - [ ] **Step 3: Implement the rename helper and expose it through context**
 
-Add `renamePageTitleForRow` near the top-level exports in `ContextEditorContext.tsx`, then add `renameRowTitle` to `ContextEditorContextProps`, default context, provider value, and the `DataTypeView` wiring.
+Add `renamePageTitleForRow` in `src/core/utils/contexts/pageTitleRename.ts`, then add `renameRowTitle` to `ContextEditorContextProps`, default context, provider value, and the `DataTypeView` wiring.
 
 - [ ] **Step 4: Run the targeted tests**
 
-Run: `npx jest src/core/react/context/pageTitleRename.test.ts --runInBand`
+Run: `npx jest src/core/utils/contexts/pageTitleRename.test.ts --runInBand`
 
 Expected: PASS.
 
@@ -196,6 +197,7 @@ Expected: PASS.
 - Create: `src/core/react/components/SpaceView/Contexts/DataTypeView/PageTitleCell.tsx`
 - Modify: `src/core/react/components/SpaceView/Contexts/DataTypeView/DataTypeView.tsx`
 - Modify: `src/core/react/components/SpaceView/Contexts/TableView/TableView.tsx`
+- Modify: `src/core/superstate/superstate.ts`
 
 - [ ] **Step 1: Implement `PageTitleCell`**
 
@@ -205,9 +207,13 @@ Create a focused cell component that displays `pageTitleFromPath(initialValue)`,
 
 Extend `DataTypeViewProps` with `renameValue?: (value: string) => Promise<string | null>`, pass it from `TableView`, and route only `fieldType.type == "file"` plus `column.name == PathPropertyName` to `PageTitleCell`.
 
-- [ ] **Step 3: Keep the `File` column selectable/editable**
+- [ ] **Step 3: Keep the `File` header locked while making cells editable**
 
-Change table column metadata from `editable: f.name != PathPropertyName` to `editable: true` for visible cells, relying on `PageTitleCell` for safe rename behavior.
+Keep table column metadata as `editable: f.name != PathPropertyName` so the built-in `File` property header cannot be renamed. Start cell editing through the `PageTitleCell` `startEditing` callback instead of through header editability.
+
+- [ ] **Step 4: Preserve context row order during path rename**
+
+In `src/core/superstate/superstate.ts`, call `renamePathInContexts` and `removePathInContexts` before `reloadPath(newFilePath, true)`. This prevents metadata sync from appending the new path before the existing context row has been rewritten.
 
 ### Task 4: Verify, Build, And Commit
 
@@ -219,7 +225,7 @@ Change table column metadata from `editable: f.name != PathPropertyName` to `edi
 Run:
 
 ```bash
-npx jest src/core/utils/contexts/pageTitle.test.ts src/core/react/context/pageTitleRename.test.ts --runInBand
+npx jest src/core/utils/contexts/pageTitle.test.ts src/core/utils/contexts/pageTitleRename.test.ts --runInBand
 ```
 
 Expected: PASS.
@@ -251,6 +257,6 @@ Expected: no output.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/superpowers/specs/2026-05-24-page-title-cell-design.md docs/superpowers/plans/2026-05-24-page-title-cell.md src/core/utils/contexts/pageTitle.ts src/core/utils/contexts/pageTitle.test.ts src/core/react/context/ContextEditorContext.tsx src/core/react/context/pageTitleRename.test.ts src/core/react/components/SpaceView/Contexts/DataTypeView/PageTitleCell.tsx src/core/react/components/SpaceView/Contexts/DataTypeView/DataTypeView.tsx src/core/react/components/SpaceView/Contexts/TableView/TableView.tsx main.js
+git add docs/superpowers/specs/2026-05-24-page-title-cell-design.md docs/superpowers/plans/2026-05-24-page-title-cell.md src/core/utils/contexts/pageTitle.ts src/core/utils/contexts/pageTitle.test.ts src/core/utils/contexts/pageTitleRename.ts src/core/utils/contexts/pageTitleRename.test.ts src/core/react/context/ContextEditorContext.tsx src/core/react/components/SpaceView/Contexts/DataTypeView/PageTitleCell.tsx src/core/react/components/SpaceView/Contexts/DataTypeView/DataTypeView.tsx src/core/react/components/SpaceView/Contexts/TableView/TableView.tsx src/core/superstate/superstate.ts src/css/SpaceViewer/TableView.css styles.css main.js
 git commit -m "feat: edit file titles from context tables"
 ```
