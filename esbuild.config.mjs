@@ -132,7 +132,14 @@ let renamePlugin = {
 };
 
 
-const outputDir = prev ? process.env.prevDir : prod ? process.env.buildDir : demo ? process.env.demoDir : process.env.devDir
+const configuredOutputDir = prev
+  ? process.env.prevDir
+  : prod
+  ? process.env.buildDir
+  : demo
+  ? process.env.demoDir
+  : process.env.devDir;
+const outputDir = configuredOutputDir || '.';
 esbuild.build({
 	banner: {
 		js: banner,
@@ -176,4 +183,3 @@ esbuild.build({
 		  })] : []),
 	],
 }).catch(() => process.exit(1));
-
