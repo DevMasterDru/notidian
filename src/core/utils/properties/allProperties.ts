@@ -19,6 +19,13 @@ export const isFrontmatterBackedProperty = (
   property?: Partial<Pick<SpaceProperty, "name" | "source" | "type" | "value">>
 ): boolean => property?.source === frontmatterPropertySource;
 
+export const shouldWriteContextPropertyToFrontmatter = (
+  property: Partial<Pick<SpaceProperty, "name" | "source" | "type">>,
+  saveAllContextToFrontmatter: boolean
+): boolean =>
+  property?.name !== PathPropertyName &&
+  (isFrontmatterBackedProperty(property) || saveAllContextToFrontmatter);
+
 export const excludedFrontmatterPropertyNames = (
   settings: MakeMDSettings
 ): Set<string> =>

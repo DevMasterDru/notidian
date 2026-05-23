@@ -8,6 +8,7 @@ import {
   discoverFrontmatterPropertiesFromPathStates,
   frontmatterPropertySource,
   materializeFrontmatterBackedContextTable,
+  shouldWriteContextPropertyToFrontmatter,
   stripFrontmatterBackedRowValues,
 } from "./allProperties";
 
@@ -220,6 +221,49 @@ describe("stripFrontmatterBackedRowValues", () => {
         manual: "local",
       },
     ]);
+  });
+});
+
+describe("shouldWriteContextPropertyToFrontmatter", () => {
+  it("always writes explicit frontmatter-backed columns", () => {
+    expect(
+      shouldWriteContextPropertyToFrontmatter(
+        {
+          name: "status",
+          type: "text",
+          source: frontmatterPropertySource,
+        },
+        false
+      )
+    ).toBe(true);
+  });
+
+  it("uses the legacy bulk setting for context-only columns", () => {
+    expect(
+      shouldWriteContextPropertyToFrontmatter(
+        { name: "manual", type: "text" },
+        false
+      )
+    ).toBe(false);
+    expect(
+      shouldWriteContextPropertyToFrontmatter(
+        { name: "manual", type: "text" },
+        true
+      )
+    ).toBe(true);
+  });
+
+  it("never writes the file identity column as frontmatter", () => {
+    expect(
+      shouldWriteContextPropertyToFrontmatter(
+        {
+          name: PathPropertyName,
+          type: "file",
+          source: frontmatterPropertySource,
+        },
+        true
+      )
+    ).toBe(false);
   });
 });
 

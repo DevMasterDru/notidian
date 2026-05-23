@@ -5,6 +5,7 @@ import {
   pinPathToSpaceAtIndex,
   saveProperties,
 } from "core/superstate/utils/spaces";
+import { shouldWriteContextPropertyToFrontmatter } from "core/utils/properties/allProperties";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
@@ -88,7 +89,7 @@ type ContextEditorContextProps = {
     table: string,
     index: number,
     path: string
-  ) => void;
+  ) => Promise<void>;
   updateFieldValue: (
     column: string,
     fieldValue: string,
@@ -96,7 +97,7 @@ type ContextEditorContextProps = {
     table: string,
     index: number,
     path: string
-  ) => void;
+  ) => Promise<void>;
 };
 
 export const ContextEditorContext = createContext<ContextEditorContextProps>({
@@ -519,25 +520,33 @@ export const ContextEditorProvider: React.FC<
           const changedCols = Object.keys(row).filter(
             (f) => f != PathPropertyName
           );
-          saveProperties(
-            props.superstate,
-            row?.[PathPropertyName],
-            changedCols.reduce(
-              (p, c) => ({
-                ...p,
-                [c]: parseMDBStringValue(
-                  cols.find((f) => f.name == c)?.type,
-                  row[c],
-                  true
-                ),
-              }),
-              {}
-            )
+          const frontmatterChanges = changedCols.reduce((p, c) => {
+            const col = cols.find((f) => f.name == c);
+            if (
+              !col ||
+              !shouldWriteContextPropertyToFrontmatter(
+                col,
+                props.superstate.settings.saveAllContextToFrontmatter
+              )
+            ) {
+              return p;
+            }
+
+            return {
+              ...p,
+              [c]: parseMDBStringValue(col.type, row[c], true),
+            };
+          }, {});
+          if (Object.keys(frontmatterChanges).length > 0)
+            await saveProperties(
+              props.superstate,
+              row?.[PathPropertyName],
+              frontmatterChanges
           );
           saveDB(createNewRow(tableData, row));
           return;
         }
-        updateRow(row, actualIndex);
+        await updateRow(row, actualIndex);
         return;
       }
       saveDB(createNewRow(tableData, row));
@@ -552,23 +561,29 @@ export const ContextEditorProvider: React.FC<
     const changedCols = Object.keys(row).filter(
       (f) => row[f] != currentData[f]
     );
-    if (props.superstate.settings.saveAllContextToFrontmatter) {
-      saveProperties(
+    const frontmatterChanges = changedCols.reduce((p, c) => {
+      const col = cols.find((f) => f.name == c);
+      if (
+        !col ||
+        !shouldWriteContextPropertyToFrontmatter(
+          col,
+          props.superstate.settings.saveAllContextToFrontmatter
+        )
+      ) {
+        return p;
+      }
+
+      return {
+        ...p,
+        [c]: parseMDBStringValue(col.type, row[c], true),
+      };
+    }, {});
+    if (Object.keys(frontmatterChanges).length > 0)
+      await saveProperties(
         props.superstate,
         currentData?.[PathPropertyName],
-        changedCols.reduce(
-          (p, c) => ({
-            ...p,
-            [c]: parseMDBStringValue(
-              cols.find((f) => f.name == c)?.type,
-              row[c],
-              true
-            ),
-          }),
-          {}
-        )
+        frontmatterChanges
       );
-    }
     saveDB({
       ...tableData,
       rows: tableData.rows.map((r, i) =>
@@ -582,7 +597,7 @@ export const ContextEditorProvider: React.FC<
     });
   };
 
-  const updateValue = (
+  const updateValue = async (
     column: string,
     value: string,
     table: string,
@@ -595,10 +610,13 @@ export const ContextEditorProvider: React.FC<
     if (
       dbSchema.id == defaultContextSchemaID &&
       col &&
-      props.superstate.settings.saveAllContextToFrontmatter
+      shouldWriteContextPropertyToFrontmatter(
+        col,
+        props.superstate.settings.saveAllContextToFrontmatter
+      )
     ) {
       const resolvedPath = props.superstate.spaceManager.resolvePath(path ?? tableData.rows[index]?.[PathPropertyName], contextPath);
-      saveProperties(
+      await saveProperties(
         props.superstate,
         resolvedPath,
         { [column]: parseMDBStringValue(fieldTypeForField(col), value, true) }
@@ -652,7 +670,7 @@ export const ContextEditorProvider: React.FC<
         : predicate.colsHidden.filter((s) => s != col.name + col.table),
     });
   };
-  const updateFieldValue = (
+  const updateFieldValue = async (
     column: string,
     fieldValue: string,
     value: string,
@@ -661,8 +679,15 @@ export const ContextEditorProvider: React.FC<
     path: string
   ) => {
     const col = tableData.cols.find((f) => f.name == column);
-    if (props.superstate.settings.saveAllContextToFrontmatter)
-      saveProperties(
+    if (
+      dbSchema.id == defaultContextSchemaID &&
+      col &&
+      shouldWriteContextPropertyToFrontmatter(
+        col,
+        props.superstate.settings.saveAllContextToFrontmatter
+      )
+    )
+      await saveProperties(
         props.superstate,
         path ?? tableData.rows[index]?.[PathPropertyName],
         { [column]: parseMDBStringValue(fieldTypeForField(col), value, true) }
