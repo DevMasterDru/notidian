@@ -86,7 +86,7 @@ Positive consequences:
 Tradeoffs:
 
 - The helper is not a full cross-file rollback journal. If a later frontmatter batch fails after an earlier batch succeeds, this phase prevents context-row false acceptance but does not reverse the earlier file write.
-- The current UI still only receives `Promise<void>`. Cell-level pending/error rendering is follow-up work that should consume the structured result.
+- The transaction result is now consumed by table feedback for paste and direct single-cell edits, but it is still not a durable operation journal.
 
 ## Implementation Notes
 
@@ -113,7 +113,6 @@ The helper returns `TableEditTransactionResult` with:
 
 ## Follow-Up Work
 
-- Extend cell-level pending and error states to direct single-cell editor components.
 - Add an undo journal for bulk paste, delete, and fill operations.
 - Add integration tests with a real vault fixture covering metadata reload after table edits.
 - Add external edit conflict detection before overwriting changed frontmatter.

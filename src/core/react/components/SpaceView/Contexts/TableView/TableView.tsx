@@ -55,12 +55,17 @@ import {
   serializeTableClipboardGrid,
 } from "core/utils/contexts/tableClipboard";
 import {
+  feedbackWriteForDirectCellEdit,
   feedbackForTableEditResult,
+  incrementResetTokensForFeedback,
   pendingFeedbackForWrites,
   summaryForTableEditResult,
   tableCellFeedbackKey,
+  TableCellResetTokens,
   TableEditFeedback,
+  TableEditFeedbackWrite,
 } from "core/utils/contexts/tableEditFeedback";
+import { TableEditTransactionResult } from "core/utils/contexts/tableEditTransaction";
 import { planTablePaste } from "core/utils/contexts/tablePastePlan";
 import {
   CellSelection,
@@ -162,6 +167,8 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [cellSelection, setCellSelection] = useState<CellSelection>(null);
   const [cellEditFeedback, setCellEditFeedback] =
     useState<TableEditFeedback>({});
+  const [cellResetTokens, setCellResetTokens] =
+    useState<TableCellResetTokens>({});
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
   const feedbackOperationId = useRef(0);
@@ -199,6 +206,37 @@ export const TableView = (props: { superstate: Superstate }) => {
     ),
     [predicate] // will be created only once initially
   );
+  const beginCellFeedbackOperation = (writes: TableEditFeedbackWrite[]) => {
+    const operationId = feedbackOperationId.current + 1;
+    feedbackOperationId.current = operationId;
+    setCellEditFeedback(pendingFeedbackForWrites(writes));
+    return operationId;
+  };
+
+  const finishCellFeedbackOperation = (
+    operationId: number,
+    result: TableEditTransactionResult
+  ) => {
+    if (feedbackOperationId.current != operationId) return;
+
+    const summary = summaryForTableEditResult(result);
+    if (summary) props.superstate.ui.notify(summary);
+
+    const resultFeedback = feedbackForTableEditResult(result);
+    setCellEditFeedback(resultFeedback);
+
+    if (Object.keys(resultFeedback).length > 0) {
+      setCellResetTokens((tokens) =>
+        incrementResetTokensForFeedback(tokens, resultFeedback)
+      );
+      window.setTimeout(() => {
+        if (feedbackOperationId.current == operationId) {
+          setCellEditFeedback({});
+        }
+      }, 5000);
+    }
+  };
+
   const newRow = (name: string, index?: number, data?: DBRow) => {
     if (dbSchema?.id == defaultContextSchemaID) {
       newPathInSpace(props.superstate, spaceCache, "md", name, true);
@@ -313,23 +351,9 @@ export const TableView = (props: { superstate: Superstate }) => {
       notifyRejections(plan.rejections.length);
       if (plan.writes.length == 0) return;
 
-      const operationId = feedbackOperationId.current + 1;
-      feedbackOperationId.current = operationId;
-      setCellEditFeedback(pendingFeedbackForWrites(plan.writes));
-
+      const operationId = beginCellFeedbackOperation(plan.writes);
       const result = await applyTableEdits(plan.writes);
-      const summary = summaryForTableEditResult(result);
-      if (summary) props.superstate.ui.notify(summary);
-
-      const resultFeedback = feedbackForTableEditResult(result);
-      setCellEditFeedback(resultFeedback);
-      if (Object.keys(resultFeedback).length > 0) {
-        window.setTimeout(() => {
-          if (feedbackOperationId.current == operationId) {
-            setCellEditFeedback({});
-          }
-        }, 5000);
-      }
+      finishCellFeedbackOperation(operationId, result);
     };
     const clearCell = () => {
       pasteSelection("");
@@ -445,25 +469,72 @@ export const TableView = (props: { superstate: Superstate }) => {
             // We need to keep and update the state of the cell normally
             const rowIndex = parseInt((data[index] as DBRow)["_index"]);
             const tableIndex = parseInt((data[index] as DBRow)["_index"]);
-            const saveValue = (value: string) => {
-              setCurrentEdit(null);
-              setSelectedColumn(null);
-              if (initialValue != value)
-                table.options.meta?.updateData(
+            const saveValue = async (value: string) => {
+              if (initialValue != value) {
+                const operationId = beginCellFeedbackOperation([
+                  feedbackWriteForDirectCellEdit({
+                    rowId: rowIndex.toString(),
+                    columnName: f.name,
+                    table: f.table,
+                    value,
+                  }),
+                ]);
+                const result = await table.options.meta?.updateData(
                   f.name,
                   value,
                   f.table,
                   rowIndex
                 );
+                if (result) finishCellFeedbackOperation(operationId, result);
+              }
+              setCurrentEdit(null);
+              setSelectedColumn(null);
             };
-            const saveFieldValue = (fieldValue: string, value: string) => {
-              table.options.meta?.updateFieldValue(
+            const saveFieldValue = async (fieldValue: string, value: string) => {
+              const operationId = beginCellFeedbackOperation([
+                feedbackWriteForDirectCellEdit({
+                  rowId: rowIndex.toString(),
+                  columnName: f.name,
+                  table: f.table,
+                  value,
+                  fieldValue,
+                }),
+              ]);
+              const result = await table.options.meta?.updateFieldValue(
                 f.name,
                 fieldValue,
                 value,
                 f.table,
                 rowIndex
               );
+              if (result) finishCellFeedbackOperation(operationId, result);
+            };
+            const renameValue = async (value: string) => {
+              const write = feedbackWriteForDirectCellEdit({
+                rowId: rowIndex.toString(),
+                columnName: f.name,
+                table: f.table,
+                value,
+              });
+              const operationId = beginCellFeedbackOperation([write]);
+              const renamedPath = await renameRowTitle(
+                data[index] as DBRow,
+                value
+              );
+              finishCellFeedbackOperation(operationId, {
+                ok: !!renamedPath,
+                applied: renamedPath ? 1 : 0,
+                skipped: [],
+                failed: renamedPath
+                  ? []
+                  : [
+                      {
+                        write,
+                        reason: "file-rename-failed",
+                      },
+                    ],
+              });
+              return renamedPath;
             };
             const editMode = readMode
               ? CellEditMode.EditModeReadOnly
@@ -480,8 +551,7 @@ export const TableView = (props: { superstate: Superstate }) => {
               compactMode: false,
               initialValue: initialValue as string,
               updateValue: saveValue,
-              renameValue: (value: string) =>
-                renameRowTitle(data[index] as DBRow, value),
+              renameValue,
               updateFieldValue: saveFieldValue,
               superstate: props.superstate,
               setEditMode: setCurrentEdit,
@@ -502,7 +572,16 @@ export const TableView = (props: { superstate: Superstate }) => {
             if (!fieldType) {
               return <>{initialValue}</>;
             }
-            return <DataTypeView {...cellProps}></DataTypeView>;
+            const feedbackKey = tableCellFeedbackKey(
+              rowIndex.toString(),
+              f.name + f.table
+            );
+            return (
+              <DataTypeView
+                key={cellResetTokens[feedbackKey] ?? 0}
+                {...cellProps}
+              ></DataTypeView>
+            );
           },
         };
       }) ?? []),
@@ -518,7 +597,15 @@ export const TableView = (props: { superstate: Superstate }) => {
             },
           ]),
     ],
-    [cols, data, currentEdit, predicate, dbSchema, contextTable]
+    [
+      cols,
+      data,
+      currentEdit,
+      predicate,
+      dbSchema,
+      contextTable,
+      cellResetTokens,
+    ]
   );
 
   const groupBy = useMemo(

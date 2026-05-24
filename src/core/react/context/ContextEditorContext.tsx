@@ -659,6 +659,7 @@ export const ContextEditorProvider: React.FC<
     return executeValueWrites([
       {
         rowId: index.toString(),
+        columnId: column + table,
         columnName: column,
         table,
         value,
@@ -755,6 +756,7 @@ export const ContextEditorProvider: React.FC<
     return executeValueWrites([
       {
         rowId: index.toString(),
+        columnId: column + table,
         columnName: column,
         table,
         value,

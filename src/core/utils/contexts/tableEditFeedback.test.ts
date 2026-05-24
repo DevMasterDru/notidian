@@ -1,5 +1,7 @@
 import {
   feedbackForTableEditResult,
+  feedbackWriteForDirectCellEdit,
+  incrementResetTokensForFeedback,
   pendingFeedbackForWrites,
   summaryForTableEditResult,
   tableCellFeedbackKey,
@@ -24,6 +26,53 @@ describe("tableEditFeedback", () => {
       ])
     ).toEqual({
       "0::status": { state: "pending" },
+    });
+  });
+
+  it("creates feedback writes for direct cell edits using the table accessor key", () => {
+    expect(
+      feedbackWriteForDirectCellEdit({
+        rowId: "2",
+        columnName: "status",
+        table: "devices",
+        value: "active",
+        path: "Relays & Devices/Relay A.md",
+        fieldValue: "active|Active",
+      })
+    ).toEqual({
+      rowId: "2",
+      columnId: "statusdevices",
+      columnName: "status",
+      table: "devices",
+      value: "active",
+      path: "Relays & Devices/Relay A.md",
+      fieldValue: "active|Active",
+    });
+  });
+
+  it("increments reset tokens only for failed and skipped cell feedback", () => {
+    expect(
+      incrementResetTokensForFeedback(
+        {
+          "2::statusdevices": 1,
+          "8::owner": 4,
+        },
+        {
+          "2::statusdevices": {
+            state: "failed",
+            reason: "frontmatter-write-failed",
+          },
+          "3::phase": { state: "pending" },
+          "4::priority": {
+            state: "skipped",
+            reason: "missing-context-row",
+          },
+        }
+      )
+    ).toEqual({
+      "2::statusdevices": 2,
+      "8::owner": 4,
+      "4::priority": 1,
     });
   });
 

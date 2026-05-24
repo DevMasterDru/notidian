@@ -69,13 +69,15 @@ File/page-title edits remain outside this helper because they require rename pre
 
 ### Table Edit Feedback
 
-Paste operations now surface transaction state in the table:
+Paste operations and direct single-cell edits now surface transaction state in the table:
 
 - Planned paste targets show a pending cell state while the transaction runs.
+- Direct value edits, field-option edits, and page-title rename edits show a pending cell state while the operation runs.
 - Failed cells show failed feedback.
 - Skipped cells show skipped feedback.
-- Successful cells clear back to normal after the transaction completes.
+- Successful cells clear back to normal after the operation completes.
 - Obsidian notices summarize failed/skipped counts.
+- Failed or skipped cells are remounted back to canonical row data so optimistic local editor state does not keep showing a value that was not accepted.
 
 This feedback is transient UI state. It is not stored in context MDB and does not change the source-of-truth model.
 
@@ -87,13 +89,13 @@ Notidian currently guarantees the following for implemented edit paths:
 - A paste path cannot bypass row file-path fallback by passing an empty path.
 - Bulk value writes update table/context snapshots from accumulated state rather than repeatedly saving stale row snapshots.
 - Mixed title/property paste writes non-file values to the renamed file path after successful rename.
+- Direct single-cell failures surface inline and reset back to canonical table data.
 - Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
 
 ## Known Gaps
 
 The following work remains before Notidian should be considered final:
 
-- Direct single-cell editor components do not yet render inline failure state.
 - There is no undo journal for bulk paste, delete, fill, or rename operations.
 - External edit conflict detection is not implemented.
 - Real vault fixture integration tests are still needed for metadata reload timing.

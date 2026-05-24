@@ -29,6 +29,7 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Rectangular table selections support copy, cut, paste, delete/clear, arrow movement, and TSV interoperability with spreadsheet-like tools.
 - Normal cell edits, field-value edits, and paste value writes share one authority-aware transaction executor.
 - Paste operations show pending, failed, and skipped cell feedback derived from transaction results.
+- Direct value edits, field-option edits, and page-title rename edits show pending/failed/skipped cell feedback and reset failed optimistic editor state back to canonical data.
 
 This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the view/configuration engine while files and frontmatter remain the durable data layer.
 
@@ -70,7 +71,6 @@ New writes target the Notidian plugin directory. Keep a backup of your vault bef
 
 This fork is in active development. The current foundation is implemented and documented. The next high-value work is:
 
-- Direct single-cell editor failure feedback.
 - Undo journal for bulk table operations.
 - External edit conflict detection.
 - Real vault fixture integration tests for metadata reload timing.

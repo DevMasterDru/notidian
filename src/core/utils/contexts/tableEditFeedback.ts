@@ -12,11 +12,13 @@ export type TableEditFeedback = Record<
 
 export type TableEditFeedbackWrite = Pick<
   TableCellWrite,
-  "rowId" | "columnName" | "table"
+  "rowId" | "columnName" | "table" | "value" | "path" | "fieldValue"
 > & {
   columnId?: string;
   [key: string]: unknown;
 };
+
+export type TableCellResetTokens = Record<string, number>;
 
 export const tableCellFeedbackKey = (
   rowId: string,
@@ -39,6 +41,13 @@ export const pendingFeedbackForWrites = (
     }),
     {}
   );
+
+export const feedbackWriteForDirectCellEdit = (
+  write: TableEditFeedbackWrite
+): TableEditFeedbackWrite => ({
+  ...write,
+  columnId: write.columnId ?? write.columnName + write.table,
+});
 
 export const feedbackForTableEditResult = (
   result: TableEditTransactionResult
@@ -71,6 +80,21 @@ export const feedbackForTableEditResult = (
     skipped
   );
 };
+
+export const incrementResetTokensForFeedback = (
+  resetTokens: TableCellResetTokens,
+  feedback: TableEditFeedback
+): TableCellResetTokens =>
+  Object.entries(feedback).reduce<TableCellResetTokens>(
+    (tokens, [key, cellFeedback]) => {
+      if (cellFeedback.state == "pending") return tokens;
+      return {
+        ...tokens,
+        [key]: (tokens[key] ?? 0) + 1,
+      };
+    },
+    resetTokens
+  );
 
 const editCountText = (
   count: number,

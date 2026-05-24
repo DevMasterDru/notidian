@@ -18,25 +18,28 @@ Without visible feedback, a user can perform a paste, see transient values, and 
 
 Use transient cell-level feedback derived from edit transaction results.
 
-For paste operations:
+For paste operations and direct single-cell edits:
 
 - Planned writes become pending feedback while the transaction is running.
 - Failed transaction issues become failed cell feedback.
 - Skipped transaction issues become skipped cell feedback.
 - Successful cells clear back to normal once the transaction completes.
 - A concise Obsidian notice summarizes failed/skipped counts.
+- Failed or skipped direct edits remount the affected cell editor so optimistic local state is replaced by canonical row data.
 
 The feedback is UI state only. It does not become durable data and does not change the authority model.
 
 ## Boundaries
 
-`TableView` owns transient feedback state because it owns selection, paste handling, and rendered table cells.
+`TableView` owns transient feedback state because it owns selection, paste handling, direct cell edit callbacks, and rendered table cells.
 
 Pure helpers in `tableEditFeedback.ts` own:
 
 - Stable cell feedback keys.
+- Direct edit write normalization to the same accessor keys used by rendered table cells.
 - Planned-write to pending-feedback mapping.
 - Transaction-result to failed/skipped-feedback mapping.
+- Reset-token updates for failed/skipped cells whose editor state must be remounted back to canonical data.
 - Summary text for notices.
 
 `ContextEditorContext` owns edit execution and returns `TableEditTransactionResult` to callers.
@@ -59,21 +62,23 @@ Errors are operation feedback, not database data. Persisting them in MDB would b
 
 Rejected for this phase.
 
-The first high-value path is paste feedback because paste can touch many cells and authorities at once. Direct single-cell editor feedback can use the same result model later without broadening this phase.
+The first high-value path was paste feedback because paste can touch many cells and authorities at once. Direct single-cell editor feedback later used the same result model at the `TableView` boundary, avoiding a broad rewrite of every editor component.
 
 ## Consequences
 
 Positive consequences:
 
 - Bulk paste no longer fails silently at the cell level.
+- Direct single-cell edits no longer fail silently at the cell level.
+- Failed direct edits reset optimistic editor state back to canonical data.
 - Users can distinguish pending, failed, and skipped cells.
 - The UI consumes the existing transaction result instead of inventing a parallel status model.
 - The design leaves room for undo and conflict prompts.
 
 Tradeoffs:
 
-- Direct single-cell editor components still do not render inline failure state in this phase.
 - Feedback is transient; users who need a durable audit trail still need the future undo/journal work.
+- Feedback does not yet detect external edit conflicts before overwriting frontmatter.
 
 ## Implementation Notes
 
@@ -86,7 +91,6 @@ Key files:
 
 ## Follow-Up Work
 
-- Feed direct single-cell editor failures back into the active editor component.
 - Add undo journal entries for bulk paste, delete, and fill operations.
 - Add conflict detection before overwriting externally changed frontmatter.
 - Add fixture-vault integration tests for metadata reload timing.
