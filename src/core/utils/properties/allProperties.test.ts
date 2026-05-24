@@ -231,7 +231,7 @@ describe("materializeFrontmatterBackedContextTable", () => {
 });
 
 describe("stripFrontmatterBackedRowValues", () => {
-  it("removes projected frontmatter values but keeps file and context-only values", () => {
+  it("removes projected and computed values but keeps file and context-only values", () => {
     const result = stripFrontmatterBackedRowValues({
       schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
       cols: [
@@ -258,7 +258,6 @@ describe("stripFrontmatterBackedRowValues", () => {
     expect(result.rows).toEqual([
       {
         [PathPropertyName]: "a.md",
-        Created: "2026-05-24",
         manual: "local",
       },
     ]);

@@ -7,6 +7,10 @@ import { SpaceProperty, SpaceTable } from "shared/types/mdb";
 import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
 import { detectPropertyType, yamlTypeToMDBType } from "utils/properties";
+import {
+  shouldPersistAuthorityValueToContext,
+  shouldWriteAuthorityValueToFrontmatter,
+} from "./propertyAuthority";
 
 export type PropertyType = {
   name: string;
@@ -23,8 +27,10 @@ export const shouldWriteContextPropertyToFrontmatter = (
   property: Partial<Pick<SpaceProperty, "name" | "source" | "type">>,
   saveAllContextToFrontmatter: boolean
 ): boolean =>
-  property?.name !== PathPropertyName &&
-  (isFrontmatterBackedProperty(property) || saveAllContextToFrontmatter);
+  shouldWriteAuthorityValueToFrontmatter(
+    property,
+    saveAllContextToFrontmatter
+  );
 
 export const excludedFrontmatterPropertyNames = (
   settings: MakeMDSettings
@@ -197,21 +203,26 @@ export const stripFrontmatterBackedRowValues = (
 ): SpaceTable => {
   if (!table?.rows?.length) return table;
 
-  const frontmatterColumns = new Set(
+  const colsByName = new Map(
+    (table.cols ?? []).map((col) => [col.name, col] as const)
+  );
+  const nonPersistentColumns = new Set(
     (table.cols ?? [])
-      .filter((col) => col.name !== PathPropertyName)
-      .filter(isFrontmatterBackedProperty)
+      .filter((col) => !shouldPersistAuthorityValueToContext(col))
       .map((col) => col.name)
   );
 
-  if (frontmatterColumns.size === 0) return table;
+  if (nonPersistentColumns.size === 0) return table;
 
   return {
     ...table,
     rows: table.rows.map((row) =>
       Object.keys(row).reduce(
-        (next, key) =>
-          frontmatterColumns.has(key) ? next : { ...next, [key]: row[key] },
+        (next, key) => {
+          const column = colsByName.get(key);
+          if (column && nonPersistentColumns.has(key)) return next;
+          return { ...next, [key]: row[key] };
+        },
         {}
       )
     ),
