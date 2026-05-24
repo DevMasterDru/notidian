@@ -58,7 +58,6 @@ import { planTablePaste } from "core/utils/contexts/tablePastePlan";
 import {
   CellSelection,
   cellSelectionBounds,
-  cellSelectionRange,
   extendCellSelection,
   moveCellSelection,
   selectionContainsCell,
