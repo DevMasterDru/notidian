@@ -113,7 +113,7 @@ The helper returns `TableEditTransactionResult` with:
 
 ## Follow-Up Work
 
-- Add cell-level pending and error states using `TableEditTransactionResult`.
+- Extend cell-level pending and error states to direct single-cell editor components.
 - Add an undo journal for bulk paste, delete, and fill operations.
 - Add integration tests with a real vault fixture covering metadata reload after table edits.
 - Add external edit conflict detection before overwriting changed frontmatter.

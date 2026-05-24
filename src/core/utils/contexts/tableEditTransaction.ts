@@ -9,6 +9,7 @@ import {
 
 export type TableCellWrite = {
   rowId: string;
+  columnId?: string;
   columnName: string;
   table: string;
   value: string;
@@ -24,6 +25,7 @@ export type TableEditSkipReason =
 
 export type TableEditFailureReason =
   | "missing-path"
+  | "file-rename-failed"
   | "frontmatter-write-failed";
 
 export type TableEditIssue = {
@@ -37,6 +39,23 @@ export type TableEditTransactionResult = {
   skipped: TableEditIssue[];
   failed: TableEditIssue[];
 };
+
+export const emptyTableEditTransactionResult =
+  (): TableEditTransactionResult => ({
+    ok: true,
+    applied: 0,
+    skipped: [],
+    failed: [],
+  });
+
+export const combineTableEditTransactionResults = (
+  ...results: TableEditTransactionResult[]
+): TableEditTransactionResult => ({
+  ok: results.every((result) => result.ok),
+  applied: results.reduce((total, result) => total + result.applied, 0),
+  skipped: results.flatMap((result) => result.skipped),
+  failed: results.flatMap((result) => result.failed),
+});
 
 export type ExecuteTableValueWritesParams = {
   writes: TableCellWrite[];

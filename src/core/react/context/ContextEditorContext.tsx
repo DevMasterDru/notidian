@@ -13,8 +13,11 @@ import {
 } from "core/utils/contexts/pageTitleRename";
 import {
   applyTableEditPathOverrides,
+  combineTableEditTransactionResults,
+  emptyTableEditTransactionResult,
   executeTableValueWrites,
   TableCellWrite,
+  TableEditTransactionResult,
 } from "core/utils/contexts/tableEditTransaction";
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
@@ -99,8 +102,10 @@ type ContextEditorContextProps = {
     table: string,
     index: number,
     path?: string
-  ) => Promise<void>;
-  applyTableEdits: (writes: TablePasteWrite[]) => Promise<void>;
+  ) => Promise<TableEditTransactionResult>;
+  applyTableEdits: (
+    writes: TablePasteWrite[]
+  ) => Promise<TableEditTransactionResult>;
   renameRowTitle: (row: DBRow, value: string) => Promise<string | null>;
   updateFieldValue: (
     column: string,
@@ -109,7 +114,7 @@ type ContextEditorContextProps = {
     table: string,
     index: number,
     path?: string
-  ) => Promise<void>;
+  ) => Promise<TableEditTransactionResult>;
 };
 
 export const ContextEditorContext = createContext<ContextEditorContextProps>({
@@ -135,10 +140,10 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   searchString: "",
   setSearchString: () => null,
   data: [],
-  applyTableEdits: () => null,
-  updateValue: () => null,
+  applyTableEdits: async () => emptyTableEditTransactionResult(),
+  updateValue: async () => emptyTableEditTransactionResult(),
   renameRowTitle: () => null,
-  updateFieldValue: () => null,
+  updateFieldValue: async () => emptyTableEditTransactionResult(),
   updateRow: () => null,
   tableData: null,
   cols: [],
@@ -615,8 +620,10 @@ export const ContextEditorProvider: React.FC<
     });
   };
 
-  const executeValueWrites = async (writes: TableCellWrite[]) => {
-    await executeTableValueWrites({
+  const executeValueWrites = async (
+    writes: TableCellWrite[]
+  ): Promise<TableEditTransactionResult> => {
+    return executeTableValueWrites({
       writes,
       tableData,
       contextTable,
@@ -649,7 +656,7 @@ export const ContextEditorProvider: React.FC<
     index: number,
     path?: string
   ) => {
-    await executeValueWrites([
+    return executeValueWrites([
       {
         rowId: index.toString(),
         columnName: column,
@@ -670,6 +677,7 @@ export const ContextEditorProvider: React.FC<
   const applyTableEdits = async (writes: TablePasteWrite[]) => {
     const fileWrites = writes.filter((write) => write.authority == "file");
     let valueWrites = writes.filter((write) => write.authority != "file");
+    const results: TableEditTransactionResult[] = [];
 
     if (fileWrites.length > 0) {
       const result = await executeBulkPageTitleRename({
@@ -686,7 +694,24 @@ export const ContextEditorProvider: React.FC<
         superstate: props.superstate,
       });
 
-      if (result.ok == false) return;
+      if (result.ok == false) {
+        const failedRenameResult: TableEditTransactionResult = {
+          ok: false,
+          applied: 0,
+          skipped: [],
+          failed: fileWrites.map((write) => ({
+            write,
+            reason: "file-rename-failed",
+          })),
+        };
+        return failedRenameResult;
+      }
+      results.push({
+        ok: true,
+        applied: fileWrites.length,
+        skipped: [],
+        failed: [],
+      });
       valueWrites = applyTableEditPathOverrides(
         valueWrites,
         new Map(
@@ -695,7 +720,13 @@ export const ContextEditorProvider: React.FC<
       );
     }
 
-    await executeValueWrites(valueWrites);
+    if (valueWrites.length > 0) {
+      results.push(await executeValueWrites(valueWrites));
+    }
+
+    return results.length > 0
+      ? combineTableEditTransactionResults(...results)
+      : emptyTableEditTransactionResult();
   };
   const sortColumn = (sort: Sort) => {
     savePredicate({
@@ -721,7 +752,7 @@ export const ContextEditorProvider: React.FC<
     index: number,
     path?: string
   ) => {
-    await executeValueWrites([
+    return executeValueWrites([
       {
         rowId: index.toString(),
         columnName: column,

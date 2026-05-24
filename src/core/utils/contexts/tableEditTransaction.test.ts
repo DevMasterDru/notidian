@@ -3,6 +3,8 @@ import { PathPropertyName } from "shared/types/context";
 import { SpaceTable, SpaceTables } from "shared/types/mdb";
 import {
   applyTableEditPathOverrides,
+  combineTableEditTransactionResults,
+  emptyTableEditTransactionResult,
   executeTableValueWrites,
   TableCellWrite,
 } from "./tableEditTransaction";
@@ -85,6 +87,79 @@ const execute = async ({
 };
 
 describe("executeTableValueWrites", () => {
+  it("combines transaction results for mixed edit operations", () => {
+    expect(
+      combineTableEditTransactionResults(
+        {
+          ok: true,
+          applied: 2,
+          skipped: [],
+          failed: [],
+        },
+        {
+          ok: false,
+          applied: 1,
+          skipped: [
+            {
+              reason: "missing-row",
+              write: {
+                rowId: "8",
+                columnName: "status",
+                table: "",
+                value: "active",
+              },
+            },
+          ],
+          failed: [
+            {
+              reason: "file-rename-failed",
+              write: {
+                rowId: "0",
+                columnName: PathPropertyName,
+                table: "",
+                value: "Renamed",
+              },
+            },
+          ],
+        }
+      )
+    ).toEqual({
+      ok: false,
+      applied: 3,
+      skipped: [
+        {
+          reason: "missing-row",
+          write: {
+            rowId: "8",
+            columnName: "status",
+            table: "",
+            value: "active",
+          },
+        },
+      ],
+      failed: [
+        {
+          reason: "file-rename-failed",
+          write: {
+            rowId: "0",
+            columnName: PathPropertyName,
+            table: "",
+            value: "Renamed",
+          },
+        },
+      ],
+    });
+  });
+
+  it("provides an empty successful transaction result", () => {
+    expect(emptyTableEditTransactionResult()).toEqual({
+      ok: true,
+      applied: 0,
+      skipped: [],
+      failed: [],
+    });
+  });
+
   it("applies row path overrides to writes after mixed file rename transactions", () => {
     expect(
       applyTableEditPathOverrides(

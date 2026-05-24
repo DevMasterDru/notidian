@@ -54,6 +54,13 @@ import {
   parseTableClipboardText,
   serializeTableClipboardGrid,
 } from "core/utils/contexts/tableClipboard";
+import {
+  feedbackForTableEditResult,
+  pendingFeedbackForWrites,
+  summaryForTableEditResult,
+  tableCellFeedbackKey,
+  TableEditFeedback,
+} from "core/utils/contexts/tableEditFeedback";
 import { planTablePaste } from "core/utils/contexts/tablePastePlan";
 import {
   CellSelection,
@@ -153,8 +160,11 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [selectedColumn, setSelectedColumn] = useState<string>(null);
   const [currentEdit, setCurrentEdit] = useState<[string, string]>(null);
   const [cellSelection, setCellSelection] = useState<CellSelection>(null);
+  const [cellEditFeedback, setCellEditFeedback] =
+    useState<TableEditFeedback>({});
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
+  const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
   useEffect(() => {
@@ -301,7 +311,25 @@ export const TableView = (props: { superstate: Superstate }) => {
         clipboardGrid: parseTableClipboardText(clipboardText),
       });
       notifyRejections(plan.rejections.length);
-      if (plan.writes.length > 0) await applyTableEdits(plan.writes);
+      if (plan.writes.length == 0) return;
+
+      const operationId = feedbackOperationId.current + 1;
+      feedbackOperationId.current = operationId;
+      setCellEditFeedback(pendingFeedbackForWrites(plan.writes));
+
+      const result = await applyTableEdits(plan.writes);
+      const summary = summaryForTableEditResult(result);
+      if (summary) props.superstate.ui.notify(summary);
+
+      const resultFeedback = feedbackForTableEditResult(result);
+      setCellEditFeedback(resultFeedback);
+      if (Object.keys(resultFeedback).length > 0) {
+        window.setTimeout(() => {
+          if (feedbackOperationId.current == operationId) {
+            setCellEditFeedback({});
+          }
+        }, 5000);
+      }
     };
     const clearCell = () => {
       pasteSelection("");
@@ -835,22 +863,33 @@ export const TableView = (props: { superstate: Superstate }) => {
                         cell.getContext()
                       )}
                     </React.Fragment>
-                  ) : (
+                  ) : (() => {
+                    const accessorKey = (cell.column.columnDef as any)
+                      .accessorKey;
+                    const feedback =
+                      rowOriginalIndex !== undefined
+                        ? cellEditFeedback[
+                            tableCellFeedbackKey(rowOriginalIndex, accessorKey)
+                          ]
+                        : undefined;
+
+                    return (
                     <td
                       onMouseDown={(e) =>
                         selectCell(
                           e,
                           cell.row.index,
-                          (cell.column.columnDef as any).accessorKey
+                          accessorKey
                         )
                       }
                       onMouseEnter={(e) => {
                         if (e.buttons != 1) return;
                         extendSelectionToCell(
                           cell.row.index,
-                          (cell.column.columnDef as any).accessorKey
+                          accessorKey
                         );
                       }}
+                      title={feedback?.reason}
                       className={classNames(
                         "mk-td",
                         cell.getIsPlaceholder() && "mk-td-empty",
@@ -861,15 +900,16 @@ export const TableView = (props: { superstate: Superstate }) => {
                             cols.map((f) => f.name + f.table),
                             {
                               rowId: rowOriginalIndex,
-                              columnId: (cell.column.columnDef as any)
-                                .accessorKey,
+                              columnId: accessorKey,
                             }
                           ) &&
                           "mk-selected-cell",
                         cellSelection?.active.rowId == rowOriginalIndex &&
-                          cellSelection?.active.columnId ==
-                            (cell.column.columnDef as any).accessorKey &&
-                          "mk-active-cell"
+                          cellSelection?.active.columnId == accessorKey &&
+                          "mk-active-cell",
+                        feedback?.state == "pending" && "mk-cell-pending",
+                        feedback?.state == "failed" && "mk-cell-failed",
+                        feedback?.state == "skipped" && "mk-cell-skipped"
                       )}
                       key={cell.id}
                       style={{
@@ -892,7 +932,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                             cell.getContext()
                           )}
                     </td>
-                  )
+                    );
+                  })()
                 )}
               </tr>
             );

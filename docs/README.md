@@ -29,6 +29,7 @@ The most important ADRs are:
 - [ADR 0004: Authority hardening transactions and reconciliation](adr/0004-authority-hardening-transactions-and-reconciliation.md)
 - [ADR 0005: Obsidian Bases alignment without replacing contexts](adr/0005-obsidian-bases-alignment-without-replacing-contexts.md)
 - [ADR 0006: Unified table edit transactions](adr/0006-unified-table-edit-transactions.md)
+- [ADR 0007: Table edit feedback](adr/0007-table-edit-feedback.md)
 
 ADR 0003 is the canonical full record for the page-title/file-rename decision. It explains why naive direct file-name editing was risky, why the selected transaction model was chosen, and what invariants future work must preserve.
 
@@ -44,6 +45,7 @@ Key design specs:
 - [Page title cell design](superpowers/specs/2026-05-24-page-title-cell-design.md)
 - [Table range clipboard design](superpowers/specs/2026-05-24-table-range-clipboard-design.md)
 - [Table edit transactions design](superpowers/specs/2026-05-24-table-edit-transactions-design.md)
+- [Table edit feedback design](superpowers/specs/2026-05-24-table-edit-feedback-design.md)
 
 Key implementation plans:
 
@@ -54,6 +56,7 @@ Key implementation plans:
 - [Authority hardening plan](superpowers/plans/2026-05-24-authority-hardening.md)
 - [Table range clipboard plan](superpowers/plans/2026-05-24-table-range-clipboard.md)
 - [Table edit transactions plan](superpowers/plans/2026-05-24-table-edit-transactions.md)
+- [Table edit feedback plan](superpowers/plans/2026-05-24-table-edit-feedback.md)
 
 ## Documentation Rules
 
