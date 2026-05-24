@@ -50,6 +50,7 @@ Key implementation plans:
 - [Canonical frontmatter contexts plan](superpowers/plans/2026-05-24-canonical-frontmatter-contexts.md)
 - [Page title cell plan](superpowers/plans/2026-05-24-page-title-cell.md)
 - [Authority hardening plan](superpowers/plans/2026-05-24-authority-hardening.md)
+- [Table range clipboard plan](superpowers/plans/2026-05-24-table-range-clipboard.md)
 
 ## Documentation Rules
 

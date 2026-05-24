@@ -377,6 +377,21 @@ The final live test verified that:
 - The context row stayed at the original row index.
 - The rename could be reversed cleanly.
 
+## Range Paste And Bulk Title Renames
+
+Notidian now treats range clipboard paste as a spreadsheet gesture that is translated into authority-aware operations. This does not change the page-title decision: pasting into the built-in `File` column still means renaming Markdown files.
+
+Bulk page-title paste therefore uses a dedicated bulk rename transaction instead of ordinary context cell writes. The transaction preflights the full batch before applying file operations:
+
+- Invalid empty names and slash-containing names are rejected before any rename.
+- Duplicate targets inside the paste batch are rejected before any rename.
+- Target paths that already exist outside the selected rename set are rejected before any rename.
+- Swaps and cycles use temporary paths so two files can exchange names without colliding.
+- Context rows are reconciled from the original row order after Obsidian metadata reloads.
+- Duplicate rows created by asynchronous metadata sync are removed during reconciliation.
+
+This lets the table behave more like Notion or Excel while preserving the invariant that the file path is the title authority.
+
 ## Consequences
 
 Positive consequences:
@@ -402,11 +417,17 @@ Core path/title logic:
 
 - `src/core/utils/contexts/pageTitle.ts`
 - `src/core/utils/contexts/pageTitleRename.ts`
+- `src/core/utils/contexts/tableClipboard.ts`
+- `src/core/utils/contexts/tablePastePlan.ts`
+- `src/core/utils/contexts/tableSelection.ts`
 
 Tests:
 
 - `src/core/utils/contexts/pageTitle.test.ts`
 - `src/core/utils/contexts/pageTitleRename.test.ts`
+- `src/core/utils/contexts/tableClipboard.test.ts`
+- `src/core/utils/contexts/tablePastePlan.test.ts`
+- `src/core/utils/contexts/tableSelection.test.ts`
 
 UI routing and title cell:
 
@@ -433,6 +454,7 @@ Future work must preserve these invariants:
 - The title cell must not create a frontmatter `title` authority by default.
 - The built-in `File` property header must remain protected.
 - A committed title edit must call the file rename path.
+- A pasted `File` cell value must call the file rename path, even when pasted as part of a rectangular range.
 - Known rename failures must return explicit reasons rather than only collapsing to `null`.
 - Rename must preserve row order.
 - Rename must remove duplicate rows for the renamed path.
