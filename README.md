@@ -49,6 +49,10 @@ npx tsc -noEmit -skipLibCheck
 npm run build
 ```
 
+## Architecture Decisions
+
+The core Notidian architecture decisions are recorded in [docs/adr](docs/adr/README.md), including why ordinary note data remains canonical in Obsidian files/frontmatter, why context MDB is retained as a view/configuration layer, and why page title edits are implemented as controlled file rename transactions.
+
 ## Credits
 
 Notidian is forked from Make.md, which is licensed under the MIT License.
