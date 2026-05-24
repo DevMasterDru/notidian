@@ -8,6 +8,8 @@ The most important rule across these ADRs is that **Obsidian vault data remains 
 
 If you only need the file-name/page-title decision, read [ADR 0003](0003-editable-page-titles-through-file-renames.md). It is intentionally self-contained because that decision has the highest risk of subtle data-governance regressions.
 
+If you need the current implementation status rather than the decision history, read [Current State](../current-state.md).
+
 | ADR | Decision | Purpose |
 | --- | --- | --- |
 | [0001](0001-authority-partitioned-database-model.md) | Authority-partitioned database model | Defines which layer owns file identity, frontmatter properties, context-native fields, view state, and computed values. |
@@ -30,3 +32,5 @@ Notidian uses an authority-partitioned model:
 ## Maintenance Rule
 
 Any future change that moves authority between files, frontmatter, context MDB storage, computed projections, or `.base` interoperability should update the relevant ADR in this directory. The goal is that a future maintainer can understand the governing decision without reconstructing it from chat history or implementation diffs.
+
+Changes that only add implemented behavior inside the accepted authority model should update [Current State](../current-state.md), and should add or update an ADR only when they change a durable architectural decision.

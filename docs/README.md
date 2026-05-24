@@ -4,6 +4,7 @@ This directory preserves the durable reasoning and implementation planning behin
 
 ## What Is Canonical
 
+- [Current State](current-state.md) describes what the implementation does today.
 - [Architecture Decision Records](adr/README.md) are the durable source of truth for architectural decisions.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) is the canonical full record for editable page titles and file renames.
 - `docs/superpowers` contains historical specs and plans from implementation work. These files preserve useful development context, but they do not override the ADRs.
@@ -37,6 +38,10 @@ ADR 0003 is the canonical full record for the page-title/file-rename decision. I
 
 The `docs/superpowers` files are historical design and implementation artifacts from the development process. They are useful for reconstructing how each phase was planned and verified, but the ADRs are the durable architectural source of truth.
 
+Current implementation reference:
+
+- [Current State](current-state.md)
+
 Key design specs:
 
 - [Notidian rebrand design](superpowers/specs/2026-05-23-notidian-rebrand-design.md)
@@ -61,6 +66,7 @@ Key implementation plans:
 ## Documentation Rules
 
 - Keep ADRs focused on decisions, alternatives, consequences, and invariants.
+- Keep [Current State](current-state.md) synchronized with implemented behavior and known gaps.
 - Keep implementation plans as historical execution records.
 - Update ADR 0003 whenever the page-title rename transaction changes materially.
 - Update ADR 0001 whenever ownership of file identity, frontmatter metadata, context data, or computed data changes materially.

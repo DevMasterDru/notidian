@@ -1,0 +1,129 @@
+# Current State
+
+This page is the current implementation reference for the Notidian fork. ADRs explain why the architecture exists; this page summarizes what is implemented now and what remains intentionally unfinished.
+
+## Product Direction
+
+Notidian turns Obsidian folders and Markdown files into database-like workspaces while keeping Obsidian vault data canonical.
+
+The key rule is:
+
+> File-backed data belongs to files and frontmatter. Notidian may project, edit, and organize it, but it must not silently become governed by a hidden context database.
+
+## Source Of Truth
+
+| Data kind | Canonical owner | Current Notidian behavior |
+| --- | --- | --- |
+| Page identity | Markdown file path/name | Displayed as the `File`/page-title cell and changed through rename transactions. |
+| Ordinary note metadata | Markdown frontmatter / Obsidian metadata cache | Discovered as table columns and edited through frontmatter writes. |
+| View layout | Notidian context MDB | Stores column order, hidden columns, filters, grouping, sorting, and view state. |
+| Context-native fields | Notidian context MDB | Stores values only when a field is explicitly Notidian-owned. |
+| Formulas, aggregates, file projections | Computed from current inputs | Displayed as projections, not durable user-entered values. |
+| Relations | Notidian context model | Preserved from Make.md semantics unless later mapped to frontmatter links. |
+
+## Implemented Behavior
+
+### Frontmatter-Backed Folder Tables
+
+- Folder contexts can materialize existing YAML/frontmatter properties as visible table columns.
+- Frontmatter-backed columns use `source: "frontmatter"`.
+- Editing a frontmatter-backed cell writes the Markdown file first.
+- If the canonical frontmatter write fails, Notidian does not accept the table row change.
+- Frontmatter-backed and computed values are stripped before context MDB persistence so MDB rows do not become the durable data source.
+- Mixed observed frontmatter types resolve conservatively to `text`.
+
+### Editable Page Titles
+
+- The visible page title is derived from the row's file path basename.
+- Editing the title performs a file rename, not a context value write.
+- Rename transactions reject empty names, slash-containing names, duplicates, and invalid target conflicts.
+- Bulk title paste uses the same rename transaction path.
+- Rename reconciliation preserves row order and removes duplicate renamed rows after metadata events.
+- Changing folders from the title cell is intentionally not implemented; that requires a separate move command.
+
+### Range Clipboard Editing
+
+- Users can select rectangular table ranges.
+- `Cmd/Ctrl+C` copies selected cells as TSV.
+- `Cmd/Ctrl+X` copies and clears editable selected cells.
+- `Cmd/Ctrl+V` pastes TSV data into the active cell or selected range.
+- A single copied cell can fill a larger selected range.
+- Multi-cell paste expands down/right from the active cell.
+- Read-only computed/file projection targets are skipped by the paste planner.
+
+### Unified Table Edit Transactions
+
+Normal value edits, field-option value edits, and paste value writes go through `executeTableValueWrites`.
+
+That transaction helper:
+
+- Resolves the target row and file path once.
+- Treats empty explicit paths as missing and falls back to the row file path.
+- Groups frontmatter changes by resolved file path.
+- Writes frontmatter before accepting table/context row changes.
+- Applies root-table writes to one accumulated table snapshot.
+- Applies linked context-table writes to one accumulated table snapshot per context.
+- Returns `TableEditTransactionResult` with applied, skipped, and failed writes.
+
+File/page-title edits remain outside this helper because they require rename preflight, temporary paths, metadata settling, and row reconciliation.
+
+### Table Edit Feedback
+
+Paste operations now surface transaction state in the table:
+
+- Planned paste targets show a pending cell state while the transaction runs.
+- Failed cells show failed feedback.
+- Skipped cells show skipped feedback.
+- Successful cells clear back to normal after the transaction completes.
+- Obsidian notices summarize failed/skipped counts.
+
+This feedback is transient UI state. It is not stored in context MDB and does not change the source-of-truth model.
+
+## Guarantees
+
+Notidian currently guarantees the following for implemented edit paths:
+
+- Ordinary frontmatter-backed values are accepted only after the frontmatter write succeeds.
+- A paste path cannot bypass row file-path fallback by passing an empty path.
+- Bulk value writes update table/context snapshots from accumulated state rather than repeatedly saving stale row snapshots.
+- Mixed title/property paste writes non-file values to the renamed file path after successful rename.
+- Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
+
+## Known Gaps
+
+The following work remains before Notidian should be considered final:
+
+- Direct single-cell editor components do not yet render inline failure state.
+- There is no undo journal for bulk paste, delete, fill, or rename operations.
+- External edit conflict detection is not implemented.
+- Real vault fixture integration tests are still needed for metadata reload timing.
+- Legacy Make.md context audit/migration tooling is still needed.
+- Property rename/delete/schema operations need stronger authority-aware flows.
+- `.base` import/export is not implemented.
+- Moving files between folders from table cells is not implemented.
+
+## Documentation Map
+
+- Use [ADR 0001](adr/0001-authority-partitioned-database-model.md) for the source-of-truth model.
+- Use [ADR 0002](adr/0002-frontmatter-backed-context-columns.md) for frontmatter-backed columns.
+- Use [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) for page-title/file-rename behavior.
+- Use [ADR 0006](adr/0006-unified-table-edit-transactions.md) for shared value edit transactions.
+- Use [ADR 0007](adr/0007-table-edit-feedback.md) for transient cell feedback.
+- Use `docs/superpowers` only as historical design and execution context.
+
+## Verification Commands
+
+Run these before claiming the current implementation is healthy:
+
+```bash
+npm test -- --runInBand
+npx tsc -noEmit -skipLibCheck
+npm run build
+```
+
+For local Obsidian validation after copying the built plugin into a vault:
+
+```bash
+obsidian plugin:reload id=notidian
+obsidian dev:errors
+```
