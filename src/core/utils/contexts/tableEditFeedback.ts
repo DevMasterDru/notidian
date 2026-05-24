@@ -49,6 +49,13 @@ export const feedbackWriteForDirectCellEdit = (
   columnId: write.columnId ?? write.columnName + write.table,
 });
 
+const reasonTextForTableEditIssue = (reason: string): string => {
+  if (reason == "frontmatter-conflict") {
+    return "Frontmatter changed outside Notidian. Reload before editing.";
+  }
+  return reason;
+};
+
 export const feedbackForTableEditResult = (
   result: TableEditTransactionResult
 ): TableEditFeedback => {
@@ -60,7 +67,7 @@ export const feedbackForTableEditResult = (
         columnIdForFeedbackWrite(issue.write)
       )]: {
         state: "skipped",
-        reason: issue.reason,
+        reason: reasonTextForTableEditIssue(issue.reason),
       },
     }),
     {}
@@ -74,7 +81,7 @@ export const feedbackForTableEditResult = (
         columnIdForFeedbackWrite(issue.write)
       )]: {
         state: "failed",
-        reason: issue.reason,
+        reason: reasonTextForTableEditIssue(issue.reason),
       },
     }),
     skipped

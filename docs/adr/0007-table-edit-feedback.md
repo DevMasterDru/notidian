@@ -79,7 +79,7 @@ Positive consequences:
 Tradeoffs:
 
 - Feedback is transient; users who need a durable audit trail still need future audit/recovery work.
-- Feedback does not yet detect external edit conflicts before overwriting frontmatter.
+- Feedback reports frontmatter conflicts, but does not yet offer merge or overwrite-anyway prompts.
 
 ## Implementation Notes
 

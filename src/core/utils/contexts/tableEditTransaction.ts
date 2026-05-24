@@ -21,7 +21,8 @@ export type TableEditSkipReason =
   | "missing-row"
   | "missing-path"
   | "missing-context-table"
-  | "missing-context-row";
+  | "missing-context-row"
+  | "frontmatter-conflict";
 
 export type TableEditFailureReason =
   | "missing-path"
@@ -70,6 +71,12 @@ export type ExecuteTableValueWritesParams = {
     saveAllContextToFrontmatter: boolean
   ) => boolean;
   parseValue: (column: SpaceProperty, value: string) => unknown;
+  currentFrontmatterValue?: (params: {
+    path: string;
+    column: SpaceProperty;
+    row: DBRow;
+    write: TableCellWrite;
+  }) => string | undefined;
   saveFrontmatterProperties: (params: {
     path: string;
     properties: Record<string, unknown>;
@@ -102,6 +109,9 @@ export const applyTableEditPathOverrides = <T extends TableCellWrite>(
 
 const rowForWrite = (rows: DBRow[], write: TableCellWrite): DBRow | undefined =>
   rows[parseInt(write.rowId)];
+
+const rowValueForWrite = (row: DBRow, write: TableCellWrite): string =>
+  String(row?.[write.columnId] ?? row?.[write.columnName] ?? "");
 
 const columnForWrite = (
   tableData: SpaceTable,
@@ -186,6 +196,7 @@ export const executeTableValueWrites = async ({
   resolvePath,
   shouldWritePropertyToFrontmatter,
   parseValue,
+  currentFrontmatterValue,
   saveFrontmatterProperties,
   saveDB,
   saveContextDB,
@@ -228,6 +239,20 @@ export const executeTableValueWrites = async ({
       }
 
       const resolvedPath = resolvePath(targetPath, contextPath);
+      const canonicalValue = currentFrontmatterValue?.({
+        path: resolvedPath,
+        column,
+        row,
+        write,
+      });
+      if (
+        canonicalValue !== undefined &&
+        canonicalValue != rowValueForWrite(row, write)
+      ) {
+        skipped.push({ write, reason: "frontmatter-conflict" });
+        continue;
+      }
+
       frontmatterChangesByPath.set(resolvedPath, {
         properties: {
           ...(frontmatterChangesByPath.get(resolvedPath)?.properties ?? {}),

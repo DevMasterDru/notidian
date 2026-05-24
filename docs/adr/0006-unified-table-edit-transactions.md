@@ -79,6 +79,7 @@ Positive consequences:
 
 - Paste and single-cell edits now share frontmatter path fallback behavior.
 - Failed canonical frontmatter writes stop table row acceptance.
+- Stale frontmatter-backed writes are skipped before they can overwrite newer canonical values.
 - Multiple pasted or edited cells are saved from one accumulated table snapshot.
 - Future grid gestures can reuse the same execution model.
 - Transaction behavior is unit-tested without Obsidian.
@@ -106,6 +107,7 @@ The helper returns `TableEditTransactionResult` with:
 ## Invariants
 
 - Ordinary frontmatter-backed values are accepted only after the frontmatter write succeeds.
+- Ordinary frontmatter-backed values are skipped when current canonical metadata no longer matches the table row's base value.
 - Empty explicit paths do not suppress row-path fallback.
 - File/page-title edits remain delegated to rename transaction helpers.
 - Computed/file projection values are not saved as durable user data by this helper.
@@ -115,4 +117,4 @@ The helper returns `TableEditTransactionResult` with:
 
 - Extend table undo with redo support.
 - Add integration tests with a real vault fixture covering metadata reload after table edits.
-- Add external edit conflict detection before overwriting changed frontmatter.
+- Add inline conflict-resolution prompts for stale frontmatter edits.

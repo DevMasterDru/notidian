@@ -29,6 +29,7 @@ The key rule is:
 - Frontmatter-backed columns use `source: "frontmatter"`.
 - Editing a frontmatter-backed cell writes the Markdown file first.
 - If the canonical frontmatter write fails, Notidian does not accept the table row change.
+- If the current frontmatter value no longer matches the table row's base value, Notidian skips the stale write instead of overwriting external changes.
 - Frontmatter-backed and computed values are stripped before context MDB persistence so MDB rows do not become the durable data source.
 - Mixed observed frontmatter types resolve conservatively to `text`.
 
@@ -59,6 +60,7 @@ That transaction helper:
 
 - Resolves the target row and file path once.
 - Treats empty explicit paths as missing and falls back to the row file path.
+- Compares frontmatter-backed writes against current canonical metadata before saving.
 - Groups frontmatter changes by resolved file path.
 - Writes frontmatter before accepting table/context row changes.
 - Applies root-table writes to one accumulated table snapshot.
@@ -80,6 +82,12 @@ Paste operations and direct single-cell edits now surface transaction state in t
 - Failed or skipped cells are remounted back to canonical row data so optimistic local editor state does not keep showing a value that was not accepted.
 
 This feedback is transient UI state. It is not stored in context MDB and does not change the source-of-truth model.
+
+Detected frontmatter conflicts show skipped cell feedback with:
+
+```text
+Frontmatter changed outside Notidian. Reload before editing.
+```
 
 ### Table Undo Journal
 
@@ -104,6 +112,7 @@ Notidian currently guarantees the following for implemented edit paths:
 
 - Ordinary frontmatter-backed values are accepted only after the frontmatter write succeeds.
 - A paste path cannot bypass row file-path fallback by passing an empty path.
+- Stale frontmatter-backed table edits are skipped instead of overwriting newer canonical frontmatter values.
 - Bulk value writes update table/context snapshots from accumulated state rather than repeatedly saving stale row snapshots.
 - Mixed title/property paste writes non-file values to the renamed file path after successful rename.
 - Direct single-cell failures surface inline and reset back to canonical table data.
@@ -116,7 +125,7 @@ Notidian currently guarantees the following for implemented edit paths:
 The following work remains before Notidian should be considered final:
 
 - Redo is not implemented.
-- External edit conflict detection is not implemented.
+- Inline conflict-resolution prompts are not implemented.
 - Real vault fixture integration tests are still needed for metadata reload timing.
 - Legacy Make.md context audit/migration tooling is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
@@ -131,6 +140,7 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0006](adr/0006-unified-table-edit-transactions.md) for shared value edit transactions.
 - Use [ADR 0007](adr/0007-table-edit-feedback.md) for transient cell feedback.
 - Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
+- Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Verification Commands

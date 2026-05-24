@@ -637,6 +637,15 @@ export const ContextEditorProvider: React.FC<
         shouldWriteContextPropertyToFrontmatter,
       parseValue: (column, value) =>
         parseMDBStringValue(fieldTypeForField(column), value, true),
+      currentFrontmatterValue: ({ path, column }) => {
+        const pathState = props.superstate.pathsIndex.get(path);
+        if (!pathState) return undefined;
+        return parseProperty(
+          column.name,
+          pathState.metadata?.property?.[column.name],
+          column.type
+        );
+      },
       saveFrontmatterProperties: ({ path, properties }) =>
         saveFrontmatterProperties({
           superstate: props.superstate,

@@ -54,7 +54,7 @@ It is not:
 - A durable audit trail.
 - A cross-session undo system.
 - A redo stack.
-- External edit conflict detection.
+- A conflict-resolution prompt.
 - A full rollback engine for partially applied cross-file failures.
 
 ## Why This Is The Best Fit
@@ -129,6 +129,6 @@ The undo helper:
 ## Follow-Up Work
 
 - Add redo support.
-- Add external edit conflict detection before undo replay.
+- Add inline conflict-resolution prompts before undo replay overwrites changed frontmatter.
 - Add durable audit/recovery only if a clear product need emerges.
 - Add real-vault fixture tests covering immediate undo after metadata reload-sensitive renames.

@@ -22,6 +22,7 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Folder contexts can materialize existing frontmatter properties as visible table columns.
 - Frontmatter-backed columns are marked with `source: "frontmatter"`.
 - Frontmatter-backed edits write to the Markdown file before Notidian accepts the context edit.
+- Frontmatter-backed edits are skipped if the file metadata changed outside Notidian after the table row was rendered.
 - Frontmatter-backed and computed values are stripped before context MDB persistence, so MDB rows do not become the durable source of truth.
 - The built-in `File` column behaves like a Notion-style page title column.
 - Editing a page title performs a controlled file rename transaction.
@@ -48,6 +49,7 @@ The most important records are:
 - [ADR 0006: Unified table edit transactions](docs/adr/0006-unified-table-edit-transactions.md)
 - [ADR 0007: Table edit feedback](docs/adr/0007-table-edit-feedback.md)
 - [ADR 0008: Table undo journal](docs/adr/0008-table-undo-journal.md)
+- [ADR 0009: Frontmatter conflict detection](docs/adr/0009-frontmatter-conflict-detection.md)
 
 ADR 0003 is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
 
@@ -74,7 +76,7 @@ New writes target the Notidian plugin directory. Keep a backup of your vault bef
 This fork is in active development. The current foundation is implemented and documented. The next high-value work is:
 
 - Redo support for table operations.
-- External edit conflict detection.
+- Inline conflict-resolution prompts.
 - Real vault fixture integration tests for metadata reload timing.
 - Legacy Make.md context migration tooling.
 - Clear UI indicators for column authority.

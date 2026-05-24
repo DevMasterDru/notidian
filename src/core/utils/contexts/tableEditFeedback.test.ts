@@ -117,6 +117,33 @@ describe("tableEditFeedback", () => {
     });
   });
 
+  it("uses a readable reason for frontmatter conflict feedback", () => {
+    expect(
+      feedbackForTableEditResult({
+        ok: true,
+        applied: 0,
+        skipped: [
+          {
+            reason: "frontmatter-conflict",
+            write: {
+              rowId: "0",
+              columnId: "status",
+              columnName: "status",
+              table: "",
+              value: "active",
+            },
+          },
+        ],
+        failed: [],
+      })
+    ).toEqual({
+      "0::status": {
+        state: "skipped",
+        reason: "Frontmatter changed outside Notidian. Reload before editing.",
+      },
+    });
+  });
+
   it("summarizes failed and skipped edit results", () => {
     expect(
       summaryForTableEditResult({

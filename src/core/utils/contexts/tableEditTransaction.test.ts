@@ -42,11 +42,13 @@ const execute = async ({
   table = rootTable(),
   contexts = {},
   frontmatterOk = true,
+  currentFrontmatterValues = {},
 }: {
   writes: TableCellWrite[];
   table?: SpaceTable;
   contexts?: SpaceTables;
   frontmatterOk?: boolean;
+  currentFrontmatterValues?: Record<string, Record<string, string>>;
 }) => {
   const savedFrontmatter: { path: string; properties: Record<string, unknown> }[] =
     [];
@@ -65,6 +67,8 @@ const execute = async ({
       column.source == "frontmatter",
     parseValue: (column, value) =>
       column.type == "number" ? Number(value) : value,
+    currentFrontmatterValue: ({ path, column }) =>
+      currentFrontmatterValues[path]?.[column.name],
     saveFrontmatterProperties: async ({ path, properties }) => {
       savedFrontmatter.push({ path, properties });
       return frontmatterOk ? { ok: true } : { ok: false };
@@ -244,6 +248,45 @@ describe("executeTableValueWrites", () => {
 
     expect(result.ok).toBe(false);
     expect(result.failed).toHaveLength(1);
+    expect(savedTables).toEqual([]);
+    expect(savedContexts).toEqual([]);
+  });
+
+  it("skips stale frontmatter writes when the canonical value changed externally", async () => {
+    const { result, savedFrontmatter, savedTables, savedContexts } =
+      await execute({
+        currentFrontmatterValues: {
+          "Relays & Devices/Relays & Devices/A.md": {
+            status: "external",
+          },
+        },
+        writes: [
+          {
+            rowId: "0",
+            columnName: "status",
+            table: "",
+            value: "active",
+          },
+        ],
+      });
+
+    expect(result).toEqual({
+      ok: true,
+      applied: 0,
+      skipped: [
+        {
+          reason: "frontmatter-conflict",
+          write: {
+            rowId: "0",
+            columnName: "status",
+            table: "",
+            value: "active",
+          },
+        },
+      ],
+      failed: [],
+    });
+    expect(savedFrontmatter).toEqual([]);
     expect(savedTables).toEqual([]);
     expect(savedContexts).toEqual([]);
   });
