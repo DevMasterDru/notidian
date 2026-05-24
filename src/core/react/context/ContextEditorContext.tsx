@@ -11,6 +11,10 @@ import {
   executeBulkPageTitleRename,
   renamePageTitleForRow,
 } from "core/utils/contexts/pageTitleRename";
+import {
+  applyTableWritesToRows,
+  resolveTableEditPath,
+} from "core/utils/contexts/tablePasteExecution";
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
@@ -93,7 +97,7 @@ type ContextEditorContextProps = {
     value: string,
     table: string,
     index: number,
-    path: string
+    path?: string
   ) => Promise<void>;
   applyTableEdits: (writes: TablePasteWrite[]) => Promise<void>;
   renameRowTitle: (row: DBRow, value: string) => Promise<string | null>;
@@ -103,7 +107,7 @@ type ContextEditorContextProps = {
     value: string,
     table: string,
     index: number,
-    path: string
+    path?: string
   ) => Promise<void>;
 };
 
@@ -615,7 +619,7 @@ export const ContextEditorProvider: React.FC<
     value: string,
     table: string,
     index: number,
-    path: string
+    path?: string
   ) => {
     const col = (
       table == "" ? tableData : contextTable[tagSpacePathFromTag(table)]
@@ -628,7 +632,10 @@ export const ContextEditorProvider: React.FC<
         props.superstate.settings.saveAllContextToFrontmatter
       )
     ) {
-      const resolvedPath = props.superstate.spaceManager.resolvePath(path ?? tableData.rows[index]?.[PathPropertyName], contextPath);
+      const resolvedPath = props.superstate.spaceManager.resolvePath(
+        resolveTableEditPath(path, tableData.rows[index]?.[PathPropertyName]),
+        contextPath
+      );
       const writeResult = await saveFrontmatterProperties({
         superstate: props.superstate,
         path: resolvedPath,
@@ -700,13 +707,96 @@ export const ContextEditorProvider: React.FC<
       if (result.ok == false) return;
     }
 
-    for (const write of valueWrites) {
-      await updateValue(
-        write.columnName,
-        write.value,
-        write.table,
-        parseInt(write.rowId),
-        ""
+    const rootWrites = valueWrites.filter((write) => write.table == "");
+    const contextWrites = valueWrites.filter((write) => write.table != "");
+
+    const frontmatterChangesByPath = new Map<string, Record<string, unknown>>();
+    for (const write of rootWrites) {
+      const col = tableData.cols.find((f) => f.name == write.columnName);
+      if (
+        dbSchema.id != defaultContextSchemaID ||
+        !col ||
+        !shouldWriteContextPropertyToFrontmatter(
+          col,
+          props.superstate.settings.saveAllContextToFrontmatter
+        )
+      ) {
+        continue;
+      }
+
+      const row = tableData.rows[parseInt(write.rowId)];
+      const targetPath = resolveTableEditPath(
+        undefined,
+        row?.[PathPropertyName]
+      );
+      if (!targetPath) continue;
+
+      const resolvedPath = props.superstate.spaceManager.resolvePath(
+        targetPath,
+        contextPath
+      );
+      frontmatterChangesByPath.set(resolvedPath, {
+        ...(frontmatterChangesByPath.get(resolvedPath) ?? {}),
+        [write.columnName]: parseMDBStringValue(
+          fieldTypeForField(col),
+          write.value,
+          true
+        ),
+      });
+    }
+
+    for (const [path, properties] of frontmatterChangesByPath.entries()) {
+      const writeResult = await saveFrontmatterProperties({
+        superstate: props.superstate,
+        path,
+        properties,
+      });
+      if (!writeResult.ok) return;
+    }
+
+    if (rootWrites.length > 0) {
+      saveDB({
+        ...tableData,
+        rows: applyTableWritesToRows(tableData.rows, rootWrites),
+      });
+    }
+
+    const contextWritesByTable = contextWrites.reduce<
+      Record<string, TablePasteWrite[]>
+    >((byTable, write) => {
+      return {
+        ...byTable,
+        [write.table]: [...(byTable[write.table] ?? []), write],
+      };
+    }, {});
+
+    for (const table of Object.keys(contextWritesByTable)) {
+      const contextKey = tagSpacePathFromTag(table);
+      const sourceTable = contextTable[contextKey];
+      if (!sourceTable) continue;
+
+      saveContextDB(
+        {
+          ...sourceTable,
+          rows: sourceTable.rows.map((row) => {
+            const rowWrites = contextWritesByTable[table].filter((write) => {
+              const path = tableData.rows[parseInt(write.rowId)]?.[
+                PathPropertyName
+              ];
+              return row[PathPropertyName] == path;
+            });
+            if (rowWrites.length == 0) return row;
+
+            return rowWrites.reduce(
+              (nextRow, write) => ({
+                ...nextRow,
+                [write.columnName]: write.value,
+              }),
+              row
+            );
+          }),
+        },
+        contextKey
       );
     }
   };
@@ -732,7 +822,7 @@ export const ContextEditorProvider: React.FC<
     value: string,
     table: string,
     index: number,
-    path: string
+    path?: string
   ) => {
     const col = tableData.cols.find((f) => f.name == column);
     if (
@@ -745,7 +835,10 @@ export const ContextEditorProvider: React.FC<
     ) {
       const writeResult = await saveFrontmatterProperties({
         superstate: props.superstate,
-        path: path ?? tableData.rows[index]?.[PathPropertyName],
+        path: resolveTableEditPath(
+          path,
+          tableData.rows[index]?.[PathPropertyName]
+        ),
         properties: {
           [column]: parseMDBStringValue(fieldTypeForField(col), value, true),
         },
