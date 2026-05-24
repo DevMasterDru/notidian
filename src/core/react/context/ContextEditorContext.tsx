@@ -7,7 +7,11 @@ import {
 import { shouldWriteContextPropertyToFrontmatter } from "core/utils/properties/allProperties";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
-import { renamePageTitleForRow } from "core/utils/contexts/pageTitleRename";
+import {
+  executeBulkPageTitleRename,
+  renamePageTitleForRow,
+} from "core/utils/contexts/pageTitleRename";
+import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -91,6 +95,7 @@ type ContextEditorContextProps = {
     index: number,
     path: string
   ) => Promise<void>;
+  applyTableEdits: (writes: TablePasteWrite[]) => Promise<void>;
   renameRowTitle: (row: DBRow, value: string) => Promise<string | null>;
   updateFieldValue: (
     column: string,
@@ -125,6 +130,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   searchString: "",
   setSearchString: () => null,
   data: [],
+  applyTableEdits: () => null,
   updateValue: () => null,
   renameRowTitle: () => null,
   updateFieldValue: () => null,
@@ -672,6 +678,38 @@ export const ContextEditorProvider: React.FC<
       superstate: props.superstate,
     });
   };
+  const applyTableEdits = async (writes: TablePasteWrite[]) => {
+    const fileWrites = writes.filter((write) => write.authority == "file");
+    const valueWrites = writes.filter((write) => write.authority != "file");
+
+    if (fileWrites.length > 0) {
+      const result = await executeBulkPageTitleRename({
+        items: fileWrites.map((write) => {
+          const row =
+            data.find((row) => row._index == write.rowId) ??
+            tableData.rows[parseInt(write.rowId)];
+          return {
+            row,
+            value: write.value,
+          };
+        }),
+        contextPath,
+        superstate: props.superstate,
+      });
+
+      if (result.ok == false) return;
+    }
+
+    for (const write of valueWrites) {
+      await updateValue(
+        write.columnName,
+        write.value,
+        write.table,
+        parseInt(write.rowId),
+        ""
+      );
+    }
+  };
   const sortColumn = (sort: Sort) => {
     savePredicate({
       sort: [sort],
@@ -1078,6 +1116,7 @@ export const ContextEditorProvider: React.FC<
         searchString,
         setSearchString,
         updateValue,
+        applyTableEdits,
         renameRowTitle,
         updateFieldValue,
         editMode,
