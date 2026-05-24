@@ -66,7 +66,15 @@ import {
   TableEditFeedbackWrite,
 } from "core/utils/contexts/tableEditFeedback";
 import { TableEditTransactionResult } from "core/utils/contexts/tableEditTransaction";
-import { planTablePaste } from "core/utils/contexts/tablePastePlan";
+import {
+  planTablePaste,
+  TablePasteMode,
+} from "core/utils/contexts/tablePastePlan";
+import {
+  createTableUndoEntry,
+  pushTableUndoEntry,
+  TableUndoEntry,
+} from "core/utils/contexts/tableUndoJournal";
 import {
   CellSelection,
   cellSelectionBounds,
@@ -169,6 +177,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     useState<TableEditFeedback>({});
   const [cellResetTokens, setCellResetTokens] =
     useState<TableCellResetTokens>({});
+  const [tableUndoStack, setTableUndoStack] = useState<TableUndoEntry[]>([]);
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
   const feedbackOperationId = useRef(0);
@@ -235,6 +244,14 @@ export const TableView = (props: { superstate: Superstate }) => {
         }
       }, 5000);
     }
+  };
+
+  const labelForPasteUndo = (mode: TablePasteMode): string =>
+    mode == "bulk-rename" ? "Rename files" : "Paste cells";
+
+  const pushTableUndo = (entry: TableUndoEntry) => {
+    if (entry.writes.length == 0) return;
+    setTableUndoStack((stack) => pushTableUndoEntry(stack, entry));
   };
 
   const newRow = (name: string, index?: number, data?: DBRow) => {
@@ -308,7 +325,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     const notifyRejections = (count: number) => {
       if (count > 0) {
         props.superstate.ui.notify(
-          `${count} pasted cell${count == 1 ? " was" : "s were"} skipped.`
+          `${count} table edit${count == 1 ? " was" : "s were"} skipped.`
         );
       }
     };
@@ -340,7 +357,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       }
       navigator.clipboard.writeText(serializeTableClipboardGrid(grid));
     };
-    const pasteSelection = async (clipboardText: string) => {
+    const pasteSelection = async (clipboardText: string, label?: string) => {
       if (!activeSelection) return;
       const plan = planTablePaste({
         rowOrder: visibleRowOrder,
@@ -351,12 +368,36 @@ export const TableView = (props: { superstate: Superstate }) => {
       notifyRejections(plan.rejections.length);
       if (plan.writes.length == 0) return;
 
+      const undoEntry = createTableUndoEntry({
+        label: label ?? labelForPasteUndo(plan.mode),
+        rows: data,
+        writes: plan.writes,
+      });
       const operationId = beginCellFeedbackOperation(plan.writes);
       const result = await applyTableEdits(plan.writes);
       finishCellFeedbackOperation(operationId, result);
+      if (result.applied > 0) {
+        pushTableUndo(undoEntry);
+      }
     };
     const clearCell = () => {
-      pasteSelection("");
+      pasteSelection("", "Clear cells");
+    };
+    const undoLastTableOperation = async () => {
+      const undoEntry = tableUndoStack[tableUndoStack.length - 1];
+      if (!undoEntry) return;
+      setTableUndoStack((stack) => stack.slice(0, -1));
+
+      const operationId = beginCellFeedbackOperation(undoEntry.writes);
+      const result = await applyTableEdits(undoEntry.writes);
+      finishCellFeedbackOperation(operationId, result);
+      if (
+        result.ok &&
+        result.failed.length == 0 &&
+        result.skipped.length == 0
+      ) {
+        props.superstate.ui.notify(`Undid ${undoEntry.label}.`);
+      }
     };
     const nextRow = () => {
       const newIndex = selectNextIndex(
@@ -398,6 +439,17 @@ export const TableView = (props: { superstate: Superstate }) => {
     if (e.key == "v" && (e.metaKey || e.ctrlKey)) {
       navigator.clipboard.readText().then((f) => pasteSelection(f));
       e.preventDefault();
+    }
+    if (
+      e.key.toLowerCase() == "z" &&
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey
+    ) {
+      if (tableUndoStack.length > 0) {
+        undoLastTableOperation();
+        e.preventDefault();
+      }
+      return;
     }
     if (e.key == "Escape") {
       selectRows(null, []);

@@ -687,7 +687,9 @@ export const ContextEditorProvider: React.FC<
             data.find((row) => row._index == write.rowId) ??
             tableData.rows[parseInt(write.rowId)];
           return {
-            row,
+            row: write.path
+              ? ({ ...(row ?? {}), [PathPropertyName]: write.path } as DBRow)
+              : row,
             value: write.value,
           };
         }),

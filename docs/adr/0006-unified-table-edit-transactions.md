@@ -49,7 +49,7 @@ The helper does not own page identity edits. File/page-title changes still go th
 
 ## Why This Is The Best Fit
 
-The user wants a table that feels like Notion or a spreadsheet, but without hidden data governance. That requires many UI gestures to exist: direct typing, paste, delete, fill, cut, and future undo. If each gesture writes data through its own path, subtle differences become data bugs.
+The user wants a table that feels like Notion or a spreadsheet, but without hidden data governance. That requires many UI gestures to exist: direct typing, paste, delete, fill, cut, and undo. If each gesture writes data through its own path, subtle differences become data bugs.
 
 A shared transaction helper makes the table UX expandable while keeping the authority boundary explicit. UI features can be added as edit intents, then delegated to the same persistence path.
 
@@ -113,6 +113,6 @@ The helper returns `TableEditTransactionResult` with:
 
 ## Follow-Up Work
 
-- Add an undo journal for bulk paste, delete, and fill operations.
+- Extend table undo with redo support.
 - Add integration tests with a real vault fixture covering metadata reload after table edits.
 - Add external edit conflict detection before overwriting changed frontmatter.

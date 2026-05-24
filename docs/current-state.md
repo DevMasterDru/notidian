@@ -81,6 +81,23 @@ Paste operations and direct single-cell edits now surface transaction state in t
 
 This feedback is transient UI state. It is not stored in context MDB and does not change the source-of-truth model.
 
+### Table Undo Journal
+
+Bulk table operations now create an in-memory undo entry before execution and push it after the forward operation applies writes.
+
+Supported undo paths:
+
+- Paste.
+- Cut.
+- Delete/clear.
+- Fill-from-single-cell paste.
+- Bulk page-title rename paste.
+- Mixed page-title/property paste.
+
+Pressing `Cmd/Ctrl+Z` while the table is focused replays the inverse writes through `applyTableEdits`, so undo uses the same file rename, frontmatter write, and context MDB persistence paths as forward edits.
+
+The undo journal is table-local and transient. It is not a durable audit log and it does not add a hidden data-governance layer.
+
 ## Guarantees
 
 Notidian currently guarantees the following for implemented edit paths:
@@ -90,13 +107,15 @@ Notidian currently guarantees the following for implemented edit paths:
 - Bulk value writes update table/context snapshots from accumulated state rather than repeatedly saving stale row snapshots.
 - Mixed title/property paste writes non-file values to the renamed file path after successful rename.
 - Direct single-cell failures surface inline and reset back to canonical table data.
+- Bulk table operations can be undone through the same authority-aware edit paths that applied them.
+- Immediate undo after title paste uses the expected current renamed path instead of depending on metadata reload timing.
 - Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
 
 ## Known Gaps
 
 The following work remains before Notidian should be considered final:
 
-- There is no undo journal for bulk paste, delete, fill, or rename operations.
+- Redo is not implemented.
 - External edit conflict detection is not implemented.
 - Real vault fixture integration tests are still needed for metadata reload timing.
 - Legacy Make.md context audit/migration tooling is still needed.
@@ -111,6 +130,7 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) for page-title/file-rename behavior.
 - Use [ADR 0006](adr/0006-unified-table-edit-transactions.md) for shared value edit transactions.
 - Use [ADR 0007](adr/0007-table-edit-feedback.md) for transient cell feedback.
+- Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Verification Commands

@@ -31,6 +31,7 @@ The most important ADRs are:
 - [ADR 0005: Obsidian Bases alignment without replacing contexts](adr/0005-obsidian-bases-alignment-without-replacing-contexts.md)
 - [ADR 0006: Unified table edit transactions](adr/0006-unified-table-edit-transactions.md)
 - [ADR 0007: Table edit feedback](adr/0007-table-edit-feedback.md)
+- [ADR 0008: Table undo journal](adr/0008-table-undo-journal.md)
 
 ADR 0003 is the canonical full record for the page-title/file-rename decision. It explains why naive direct file-name editing was risky, why the selected transaction model was chosen, and what invariants future work must preserve.
 

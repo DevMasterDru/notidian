@@ -73,11 +73,12 @@ Positive consequences:
 - Failed direct edits reset optimistic editor state back to canonical data.
 - Users can distinguish pending, failed, and skipped cells.
 - The UI consumes the existing transaction result instead of inventing a parallel status model.
-- The design leaves room for undo and conflict prompts.
+- The same feedback path is reused by table undo replay.
+- The design leaves room for conflict prompts.
 
 Tradeoffs:
 
-- Feedback is transient; users who need a durable audit trail still need the future undo/journal work.
+- Feedback is transient; users who need a durable audit trail still need future audit/recovery work.
 - Feedback does not yet detect external edit conflicts before overwriting frontmatter.
 
 ## Implementation Notes
@@ -91,6 +92,5 @@ Key files:
 
 ## Follow-Up Work
 
-- Add undo journal entries for bulk paste, delete, and fill operations.
 - Add conflict detection before overwriting externally changed frontmatter.
 - Add fixture-vault integration tests for metadata reload timing.

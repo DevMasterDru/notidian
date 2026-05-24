@@ -19,6 +19,7 @@ If you need the current implementation status rather than the decision history, 
 | [0005](0005-obsidian-bases-alignment-without-replacing-contexts.md) | Obsidian Bases alignment without replacing contexts | Explains why Notidian aligns with Bases' data authority model while retaining Make.md contexts for richer view behavior. |
 | [0006](0006-unified-table-edit-transactions.md) | Unified table edit transactions | Defines the shared execution path for normal value edits, field edits, paste writes, and future grid gestures. |
 | [0007](0007-table-edit-feedback.md) | Table edit feedback | Defines transient pending, failed, and skipped cell feedback derived from edit transaction results. |
+| [0008](0008-table-undo-journal.md) | Table undo journal | Defines the table-local undo stack for bulk operations and why replay goes through authority-aware write paths. |
 
 ## Decision Summary
 
