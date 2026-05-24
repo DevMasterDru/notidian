@@ -8,7 +8,7 @@ The most important rule across these ADRs is that **Obsidian vault data remains 
 
 - [ADR 0001: Authority-partitioned database model](0001-authority-partitioned-database-model.md)
 - [ADR 0002: Frontmatter-backed context columns](0002-frontmatter-backed-context-columns.md)
-- [ADR 0003: Editable page titles through file renames](0003-editable-page-titles-through-file-renames.md)
+- [ADR 0003: Editable page titles through file renames](0003-editable-page-titles-through-file-renames.md) is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
 - [ADR 0004: Authority hardening transactions and reconciliation](0004-authority-hardening-transactions-and-reconciliation.md)
 - [ADR 0005: Obsidian Bases alignment without replacing contexts](0005-obsidian-bases-alignment-without-replacing-contexts.md)
 

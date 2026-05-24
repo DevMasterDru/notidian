@@ -8,164 +8,429 @@ Accepted.
 
 2026-05-24
 
+## Purpose Of This Record
+
+This is the canonical record for why file-name editing was hard in Make.md/Notidian, why direct generic cell editing was rejected, and why Notidian implements page-title editing as a controlled file rename transaction.
+
+The broader ADR set explains the surrounding data-governance model. This file is intentionally self-contained so the file-renaming decision can be understood without reconstructing the reasoning from scattered plans, chat history, tests, or implementation details.
+
+## User Goal
+
+The user wants Notidian context tables to behave more like Notion databases:
+
+- A folder should feel like a database.
+- Each Markdown file should feel like a page row.
+- The visible first column should behave like the page title.
+- Clicking a row name should allow inline editing.
+- Editing the name should update the real file, not a detached display value.
+- There should not be a separate governance layer where Notidian says one thing and Obsidian files say another.
+
+In Notion, the first column is a special title property. It is not a normal text field. It identifies the page represented by the row. The Obsidian equivalent is not a frontmatter `title`; it is the Markdown file path/name.
+
 ## Context
 
-The user wants a Notion-like table where clicking a row name lets them edit it directly. In Notion, the first column is a special title property: every database row is a page, and editing the title changes the page's title.
+Make.md historically treated the built-in `File` column cautiously. That caution was technically reasonable. A file name is not ordinary metadata. It is part of the file path, and the path is used as identity by both Obsidian and Make.md.
 
-In Obsidian, the closest equivalent to a Notion page title is the Markdown file name. However, a file name is not an ordinary property. It is part of the file path, and the file path is identity throughout Obsidian and Make.md.
+In Obsidian, a Markdown note is not a database row with a hidden stable page ID. It is a file in a folder. The file path participates in:
 
-Make.md avoided direct name editing for understandable reasons. Treating the `File` column as a normal editable text cell is dangerous.
-
-## Why Direct Name Editing Was Risky In Make.md
-
-File names and paths participate in many systems at once:
-
-- The physical file path in the vault.
-- Obsidian metadata cache identity.
+- The physical vault file system.
+- Obsidian's metadata cache.
 - Internal links and embeds.
-- Open panes and UI state.
-- Make.md path indexes.
-- Context row identity.
+- Open editor panes and workspace state.
+- File explorer state.
+- Plugin path indexes.
+- Make.md/Notidian context row identity.
 - Space membership.
-- Relation maps and context lookup tables.
-- Row ordering in MDB context tables.
-- Filesystem constraints such as duplicate names, invalid path characters, and case-only renames.
+- Context relations.
+- Aggregates and formulas that depend on row identity.
+- Row ordering in context MDB files.
+- Link rename handling.
+- External tools that read or write the vault directly.
 
-A naive implementation could produce several failure modes:
+That means a file-name edit has a different risk profile than editing a frontmatter property such as `status` or `voltage`.
 
-- The visible table title changes but the actual file name does not.
-- A file is renamed but the context table keeps the old path.
-- Obsidian metadata sync appends a duplicate row for the new path.
-- The renamed row moves to the end of the table.
-- Links or path caches briefly reference stale paths.
-- Two files collide at the same target path.
-- A frontmatter `title` property becomes a second competing title authority.
+## Why Make.md Avoided Naive Direct Name Editing
 
-These risks explain why Make.md treated the file column cautiously and did not simply make it a generic editable text field.
+The original Make.md behavior was not just an omission. A naive "make the File cell editable" implementation can create serious inconsistencies.
+
+### File Path Is Identity
+
+The context table's `File` value is not simply a value. It is the key that ties a row to a Markdown file.
+
+If a generic text cell writes a new value into `row.File`, the table may display a different name while the actual file remains unchanged. That creates split-brain identity:
+
+```text
+Context row says: Relays & Devices/New Name.md
+Vault file is:    Relays & Devices/Old Name.md
+```
+
+This is worse than a failed rename because it looks successful while corrupting the model.
+
+### Rename Is A Cross-System Operation
+
+Renaming a file affects many systems at once:
+
+- The filesystem path must change.
+- Obsidian must observe the rename.
+- Metadata cache entries must move from old path to new path.
+- Links may need to update.
+- Notidian path indexes must update.
+- Context rows containing the old path must update.
+- Any row order in the context must be preserved.
+- Views must refresh without duplicating rows.
+
+A generic cell editor cannot safely coordinate those effects.
+
+### Metadata Events Are Asynchronous
+
+Obsidian and Notidian react to metadata and path events asynchronously. During live testing, a real race appeared:
+
+1. The file was renamed.
+2. Metadata sync saw the new path.
+3. The context table appended the new path as a new row.
+4. The original row order was lost because the renamed row appeared at the end.
+
+This confirmed that the risk was not theoretical. Rename handling needed transaction-level reconciliation.
+
+### Context Rows Can Duplicate
+
+If the old row is not rewritten before the new path is indexed, the table can temporarily or durably contain both:
+
+```text
+Relays & Devices/Old Name.md
+Relays & Devices/New Name.md
+```
+
+Or, after partial cleanup, it can contain the new path twice:
+
+```text
+Relays & Devices/New Name.md
+Relays & Devices/New Name.md
+```
+
+This is especially harmful because context row order and row identity are user-visible database behavior.
+
+### Row Order Is User Data
+
+In a database-like table, row order may represent manual organization. A rename must not move a row to the end just because a metadata event arrived in a different order.
+
+The live vault test showed this exact failure during development: a renamed row moved from index `0` to the end of the context. The final implementation specifically defends against that.
+
+### File-System Constraints Are Not Text-Field Constraints
+
+A file name must respect filesystem rules and vault rules:
+
+- It cannot be empty.
+- It cannot contain `/` when the operation is intended to rename only the basename.
+- It must preserve the extension unless an explicit extension-editing feature exists.
+- It must not collide with an existing file.
+- It may need special handling for case-only renames on case-insensitive file systems.
+
+A generic text editor does not know these constraints.
+
+### Moving Is Not The Same Operation As Renaming
+
+If the title cell allowed `/`, then typing a slash would combine two operations:
+
+```text
+Rename file
+Move file to another folder
+```
+
+Moving a file has broader consequences than renaming the basename. It can change folder membership, database scope, backlinks, and context inclusion. For this phase, Notidian intentionally treats title editing as same-folder rename only.
+
+### A Frontmatter Title Would Create A Second Authority
+
+One tempting solution is to leave the file name alone and edit a frontmatter property:
+
+```yaml
+title: New Name
+```
+
+This was rejected because the user's goal is unified governance. If the table title comes from frontmatter but the note is still named `Old Name.md`, then the system has two titles. Other Obsidian tools, filesystem views, and links may still use the file name.
+
+That is the decoupling the fork is trying to avoid.
 
 ## Decision
 
 Treat the built-in `File` column as a special page title cell.
 
-The visible title is a projection:
+The visible title is a projection of the canonical path:
 
 ```text
 visible title = basename(row.File)
 ```
 
-Committing an edit performs a file transaction:
+Committing an edit performs a real file rename:
 
 ```text
-commit title = spaceManager.renamePath(row.File, sameFolder/newTitle.ext)
+new path = same folder + edited title + original extension
+commit   = spaceManager.renamePath(old path, new path)
 ```
 
-The title is not stored separately in context rows or frontmatter. The actual Markdown file path remains canonical.
+The title is not stored separately in frontmatter or context rows. The file path remains the source of truth.
 
-## Behavior
+## Implemented Behavior
 
-For the built-in `File` column:
+For context tables whose row identity is the built-in `File` column:
 
-- Display the basename without `.md`.
-- Click to edit inline.
-- `Enter` or blur commits.
-- `Escape` cancels.
-- The rename preserves the parent folder and extension.
+- The cell displays the file basename without `.md`.
+- Clicking the title starts inline editing.
+- `Enter` commits the edit.
+- Blur commits the edit.
+- `Escape` cancels the edit.
+- The rename preserves the parent folder.
+- The rename preserves the file extension.
 - Empty names are rejected.
 - Names containing `/` are rejected.
-- Duplicate target paths are rejected, except no-op/case-only handling.
+- Duplicate target paths are rejected.
+- Same-title edits are treated as no-ops.
 - Modifier-click still opens the note.
+- The `File` column header remains non-editable.
 
-The column definition itself remains locked. Users can edit row titles, but they cannot rename the canonical `File` property header as if it were a normal field.
+This intentionally makes `File` a special column. That matches the Notion model, where the title column is also special.
 
-## How The Implementation Overcomes The Risks
+## Implemented Solution
 
-### It Does Not Create A Second Title
+The implementation has four layers.
 
-No frontmatter `title` property is introduced. No context-row title value is stored. The rendered name comes from the file path.
+### 1. Pure Title/Path Utilities
 
-### It Uses The Real Rename Path
+`pageTitle.ts` derives display titles and validates/builds rename targets.
 
-The transaction calls `spaceManager.renamePath`, so the file system and Obsidian/Notidian rename handling are involved. This is not a context string update.
+Responsibilities:
 
-### It Narrows The Editable Surface
+- Convert a path to a visible title.
+- Reject empty titles.
+- Reject titles containing `/`.
+- Preserve the parent folder.
+- Preserve the file extension.
+- Build the target path.
 
-Only the canonical built-in `File` column receives `PageTitleCell`. Other file/link fields continue to use normal link cell behavior.
+This keeps string/path behavior testable without UI or Obsidian state.
 
-### It Validates Before Renaming
+### 2. Page Title Cell UI
 
-The rename helper rejects invalid titles and duplicate targets before attempting the file operation.
+`PageTitleCell.tsx` is a dedicated cell for the built-in `File` column.
 
-### It Handles Metadata Races
+Responsibilities:
 
-The observed race was that metadata sync could append the renamed path as a new row before the old context row was rewritten. The implementation addresses this in two layers:
+- Render the basename as the table title.
+- Enter edit mode on normal click.
+- Preserve note opening through modifier-click.
+- Commit on blur or `Enter`.
+- Cancel on `Escape`.
+- Reset visible text on failed commits.
 
-1. `onPathRename` rewrites context rows before reloading the new path.
-2. The title transaction waits for context sync, reloads the context, preserves original row position, and removes duplicate renamed rows.
+This avoids reusing generic text-cell or link-cell behavior for file identity.
 
-### It Preserves Row Order
+### 3. Rename Transaction Helper
 
-Before renaming, Notidian records the original row index. After metadata sync settles, it moves the renamed row back to that index if needed.
+`pageTitleRename.ts` performs the actual rename transaction.
 
-### It Deduplicates Renamed Rows
+Responsibilities:
 
-If async sync leaves multiple rows with the renamed path, the transaction keeps one row and removes the duplicates while preserving the original row position.
+- Validate that the row has a file path.
+- Build the target path.
+- Detect no-op edits.
+- Check duplicate target paths.
+- Allow case-only rename scenarios where appropriate.
+- Call `spaceManager.renamePath`.
+- Wait for context state queue settlement.
+- Reload the affected context.
+- Preserve the original row position.
+- Deduplicate rows for the renamed path.
+
+This is the core protection against the Make.md failure modes.
+
+### 4. Context Rename Ordering
+
+`superstate.onPathRename` was adjusted so context rows are rewritten before the renamed path is reloaded.
+
+That order matters:
+
+```text
+Preferred:
+1. Rewrite context row old path -> new path
+2. Remove orphaned old path rows
+3. Reload/index the new path
+
+Risky:
+1. Reload/index the new path
+2. Metadata sync appends a new row
+3. Try to clean up after duplication already occurred
+```
+
+The transaction helper still performs delayed reconciliation because async metadata events can happen outside the ideal order.
+
+## Why This Overcomes The Original Obstacles
+
+### It Edits The Owning Layer
+
+The owner of the page title is the file path. The implementation writes to the file path through a rename operation, not to a context row or frontmatter title.
+
+### It Avoids Split-Brain Title State
+
+There is no separate durable title value. The displayed title is always derived from `row.File`.
+
+### It Preserves Context Semantics
+
+The context row remains keyed by `File`, and row ordering is preserved after rename. This keeps the table behaving like a database rather than a raw file list.
+
+### It Handles The Observed Async Race
+
+The implementation was changed after live vault testing showed row-order loss. The final version waits for context sync, reloads the context, moves the renamed row back to the original index, and removes duplicate renamed rows.
+
+### It Keeps Other File/Link Fields Safe
+
+Only the canonical built-in `File` column uses this behavior. Other file/link fields are not converted into rename controls.
+
+### It Respects Filesystem Constraints
+
+The title editor validates file-name constraints before invoking the rename.
+
+### It Keeps Move Semantics Separate
+
+Rejecting `/` is intentional. Same-folder rename and cross-folder move are different user actions and need different handling.
 
 ## Alternatives Considered
 
-### Edit A Frontmatter `title` Property
+### Alternative 1: Keep File Names Read-Only
 
 Rejected.
 
-This would be easier, but it creates two titles: the file name and the frontmatter title. The user explicitly wants unified governance, not a decoupled title layer.
+This is safe, but it fails the core Notion-like UX requirement. The user expects to edit row names directly.
 
-### Let Users Type Paths In The Title Cell
+### Alternative 2: Edit A Frontmatter `title`
+
+Rejected.
+
+This is easier to implement but creates two competing titles:
+
+- File name.
+- Frontmatter title.
+
+That undermines the user's requirement that the system should not have decoupled data/governance.
+
+### Alternative 3: Make `File` A Generic Editable Text Cell
+
+Rejected.
+
+This writes to the wrong layer and can corrupt row identity. The `File` column is identity, not ordinary cell data.
+
+### Alternative 4: Replace The File Path With A Hidden Stable ID
+
+Rejected as a default.
+
+This would make rename behavior easier in some ways, closer to Notion's internal model. But hidden IDs would introduce another Notidian-owned governance layer. If stable IDs are ever needed, they should be explicit and probably stored in frontmatter, not hidden only in context MDB.
+
+### Alternative 5: Allow Slashes And Treat Title Editing As Move/Rename
 
 Rejected for this phase.
 
-Typing slashes would combine rename and move semantics. Moving files has more consequences than renaming the basename. It should be a separate explicit operation.
+A move operation changes folder scope and can affect whether the file belongs in the current database. It deserves an explicit move command.
 
-### Make The `File` Column A Generic Text Cell
+### Alternative 6: Replace Contexts With Obsidian Bases
 
-Rejected.
+Rejected for this decision.
 
-This would write to the wrong layer and recreate split-brain identity.
+Obsidian Bases aligns with the desired authority model, but it does not remove the rename problem. `file.name` is still file identity. Editing it still requires a controlled file rename transaction.
 
-### Keep File Names Read-Only
+## Live Testing Findings
 
-Rejected.
+The important live finding was that rename order and metadata sync can cause row-order corruption.
 
-This is safer but fails the Notion-like row editing goal.
+During testing in the user's vault:
+
+- A file in `Relays & Devices` was renamed from the Notidian table.
+- The actual `.md` file was renamed.
+- Context sync appended or moved the renamed row.
+- The row that started at index `0` ended up at the end of the table in an intermediate implementation.
+
+The implementation was then hardened:
+
+- Rename context rows before path reload in `onPathRename`.
+- Capture original row index in the title transaction.
+- Wait for the context state queue.
+- Reload the context after rename.
+- Move the renamed row back to the original index.
+- Remove duplicate renamed rows if metadata sync created them.
+
+The final live test verified that:
+
+- The file path changed on disk.
+- The old path disappeared.
+- The new path appeared.
+- The context row stayed at the original row index.
+- The rename could be reversed cleanly.
 
 ## Consequences
 
 Positive consequences:
 
-- The table feels much more like a Notion database.
-- The file system remains canonical.
-- There is no duplicate title property.
-- Rename races are explicitly handled.
+- The table feels more like a Notion database.
+- The visible row title edits the actual Obsidian file.
+- The file path remains canonical.
+- No frontmatter `title` or hidden context title is introduced.
+- The design is compatible with Obsidian-native governance.
+- The implementation directly addresses metadata race and row-order problems.
 
 Tradeoffs:
 
-- The `File` column is intentionally special.
-- File renames remain heavier than normal property edits.
-- Future move support must be designed separately.
-- External filesystem renames still need robust reconciliation beyond this specific UI path.
+- The `File` column is special by design.
+- Renaming is slower and more complex than ordinary cell editing.
+- Some conflicts must be surfaced to the user rather than silently resolved.
+- Cross-folder moves are not supported through the title cell.
+- External filesystem moves/deletes still need broader lifecycle reconciliation.
 
-## Implementation Notes
+## Current Implementation Files
 
-Key files:
+Core path/title logic:
 
 - `src/core/utils/contexts/pageTitle.ts`
 - `src/core/utils/contexts/pageTitleRename.ts`
+
+Tests:
+
+- `src/core/utils/contexts/pageTitle.test.ts`
+- `src/core/utils/contexts/pageTitleRename.test.ts`
+
+UI routing and title cell:
+
 - `src/core/react/components/SpaceView/Contexts/DataTypeView/PageTitleCell.tsx`
 - `src/core/react/components/SpaceView/Contexts/DataTypeView/DataTypeView.tsx`
 - `src/core/react/components/SpaceView/Contexts/TableView/TableView.tsx`
+
+Context operation plumbing:
+
 - `src/core/react/context/ContextEditorContext.tsx`
 - `src/core/superstate/superstate.ts`
 
-## Follow-Up Work
+Related authority hardening:
 
-- Add an explicit move command for changing folders.
-- Add conflict UI when a rename target exists.
-- Extend path lifecycle reconciliation for external moves and deletes.
+- `src/core/utils/properties/propertyAuthority.ts`
+- `src/core/utils/properties/frontmatterWrite.ts`
+
+## Invariants To Preserve
+
+Future work must preserve these invariants:
+
+- The displayed title is derived from the file path.
+- The title cell must not write a separate title into context MDB.
+- The title cell must not create a frontmatter `title` authority by default.
+- The built-in `File` property header must remain protected.
+- A committed title edit must call the file rename path.
+- Rename must preserve row order.
+- Rename must remove duplicate rows for the renamed path.
+- Same-folder rename and cross-folder move must remain separate operations unless a future ADR explicitly changes that.
+- External metadata/path events must be reconciled against file-system truth.
+
+## Future Work
+
+Recommended next work:
+
+- Add a dedicated move command for changing folders from a table row.
+- Add clearer UI feedback for duplicate-name and invalid-name failures.
+- Add broader path lifecycle reconciliation for external file moves/deletes.
+- Add integration tests with a fixture vault that exercises Obsidian metadata timing.
+- Consider an explicit optional frontmatter stable ID only if relations or sync workflows require it, and only with a separate ADR.
