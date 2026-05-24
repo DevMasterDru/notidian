@@ -201,6 +201,32 @@ describe("materializeFrontmatterBackedContextTable", () => {
     ]);
   });
 
+  it("uses text when observed frontmatter values for one property have conflicting types", () => {
+    const pathsIndex = new Map<string, any>([
+      ["a.md", pathState({ voltage: 24 })],
+      ["b.md", pathState({ voltage: "24V" })],
+    ]);
+
+    const result = materializeFrontmatterBackedContextTable(
+      {
+        schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+        cols: defaultContextFields.rows as any,
+        rows: [{ [PathPropertyName]: "a.md" }, { [PathPropertyName]: "b.md" }],
+      },
+      pathsIndex,
+      ["a.md", "b.md"],
+      settings,
+      true
+    );
+
+    expect(result.table.cols.find((col) => col.name === "voltage")).toEqual(
+      expect.objectContaining({
+        type: "text",
+        source: frontmatterPropertySource,
+      })
+    );
+  });
+
   it("does not convert contexts that contain non-frontmatter user columns", () => {
     const pathsIndex = new Map<string, any>([
       ["a.md", pathState({ status: "active" })],

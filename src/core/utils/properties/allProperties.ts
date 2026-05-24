@@ -85,6 +85,46 @@ export const contextHasOnlyDefaultOrFrontmatterColumns = (
   );
 };
 
+const safeFrontmatterType = (types: Set<string>): string => {
+  const knownTypes = [...types].filter((type) => type !== "unknown");
+  if (knownTypes.length === 0) return "text";
+
+  const uniqueTypes = new Set(knownTypes);
+  return uniqueTypes.size === 1 ? knownTypes[0] : "text";
+};
+
+const observedFrontmatterPropertyTypes = (
+  pathsIndex: Map<string, Pick<PathState, "metadata">>,
+  paths: string[],
+  settings: MakeMDSettings
+): Map<string, string> => {
+  const excluded = excludedFrontmatterPropertyNames(settings);
+  const observedTypes = new Map<string, Set<string>>();
+
+  for (const path of paths) {
+    const properties = pathsIndex.get(path)?.metadata?.property;
+    if (!properties) continue;
+
+    for (const key of Object.keys(properties)) {
+      if (excluded.has(key)) continue;
+      const mappedType = yamlTypeToMDBType(
+        detectPropertyType(properties[key], key)
+      );
+      observedTypes.set(
+        key,
+        new Set([...(observedTypes.get(key) ?? []), mappedType])
+      );
+    }
+  }
+
+  return new Map(
+    [...observedTypes.entries()].map(([key, types]) => [
+      key,
+      safeFrontmatterType(types),
+    ])
+  );
+};
+
 export const discoverFrontmatterPropertiesFromPathStates = (
   pathsIndex: Map<string, Pick<PathState, "metadata">>,
   paths: string[],
@@ -95,6 +135,11 @@ export const discoverFrontmatterPropertiesFromPathStates = (
   const excluded = excludedFrontmatterPropertyNames(settings);
   const seen = new Set(existingCols.map((col) => col.name));
   const discovered: SpaceProperty[] = [];
+  const propertyTypes = observedFrontmatterPropertyTypes(
+    pathsIndex,
+    paths,
+    settings
+  );
 
   for (const path of paths) {
     const properties = pathsIndex.get(path)?.metadata?.property;
@@ -104,7 +149,9 @@ export const discoverFrontmatterPropertiesFromPathStates = (
       if (excluded.has(key) || seen.has(key)) continue;
       discovered.push({
         name: key,
-        type: yamlTypeToMDBType(detectPropertyType(properties[key], key)),
+        type:
+          propertyTypes.get(key) ??
+          yamlTypeToMDBType(detectPropertyType(properties[key], key)),
         value: "",
         schemaId,
         source: frontmatterPropertySource,
@@ -146,7 +193,11 @@ export const materializeFrontmatterBackedContextTable = (
 
   const excluded = excludedFrontmatterPropertyNames(settings);
   const frontmatterProperties = new Set<string>();
-  const frontmatterPropertyTypes = new Map<string, string>();
+  const frontmatterPropertyTypes = observedFrontmatterPropertyTypes(
+    pathsIndex,
+    paths,
+    settings
+  );
   for (const path of paths) {
     const properties = pathsIndex.get(path)?.metadata?.property;
     if (!properties) continue;
@@ -154,12 +205,6 @@ export const materializeFrontmatterBackedContextTable = (
     for (const key of Object.keys(properties)) {
       if (excluded.has(key)) continue;
       frontmatterProperties.add(key);
-      if (!frontmatterPropertyTypes.has(key)) {
-        frontmatterPropertyTypes.set(
-          key,
-          yamlTypeToMDBType(detectPropertyType(properties[key], key))
-        );
-      }
     }
   }
 
