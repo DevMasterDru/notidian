@@ -6,11 +6,15 @@ The most important rule across these ADRs is that **Obsidian vault data remains 
 
 ## Records
 
-- [ADR 0001: Authority-partitioned database model](0001-authority-partitioned-database-model.md)
-- [ADR 0002: Frontmatter-backed context columns](0002-frontmatter-backed-context-columns.md)
-- [ADR 0003: Editable page titles through file renames](0003-editable-page-titles-through-file-renames.md) is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
-- [ADR 0004: Authority hardening transactions and reconciliation](0004-authority-hardening-transactions-and-reconciliation.md)
-- [ADR 0005: Obsidian Bases alignment without replacing contexts](0005-obsidian-bases-alignment-without-replacing-contexts.md)
+If you only need the file-name/page-title decision, read [ADR 0003](0003-editable-page-titles-through-file-renames.md). It is intentionally self-contained because that decision has the highest risk of subtle data-governance regressions.
+
+| ADR | Decision | Purpose |
+| --- | --- | --- |
+| [0001](0001-authority-partitioned-database-model.md) | Authority-partitioned database model | Defines which layer owns file identity, frontmatter properties, context-native fields, view state, and computed values. |
+| [0002](0002-frontmatter-backed-context-columns.md) | Frontmatter-backed context columns | Explains how existing YAML properties become visible/editable table columns without turning MDB rows into the durable metadata store. |
+| [0003](0003-editable-page-titles-through-file-renames.md) | Editable page titles through file renames | Canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks. |
+| [0004](0004-authority-hardening-transactions-and-reconciliation.md) | Authority hardening transactions and reconciliation | Records the transaction, persistence, type reconciliation, and rename deduplication hardening that keeps the authority model trustworthy. |
+| [0005](0005-obsidian-bases-alignment-without-replacing-contexts.md) | Obsidian Bases alignment without replacing contexts | Explains why Notidian aligns with Bases' data authority model while retaining Make.md contexts for richer view behavior. |
 
 ## Decision Summary
 
@@ -20,3 +24,7 @@ Notidian uses an authority-partitioned model:
 - Markdown frontmatter is canonical ordinary note metadata.
 - Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, compatibility cache state, and explicitly Notidian-owned fields.
 - Projected values from files/frontmatter may be cached for rendering, but they must be rebuilt from the owning layer and must not become the durable source of truth.
+
+## Maintenance Rule
+
+Any future change that moves authority between files, frontmatter, context MDB storage, computed projections, or `.base` interoperability should update the relevant ADR in this directory. The goal is that a future maintainer can understand the governing decision without reconstructing it from chat history or implementation diffs.

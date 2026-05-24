@@ -1,17 +1,45 @@
 # Notidian
 
-Notidian is an independent fork of Make.md for Obsidian. The fork is focused on making local Markdown files behave like a durable, Notion-style database system without separating data governance from Obsidian's native properties.
+Notidian is an independent fork of Make.md for Obsidian. The fork is focused on making local Markdown files behave like a durable, Notion-style database system without separating data governance from Obsidian's native files and properties.
 
 ## Direction
 
-Notidian treats Obsidian Markdown files and frontmatter properties as the canonical data layer:
+Notidian uses an authority-partitioned database model:
 
-- A row is a file.
-- A user-editable property is frontmatter.
-- Folder and table views are projections over files, not a separate source of truth.
+- A row is a Markdown file.
+- The page title is the file name/path.
+- Ordinary editable properties are frontmatter.
+- Folder and table views are projections over files and properties.
+- Notidian context MDB files store view state, ordering, formulas, relations, compatibility cache state, and explicitly Notidian-owned fields.
 - Existing Obsidian tools such as Properties, Bases, Dataview, scripts, and direct YAML edits should see the same data.
 
-The first Notidian branch already changes folder contexts so existing frontmatter properties are materialized as visible context columns and kept synchronized as new properties appear.
+The main rule is that file-backed data must not silently become governed by a hidden context database.
+
+## Current Behavior
+
+Notidian currently implements the core Obsidian-native database foundation:
+
+- Folder contexts can materialize existing frontmatter properties as visible table columns.
+- Frontmatter-backed columns are marked with `source: "frontmatter"`.
+- Frontmatter-backed edits write to the Markdown file before Notidian accepts the context edit.
+- Frontmatter-backed and computed values are stripped before context MDB persistence, so MDB rows do not become the durable source of truth.
+- The built-in `File` column behaves like a Notion-style page title column.
+- Editing a page title performs a controlled file rename transaction.
+- Rename transactions preserve context row order, deduplicate renamed rows, and return explicit failure reasons for deterministic handling.
+
+This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the view/configuration engine while files and frontmatter remain the durable data layer.
+
+## Documentation
+
+The documentation entry point is [docs/README.md](docs/README.md). Durable architectural decisions live in [docs/adr](docs/adr/README.md); historical design and execution plans live under `docs/superpowers`.
+
+The most important records are:
+
+- [ADR 0001: Authority-partitioned database model](docs/adr/0001-authority-partitioned-database-model.md)
+- [ADR 0002: Frontmatter-backed context columns](docs/adr/0002-frontmatter-backed-context-columns.md)
+- [ADR 0003: Editable page titles through file renames](docs/adr/0003-editable-page-titles-through-file-renames.md)
+
+ADR 0003 is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
 
 ## Compatibility
 
@@ -33,12 +61,13 @@ New writes target the Notidian plugin directory. Keep a backup of your vault bef
 
 ## Status
 
-This fork is in active development. The immediate roadmap is:
+This fork is in active development. The current foundation is implemented and documented. The next high-value work is:
 
-1. Rebrand the fork as Notidian.
-2. Keep frontmatter properties canonical across contexts.
-3. Move view definitions toward Obsidian Bases semantics.
-4. Reduce Make.md-specific context storage to compatibility and cache behavior.
+- Legacy Make.md context migration tooling.
+- Clear UI indicators for column authority.
+- A dedicated move command for changing folders from table rows.
+- Broader reconciliation for external file moves/deletes.
+- `.base` import/export or bridge behavior where semantics match.
 
 ## Development
 
@@ -48,10 +77,6 @@ npm test -- --runInBand
 npx tsc -noEmit -skipLibCheck
 npm run build
 ```
-
-## Architecture Decisions
-
-The core Notidian architecture decisions are recorded in [docs/adr](docs/adr/README.md), including why ordinary note data remains canonical in Obsidian files/frontmatter, why context MDB is retained as a view/configuration layer, and why page title edits are implemented as controlled file rename transactions.
 
 ## Credits
 
