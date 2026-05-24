@@ -533,8 +533,14 @@ height: 60px;
   background: none !important;
 }
 
-.mk-table:focus .mk-active .mk-selected-cell {
-  outline: solid 2px var(--mk-ui-active);
+.mk-table .mk-selected-cell {
+  background: var(--background-modifier-hover);
+  outline: solid 1px var(--mk-ui-active);
+  outline-offset: -1px;
+}
+
+.mk-table .mk-active-cell {
+  box-shadow: inset 0 0 0 2px var(--mk-ui-active);
 }
 
 .mk-cell-file-new .mk-path-icon:hover {

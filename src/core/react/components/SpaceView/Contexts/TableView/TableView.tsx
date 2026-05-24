@@ -49,6 +49,20 @@ import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { newPathInSpace } from "core/superstate/utils/spaces";
 import { PointerModifiers } from "core/types/ui";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
+import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
+import {
+  parseTableClipboardText,
+  serializeTableClipboardGrid,
+} from "core/utils/contexts/tableClipboard";
+import { planTablePaste } from "core/utils/contexts/tablePastePlan";
+import {
+  CellSelection,
+  cellSelectionBounds,
+  cellSelectionRange,
+  extendCellSelection,
+  moveCellSelection,
+  selectionContainsCell,
+} from "core/utils/contexts/tableSelection";
 import {
   aggregateFnTypes,
   calculateAggregate,
@@ -57,7 +71,6 @@ import { safeFormatNumber } from "core/utils/number";
 import { isTouchScreen } from "core/utils/ui/screen";
 import {
   selectNextIndex,
-  selectPrevIndex,
   selectRange,
 } from "core/utils/ui/selection";
 import { debounce } from "lodash";
@@ -127,6 +140,7 @@ export const TableView = (props: { superstate: Superstate }) => {
 
     updateFieldValue,
     updateValue,
+    applyTableEdits,
     renameRowTitle,
   } = useContext(ContextEditorContext);
 
@@ -139,6 +153,7 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [lastSelectedIndex, setLastSelectedIndex] = useState<string>(null);
   const [selectedColumn, setSelectedColumn] = useState<string>(null);
   const [currentEdit, setCurrentEdit] = useState<[string, string]>(null);
+  const [cellSelection, setCellSelection] = useState<CellSelection>(null);
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
   const ref = useRef(null);
@@ -225,25 +240,72 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const setCellValue = (value: string) => {
-      if (selectedColumn) {
-        const columnTuple = selectedColumn.split("#");
-        updateValue(
-          columnTuple[0],
-          value,
-          columnTuple[1] ?? "",
-          parseInt(lastSelectedIndex),
-          ""
+    const visibleRowOrder = data.map((f) => f._index);
+    const visibleColumnOrder = cols.map((f) => f.name + f.table);
+    const pasteColumns = cols.map((f) => ({
+      id: f.name + f.table,
+      name: f.name,
+      type: f.type,
+      source: f.source,
+      table: f.table,
+    }));
+    const activeSelection =
+      cellSelection ??
+      (lastSelectedIndex && selectedColumn
+        ? {
+            anchor: { rowId: lastSelectedIndex, columnId: selectedColumn },
+            focus: { rowId: lastSelectedIndex, columnId: selectedColumn },
+            active: { rowId: lastSelectedIndex, columnId: selectedColumn },
+          }
+        : null);
+    const notifyRejections = (count: number) => {
+      if (count > 0) {
+        props.superstate.ui.notify(
+          `${count} pasted cell${count == 1 ? " was" : "s were"} skipped.`
         );
       }
     };
-    const clearCell = () => {
-      setCellValue("");
-    };
-    const copyCell = () => {
-      navigator.clipboard.writeText(
-        tableData.rows[parseInt(lastSelectedIndex)][selectedColumn]
+    const copySelection = () => {
+      if (!activeSelection) return;
+      const bounds = cellSelectionBounds(
+        activeSelection,
+        visibleRowOrder,
+        visibleColumnOrder
       );
+      const grid: string[][] = [];
+      for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
+        const values: string[] = [];
+        for (
+          let column = bounds.minColumn;
+          column <= bounds.maxColumn;
+          column++
+        ) {
+          const rowData = data.find(
+            (f) => f._index == visibleRowOrder[row]
+          ) as DBRow;
+          const columnId = visibleColumnOrder[column];
+          const value = rowData?.[columnId] ?? "";
+          values.push(
+            columnId == PathPropertyName ? pageTitleFromPath(value) : value
+          );
+        }
+        grid.push(values);
+      }
+      navigator.clipboard.writeText(serializeTableClipboardGrid(grid));
+    };
+    const pasteSelection = async (clipboardText: string) => {
+      if (!activeSelection) return;
+      const plan = planTablePaste({
+        rowOrder: visibleRowOrder,
+        columns: pasteColumns,
+        selection: activeSelection,
+        clipboardGrid: parseTableClipboardText(clipboardText),
+      });
+      notifyRejections(plan.rejections.length);
+      if (plan.writes.length > 0) await applyTableEdits(plan.writes);
+    };
+    const clearCell = () => {
+      pasteSelection("");
     };
     const nextRow = () => {
       const newIndex = selectNextIndex(
@@ -253,31 +315,48 @@ export const TableView = (props: { superstate: Superstate }) => {
       selectRows(newIndex, [newIndex]);
       setLastSelectedIndex(newIndex);
     };
-    const lastRow = () => {
-      const newIndex = selectPrevIndex(
-        lastSelectedIndex,
-        data.map((f) => f._index)
-      );
-      selectRows(newIndex, [newIndex]);
-      setLastSelectedIndex(newIndex);
+    const moveSelection = (direction: "up" | "down" | "left" | "right") => {
+      if (!activeSelection) return;
+      const nextSelection = e.shiftKey
+        ? extendCellSelection(
+            activeSelection,
+            visibleRowOrder,
+            visibleColumnOrder,
+            direction
+          )
+        : moveCellSelection(
+            activeSelection,
+            visibleRowOrder,
+            visibleColumnOrder,
+            direction
+          );
+      setCellSelection(nextSelection);
+      setSelectedColumn(nextSelection.active.columnId);
+      setLastSelectedIndex(nextSelection.active.rowId);
+      selectRows(nextSelection.active.rowId, [nextSelection.active.rowId]);
     };
-    if (e.key == "c" && e.metaKey) {
-      copyCell();
+    if (e.key == "c" && (e.metaKey || e.ctrlKey)) {
+      copySelection();
+      e.preventDefault();
     }
-    if (e.key == "x" && e.metaKey) {
-      copyCell();
+    if (e.key == "x" && (e.metaKey || e.ctrlKey)) {
+      copySelection();
       clearCell();
+      e.preventDefault();
     }
-    if (e.key == "v" && e.metaKey) {
-      navigator.clipboard.readText().then((f) => setCellValue(f));
+    if (e.key == "v" && (e.metaKey || e.ctrlKey)) {
+      navigator.clipboard.readText().then((f) => pasteSelection(f));
+      e.preventDefault();
     }
     if (e.key == "Escape") {
       selectRows(null, []);
       setLastSelectedIndex(null);
       setSelectedColumn(null);
+      setCellSelection(null);
     }
     if (e.key == "Backspace" || e.key == "Delete") {
       clearCell();
+      e.preventDefault();
     }
     if (e.key == "Enter") {
       if (selectedColumn && lastSelectedIndex) {
@@ -294,26 +373,20 @@ export const TableView = (props: { superstate: Superstate }) => {
       return;
     }
     if (e.key == "ArrowDown") {
-      nextRow();
+      moveSelection("down");
       e.preventDefault();
     }
     if (e.key == "ArrowUp") {
-      lastRow();
+      moveSelection("up");
       e.preventDefault();
     }
     if (e.key == "ArrowLeft") {
-      const newIndex = selectPrevIndex(
-        selectedColumn,
-        columns.map((f) => f.accessorKey).filter((f) => f != "+")
-      );
-      setSelectedColumn(newIndex);
+      moveSelection("left");
+      e.preventDefault();
     }
     if (e.key == "ArrowRight") {
-      const newIndex = selectNextIndex(
-        selectedColumn,
-        columns.map((f) => f.accessorKey).filter((f) => f != "+")
-      );
-      setSelectedColumn(newIndex);
+      moveSelection("right");
+      e.preventDefault();
     }
   };
   const columns: any[] = useMemo(
@@ -542,6 +615,7 @@ export const TableView = (props: { superstate: Superstate }) => {
 
   const selectCell = (e: React.MouseEvent, index: number, column: string) => {
     if (isTouchScreen(props.superstate.ui) || column == "+") return;
+    const rowId = (data[index] as DBRow)["_index"];
     selectItem(
       {
         ctrlKey: e.ctrlKey,
@@ -549,13 +623,33 @@ export const TableView = (props: { superstate: Superstate }) => {
         altKey: e.altKey,
         shiftKey: e.shiftKey,
       },
-      (data[index] as DBRow)["_index"]
+      rowId
     );
+    if (e.metaKey) return;
+
+    const coord = { rowId, columnId: column };
+    const nextSelection =
+      e.shiftKey && cellSelection
+        ? { ...cellSelection, focus: coord, active: coord }
+        : { anchor: coord, focus: coord, active: coord };
+    setCellSelection(nextSelection);
     setSelectedColumn(column);
+    setLastSelectedIndex(rowId);
     if (e.detail === 1) {
     } else if (e.detail === 2) {
-      setCurrentEdit([column, (data[index] as DBRow)["_index"]]);
+      setCurrentEdit([column, rowId]);
     }
+  };
+
+  const extendSelectionToCell = (index: number, column: string) => {
+    if (!cellSelection || isTouchScreen(props.superstate.ui) || column == "+") {
+      return;
+    }
+    const rowId = (data[index] as DBRow)["_index"];
+    const coord = { rowId, columnId: column };
+    setCellSelection({ ...cellSelection, focus: coord, active: coord });
+    setSelectedColumn(column);
+    setLastSelectedIndex(rowId);
   };
 
   function handleDragEnd({ active, over }: DragEndEvent) {
@@ -744,20 +838,40 @@ export const TableView = (props: { superstate: Superstate }) => {
                     </React.Fragment>
                   ) : (
                     <td
-                      onClick={(e) =>
+                      onMouseDown={(e) =>
                         selectCell(
                           e,
                           cell.row.index,
-                          // @ts-ignore
-                          cell.column.columnDef.accessorKey
+                          (cell.column.columnDef as any).accessorKey
                         )
                       }
-                      className={`${
-                        // @ts-ignore
-                        cell.column.columnDef.accessorKey == selectedColumn
-                          ? "mk-selected-cell "
-                          : ""
-                      } mk-td ${cell.getIsPlaceholder() ? "mk-td-empty" : ""}`}
+                      onMouseEnter={(e) => {
+                        if (e.buttons != 1) return;
+                        extendSelectionToCell(
+                          cell.row.index,
+                          (cell.column.columnDef as any).accessorKey
+                        );
+                      }}
+                      className={classNames(
+                        "mk-td",
+                        cell.getIsPlaceholder() && "mk-td-empty",
+                        cellSelection &&
+                          selectionContainsCell(
+                            cellSelection,
+                            data.map((f) => f._index),
+                            cols.map((f) => f.name + f.table),
+                            {
+                              rowId: rowOriginalIndex,
+                              columnId: (cell.column.columnDef as any)
+                                .accessorKey,
+                            }
+                          ) &&
+                          "mk-selected-cell",
+                        cellSelection?.active.rowId == rowOriginalIndex &&
+                          cellSelection?.active.columnId ==
+                            (cell.column.columnDef as any).accessorKey &&
+                          "mk-active-cell"
+                      )}
                       key={cell.id}
                       style={{
                         minWidth: cell.getIsPlaceholder()
