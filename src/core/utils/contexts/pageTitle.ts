@@ -1,6 +1,8 @@
+export type PageTitleValidationReason = "empty" | "slash";
+
 export type PageTitleValidation =
   | { ok: true; title: string }
-  | { ok: false; reason: string };
+  | { ok: false; reason: PageTitleValidationReason };
 
 export type PageTitleRename = {
   oldPath: string;

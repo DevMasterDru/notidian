@@ -1,8 +1,115 @@
 import { PathPropertyName } from "shared/types/context";
 import { SpaceTable } from "shared/types/mdb";
-import { renamePageTitleForRow } from "./pageTitleRename";
+import {
+  renamePageTitleForRow,
+  renamePageTitleForRowWithResult,
+} from "./pageTitleRename";
 
 describe("renamePageTitleForRow", () => {
+  it("returns a successful transaction result for renamed file paths", async () => {
+    const result = await renamePageTitleForRowWithResult({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "New",
+      contextPath: "Relays & Devices",
+      settleDelayMs: 0,
+      superstate: {
+        spaceManager: {
+          pathExists: jest.fn(async (): Promise<boolean> => false),
+          renamePath: jest.fn(
+            async (_oldPath: string, newPath: string): Promise<string> =>
+              newPath
+          ),
+        },
+        reloadContextByPath: jest.fn(async (): Promise<void> => undefined),
+        ui: { notify: jest.fn() },
+      } as any,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      path: "Relays & Devices/New.md",
+      changed: true,
+    });
+  });
+
+  it("returns a deterministic reason for invalid title values", async () => {
+    const notify = jest.fn();
+
+    const result = await renamePageTitleForRowWithResult({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "New/Folder",
+      contextPath: "Relays & Devices",
+      settleDelayMs: 0,
+      superstate: {
+        spaceManager: {
+          pathExists: jest.fn(),
+          renamePath: jest.fn(),
+        },
+        ui: { notify },
+      } as any,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "slash" });
+    expect(notify).toHaveBeenCalledWith(
+      "Use the move command to change folders. File names cannot contain '/'."
+    );
+  });
+
+  it("returns a deterministic reason when the target path already exists", async () => {
+    const result = await renamePageTitleForRowWithResult({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "Existing",
+      contextPath: "Relays & Devices",
+      settleDelayMs: 0,
+      superstate: {
+        spaceManager: {
+          pathExists: jest.fn(async (): Promise<boolean> => true),
+          renamePath: jest.fn(),
+        },
+        ui: { notify: jest.fn() },
+      } as any,
+    });
+
+    expect(result).toEqual({ ok: false, reason: "duplicate" });
+  });
+
+  it("catches failed filesystem renames and preserves wrapper null behavior", async () => {
+    const notify = jest.fn();
+    const error = new Error("permission denied");
+    const superstate = {
+      spaceManager: {
+        pathExists: jest.fn(async (): Promise<boolean> => false),
+        renamePath: jest.fn(async (): Promise<string> => {
+          throw error;
+        }),
+      },
+      ui: { notify },
+    } as any;
+
+    const result = await renamePageTitleForRowWithResult({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "New",
+      contextPath: "Relays & Devices",
+      settleDelayMs: 0,
+      superstate,
+    });
+    const wrapperResult = await renamePageTitleForRow({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "New",
+      contextPath: "Relays & Devices",
+      settleDelayMs: 0,
+      superstate,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "rename-failed",
+      error,
+    });
+    expect(wrapperResult).toBeNull();
+    expect(notify).toHaveBeenCalledWith("Could not rename the file.");
+  });
+
   it("renames the underlying file instead of writing a context value", async () => {
     const renamePath = jest.fn(
       async (_oldPath: string, newPath: string): Promise<string> => newPath

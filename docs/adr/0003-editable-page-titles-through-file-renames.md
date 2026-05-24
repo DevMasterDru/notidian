@@ -236,6 +236,7 @@ Responsibilities:
 - Check duplicate target paths.
 - Allow case-only rename scenarios where appropriate.
 - Call `spaceManager.renamePath`.
+- Return a typed success or failure result for deterministic handling.
 - Wait for context state queue settlement.
 - Reload the affected context.
 - Preserve the original row position.
@@ -288,6 +289,18 @@ Only the canonical built-in `File` column uses this behavior. Other file/link fi
 ### It Respects Filesystem Constraints
 
 The title editor validates file-name constraints before invoking the rename.
+
+### It Makes Failures Explicit
+
+The transaction distinguishes known failure reasons:
+
+- `missing-path`
+- `empty`
+- `slash`
+- `duplicate`
+- `rename-failed`
+
+The existing UI-compatible wrapper still returns `string | null`, but the underlying transaction returns a typed result. This keeps current callers stable while making future UI, tests, and telemetry deterministic.
 
 ### It Keeps Move Semantics Separate
 
@@ -420,6 +433,7 @@ Future work must preserve these invariants:
 - The title cell must not create a frontmatter `title` authority by default.
 - The built-in `File` property header must remain protected.
 - A committed title edit must call the file rename path.
+- Known rename failures must return explicit reasons rather than only collapsing to `null`.
 - Rename must preserve row order.
 - Rename must remove duplicate rows for the renamed path.
 - Same-folder rename and cross-folder move must remain separate operations unless a future ADR explicitly changes that.
