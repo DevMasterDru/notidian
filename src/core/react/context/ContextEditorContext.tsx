@@ -3,9 +3,9 @@ import { parseFieldValue } from "core/schemas/parseFieldValue";
 import {
   createSpace,
   pinPathToSpaceAtIndex,
-  saveProperties,
 } from "core/superstate/utils/spaces";
 import { shouldWriteContextPropertyToFrontmatter } from "core/utils/properties/allProperties";
+import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
 import { renamePageTitleForRow } from "core/utils/contexts/pageTitleRename";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
@@ -540,12 +540,14 @@ export const ContextEditorProvider: React.FC<
               [c]: parseMDBStringValue(col.type, row[c], true),
             };
           }, {});
-          if (Object.keys(frontmatterChanges).length > 0)
-            await saveProperties(
-              props.superstate,
-              row?.[PathPropertyName],
-              frontmatterChanges
-          );
+          if (Object.keys(frontmatterChanges).length > 0) {
+            const writeResult = await saveFrontmatterProperties({
+              superstate: props.superstate,
+              path: row?.[PathPropertyName],
+              properties: frontmatterChanges,
+            });
+            if (!writeResult.ok) return;
+          }
           saveDB(createNewRow(tableData, row));
           return;
         }
@@ -581,12 +583,14 @@ export const ContextEditorProvider: React.FC<
         [c]: parseMDBStringValue(col.type, row[c], true),
       };
     }, {});
-    if (Object.keys(frontmatterChanges).length > 0)
-      await saveProperties(
-        props.superstate,
-        currentData?.[PathPropertyName],
-        frontmatterChanges
-      );
+    if (Object.keys(frontmatterChanges).length > 0) {
+      const writeResult = await saveFrontmatterProperties({
+        superstate: props.superstate,
+        path: currentData?.[PathPropertyName],
+        properties: frontmatterChanges,
+      });
+      if (!writeResult.ok) return;
+    }
     saveDB({
       ...tableData,
       rows: tableData.rows.map((r, i) =>
@@ -619,11 +623,14 @@ export const ContextEditorProvider: React.FC<
       )
     ) {
       const resolvedPath = props.superstate.spaceManager.resolvePath(path ?? tableData.rows[index]?.[PathPropertyName], contextPath);
-      await saveProperties(
-        props.superstate,
-        resolvedPath,
-        { [column]: parseMDBStringValue(fieldTypeForField(col), value, true) }
-      );
+      const writeResult = await saveFrontmatterProperties({
+        superstate: props.superstate,
+        path: resolvedPath,
+        properties: {
+          [column]: parseMDBStringValue(fieldTypeForField(col), value, true),
+        },
+      });
+      if (!writeResult.ok) return;
     }
 
     if (table == "") {
@@ -697,12 +704,16 @@ export const ContextEditorProvider: React.FC<
         col,
         props.superstate.settings.saveAllContextToFrontmatter
       )
-    )
-      await saveProperties(
-        props.superstate,
-        path ?? tableData.rows[index]?.[PathPropertyName],
-        { [column]: parseMDBStringValue(fieldTypeForField(col), value, true) }
-      );
+    ) {
+      const writeResult = await saveFrontmatterProperties({
+        superstate: props.superstate,
+        path: path ?? tableData.rows[index]?.[PathPropertyName],
+        properties: {
+          [column]: parseMDBStringValue(fieldTypeForField(col), value, true),
+        },
+      });
+      if (!writeResult.ok) return;
+    }
 
     if (table == "") {
       const newTable = {
