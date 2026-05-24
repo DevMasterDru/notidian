@@ -45,13 +45,18 @@ const preserveContextRowPosition = async (
   const table = superstate.contextsIndex?.get(contextPath)?.contextTable;
   if (!table) return;
 
+  const matchingRows = table.rows.filter(
+    (row) => row[PathPropertyName] == path
+  );
+  if (matchingRows.length == 0) return;
+
   const currentIndex = table.rows.findIndex(
     (row) => row[PathPropertyName] == path
   );
-  if (currentIndex < 0 || currentIndex == targetIndex) return;
+  if (currentIndex == targetIndex && matchingRows.length == 1) return;
 
-  const rows = [...table.rows];
-  const [row] = rows.splice(currentIndex, 1);
+  const rows = table.rows.filter((row) => row[PathPropertyName] != path);
+  const row = matchingRows[0];
   rows.splice(Math.min(targetIndex, rows.length), 0, row);
 
   await superstate.spaceManager.saveTable(

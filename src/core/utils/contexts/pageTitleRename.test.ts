@@ -137,4 +137,60 @@ describe("renamePageTitleForRow", () => {
       true
     );
   });
+
+  it("removes duplicate renamed rows while preserving the original row position", async () => {
+    const saveTable = jest.fn(async (): Promise<void> => undefined);
+    const contextPath = "Relays & Devices";
+    const contextTable: SpaceTable = {
+      schema: { id: "files", name: "Items", type: "db" },
+      cols: [],
+      rows: [
+        { [PathPropertyName]: "Relays & Devices/Old.md" },
+        { [PathPropertyName]: "Relays & Devices/Other.md" },
+      ],
+    };
+    const superstate = {
+      contextsIndex: new Map([[contextPath, { contextTable }]]),
+      reloadContextByPath: jest.fn(async (): Promise<void> => {
+        superstate.contextsIndex.set(contextPath, {
+          contextTable: {
+            ...contextTable,
+            rows: [
+              { [PathPropertyName]: "Relays & Devices/Other.md" },
+              { [PathPropertyName]: "Relays & Devices/New.md" },
+              { [PathPropertyName]: "Relays & Devices/New.md" },
+            ],
+          },
+        });
+      }),
+      spaceManager: {
+        pathExists: jest.fn(async (): Promise<boolean> => false),
+        renamePath: jest.fn(
+          async (_oldPath: string, newPath: string): Promise<string> => newPath
+        ),
+        saveTable,
+      },
+      ui: { notify: jest.fn() },
+    } as any;
+
+    await renamePageTitleForRow({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "New",
+      contextPath,
+      settleDelayMs: 0,
+      superstate,
+    });
+
+    expect(saveTable).toHaveBeenCalledWith(
+      contextPath,
+      {
+        ...contextTable,
+        rows: [
+          { [PathPropertyName]: "Relays & Devices/New.md" },
+          { [PathPropertyName]: "Relays & Devices/Other.md" },
+        ],
+      },
+      true
+    );
+  });
 });
