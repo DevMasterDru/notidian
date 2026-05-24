@@ -1,11 +1,6 @@
 import { DBRow } from "shared/types/mdb";
 import { TablePasteWrite } from "./tablePastePlan";
-
-export const resolveTableEditPath = (
-  explicitPath: string | null | undefined,
-  rowPath: string | undefined
-): string | undefined =>
-  explicitPath && explicitPath.trim().length > 0 ? explicitPath : rowPath;
+export { resolveTableEditPath } from "./tableEditTransaction";
 
 export const applyTableWritesToRows = (
   rows: DBRow[],
