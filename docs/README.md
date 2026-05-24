@@ -41,6 +41,7 @@ Key design specs:
 - [Obsidian property-backed contexts design](superpowers/specs/2026-05-23-obsidian-property-backed-contexts-design.md)
 - [Canonical frontmatter contexts design](superpowers/specs/2026-05-24-canonical-frontmatter-contexts-design.md)
 - [Page title cell design](superpowers/specs/2026-05-24-page-title-cell-design.md)
+- [Table range clipboard design](superpowers/specs/2026-05-24-table-range-clipboard-design.md)
 
 Key implementation plans:
 
