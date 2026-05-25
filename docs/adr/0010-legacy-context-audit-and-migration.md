@@ -89,6 +89,7 @@ Tradeoffs:
 
 Key files:
 
+- `src/core/utils/contexts/legacyContextMigrationCore.js`
 - `src/core/utils/contexts/legacyContextMigration.ts`
 - `src/core/utils/contexts/legacyContextMigration.test.ts`
 - `scripts/notidianLegacyContextAudit.js`
@@ -100,7 +101,7 @@ Primary functions:
 - `createLegacyContextMigrationPlan`
 - `applyLegacyContextMigrationPlan`
 
-The apply helper is still pure. It returns a migrated table copy that marks safe candidate columns as frontmatter-backed, appends discovered frontmatter-backed columns, and removes planned row values from the copy. It does not write files.
+The core classifier is shared by the TypeScript plugin utility and the Node CLI report so migration semantics cannot drift between surfaces. The apply helper is still pure. It returns a migrated table copy that marks safe candidate columns as frontmatter-backed, appends discovered frontmatter-backed columns, and removes planned row values from the copy. It does not write files.
 
 The CLI report reads one explicit folder context and can emit Markdown or JSON:
 

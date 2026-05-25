@@ -8,6 +8,8 @@ import {
   createLegacyContextMigrationPlan,
 } from "./legacyContextMigration";
 
+const sharedCore = require("./legacyContextMigrationCore");
+
 const legacyTable = (): SpaceTable => ({
   schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
   cols: [
@@ -56,6 +58,16 @@ const categoryFor = (table: SpaceTable, columnName: string) =>
   }).columns.find((column) => column.columnName == columnName)?.category;
 
 describe("auditLegacyContextTable", () => {
+  it("uses the shared runtime core consumed by the CLI report", () => {
+    expect(auditLegacyContextTable).toBe(sharedCore.auditLegacyContextTable);
+    expect(createLegacyContextMigrationPlan).toBe(
+      sharedCore.createLegacyContextMigrationPlan
+    );
+    expect(applyLegacyContextMigrationPlan).toBe(
+      sharedCore.applyLegacyContextMigrationPlan
+    );
+  });
+
   it("classifies frontmatter candidates while preserving context-only columns", () => {
     const audit = auditLegacyContextTable({
       table: legacyTable(),

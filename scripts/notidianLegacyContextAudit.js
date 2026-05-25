@@ -1,11 +1,11 @@
 const fs = require("fs");
 const path = require("path");
+const sharedAuditCore = require("../src/core/utils/contexts/legacyContextMigrationCore");
 
 const DEFAULT_SCHEMA = "files";
 const DEFAULT_SPACE_SUBFOLDER = ".space";
 const DEFAULT_FORMAT = "markdown";
-const PATH_PROPERTY_NAME = "File";
-const FRONTMATTER_SOURCE = "frontmatter";
+const PATH_PROPERTY_NAME = sharedAuditCore.PathPropertyName;
 const DEFAULT_EXCLUDED_FRONTMATTER_KEYS = new Set([
   "aliases",
   "tags",
@@ -13,10 +13,6 @@ const DEFAULT_EXCLUDED_FRONTMATTER_KEYS = new Set([
   "banner_y",
   "color",
   "sticker",
-]);
-const BLOCKING_VALUE_STATES = new Set([
-  "conflict",
-  "context-only-value",
 ]);
 
 const parseIntegerOption = (value, fallback) => {
@@ -328,201 +324,6 @@ const readFrontmatterForTableRows = async (config, table) => {
   return { frontmatterByPath, filesRead, warnings };
 };
 
-const isEmptyValue = (value) =>
-  value === undefined || value === null || value === "";
-
-const normalizeValue = (value) => {
-  if (isEmptyValue(value)) return "";
-  if (typeof value == "string") return value;
-  if (typeof value == "number" || typeof value == "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value);
-};
-
-const detectType = (value, key) => {
-  if (typeof value == "number") return "number";
-  if (typeof value == "boolean") return "boolean";
-  if (Array.isArray(value)) return key == "tag" || key == "tags"
-    ? "tags-multi"
-    : "option-multi";
-  if (value && typeof value == "object") return "object";
-  if (typeof value == "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return "date";
-  }
-  return "text";
-};
-
-const safeType = (types) => {
-  const unique = [...new Set(types.filter((type) => type && type != "unknown"))];
-  return unique.length == 1 ? unique[0] : "text";
-};
-
-const propertyAuthorityForColumn = (column) => {
-  if (column?.name == PATH_PROPERTY_NAME) return "file";
-  if (column?.source == FRONTMATTER_SOURCE) return "frontmatter";
-  if (column?.type == "fileprop" || column?.type == "aggregate") {
-    return "computed";
-  }
-  return "notidian";
-};
-
-const frontmatterForPath = (frontmatterByPath, pathValue) =>
-  frontmatterByPath[pathValue] ?? {};
-
-const hasOwn = (record, key) =>
-  Object.prototype.hasOwnProperty.call(record, key);
-
-const classifyValue = (columnName, row, rowIndex, frontmatter) => {
-  const contextValue = normalizeValue(row[columnName]);
-  const frontmatterValue = normalizeValue(frontmatter[columnName]);
-  const contextEmpty = contextValue.length == 0;
-  const frontmatterEmpty = frontmatterValue.length == 0;
-  let state = "empty";
-
-  if (contextEmpty && !frontmatterEmpty) {
-    state = "frontmatter-only-value";
-  } else if (!contextEmpty && frontmatterEmpty) {
-    state = "context-only-value";
-  } else if (!contextEmpty && !frontmatterEmpty) {
-    state = contextValue == frontmatterValue ? "matching" : "conflict";
-  }
-
-  return {
-    columnName,
-    rowIndex,
-    path: row[PATH_PROPERTY_NAME] ?? "",
-    state,
-    ...(contextEmpty ? {} : { contextValue }),
-    ...(frontmatterEmpty ? {} : { frontmatterValue }),
-  };
-};
-
-const classifyColumn = (column, observedFrontmatterCount) => {
-  const authority = propertyAuthorityForColumn(column);
-  if (authority == "file") return "file";
-  if (authority == "computed") return "computed";
-  if (authority == "frontmatter") return "already-frontmatter";
-  return observedFrontmatterCount > 0
-    ? "frontmatter-candidate"
-    : "context-only";
-};
-
-const auditLegacyContextTable = ({ table, frontmatterByPath }) => {
-  const rows = table.rows ?? [];
-  const cols = table.cols ?? [];
-  const existingColumnNames = new Set(cols.map((column) => column.name));
-  const discoveredNames = new Set();
-  const discoveredTypes = new Map();
-  const discoveredFrontmatterColumns = [];
-
-  for (const row of rows) {
-    const frontmatter = frontmatterForPath(
-      frontmatterByPath,
-      row[PATH_PROPERTY_NAME] ?? ""
-    );
-
-    for (const [key, value] of Object.entries(frontmatter)) {
-      if (
-        DEFAULT_EXCLUDED_FRONTMATTER_KEYS.has(key) ||
-        existingColumnNames.has(key)
-      ) {
-        continue;
-      }
-      if (!discoveredNames.has(key)) {
-        discoveredNames.add(key);
-        discoveredFrontmatterColumns.push({
-          name: key,
-          schemaId: table.schema?.id ?? DEFAULT_SCHEMA,
-          type: "text",
-          value: "",
-          source: FRONTMATTER_SOURCE,
-        });
-      }
-      discoveredTypes.set(key, [
-        ...(discoveredTypes.get(key) ?? []),
-        detectType(value, key),
-      ]);
-    }
-  }
-
-  const columns = cols.map((column) => {
-    const observedFrontmatterCount = rows.filter((row) =>
-      hasOwn(
-        frontmatterForPath(frontmatterByPath, row[PATH_PROPERTY_NAME] ?? ""),
-        column.name
-      )
-    ).length;
-    const category = classifyColumn(column, observedFrontmatterCount);
-    const valueIssues = [
-      "already-frontmatter",
-      "frontmatter-candidate",
-    ].includes(category)
-      ? rows.map((row, rowIndex) =>
-          classifyValue(
-            column.name,
-            row,
-            rowIndex,
-            frontmatterForPath(frontmatterByPath, row[PATH_PROPERTY_NAME] ?? "")
-          )
-        )
-      : [];
-
-    return {
-      columnName: column.name,
-      category,
-      observedFrontmatterCount,
-      valueIssues,
-    };
-  });
-
-  const valueIssues = columns.flatMap((column) => column.valueIssues);
-  const blockingIssues = valueIssues.filter((issue) =>
-    BLOCKING_VALUE_STATES.has(issue.state)
-  );
-
-  return {
-    columns,
-    valueIssues,
-    blockingIssues,
-    discoveredFrontmatterColumns: discoveredFrontmatterColumns.map((column) => ({
-      ...column,
-      type: safeType(discoveredTypes.get(column.name) ?? []),
-    })),
-  };
-};
-
-const columnHasBlockingIssues = (column) =>
-  column.valueIssues.some((issue) => BLOCKING_VALUE_STATES.has(issue.state));
-
-const createMigrationPlan = (audit) => {
-  const safeFrontmatterColumns = audit.columns.filter(
-    (column) =>
-      ["already-frontmatter", "frontmatter-candidate"].includes(
-        column.category
-      ) && !columnHasBlockingIssues(column)
-  );
-  const computedColumns = audit.columns
-    .filter((column) => column.category == "computed")
-    .map((column) => column.columnName);
-
-  return {
-    canApplyAutomatically: audit.blockingIssues.length == 0,
-    columnsToMarkFrontmatter: safeFrontmatterColumns
-      .filter((column) => column.category == "frontmatter-candidate")
-      .map((column) => column.columnName),
-    columnsToStripFromRows: [
-      ...computedColumns,
-      ...safeFrontmatterColumns.map((column) => column.columnName),
-    ],
-    columnsToAdd: audit.discoveredFrontmatterColumns,
-    preservedContextColumns: audit.columns
-      .filter((column) => column.category == "context-only")
-      .map((column) => column.columnName),
-    blockingIssues: audit.blockingIssues,
-  };
-};
-
 const countBy = (values) =>
   values.reduce((counts, value) => ({
     ...counts,
@@ -537,8 +338,12 @@ const buildLegacyContextAuditReport = ({
   filesRead,
   warnings = [],
 }) => {
-  const audit = auditLegacyContextTable({ table, frontmatterByPath });
-  const plan = createMigrationPlan(audit);
+  const audit = sharedAuditCore.auditLegacyContextTable({
+    table,
+    frontmatterByPath,
+    excludedFrontmatterKeys: DEFAULT_EXCLUDED_FRONTMATTER_KEYS,
+  });
+  const plan = sharedAuditCore.createLegacyContextMigrationPlan(audit);
   const uniqueRowFiles = new Set(
     (table.rows ?? [])
       .map((row) => row[PATH_PROPERTY_NAME])
@@ -718,7 +523,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  auditLegacyContextTable: sharedAuditCore.auditLegacyContextTable,
   buildLegacyContextAuditReport,
+  createLegacyContextMigrationPlan:
+    sharedAuditCore.createLegacyContextMigrationPlan,
   parseAuditArgs,
   parseMarkdownFrontmatter,
   readContextTableFromDatabase,

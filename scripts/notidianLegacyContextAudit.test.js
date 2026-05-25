@@ -5,6 +5,7 @@ const {
   renderMarkdownReport,
   validateAuditConfig,
 } = require("./notidianLegacyContextAudit");
+const sharedCore = require("../src/core/utils/contexts/legacyContextMigrationCore");
 
 const table = {
   schema: { id: "files", name: "Files", type: "db" },
@@ -29,6 +30,17 @@ const table = {
 };
 
 describe("notidian legacy context audit CLI", () => {
+  it("uses the same shared audit core as the plugin utility", () => {
+    const script = require("./notidianLegacyContextAudit");
+
+    expect(script.auditLegacyContextTable).toBe(
+      sharedCore.auditLegacyContextTable
+    );
+    expect(script.createLegacyContextMigrationPlan).toBe(
+      sharedCore.createLegacyContextMigrationPlan
+    );
+  });
+
   it("parses explicit CLI options and environment fallbacks", () => {
     expect(
       parseAuditArgs(
