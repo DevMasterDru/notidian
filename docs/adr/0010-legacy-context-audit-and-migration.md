@@ -91,6 +91,8 @@ Key files:
 
 - `src/core/utils/contexts/legacyContextMigration.ts`
 - `src/core/utils/contexts/legacyContextMigration.test.ts`
+- `scripts/notidianLegacyContextAudit.js`
+- `scripts/notidianLegacyContextAudit.test.js`
 
 Primary functions:
 
@@ -100,9 +102,17 @@ Primary functions:
 
 The apply helper is still pure. It returns a migrated table copy that marks safe candidate columns as frontmatter-backed, appends discovered frontmatter-backed columns, and removes planned row values from the copy. It does not write files.
 
+The CLI report reads one explicit folder context and can emit Markdown or JSON:
+
+```bash
+npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Relays & Devices"
+```
+
+Reports generated with `--max-files` are partial inspection reports. They are explicitly marked as not automatically applicable.
+
 ## Follow-Up Work
 
-- Add a read-only Obsidian command or CLI report for real vault contexts.
+- Add a read-only Obsidian command that shows the same report inside the app.
 - Add a migration preview UI that shows conflicts and context-only values.
 - Add explicit resolution actions: keep frontmatter, backfill frontmatter from context, keep as context-only under a renamed column, or discard context duplicate.
 - Add an opt-in write command that applies only reviewed plans.

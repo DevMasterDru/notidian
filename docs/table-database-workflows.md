@@ -157,7 +157,15 @@ The audit separates:
 
 Matching duplicates can be planned for cleanup because frontmatter already contains the same data. Values that exist only in context and conflicts are blockers. They need a future review flow so the user can choose whether to backfill frontmatter, keep the value as context-only data, or discard a duplicate.
 
-This means the safe migration sequence is audit, preview, resolve blockers, then apply. There is not yet a user-facing migration command, so the current table behavior remains non-destructive for legacy contexts.
+Run the read-only audit report with:
+
+```bash
+npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Relays & Devices"
+```
+
+Use `--max-files=1` for a quick sample. Sampled reports are marked as partial and cannot be treated as automatically applicable.
+
+This means the safe migration sequence is audit, preview, resolve blockers, then apply. There is not yet a write migration command, so the current table behavior remains non-destructive for legacy contexts.
 
 ## What Notidian Does Not Do Yet
 
@@ -167,7 +175,7 @@ These are known gaps, not accidental omissions:
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - A table command for moving files between folders.
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and Obsidian metadata reload timing.
-- User-facing legacy Make.md context audit reports and opt-in write migration tooling.
+- Opt-in legacy Make.md context write migration tooling.
 - Authority-aware property rename/delete/schema flows.
 - `.base` import/export or bridge behavior.
 
@@ -175,6 +183,7 @@ These are known gaps, not accidental omissions:
 
 - [Current State](current-state.md) is the implementation reference.
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md) explains opt-in live Obsidian verification.
+- [Legacy Context Audit Report](legacy-context-audit-report.md) explains read-only reports for older Make.md contexts.
 - [ADR 0001](adr/0001-authority-partitioned-database-model.md) defines the source-of-truth model.
 - [ADR 0002](adr/0002-frontmatter-backed-context-columns.md) explains frontmatter-backed columns.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) explains why page-title edits are file rename transactions.

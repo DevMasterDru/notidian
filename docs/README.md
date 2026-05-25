@@ -7,6 +7,7 @@ This directory preserves the durable reasoning and implementation planning behin
 - [Current State](current-state.md) describes what the implementation does today.
 - [Table Database Workflows](table-database-workflows.md) describes how the current table behaves in practical database use.
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md) describes the opt-in live Obsidian verification workflow.
+- [Legacy Context Audit Report](legacy-context-audit-report.md) describes the read-only report for older Make.md contexts.
 - [Architecture Decision Records](adr/README.md) are the durable source of truth for architectural decisions.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) is the canonical full record for editable page titles and file renames.
 - `docs/superpowers` contains historical specs and plans from implementation work. These files preserve useful development context, but they do not override the ADRs.
@@ -50,6 +51,7 @@ Practical workflow guide:
 
 - [Table Database Workflows](table-database-workflows.md)
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md)
+- [Legacy Context Audit Report](legacy-context-audit-report.md)
 
 Key design specs:
 

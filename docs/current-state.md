@@ -85,7 +85,15 @@ The audit/planner classifies:
 - context-only values that require backfill or user review;
 - conflicting values that require user review.
 
-The migration planner is conservative. It plans automatic cleanup only when a column has no blocking `conflict` or `context-only-value` rows. It preserves context-only columns, recommends discovered frontmatter keys as frontmatter-backed schema columns, and returns a migrated table copy only through a pure helper. There is still no destructive legacy migration command.
+The migration planner is conservative. It plans automatic cleanup only when a column has no blocking `conflict` or `context-only-value` rows. It preserves context-only columns, recommends discovered frontmatter keys as frontmatter-backed schema columns, and returns a migrated table copy only through a pure helper.
+
+Notidian also includes a read-only CLI report:
+
+```bash
+npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Relays & Devices"
+```
+
+The report reads a single folder context, compares context rows with frontmatter, and emits Markdown or JSON. Partial reports created with `--max-files` are marked as incomplete and cannot be treated as automatically applicable. There is still no destructive legacy migration command.
 
 ### Table Edit Feedback
 
@@ -142,6 +150,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Immediate undo after title paste uses the expected current renamed path instead of depending on metadata reload timing.
 - Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
 - Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
+- Legacy context CLI reports are read-only, and partial frontmatter scans are never marked migration-ready.
 
 ## Known Gaps
 
@@ -150,7 +159,7 @@ The following work remains before Notidian should be considered final:
 - Redo is not implemented.
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, and file-title rename paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures are still needed.
-- Legacy Make.md context audit/planning exists as a pure utility, but a user-facing read-only report and opt-in write migration command are still needed.
+- Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
 - `.base` import/export is not implemented.
 - Moving files between folders from table cells is not implemented.
@@ -159,6 +168,7 @@ The following work remains before Notidian should be considered final:
 
 - Use [Table Database Workflows](table-database-workflows.md) for practical table usage and troubleshooting.
 - Use [Real Vault Smoke Harness](real-vault-smoke-harness.md) for opt-in live Obsidian verification.
+- Use [Legacy Context Audit Report](legacy-context-audit-report.md) for read-only reports on old Make.md contexts.
 - Use [ADR 0001](adr/0001-authority-partitioned-database-model.md) for the source-of-truth model.
 - Use [ADR 0002](adr/0002-frontmatter-backed-context-columns.md) for frontmatter-backed columns.
 - Use [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) for page-title/file-rename behavior.
@@ -181,6 +191,7 @@ The following work remains before Notidian should be considered final:
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Legacy context audit and migration planning | [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts) and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
+| Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 
@@ -205,4 +216,10 @@ For the opt-in real-vault smoke harness:
 
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write
+```
+
+For a read-only legacy context report:
+
+```bash
+npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Relays & Devices"
 ```
