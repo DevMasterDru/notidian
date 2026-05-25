@@ -77,7 +77,7 @@ This fork is in active development. The current foundation is implemented and do
 
 - Redo support for table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
-- Broader real-vault UI automation for paste, undo, rename, and conflict actions.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures.
 - Legacy Make.md context migration tooling.
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.

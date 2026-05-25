@@ -149,7 +149,7 @@ These are known gaps, not accidental omissions:
 - Redo support for table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - A table command for moving files between folders.
-- Broader real-vault UI automation for paste, undo, rename, conflict actions, and Obsidian metadata reload timing.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and Obsidian metadata reload timing.
 - Legacy Make.md context audit and migration tooling.
 - Authority-aware property rename/delete/schema flows.
 - `.base` import/export or bridge behavior.

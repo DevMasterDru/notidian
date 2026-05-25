@@ -90,6 +90,8 @@ describe("notidian real vault harness", () => {
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
       alphaRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
+      alphaUiRenamedPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha UI Renamed.md",
     });
   });
 
@@ -174,7 +176,20 @@ describe("notidian real vault harness", () => {
 
   it("runs the optional table UI smoke scenario before cleanup", async () => {
     const calls = [];
-    const evalResponses = ["=> old", "=> active", "=> active", "=> ui-active"];
+    const evalResponses = [
+      "=> old",
+      "=> active",
+      "=> active",
+      "=> ui-active",
+      "=> paste-active",
+      "=> 7",
+      "=> ui-active",
+      "=> 2",
+      "=> conflict-applied",
+      "=> active",
+    ];
+    const uiRenamedPath =
+      "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha UI Renamed.md";
     const runner = jest.fn(async (args) => {
       calls.push(args);
       const command = args[1];
@@ -192,6 +207,32 @@ describe("notidian real vault harness", () => {
             columns: ["File", "Created", "Status", "Rating", "Owner"],
             rowFound: true,
             editedValue: "ui-active",
+          });
+        }
+        if (code.includes("notidianTableUiPaste")) {
+          return JSON.stringify({
+            ok: true,
+            editedValues: { status: "paste-active", rating: "7" },
+          });
+        }
+        if (code.includes("notidianTableUiUndo")) {
+          return JSON.stringify({
+            ok: true,
+            editedValues: { status: "ui-active", rating: "2" },
+          });
+        }
+        if (code.includes("notidianTableUiRename")) {
+          return JSON.stringify({
+            ok: true,
+            path: uiRenamedPath,
+            title:
+              "notidian-smoke-2026-05-25T10-20-30-456Z-Alpha UI Renamed",
+          });
+        }
+        if (code.includes("notidianTableUiConflict")) {
+          return JSON.stringify({
+            ok: true,
+            appliedValue: "conflict-applied",
           });
         }
         return evalResponses.shift() ?? "ui-active";
@@ -219,13 +260,20 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(7);
-    expect(
-      calls.some(
-        (args) =>
-          args[1] == "eval" && args.join(" ").includes("notidianTableUiEdit")
-      )
-    ).toBe(true);
+      .toHaveLength(17);
+    [
+      "notidianTableUiEdit",
+      "notidianTableUiPaste",
+      "notidianTableUiUndo",
+      "notidianTableUiRename",
+      "notidianTableUiConflict",
+    ].forEach((marker) => {
+      expect(
+        calls.some(
+          (args) => args[1] == "eval" && args.join(" ").includes(marker)
+        )
+      ).toBe(true);
+    });
     expect(
       calls.some(
         (args) =>
@@ -233,6 +281,9 @@ describe("notidian real vault harness", () => {
           args.join(" ").includes('execCommand("insertText"')
       )
     ).toBe(true);
+    expect(calls.some((args) => args.includes(`path=${uiRenamedPath}`))).toBe(
+      true
+    );
     expect(calls.map((args) => args[1]).slice(-3)).toEqual([
       "delete",
       "delete",
@@ -278,6 +329,54 @@ describe("notidian real vault harness", () => {
         runner
       )
     ).rejects.toThrow("Notidian table UI smoke failed: missing-table");
+  });
+
+  it("fails loudly when an expanded table UI workflow fails", async () => {
+    const evalResponses = ["=> old", "=> active", "=> active", "=> ui-active"];
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianTableUiSetup")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianTableUiEdit")) {
+          return JSON.stringify({
+            ok: true,
+            columns: ["File", "Created", "Status", "Rating", "Owner"],
+            rowFound: true,
+            editedValue: "ui-active",
+          });
+        }
+        if (code.includes("notidianTableUiPaste")) {
+          return JSON.stringify({
+            ok: false,
+            reason: "missing-cell",
+          });
+        }
+        return evalResponses.shift() ?? "ui-active";
+      }
+      if (command == "property:read") return "active";
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    await expect(
+      runRealVaultSmokeHarness(
+        {
+          ...baseConfig,
+          includeUi: true,
+          now: () => new Date("2026-05-25T10:20:30.456Z"),
+        },
+        runner
+      )
+    ).rejects.toThrow("Notidian table UI paste failed: missing-cell");
   });
 
   it("keeps fixtures for inspection when requested", async () => {

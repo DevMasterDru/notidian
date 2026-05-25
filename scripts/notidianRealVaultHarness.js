@@ -6,6 +6,10 @@ const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 20000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_TABLE_UI_EDIT_VALUE = "ui-active";
+const DEFAULT_TABLE_UI_PASTE_STATUS = "paste-active";
+const DEFAULT_TABLE_UI_PASTE_RATING = "7";
+const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
+const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
 
@@ -148,6 +152,7 @@ const createFixturePaths = (config, now = new Date()) => {
     alphaPath: `${prefix}-Alpha.md`,
     betaPath: `${prefix}-Beta.md`,
     alphaRenamedPath: `${prefix}-Alpha Renamed.md`,
+    alphaUiRenamedPath: `${prefix}-Alpha UI Renamed.md`,
   };
 };
 
@@ -433,7 +438,16 @@ const tableUiEditEvalCode = ({
       editor.dispatchEvent(inputEvent);
       await sleep(100);
       editor.dispatchEvent(
-        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: table,
+        })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("blur", {
+          bubbles: false,
+          relatedTarget: table,
+        })
       );
       await sleep(300);
       if (cell.querySelector("[contenteditable='true']")) {
@@ -483,6 +497,612 @@ const tableUiEditEvalCode = ({
         ok: false,
         reason: lastResult?.reason || "timeout",
         timedOut: true,
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiPasteEvalCode = ({
+  folder,
+  rowTitle,
+  statusValue,
+  ratingValue,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiPaste";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const statusValue = ${JSON.stringify(statusValue)};
+    const ratingValue = ${JSON.stringify(ratingValue)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const findTable = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      return { ok: true, table, headers, row };
+    };
+    const cellByColumn = (tableState, columnName) => {
+      const columnIndex = tableState.headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: tableState.headers.filter(Boolean),
+        };
+      }
+      const cell = tableState.row.children[columnIndex];
+      if (!cell) {
+        return {
+          ok: false,
+          reason: "missing-cell",
+          columns: tableState.headers.filter(Boolean),
+          columnIndex,
+          cellCount: tableState.row.children.length,
+        };
+      }
+      return { ok: true, cell, columnIndex };
+    };
+    const waitForCells = async () => {
+      const start = Date.now();
+      let last = null;
+      do {
+        const tableState = findTable();
+        if (!tableState.ok) return tableState;
+        const statusCell = cellByColumn(tableState, "status");
+        if (!statusCell.ok) return statusCell;
+        const ratingCell = cellByColumn(tableState, "rating");
+        if (!ratingCell.ok) return ratingCell;
+        last = {
+          status: statusCell.cell.innerText.trim(),
+          rating: ratingCell.cell.innerText.trim(),
+        };
+        if (last.status == statusValue && last.rating == ratingValue) {
+          return { ok: true, editedValues: last };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      return {
+        ok: false,
+        reason: "display-not-settled",
+        editedValues: last,
+      };
+    };
+    try {
+      const start = Date.now();
+      let tableState = null;
+      do {
+        tableState = findTable();
+        if (tableState.ok) break;
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      if (!tableState?.ok) return finish(tableState || { ok: false, reason: "missing-table" });
+      const statusCell = cellByColumn(tableState, "status");
+      if (!statusCell.ok) return finish(statusCell);
+      statusCell.cell.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, buttons: 1 })
+      );
+      tableState.table.focus();
+      await sleep(100);
+      const clipboardText = statusValue + "\\t" + ratingValue;
+      const originalClipboard = navigator.clipboard;
+      const originalReadText = originalClipboard?.readText;
+      let restored = false;
+      const restoreClipboard = () => {
+        if (restored) return;
+        restored = true;
+        try {
+          if (originalClipboard && originalReadText) {
+            originalClipboard.readText = originalReadText;
+          }
+        } catch (error) {
+          if (originalClipboard) {
+            Object.defineProperty(navigator, "clipboard", {
+              configurable: true,
+              value: originalClipboard,
+            });
+          }
+        }
+      };
+      try {
+        try {
+          originalClipboard.readText = async () => clipboardText;
+        } catch (error) {
+          Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: {
+              ...(originalClipboard || {}),
+              readText: async () => clipboardText,
+            },
+          });
+        }
+        tableState.table.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "v",
+            code: "KeyV",
+            metaKey: true,
+          })
+        );
+      } finally {
+        setTimeout(restoreClipboard, 0);
+      }
+      await sleep(300);
+      const result = await waitForCells();
+      restoreClipboard();
+      return finish(result);
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiUndoEvalCode = ({
+  folder,
+  rowTitle,
+  statusValue,
+  ratingValue,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiUndo";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const statusValue = ${JSON.stringify(statusValue)};
+    const ratingValue = ${JSON.stringify(ratingValue)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const findTable = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      return { ok: true, table, headers, row };
+    };
+    const cellText = (tableState, columnName) => {
+      const columnIndex = tableState.headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: tableState.headers.filter(Boolean),
+        };
+      }
+      const cell = tableState.row.children[columnIndex];
+      if (!cell) {
+        return {
+          ok: false,
+          reason: "missing-cell",
+          columns: tableState.headers.filter(Boolean),
+          columnIndex,
+          cellCount: tableState.row.children.length,
+        };
+      }
+      return { ok: true, value: cell.innerText.trim() };
+    };
+    try {
+      const tableState = findTable();
+      if (!tableState.ok) return finish(tableState);
+      tableState.table.focus();
+      tableState.table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "z",
+          code: "KeyZ",
+          metaKey: true,
+        })
+      );
+      const start = Date.now();
+      let last = null;
+      do {
+        const nextState = findTable();
+        if (!nextState.ok) return finish(nextState);
+        const status = cellText(nextState, "status");
+        if (!status.ok) return finish(status);
+        const rating = cellText(nextState, "rating");
+        if (!rating.ok) return finish(rating);
+        last = { status: status.value, rating: rating.value };
+        if (last.status == statusValue && last.rating == ratingValue) {
+          return finish({ ok: true, editedValues: last });
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      return finish({
+        ok: false,
+        reason: "display-not-settled",
+        editedValues: last,
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiRenameEvalCode = ({
+  folder,
+  rowTitle,
+  nextTitle,
+  nextPath,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiRename";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const nextTitle = ${JSON.stringify(nextTitle)};
+    const nextPath = ${JSON.stringify(nextPath)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const findTitleCell = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === "file"
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: headers.filter(Boolean),
+        };
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[columnIndex];
+      if (!cell) {
+        return {
+          ok: false,
+          reason: "missing-cell",
+          columns: headers.filter(Boolean),
+          columnIndex,
+          cellCount: row.children.length,
+        };
+      }
+      return { ok: true, table, cell, headers };
+    };
+    try {
+      const found = findTitleCell();
+      if (!found.ok) return finish(found);
+      found.cell.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, buttons: 1 })
+      );
+      found.table.focus();
+      await sleep(100);
+      found.table.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+      );
+      await sleep(250);
+      const editor = found.cell.querySelector("[contenteditable='true']");
+      if (!editor) {
+        return finish({
+          ok: false,
+          reason: "missing-editor",
+          columns: found.headers.filter(Boolean),
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        });
+      }
+      editor.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const inserted = typeof document.execCommand == "function"
+        ? document.execCommand("insertText", false, nextTitle)
+        : false;
+      if (!inserted) {
+        editor.textContent = nextTitle;
+      }
+      const inputEvent = typeof InputEvent == "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: nextTitle,
+          })
+        : new Event("input", { bubbles: true });
+      editor.dispatchEvent(inputEvent);
+      await sleep(100);
+      editor.dispatchEvent(
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: found.table,
+        })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("blur", {
+          bubbles: false,
+          relatedTarget: found.table,
+        })
+      );
+      editor.blur();
+      const start = Date.now();
+      do {
+        if (app.vault.getAbstractFileByPath(nextPath)) {
+          return finish({ ok: true, path: nextPath, title: nextTitle });
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      return finish({
+        ok: false,
+        reason: "rename-not-settled",
+        path: nextPath,
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiConflictEvalCode = ({
+  pluginId,
+  folder,
+  rowTitle,
+  betaPath,
+  externalValue,
+  appliedValue,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiConflict";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const betaPath = ${JSON.stringify(betaPath)};
+    const pluginId = ${JSON.stringify(pluginId)};
+    const externalValue = ${JSON.stringify(externalValue)};
+    const appliedValue = ${JSON.stringify(appliedValue)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const frontmatterValue = () => {
+      const file = app.vault.getAbstractFileByPath(betaPath);
+      if (!file) return undefined;
+      return app.metadataCache.getFileCache(file)?.frontmatter?.status;
+    };
+    const pathIndexValue = () => {
+      const plugin = app.plugins.plugins[pluginId];
+      return plugin?.superstate?.pathsIndex
+        ?.get(betaPath)
+        ?.metadata
+        ?.property
+        ?.status;
+    };
+    const findStatusCell = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === "status"
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: headers.filter(Boolean),
+        };
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[columnIndex];
+      if (!cell) {
+        return {
+          ok: false,
+          reason: "missing-cell",
+          columns: headers.filter(Boolean),
+          columnIndex,
+          cellCount: row.children.length,
+        };
+      }
+      return { ok: true, table, cell, columns: headers.filter(Boolean) };
+    };
+    const editStatusCell = async () => {
+      const found = findStatusCell();
+      if (!found.ok) return found;
+      found.cell.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, buttons: 1 })
+      );
+      found.table.focus();
+      await sleep(100);
+      found.table.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+      );
+      await sleep(250);
+      const editor = found.cell.querySelector("[contenteditable='true']");
+      if (!editor) {
+        return {
+          ok: false,
+          reason: "missing-editor",
+          columns: found.columns,
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        };
+      }
+      editor.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const inserted = typeof document.execCommand == "function"
+        ? document.execCommand("insertText", false, appliedValue)
+        : false;
+      if (!inserted) {
+        editor.textContent = appliedValue;
+      }
+      const inputEvent = typeof InputEvent == "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: appliedValue,
+          })
+        : new Event("input", { bubbles: true });
+      editor.dispatchEvent(inputEvent);
+      await sleep(100);
+      editor.dispatchEvent(
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: found.table,
+        })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("blur", {
+          bubbles: false,
+          relatedTarget: found.table,
+        })
+      );
+      await sleep(300);
+      if (found.cell.querySelector("[contenteditable='true']")) {
+        editor.blur();
+      }
+      return { ok: true };
+    };
+    try {
+      const file = app.vault.getAbstractFileByPath(betaPath);
+      if (!file) return finish({ ok: false, reason: "missing-file", path: betaPath });
+      const plugin = app.plugins.plugins[pluginId];
+      const pathState = plugin?.superstate?.pathsIndex?.get(betaPath);
+      if (!pathState?.metadata?.property) {
+        return finish({
+          ok: false,
+          reason: "missing-path-state",
+          path: betaPath,
+        });
+      }
+      pathState.metadata.property.status = externalValue;
+      const editResult = await editStatusCell();
+      if (!editResult.ok) return finish(editResult);
+      const conflictStart = Date.now();
+      let lastCellHtml = "";
+      do {
+        const found = findStatusCell();
+        if (!found.ok) return finish(found);
+        lastCellHtml = found.cell.outerHTML.slice(0, 800);
+        const conflictCell = found.cell.classList.contains("mk-cell-conflict")
+          ? found.cell
+          : found.cell.querySelector(".mk-cell-conflict")
+          ? found.cell
+          : null;
+        const applyButton = conflictCell
+          ? Array.from(conflictCell.querySelectorAll("button"))
+              .find((button) => button.innerText.trim() == "Apply anyway")
+          : null;
+        if (applyButton) {
+          applyButton.click();
+          const applyStart = Date.now();
+          do {
+            if (String(frontmatterValue()) == appliedValue) {
+              return finish({ ok: true, appliedValue });
+            }
+            await sleep(pollIntervalMs);
+          } while (Date.now() - applyStart <= timeoutMs);
+          return finish({
+            ok: false,
+            reason: "apply-not-visible",
+            currentValue: frontmatterValue(),
+          });
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - conflictStart <= timeoutMs);
+      return finish({
+        ok: false,
+        reason: "missing-conflict",
+        currentValue: frontmatterValue(),
+        pathIndexValue: pathIndexValue(),
+        cellHtml: lastCellHtml,
       });
     } catch (error) {
       return finish({
@@ -625,6 +1245,123 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     property: "status",
     expected: DEFAULT_TABLE_UI_EDIT_VALUE,
   });
+
+  const pasteResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiPasteEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        statusValue: DEFAULT_TABLE_UI_PASTE_STATUS,
+        ratingValue: DEFAULT_TABLE_UI_PASTE_RATING,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("paste", pasteResult);
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: DEFAULT_TABLE_UI_PASTE_STATUS,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "rating",
+    expected: DEFAULT_TABLE_UI_PASTE_RATING,
+  });
+
+  const undoResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiUndoEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        statusValue: DEFAULT_TABLE_UI_EDIT_VALUE,
+        ratingValue: "2",
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("undo", undoResult);
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: DEFAULT_TABLE_UI_EDIT_VALUE,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "rating",
+    expected: "2",
+  });
+
+  const conflictResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiConflictEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        betaPath: paths.betaPath,
+        externalValue: DEFAULT_TABLE_UI_CONFLICT_EXTERNAL,
+        appliedValue: DEFAULT_TABLE_UI_CONFLICT_APPLIED,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("conflict", conflictResult);
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: DEFAULT_TABLE_UI_CONFLICT_APPLIED,
+  });
+
+  const uiRenameTitle = `${paths.runId}-Alpha UI Renamed`;
+  const renameResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiRenameEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Alpha Renamed`,
+        nextTitle: uiRenameTitle,
+        nextPath: paths.alphaUiRenamedPath,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("rename", renameResult);
+
+  const primaryPath = renameResult.path || paths.alphaUiRenamedPath;
+  const renamedContent = await runObsidian(config, runner, "read", {
+    path: primaryPath,
+  });
+  if (!String(renamedContent ?? "").trim()) {
+    throw new Error(`UI-renamed fixture could not be read at ${primaryPath}.`);
+  }
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: primaryPath,
+    property: "status",
+    expected: "active",
+  });
+
+  return {
+    primaryPath,
+  };
 };
 
 const runRealVaultSmokeHarness = async (config, runner) => {
@@ -712,11 +1449,12 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     });
 
     if (config.includeUi) {
-      await runTableUiSmokeScenario({
+      const uiPaths = await runTableUiSmokeScenario({
         config,
         runner: execute,
         paths,
       });
+      primaryPath = uiPaths.primaryPath ?? primaryPath;
     }
 
     const devErrors = await runObsidian(config, execute, "dev:errors");

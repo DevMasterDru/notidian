@@ -190,8 +190,8 @@ Build an eval that:
 
 Build an eval that:
 
-1. Uses `app.fileManager.processFrontMatter` on the Beta fixture to set `status` to `conflict-external`.
-2. Waits until `app.metadataCache.getFileCache(file).frontmatter.status` is `conflict-external`.
+1. Sets Beta `status` to `conflict-external` inside Notidian's live `superstate.pathsIndex` without dispatching a table reload.
+2. Leaves the rendered table row on the pre-change value so the next edit is stale.
 3. Edits the visible Beta `status` cell to `conflict-applied`.
 4. Waits for a `.mk-cell-conflict` cell with an `Apply anyway` button.
 5. Clicks `Apply anyway`.

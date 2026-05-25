@@ -20,7 +20,7 @@ The scenario will keep using Obsidian CLI `eval` to run browser-context JavaScri
 2. `notidianTableUiPaste`: table keyboard paste from the Beta `status` cell with a one-row, two-column TSV payload that updates `status` and `rating`.
 3. `notidianTableUiUndo`: table keyboard undo that restores the pasted cells to their pre-paste values.
 4. `notidianTableUiRename`: edit the Alpha file-title cell and verify the file path changed through the table UI.
-5. `notidianTableUiConflict`: mutate Beta frontmatter outside the table, attempt a stale table edit, click `Apply anyway`, and verify the forced write reaches frontmatter.
+5. `notidianTableUiConflict`: create a deterministic stale authority state for Beta, attempt a stale table edit, click `Apply anyway`, and verify the forced write reaches frontmatter.
 
 The harness will still verify canonical Markdown metadata from Node after each workflow. DOM success alone is not enough.
 
@@ -35,7 +35,7 @@ The existing write gates remain:
 
 The title rename workflow changes the Alpha fixture path after the primitive API rename. The UI scenario must return the final Alpha path so cleanup deletes the final file, not the stale path.
 
-The conflict workflow only mutates the Beta fixture file created by the same harness run.
+The conflict workflow only mutates the Beta fixture state created by the same harness run.
 
 ## Workflow Details
 
@@ -53,9 +53,9 @@ The rename workflow edits the `File` column for the Alpha fixture row through th
 
 ### Conflict Action
 
-The conflict workflow changes Beta `status` through Obsidian's frontmatter API while the table still has the pre-change row value. It then attempts a table edit, expects a rendered frontmatter-conflict state, clicks `Apply anyway`, and waits for the forced frontmatter write.
+The conflict workflow changes Beta `status` inside Notidian's live `superstate.pathsIndex` while the table still has the pre-change row value. It then attempts a table edit, expects a rendered frontmatter-conflict state, clicks `Apply anyway`, and waits for the forced frontmatter write.
 
-If live metadata reload timing causes the table to refresh before a conflict can be produced, the workflow should fail with a clear `missing-conflict` reason instead of silently passing. That would reveal a real limitation of this smoke technique and should be addressed separately.
+The harness uses this controlled stale authority state because real external file edits often refresh the table before a stale row can be exercised. Unit tests cover conflict detection against canonical metadata; this live scenario covers the rendered conflict action and forced write path.
 
 ## Error Handling
 

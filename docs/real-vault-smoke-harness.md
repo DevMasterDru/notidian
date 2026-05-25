@@ -12,7 +12,7 @@ Run this harness after changes that affect:
 - File/page-title rename behavior.
 - Metadata-cache conflict detection.
 - Table undo paths that write files.
-- Table DOM rendering or direct cell editing when using `--ui`.
+- Table DOM rendering, paste, undo, rename, or conflict actions when using `--ui`.
 - Plugin startup, reload, or vault integration behavior.
 
 Use a disposable test vault when possible. If you use a real working vault, make sure it is backed up.
@@ -91,7 +91,7 @@ The source-of-truth smoke scenario performs these steps:
 
 This proves the live vault supports the primitive operations Notidian's table transactions depend on.
 
-With `--ui`, the harness also performs a live table scenario:
+With `--ui`, the harness also performs live table scenarios:
 
 1. Forces the fixture root's default Notidian view to table view.
 2. Opens the fixture root through Notidian's UI API.
@@ -100,6 +100,12 @@ With `--ui`, the harness also performs a live table scenario:
 5. Selects the Beta row's `status` cell through DOM events.
 6. Presses Enter to open the real cell editor.
 7. Writes `ui-active` through the browser-native contenteditable insertion path, commits the edit, waits for the rendered cell to settle on `ui-active`, and waits until Obsidian metadata reports `status: ui-active` on the Beta fixture note.
+8. Uses the table's keyboard paste handler to paste a one-row, two-column TSV payload into Beta `status` and `rating`, then verifies both frontmatter values.
+9. Uses the table's keyboard undo handler to restore the pasted cells to `status: ui-active` and `rating: 2`, then verifies both frontmatter values.
+10. Creates a deterministic stale frontmatter authority state for the Beta row, edits the visible `status` cell, clicks the rendered `Apply anyway` conflict action, and verifies `status: conflict-applied` reaches the Markdown file.
+11. Edits the Alpha `File` cell through the live title editor, verifies the file was renamed, and uses the final renamed path during fixture cleanup.
+
+The conflict scenario intentionally creates the stale authority state inside Notidian's live path index instead of racing a real external file edit. Real external edits often refresh the table before a stale row can be exercised. The lower-level transaction tests cover detection against canonical metadata; this live UI step verifies that the rendered conflict action can force the attempted value through the same write path.
 
 ## Options
 
@@ -108,7 +114,7 @@ With `--ui`, the harness also performs a live table scenario:
 | `vault=<name>` | `NOTIDIAN_REAL_VAULT` | Target Obsidian vault. |
 | `--allow-write` | Off | Required before fixture creation. |
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
-| `--ui` | Off | Also exercises the live Notidian table DOM and verifies a direct cell edit reaches frontmatter. |
+| `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, conflict apply, and file-title rename workflows. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
 | `--fixture-root=<folder>` | `Notidian Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
@@ -123,7 +129,7 @@ The harness has normal Jest tests that do not require Obsidian:
 npm test -- scripts/notidianRealVaultHarness.test.js --runInBand
 ```
 
-Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, UI failure reporting, child-process timeouts, and cleanup behavior.
+Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
 
 ## Current Limits
 
@@ -131,6 +137,6 @@ This is a smoke harness, not the final real-vault test suite.
 
 Still needed:
 
-- Live paste, rename, undo, and conflict-resolution action scenarios through the Notidian UI.
+- Broader live UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and additional metadata timing fixtures.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.
