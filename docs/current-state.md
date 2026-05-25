@@ -134,6 +134,7 @@ The following work remains before Notidian should be considered final:
 
 ## Documentation Map
 
+- Use [Table Database Workflows](table-database-workflows.md) for practical table usage and troubleshooting.
 - Use [ADR 0001](adr/0001-authority-partitioned-database-model.md) for the source-of-truth model.
 - Use [ADR 0002](adr/0002-frontmatter-backed-context-columns.md) for frontmatter-backed columns.
 - Use [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) for page-title/file-rename behavior.
@@ -142,6 +143,19 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
 - Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
 - Use `docs/superpowers` only as historical design and execution context.
+
+## Implementation Map
+
+| Area | Main implementation files |
+| --- | --- |
+| Table UI, selection, clipboard shortcuts, feedback wiring | [TableView.tsx](../src/core/react/components/SpaceView/Contexts/TableView/TableView.tsx) |
+| Context editor write bridge | [ContextEditorContext.tsx](../src/core/react/context/ContextEditorContext.tsx) |
+| Unified value write transactions | [tableEditTransaction.ts](../src/core/utils/contexts/tableEditTransaction.ts) and [tableEditTransaction.test.ts](../src/core/utils/contexts/tableEditTransaction.test.ts) |
+| Paste planning | [tablePastePlan.ts](../src/core/utils/contexts/tablePastePlan.ts) |
+| Transient cell feedback | [tableEditFeedback.ts](../src/core/utils/contexts/tableEditFeedback.ts) and [tableEditFeedback.test.ts](../src/core/utils/contexts/tableEditFeedback.test.ts) |
+| Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
+| Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
+| Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 
 ## Verification Commands
 

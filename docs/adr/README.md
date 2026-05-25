@@ -8,7 +8,7 @@ The most important rule across these ADRs is that **Obsidian vault data remains 
 
 If you only need the file-name/page-title decision, read [ADR 0003](0003-editable-page-titles-through-file-renames.md). It is intentionally self-contained because that decision has the highest risk of subtle data-governance regressions.
 
-If you need the current implementation status rather than the decision history, read [Current State](../current-state.md).
+If you need the current implementation status rather than the decision history, read [Current State](../current-state.md). If you need to use or troubleshoot the table behavior, read [Table Database Workflows](../table-database-workflows.md).
 
 | ADR | Decision | Purpose |
 | --- | --- | --- |

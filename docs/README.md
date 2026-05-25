@@ -5,6 +5,7 @@ This directory preserves the durable reasoning and implementation planning behin
 ## What Is Canonical
 
 - [Current State](current-state.md) describes what the implementation does today.
+- [Table Database Workflows](table-database-workflows.md) describes how the current table behaves in practical database use.
 - [Architecture Decision Records](adr/README.md) are the durable source of truth for architectural decisions.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) is the canonical full record for editable page titles and file renames.
 - `docs/superpowers` contains historical specs and plans from implementation work. These files preserve useful development context, but they do not override the ADRs.
@@ -43,6 +44,10 @@ The `docs/superpowers` files are historical design and implementation artifacts 
 Current implementation reference:
 
 - [Current State](current-state.md)
+
+Practical workflow guide:
+
+- [Table Database Workflows](table-database-workflows.md)
 
 Key design specs:
 

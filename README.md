@@ -37,7 +37,7 @@ This is intentionally not a wholesale replacement of Make.md contexts with `.bas
 
 ## Documentation
 
-The documentation entry point is [docs/README.md](docs/README.md). The current implementation reference is [docs/current-state.md](docs/current-state.md). Durable architectural decisions live in [docs/adr](docs/adr/README.md); historical design and execution plans live under `docs/superpowers`.
+The documentation entry point is [docs/README.md](docs/README.md). For practical table behavior, use [Table Database Workflows](docs/table-database-workflows.md). The current implementation reference is [docs/current-state.md](docs/current-state.md). Durable architectural decisions live in [docs/adr](docs/adr/README.md); historical design and execution plans live under `docs/superpowers`.
 
 The most important records are:
 
