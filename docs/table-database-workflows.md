@@ -152,6 +152,7 @@ These are known gaps, not accidental omissions:
 ## Related Records
 
 - [Current State](current-state.md) is the implementation reference.
+- [Real Vault Smoke Harness](real-vault-smoke-harness.md) explains opt-in live Obsidian verification.
 - [ADR 0001](adr/0001-authority-partitioned-database-model.md) defines the source-of-truth model.
 - [ADR 0002](adr/0002-frontmatter-backed-context-columns.md) explains frontmatter-backed columns.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) explains why page-title edits are file rename transactions.

@@ -1,0 +1,172 @@
+const {
+  buildObsidianArgs,
+  createFixturePaths,
+  parseHarnessArgs,
+  runRealVaultSmokeHarness,
+  validateHarnessConfig,
+} = require("./notidianRealVaultHarness");
+
+const baseConfig = {
+  vault: "Atlas Vault",
+  allowWrite: true,
+  keepFixture: false,
+  pluginId: "notidian",
+  fixtureRoot: "Notidian Integration Fixtures",
+  timeoutMs: 10000,
+  pollIntervalMs: 0,
+  obsidianBin: "obsidian",
+};
+
+describe("notidian real vault harness", () => {
+  it("parses explicit CLI options and environment fallbacks", () => {
+    expect(
+      parseHarnessArgs(
+        [
+          "vault=Atlas Vault",
+          "--allow-write",
+          "--keep-fixture",
+          "--plugin-id=notidian-dev",
+          "--fixture-root=Notidian Smoke Fixtures",
+          "--timeout-ms=2500",
+        ],
+        { OBSIDIAN_BIN: "obsidian-dev" }
+      )
+    ).toEqual({
+      vault: "Atlas Vault",
+      allowWrite: true,
+      keepFixture: true,
+      pluginId: "notidian-dev",
+      fixtureRoot: "Notidian Smoke Fixtures",
+      timeoutMs: 2500,
+      pollIntervalMs: 250,
+      obsidianBin: "obsidian-dev",
+    });
+
+    expect(parseHarnessArgs([], { NOTIDIAN_REAL_VAULT: "Test Vault" }).vault)
+      .toBe("Test Vault");
+  });
+
+  it("rejects live writes without a vault and explicit write approval", () => {
+    expect(
+      validateHarnessConfig({
+        ...baseConfig,
+        vault: "",
+        allowWrite: false,
+      })
+    ).toEqual([
+      "Set vault=<name> or NOTIDIAN_REAL_VAULT before running the real-vault harness.",
+      "Pass --allow-write to permit fixture creation in the selected vault.",
+    ]);
+  });
+
+  it("creates timestamped fixture paths under the configured root", () => {
+    expect(
+      createFixturePaths(
+        baseConfig,
+        new Date("2026-05-25T10:20:30.456Z")
+      )
+    ).toEqual({
+      runId: "notidian-smoke-2026-05-25T10-20-30-456Z",
+      folder: "Notidian Integration Fixtures",
+      prefix:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z",
+      alphaPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha.md",
+      betaPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
+      alphaRenamedPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
+    });
+  });
+
+  it("builds Obsidian CLI args with the vault selector first", () => {
+    expect(
+      buildObsidianArgs(baseConfig, "create", {
+        path: "Fixtures/Alpha.md",
+        content: "Hello",
+        overwrite: true,
+        silent: false,
+      })
+    ).toEqual([
+      "vault=Atlas Vault",
+      "create",
+      "path=Fixtures/Alpha.md",
+      "content=Hello",
+      "overwrite",
+    ]);
+  });
+
+  it("runs the source-of-truth smoke scenario and cleans up fixtures", async () => {
+    const calls = [];
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      calls.push(args);
+      const command = args[1];
+      if (command == "eval") return evalResponses.shift() ?? "deleted";
+      if (command == "property:read") return "active";
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    const result = await runRealVaultSmokeHarness(
+      {
+        ...baseConfig,
+        now: () => new Date("2026-05-25T10:20:30.456Z"),
+      },
+      runner
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      fixtureFolder: "Notidian Integration Fixtures",
+      cleanedUp: true,
+    });
+    expect(calls.map((args) => args[1])).toEqual([
+      "vault",
+      "plugin:reload",
+      "dev:errors",
+      "create",
+      "create",
+      "eval",
+      "property:set",
+      "property:read",
+      "eval",
+      "rename",
+      "read",
+      "eval",
+      "dev:errors",
+      "delete",
+      "delete",
+      "dev:errors",
+    ]);
+    expect(calls.every((args) => args[0] == "vault=Atlas Vault")).toBe(true);
+  });
+
+  it("keeps fixtures for inspection when requested", async () => {
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      if (args[1] == "eval") return evalResponses.shift() ?? "active";
+      if (args[1] == "property:read") return "active";
+      if (args[1] == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (args[1] == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    const result = await runRealVaultSmokeHarness(
+      {
+        ...baseConfig,
+        keepFixture: true,
+        now: () => new Date("2026-05-25T10:20:30.456Z"),
+      },
+      runner
+    );
+
+    expect(result.cleanedUp).toBe(false);
+    expect(runner.mock.calls.map(([args]) => args[1])).not.toContain("delete");
+  });
+});

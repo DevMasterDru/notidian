@@ -22,7 +22,7 @@ Add tests for:
 
 - `parseHarnessArgs` accepting `vault=<name>`, `--allow-write`, `--keep-fixture`, `--plugin-id=<id>`, `--fixture-root=<folder>`, and `--timeout-ms=<n>`.
 - `validateHarnessConfig` rejecting missing vaults and missing write approval.
-- `createFixturePaths` generating timestamped fixture note paths under the fixture root.
+- `createFixturePaths` generating timestamped fixture note paths under the fixture root without creating a per-run folder.
 - `buildObsidianArgs` putting `vault=<name>` first.
 - `runRealVaultSmokeHarness` reloading the plugin, creating fixtures, polling metadata, setting a property, renaming a file, checking developer errors, and deleting fixtures.
 - `runRealVaultSmokeHarness` skipping cleanup when `keepFixture` is true.

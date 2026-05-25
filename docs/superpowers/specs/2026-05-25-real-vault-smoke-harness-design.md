@@ -18,15 +18,16 @@ The harness is not a replacement for unit tests. It covers the gap unit tests ca
 
 The harness requires a target vault and an explicit write flag before it creates files.
 
-It writes only under a namespaced fixture folder:
+It writes only under a namespaced fixture root with timestamped fixture file names:
 
 ```text
-Notidian Integration Fixtures/<run-id>
+Notidian Integration Fixtures/notidian-smoke-<timestamp>-Alpha.md
+Notidian Integration Fixtures/notidian-smoke-<timestamp>-Beta.md
 ```
 
-The run id includes a timestamp so concurrent or failed runs do not collide.
+The run id includes a timestamp so concurrent or failed runs do not collide. The harness intentionally avoids creating a per-run folder because Notidian may materialize `.space/context.mdb` inside folders it observes; deleting that folder while the plugin is active can race with context reads.
 
-The harness should clean up fixture files by default. A `--keep-fixture` option keeps the folder for manual inspection after a failure.
+The harness should clean up fixture files by default. A `--keep-fixture` option keeps them for manual inspection after a failure.
 
 ## Scenario
 

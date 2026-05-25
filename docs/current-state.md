@@ -126,7 +126,7 @@ The following work remains before Notidian should be considered final:
 
 - Redo is not implemented.
 - Inline conflict-resolution prompts are not implemented.
-- Real vault fixture integration tests are still needed for metadata reload timing.
+- The real-vault smoke harness exists, but DOM-level table automation and broader metadata timing fixtures are still needed.
 - Legacy Make.md context audit/migration tooling is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
 - `.base` import/export is not implemented.
@@ -135,6 +135,7 @@ The following work remains before Notidian should be considered final:
 ## Documentation Map
 
 - Use [Table Database Workflows](table-database-workflows.md) for practical table usage and troubleshooting.
+- Use [Real Vault Smoke Harness](real-vault-smoke-harness.md) for opt-in live Obsidian verification.
 - Use [ADR 0001](adr/0001-authority-partitioned-database-model.md) for the source-of-truth model.
 - Use [ADR 0002](adr/0002-frontmatter-backed-context-columns.md) for frontmatter-backed columns.
 - Use [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) for page-title/file-rename behavior.
@@ -156,6 +157,7 @@ The following work remains before Notidian should be considered final:
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
+| Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 
 ## Verification Commands
 
@@ -172,4 +174,10 @@ For local Obsidian validation after copying the built plugin into a vault:
 ```bash
 obsidian plugin:reload id=notidian
 obsidian dev:errors
+```
+
+For the opt-in real-vault smoke harness:
+
+```bash
+npm run test:real-vault -- vault="Atlas Vault" --allow-write
 ```
