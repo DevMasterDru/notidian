@@ -70,6 +70,23 @@ That transaction helper:
 
 File/page-title edits remain outside this helper because they require rename preflight, temporary paths, metadata settling, and row reconciliation.
 
+### Legacy Context Audit And Migration Planning
+
+Notidian can now audit a legacy Make.md context table against current frontmatter snapshots without writing to the vault.
+
+The audit/planner classifies:
+
+- already frontmatter-backed columns;
+- unmarked frontmatter candidates;
+- context-only columns that should remain MDB-owned;
+- computed/file projection columns;
+- matching duplicate values;
+- frontmatter-only values;
+- context-only values that require backfill or user review;
+- conflicting values that require user review.
+
+The migration planner is conservative. It plans automatic cleanup only when a column has no blocking `conflict` or `context-only-value` rows. It preserves context-only columns, recommends discovered frontmatter keys as frontmatter-backed schema columns, and returns a migrated table copy only through a pure helper. There is still no destructive legacy migration command.
+
 ### Table Edit Feedback
 
 Paste operations and direct single-cell edits now surface transaction state in the table:
@@ -124,6 +141,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Bulk table operations can be undone through the same authority-aware edit paths that applied them.
 - Immediate undo after title paste uses the expected current renamed path instead of depending on metadata reload timing.
 - Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
+- Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
 
 ## Known Gaps
 
@@ -132,7 +150,7 @@ The following work remains before Notidian should be considered final:
 - Redo is not implemented.
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, and file-title rename paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures are still needed.
-- Legacy Make.md context audit/migration tooling is still needed.
+- Legacy Make.md context audit/planning exists as a pure utility, but a user-facing read-only report and opt-in write migration command are still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
 - `.base` import/export is not implemented.
 - Moving files between folders from table cells is not implemented.
@@ -148,6 +166,7 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0007](adr/0007-table-edit-feedback.md) for transient cell feedback.
 - Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
 - Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
+- Use [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) for legacy context audit and migration rules.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Implementation Map
@@ -161,6 +180,7 @@ The following work remains before Notidian should be considered final:
 | Transient cell feedback | [tableEditFeedback.ts](../src/core/utils/contexts/tableEditFeedback.ts) and [tableEditFeedback.test.ts](../src/core/utils/contexts/tableEditFeedback.test.ts) |
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
+| Legacy context audit and migration planning | [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts) and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 

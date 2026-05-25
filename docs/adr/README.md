@@ -21,6 +21,7 @@ If you need the current implementation status rather than the decision history, 
 | [0007](0007-table-edit-feedback.md) | Table edit feedback | Defines transient pending, failed, and skipped cell feedback derived from edit transaction results. |
 | [0008](0008-table-undo-journal.md) | Table undo journal | Defines the table-local undo stack for bulk operations and why replay goes through authority-aware write paths. |
 | [0009](0009-frontmatter-conflict-detection.md) | Frontmatter conflict detection | Defines stale frontmatter write detection so table edits do not overwrite newer canonical metadata. |
+| [0010](0010-legacy-context-audit-and-migration.md) | Legacy context audit and migration | Defines audit-first migration for old Make.md contexts so frontmatter authority can be restored without losing context data. |
 
 ## Decision Summary
 

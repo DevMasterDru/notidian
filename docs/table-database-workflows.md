@@ -142,6 +142,23 @@ Notidian uses transient feedback states while table edits run.
 
 Failed and skipped direct edits reset the cell editor back to canonical row data. This avoids the most dangerous spreadsheet illusion: seeing a value that looks accepted even though the underlying file or context did not change.
 
+## Legacy Make.md Contexts
+
+Older Make.md contexts can contain unmarked columns and MDB row values that duplicate frontmatter. Notidian now has a non-destructive audit/planning layer for these contexts.
+
+The audit separates:
+
+- properties that are already frontmatter-backed;
+- unmarked columns that appear to correspond to frontmatter keys;
+- context-only columns that should remain MDB-owned;
+- duplicate values that match frontmatter;
+- values that exist only in context;
+- conflicts where context and frontmatter disagree.
+
+Matching duplicates can be planned for cleanup because frontmatter already contains the same data. Values that exist only in context and conflicts are blockers. They need a future review flow so the user can choose whether to backfill frontmatter, keep the value as context-only data, or discard a duplicate.
+
+This means the safe migration sequence is audit, preview, resolve blockers, then apply. There is not yet a user-facing migration command, so the current table behavior remains non-destructive for legacy contexts.
+
 ## What Notidian Does Not Do Yet
 
 These are known gaps, not accidental omissions:
@@ -150,7 +167,7 @@ These are known gaps, not accidental omissions:
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - A table command for moving files between folders.
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and Obsidian metadata reload timing.
-- Legacy Make.md context audit and migration tooling.
+- User-facing legacy Make.md context audit reports and opt-in write migration tooling.
 - Authority-aware property rename/delete/schema flows.
 - `.base` import/export or bridge behavior.
 
@@ -165,3 +182,4 @@ These are known gaps, not accidental omissions:
 - [ADR 0007](adr/0007-table-edit-feedback.md) explains transient feedback.
 - [ADR 0008](adr/0008-table-undo-journal.md) explains undo.
 - [ADR 0009](adr/0009-frontmatter-conflict-detection.md) explains stale frontmatter conflict detection.
+- [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) explains legacy context audit and migration planning.
