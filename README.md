@@ -76,8 +76,8 @@ New writes target the Notidian plugin directory. Keep a backup of your vault bef
 This fork is in active development. The current foundation is implemented and documented. The next high-value work is:
 
 - Redo support for table operations.
-- Inline conflict-resolution prompts.
-- Real vault fixture integration tests for metadata reload timing.
+- Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
+- Broader real-vault UI automation for paste, undo, rename, and conflict actions.
 - Legacy Make.md context migration tooling.
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.

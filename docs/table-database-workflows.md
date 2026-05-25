@@ -147,9 +147,9 @@ Failed and skipped direct edits reset the cell editor back to canonical row data
 These are known gaps, not accidental omissions:
 
 - Redo support for table operations.
-- Inline conflict-resolution prompts.
+- Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - A table command for moving files between folders.
-- Real-vault fixture tests for Obsidian metadata reload timing.
+- Broader real-vault UI automation for paste, undo, rename, conflict actions, and Obsidian metadata reload timing.
 - Legacy Make.md context audit and migration tooling.
 - Authority-aware property rename/delete/schema flows.
 - `.base` import/export or bridge behavior.

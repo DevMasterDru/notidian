@@ -130,8 +130,8 @@ Notidian currently guarantees the following for implemented edit paths:
 The following work remains before Notidian should be considered final:
 
 - Redo is not implemented.
-- Inline conflict-resolution prompts are not implemented.
-- The real-vault smoke harness exists, but DOM-level table automation and broader metadata timing fixtures are still needed.
+- Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
+- The real-vault smoke harness includes a live table render/edit path, but broader paste, undo, rename, conflict-action, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/migration tooling is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
 - `.base` import/export is not implemented.
