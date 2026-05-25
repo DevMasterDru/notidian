@@ -15,6 +15,7 @@ export type TableCellWrite = {
   value: string;
   path?: string;
   fieldValue?: string;
+  forceFrontmatterWrite?: boolean;
 };
 
 export type TableEditSkipReason =
@@ -32,6 +33,9 @@ export type TableEditFailureReason =
 export type TableEditIssue = {
   write: TableCellWrite;
   reason: TableEditSkipReason | TableEditFailureReason;
+  currentValue?: string;
+  baseValue?: string;
+  attemptedValue?: string;
 };
 
 export type TableEditTransactionResult = {
@@ -245,11 +249,19 @@ export const executeTableValueWrites = async ({
         row,
         write,
       });
+      const baseValue = rowValueForWrite(row, write);
       if (
+        !write.forceFrontmatterWrite &&
         canonicalValue !== undefined &&
-        canonicalValue != rowValueForWrite(row, write)
+        canonicalValue != baseValue
       ) {
-        skipped.push({ write, reason: "frontmatter-conflict" });
+        skipped.push({
+          write,
+          reason: "frontmatter-conflict",
+          currentValue: canonicalValue,
+          baseValue,
+          attemptedValue: write.value,
+        });
         continue;
       }
 

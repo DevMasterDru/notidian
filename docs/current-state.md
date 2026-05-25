@@ -61,6 +61,7 @@ That transaction helper:
 - Resolves the target row and file path once.
 - Treats empty explicit paths as missing and falls back to the row file path.
 - Compares frontmatter-backed writes against current canonical metadata before saving.
+- Allows an explicit forced frontmatter write only after a conflict has been surfaced to the user.
 - Groups frontmatter changes by resolved file path.
 - Writes frontmatter before accepting table/context row changes.
 - Applies root-table writes to one accumulated table snapshot.
@@ -77,6 +78,7 @@ Paste operations and direct single-cell edits now surface transaction state in t
 - Direct value edits, field-option edits, and page-title rename edits show a pending cell state while the operation runs.
 - Failed cells show failed feedback.
 - Skipped cells show skipped feedback.
+- Frontmatter conflict cells show inline Reload and Apply anyway actions, with a tooltip showing current, rendered, and attempted values.
 - Successful cells clear back to normal after the operation completes.
 - Obsidian notices summarize failed/skipped counts.
 - Failed or skipped cells are remounted back to canonical row data so optimistic local editor state does not keep showing a value that was not accepted.
@@ -88,6 +90,8 @@ Detected frontmatter conflicts show skipped cell feedback with:
 ```text
 Frontmatter changed outside Notidian. Reload before editing.
 ```
+
+Reload refreshes canonical table data and clears the transient conflict feedback. Apply anyway re-runs the attempted write with an explicit forced-frontmatter flag, still writing the Markdown file before any table/context value is accepted.
 
 ### Table Undo Journal
 
@@ -113,6 +117,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Ordinary frontmatter-backed values are accepted only after the frontmatter write succeeds.
 - A paste path cannot bypass row file-path fallback by passing an empty path.
 - Stale frontmatter-backed table edits are skipped instead of overwriting newer canonical frontmatter values.
+- Stale frontmatter-backed edits can overwrite newer canonical values only after the user explicitly chooses Apply anyway on the conflicted cell.
 - Bulk value writes update table/context snapshots from accumulated state rather than repeatedly saving stale row snapshots.
 - Mixed title/property paste writes non-file values to the renamed file path after successful rename.
 - Direct single-cell failures surface inline and reset back to canonical table data.

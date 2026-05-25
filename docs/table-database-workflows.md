@@ -48,7 +48,12 @@ If the frontmatter changed outside Notidian after the table rendered, the edit i
 Frontmatter changed outside Notidian. Reload before editing.
 ```
 
-Reload the table or vault state, review the current value, and then edit again. Notidian does not currently show an inline conflict-resolution prompt or an "overwrite anyway" button.
+The conflicted cell shows two inline actions:
+
+- Reload refreshes canonical table data from Obsidian and clears the conflict feedback.
+- Apply anyway writes the attempted value to the Markdown file through the same frontmatter transaction path.
+
+Apply anyway is explicit by design. Notidian still never silently overwrites newer frontmatter.
 
 ## Edit Page Titles
 

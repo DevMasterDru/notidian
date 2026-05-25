@@ -1,10 +1,12 @@
 import {
   feedbackForTableEditResult,
   feedbackWriteForDirectCellEdit,
+  hasTableEditFeedbackAction,
   incrementResetTokensForFeedback,
   pendingFeedbackForWrites,
   summaryForTableEditResult,
   tableCellFeedbackKey,
+  titleForTableEditFeedback,
 } from "./tableEditFeedback";
 
 describe("tableEditFeedback", () => {
@@ -125,6 +127,9 @@ describe("tableEditFeedback", () => {
         skipped: [
           {
             reason: "frontmatter-conflict",
+            currentValue: "external",
+            baseValue: "old",
+            attemptedValue: "active",
             write: {
               rowId: "0",
               columnId: "status",
@@ -139,9 +144,61 @@ describe("tableEditFeedback", () => {
     ).toEqual({
       "0::status": {
         state: "skipped",
+        action: "frontmatter-conflict",
         reason: "Frontmatter changed outside Notidian. Reload before editing.",
+        currentValue: "external",
+        baseValue: "old",
+        attemptedValue: "active",
+        write: {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "active",
+        },
       },
     });
+  });
+
+  it("detects actionable feedback that should remain visible", () => {
+    expect(
+      hasTableEditFeedbackAction({
+        "0::status": {
+          state: "skipped",
+          action: "frontmatter-conflict",
+          reason: "Frontmatter changed outside Notidian. Reload before editing.",
+        },
+      })
+    ).toBe(true);
+
+    expect(
+      hasTableEditFeedbackAction({
+        "0::status": {
+          state: "failed",
+          reason: "frontmatter-write-failed",
+        },
+      })
+    ).toBe(false);
+  });
+
+  it("describes frontmatter conflict values in feedback titles", () => {
+    expect(
+      titleForTableEditFeedback({
+        state: "skipped",
+        action: "frontmatter-conflict",
+        reason: "Frontmatter changed outside Notidian. Reload before editing.",
+        currentValue: "external",
+        baseValue: "old",
+        attemptedValue: "active",
+      })
+    ).toBe(
+      [
+        "Frontmatter changed outside Notidian. Reload before editing.",
+        "Current: external",
+        "Table had: old",
+        "Attempted: active",
+      ].join("\n")
+    );
   });
 
   it("summarizes failed and skipped edit results", () => {

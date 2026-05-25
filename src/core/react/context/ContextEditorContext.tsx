@@ -106,6 +106,10 @@ type ContextEditorContextProps = {
   applyTableEdits: (
     writes: TablePasteWrite[]
   ) => Promise<TableEditTransactionResult>;
+  applyValueEdits: (
+    writes: TableCellWrite[]
+  ) => Promise<TableEditTransactionResult>;
+  reloadContextData: () => Promise<void>;
   renameRowTitle: (row: DBRow, value: string) => Promise<string | null>;
   updateFieldValue: (
     column: string,
@@ -141,6 +145,8 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   setSearchString: () => null,
   data: [],
   applyTableEdits: async () => emptyTableEditTransactionResult(),
+  applyValueEdits: async () => emptyTableEditTransactionResult(),
+  reloadContextData: async () => undefined,
   updateValue: async () => emptyTableEditTransactionResult(),
   renameRowTitle: () => null,
   updateFieldValue: async () => emptyTableEditTransactionResult(),
@@ -242,9 +248,9 @@ export const ContextEditorProvider: React.FC<
       }));
     });
   }, []);
-  const retrieveCachedTable = (newSchema: SpaceTableSchema) => {
+  const retrieveCachedTable = (newSchema: SpaceTableSchema): Promise<void> => {
     // SpaceManager handles MKit data internally
-    spaceManager
+    return spaceManager
       .readTable(contextPath, newSchema.id)
       .then((f) => {
         if (f) {
@@ -656,6 +662,25 @@ export const ContextEditorProvider: React.FC<
       saveContextDB,
       contextKeyForTable: tagSpacePathFromTag,
     });
+  };
+
+  const applyValueEdits = async (
+    writes: TableCellWrite[]
+  ): Promise<TableEditTransactionResult> => executeValueWrites(writes);
+
+  const reloadContextData = async (): Promise<void> => {
+    if (props.superstate.reloadContextByPath) {
+      await props.superstate.reloadContextByPath(contextPath, {
+        force: true,
+        calculate: true,
+      });
+    } else if (spaceInfo) {
+      await props.superstate.reloadContext(spaceInfo, {
+        force: true,
+        calculate: true,
+      });
+    }
+    if (dbSchema) await retrieveCachedTable(dbSchema);
   };
 
   const updateValue = async (
@@ -1093,6 +1118,8 @@ export const ContextEditorProvider: React.FC<
         setSearchString,
         updateValue,
         applyTableEdits,
+        applyValueEdits,
+        reloadContextData,
         renameRowTitle,
         updateFieldValue,
         editMode,

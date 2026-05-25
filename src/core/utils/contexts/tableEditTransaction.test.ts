@@ -276,6 +276,9 @@ describe("executeTableValueWrites", () => {
       skipped: [
         {
           reason: "frontmatter-conflict",
+          currentValue: "external",
+          baseValue: "old",
+          attemptedValue: "active",
           write: {
             rowId: "0",
             columnName: "status",
@@ -289,6 +292,70 @@ describe("executeTableValueWrites", () => {
     expect(savedFrontmatter).toEqual([]);
     expect(savedTables).toEqual([]);
     expect(savedContexts).toEqual([]);
+  });
+
+  it("reports frontmatter conflict details for inline resolution", async () => {
+    const { result } = await execute({
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": {
+          status: "external",
+        },
+      },
+      writes: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "active",
+        },
+      ],
+    });
+
+    expect(result.skipped).toEqual([
+      {
+        reason: "frontmatter-conflict",
+        currentValue: "external",
+        baseValue: "old",
+        attemptedValue: "active",
+        write: {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "active",
+        },
+      },
+    ]);
+  });
+
+  it("allows explicit forced frontmatter writes after conflict review", async () => {
+    const { result, savedFrontmatter, savedTables } = await execute({
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": {
+          status: "external",
+        },
+      },
+      writes: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "active",
+          forceFrontmatterWrite: true,
+        } as TableCellWrite & { forceFrontmatterWrite: true },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: 1, skipped: [] });
+    expect(savedFrontmatter).toEqual([
+      {
+        path: "Relays & Devices/Relays & Devices/A.md",
+        properties: { status: "active" },
+      },
+    ]);
+    expect(savedTables[0].rows[0]).toMatchObject({ status: "active" });
   });
 
   it("applies linked context writes to the matching row path", async () => {

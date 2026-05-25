@@ -57,6 +57,7 @@ import {
 import {
   feedbackWriteForDirectCellEdit,
   feedbackForTableEditResult,
+  hasTableEditFeedbackAction,
   incrementResetTokensForFeedback,
   pendingFeedbackForWrites,
   summaryForTableEditResult,
@@ -64,8 +65,12 @@ import {
   TableCellResetTokens,
   TableEditFeedback,
   TableEditFeedbackWrite,
+  titleForTableEditFeedback,
 } from "core/utils/contexts/tableEditFeedback";
-import { TableEditTransactionResult } from "core/utils/contexts/tableEditTransaction";
+import {
+  TableCellWrite,
+  TableEditTransactionResult,
+} from "core/utils/contexts/tableEditTransaction";
 import {
   planTablePaste,
   TablePasteMode,
@@ -159,7 +164,9 @@ export const TableView = (props: { superstate: Superstate }) => {
 
     updateFieldValue,
     updateValue,
+    applyValueEdits,
     applyTableEdits,
+    reloadContextData,
     renameRowTitle,
   } = useContext(ContextEditorContext);
 
@@ -238,11 +245,53 @@ export const TableView = (props: { superstate: Superstate }) => {
       setCellResetTokens((tokens) =>
         incrementResetTokensForFeedback(tokens, resultFeedback)
       );
-      window.setTimeout(() => {
-        if (feedbackOperationId.current == operationId) {
-          setCellEditFeedback({});
-        }
-      }, 5000);
+      if (!hasTableEditFeedbackAction(resultFeedback)) {
+        window.setTimeout(() => {
+          if (feedbackOperationId.current == operationId) {
+            setCellEditFeedback({});
+          }
+        }, 5000);
+      }
+    }
+  };
+
+  const reloadConflictData = async () => {
+    const operationId = feedbackOperationId.current;
+    const feedbackKeys = Object.keys(cellEditFeedback);
+    try {
+      await reloadContextData();
+    } catch (error) {
+      props.superstate.ui.notify("Unable to reload current file value.");
+      return;
+    }
+    if (feedbackOperationId.current != operationId) return;
+    setCellEditFeedback({});
+    setCellResetTokens((tokens) =>
+      feedbackKeys.reduce<TableCellResetTokens>(
+        (nextTokens, key) => ({
+          ...nextTokens,
+          [key]: (nextTokens[key] ?? 0) + 1,
+        }),
+        tokens
+      )
+    );
+  };
+
+  const applyConflictWrite = async (write: TableEditFeedbackWrite) => {
+    const previousFeedback = cellEditFeedback;
+    const forcedWrite: TableCellWrite = {
+      ...write,
+      forceFrontmatterWrite: true,
+    };
+    const operationId = beginCellFeedbackOperation([forcedWrite]);
+    try {
+      const result = await applyValueEdits([forcedWrite]);
+      finishCellFeedbackOperation(operationId, result);
+    } catch (error) {
+      props.superstate.ui.notify("Unable to apply this value.");
+      if (feedbackOperationId.current == operationId) {
+        setCellEditFeedback(previousFeedback);
+      }
     }
   };
 
@@ -1028,7 +1077,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                           accessorKey
                         );
                       }}
-                      title={feedback?.reason}
+                      title={titleForTableEditFeedback(feedback)}
                       className={classNames(
                         "mk-td",
                         cell.getIsPlaceholder() && "mk-td-empty",
@@ -1048,7 +1097,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                           "mk-active-cell",
                         feedback?.state == "pending" && "mk-cell-pending",
                         feedback?.state == "failed" && "mk-cell-failed",
-                        feedback?.state == "skipped" && "mk-cell-skipped"
+                        feedback?.state == "skipped" && "mk-cell-skipped",
+                        feedback?.action == "frontmatter-conflict" &&
+                          "mk-cell-conflict"
                       )}
                       key={cell.id}
                       style={{
@@ -1064,12 +1115,42 @@ export const TableView = (props: { superstate: Superstate }) => {
                             "unset",
                       }}
                     >
-                      {cell.getIsPlaceholder()
-                        ? null
-                        : flexRender(
+                      {cell.getIsPlaceholder() ? null : (
+                        <>
+                          {flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext()
                           )}
+                          {feedback?.action == "frontmatter-conflict" &&
+                          feedback.write ? (
+                            <div
+                              className="mk-cell-conflict-actions"
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                className="mk-cell-conflict-action"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  reloadConflictData();
+                                }}
+                                title="Reload current file value"
+                              >
+                                Reload
+                              </button>
+                              <button
+                                className="mk-cell-conflict-action"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  applyConflictWrite(feedback.write);
+                                }}
+                                title="Apply this value to the file"
+                              >
+                                Apply anyway
+                              </button>
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </td>
                     );
                   })()

@@ -729,7 +729,7 @@ Add a section explaining that range paste treats page-title edits as file rename
 
 - [ ] **Step 2: Link this plan from docs**
 
-Add `[Table range clipboard plan](superpowers/plans/2026-05-24-table-range-clipboard.md)` under key implementation plans in `docs/README.md`.
+Add a "Table range clipboard plan" link pointing to `superpowers/plans/2026-05-24-table-range-clipboard.md` under key implementation plans in `docs/README.md`.
 
 - [ ] **Step 3: Run focused tests**
 

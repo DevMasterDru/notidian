@@ -1,12 +1,18 @@
 import { TableCellWrite, TableEditTransactionResult } from "./tableEditTransaction";
 
 export type TableEditFeedbackState = "pending" | "failed" | "skipped";
+export type TableEditFeedbackAction = "frontmatter-conflict";
 
 export type TableEditFeedback = Record<
   string,
   {
     state: TableEditFeedbackState;
     reason?: string;
+    action?: TableEditFeedbackAction;
+    write?: TableEditFeedbackWrite;
+    currentValue?: string;
+    baseValue?: string;
+    attemptedValue?: string;
   }
 >;
 
@@ -68,6 +74,15 @@ export const feedbackForTableEditResult = (
       )]: {
         state: "skipped",
         reason: reasonTextForTableEditIssue(issue.reason),
+        ...(issue.reason == "frontmatter-conflict"
+          ? {
+              action: "frontmatter-conflict" as const,
+              write: issue.write,
+              currentValue: issue.currentValue,
+              baseValue: issue.baseValue,
+              attemptedValue: issue.attemptedValue,
+            }
+          : {}),
       },
     }),
     {}
@@ -102,6 +117,35 @@ export const incrementResetTokensForFeedback = (
     },
     resetTokens
   );
+
+export const hasTableEditFeedbackAction = (
+  feedback: TableEditFeedback
+): boolean =>
+  Object.values(feedback).some((cellFeedback) => !!cellFeedback.action);
+
+export const titleForTableEditFeedback = (
+  feedback?: TableEditFeedback[string]
+): string | undefined => {
+  if (!feedback) return undefined;
+  const conflictDetails =
+    feedback.action == "frontmatter-conflict"
+      ? [
+          feedback.currentValue !== undefined
+            ? `Current: ${feedback.currentValue}`
+            : undefined,
+          feedback.baseValue !== undefined
+            ? `Table had: ${feedback.baseValue}`
+            : undefined,
+          feedback.attemptedValue !== undefined
+            ? `Attempted: ${feedback.attemptedValue}`
+            : undefined,
+        ]
+      : [];
+  const title = [feedback.reason, ...conflictDetails]
+    .filter(Boolean)
+    .join("\n");
+  return title || undefined;
+};
 
 const editCountText = (
   count: number,
