@@ -76,6 +76,16 @@ The command:
 
 If the previewed output path appears before the user confirms, the command refuses to overwrite it and asks the user to reopen the preview.
 
+## Real-Vault Verification
+
+The live Obsidian harness can exercise the export command end to end:
+
+```bash
+npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
+```
+
+The smoke scenario sets the active Notidian path to the fixture folder, executes the actual command, confirms the preview modal, waits for the generated `.base` file, verifies the folder scope and table view YAML, and deletes the exported file during cleanup unless `--keep-fixture` is passed.
+
 ## Relationship To ADRs
 
 - [ADR 0011](adr/0011-bases-first-convergence.md) defines why Notidian is converging toward Bases semantics.

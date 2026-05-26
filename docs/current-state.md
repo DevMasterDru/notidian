@@ -119,7 +119,7 @@ The adapter can convert a `SpaceTable` plus an optional table predicate into a B
 
 Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and custom Bases view registration.
 
-The command `Export active folder as Obsidian Base` resolves the active folder or the parent folder of the active note, materializes frontmatter-backed columns, chooses a non-overwriting sibling `.base` path, previews the YAML and warnings, and writes only after user confirmation.
+The command `Export active folder as Obsidian Base` resolves the active folder or the parent folder of the active note, materializes frontmatter-backed columns, chooses a non-overwriting sibling `.base` path, previews the YAML and warnings, and writes only after user confirmation. The real-vault smoke harness has an opt-in `--base-export` mode that executes the command, confirms the preview, verifies the generated folder-scoped table YAML, and cleans up the exported file.
 
 ### Table Edit Feedback
 
@@ -184,7 +184,7 @@ The following work remains before Notidian should be considered final:
 
 - Redo is not implemented.
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
-- The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, and file-title rename paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures are still needed.
+- The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, file-title rename, and `.base` export command paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, deeper native Bases renderer validation, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
 - A previewed `.base` export command exists, but there is not yet `.base` import, mirroring, or custom Bases view behavior.

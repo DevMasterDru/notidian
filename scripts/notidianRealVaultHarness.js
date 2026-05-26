@@ -37,6 +37,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     allowWrite: false,
     keepFixture: false,
     includeUi: false,
+    includeBaseExport: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -56,6 +57,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--ui") {
       config.includeUi = true;
+      continue;
+    }
+    if (arg == "--base-export") {
+      config.includeBaseExport = true;
       continue;
     }
 
@@ -1113,6 +1118,125 @@ const tableUiConflictEvalCode = ({
     }
   })()`.replace(/\s+/g, " ");
 
+const baseExportEvalCode = ({ pluginId, folder, timeoutMs, pollIntervalMs }) =>
+  `(async () => {
+    const marker = "notidianBaseExport";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const pluginId = ${JSON.stringify(pluginId)};
+    const folder = ${JSON.stringify(folder)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    try {
+      const plugin = app.plugins.plugins[pluginId];
+      if (!plugin?.superstate?.ui) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      if (!app.vault.getAbstractFileByPath(folder)) {
+        return finish({ ok: false, reason: "missing-folder", folder });
+      }
+      const commandId = pluginId + ":notidian-export-active-folder-base";
+      if (!app.commands.commands[commandId]) {
+        return finish({ ok: false, reason: "missing-command", commandId });
+      }
+      if (typeof plugin.superstate.ui.setActivePath == "function") {
+        plugin.superstate.ui.setActivePath(folder);
+      } else {
+        plugin.superstate.ui.activePath = folder;
+      }
+      plugin.superstate.ui.openPath?.(folder, true);
+      await sleep(100);
+      app.commands.executeCommandById(commandId);
+
+      const start = Date.now();
+      let lastModalText = "";
+      do {
+        const modals = Array.from(
+          document.querySelectorAll(".mk-modal-wrapper, .mk-modal-wrapper-mobile")
+        );
+        const modal = modals.reverse().find((candidate) => {
+          const text = candidate.innerText || "";
+          return (
+            text.includes("Export Obsidian Base") ||
+            (text.includes("Export path:") && text.includes("Export .base"))
+          );
+        });
+        if (!modal) {
+          await sleep(pollIntervalMs);
+          continue;
+        }
+
+        lastModalText = (modal.innerText || "").slice(0, 1000);
+        const outputCode = Array.from(modal.querySelectorAll("code"))
+          .find((candidate) => candidate.innerText.trim().endsWith(".base"));
+        const outputPath = outputCode?.innerText.trim() || "";
+        if (!outputPath) {
+          return finish({
+            ok: false,
+            reason: "missing-output-path",
+            modalText: lastModalText,
+          });
+        }
+        const exportButton = Array.from(modal.querySelectorAll("button"))
+          .find((button) => button.innerText.trim() == "Export .base");
+        if (!exportButton) {
+          return finish({
+            ok: false,
+            reason: "missing-export-button",
+            outputPath,
+            modalText: lastModalText,
+          });
+        }
+        exportButton.click();
+
+        const writeStart = Date.now();
+        do {
+          const exported = app.vault.getAbstractFileByPath(outputPath);
+          if (exported) {
+            const content = await app.vault.read(exported);
+            if (!content.includes("file.inFolder") || !content.includes(folder)) {
+              return finish({
+                ok: false,
+                reason: "missing-folder-filter",
+                outputPath,
+                content: content.slice(0, 1000),
+              });
+            }
+            if (!content.includes("views:") || !content.includes('type: "table"')) {
+              return finish({
+                ok: false,
+                reason: "missing-table-view",
+                outputPath,
+                content: content.slice(0, 1000),
+              });
+            }
+            return finish({
+              ok: true,
+              outputPath,
+              content: content.slice(0, 2000),
+            });
+          }
+          await sleep(pollIntervalMs);
+        } while (Date.now() - writeStart <= timeoutMs);
+
+        return finish({
+          ok: false,
+          reason: "export-not-written",
+          outputPath,
+          modalText: lastModalText,
+        });
+      } while (Date.now() - start <= timeoutMs);
+
+      return finish({ ok: false, reason: "missing-modal", commandId });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
 const parseJsonEvalResult = (output) => {
   const normalized = normalizeCliValue(output);
   try {
@@ -1139,6 +1263,13 @@ const assertUiEvalOk = (label, result) => {
   if (result?.ok) return;
   throw new Error(
     `Notidian table UI ${label} failed: ${formatUiFailure(result)}`
+  );
+};
+
+const assertBaseExportEvalOk = (result) => {
+  if (result?.ok) return;
+  throw new Error(
+    `Notidian base export smoke failed: ${formatUiFailure(result)}`
   );
 };
 
@@ -1193,10 +1324,18 @@ const cleanDevErrors = (output) => {
 const alphaContent = "---\nstatus: old\nrating: 1\n---\n# Alpha\n";
 const betaContent = "---\nstatus: queued\nrating: 2\n---\n# Beta\n";
 
-const cleanupFixtures = async ({ config, runner, paths, primaryPath }) => {
+const cleanupFixtures = async ({
+  config,
+  runner,
+  paths,
+  primaryPath,
+  extraPaths = [],
+}) => {
   if (config.keepFixture) return false;
 
-  const deletePaths = [...new Set([primaryPath, paths.betaPath])];
+  const deletePaths = [
+    ...new Set([primaryPath, paths.betaPath, ...extraPaths].filter(Boolean)),
+  ];
   for (const path of deletePaths) {
     await runObsidian(config, runner, "delete", {
       path,
@@ -1205,6 +1344,30 @@ const cleanupFixtures = async ({ config, runner, paths, primaryPath }) => {
   }
 
   return true;
+};
+
+const runBaseExportSmokeScenario = async ({ config, runner, paths }) => {
+  const result = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: baseExportEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertBaseExportEvalOk(result);
+
+  if (!String(result.outputPath ?? "").endsWith(".base")) {
+    throw new Error(
+      `Notidian base export smoke failed: expected .base output path; got ${result.outputPath}`
+    );
+  }
+
+  return {
+    baseExportPath: result.outputPath,
+  };
 };
 
 const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
@@ -1374,6 +1537,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     runner ?? createObsidianRunner(config.obsidianBin, config.commandTimeoutMs);
   const paths = createFixturePaths(config, config.now?.() ?? new Date());
   let primaryPath = paths.alphaPath;
+  let baseExportPath = null;
   let scenarioError = null;
 
   try {
@@ -1457,6 +1621,15 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       primaryPath = uiPaths.primaryPath ?? primaryPath;
     }
 
+    if (config.includeBaseExport) {
+      const exportPaths = await runBaseExportSmokeScenario({
+        config,
+        runner: execute,
+        paths,
+      });
+      baseExportPath = exportPaths.baseExportPath ?? null;
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -1470,6 +1643,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     runner: execute,
     paths,
     primaryPath,
+    extraPaths: baseExportPath ? [baseExportPath] : [],
   });
 
   if (!scenarioError && cleanedUp) {
@@ -1487,6 +1661,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ok: true,
     fixtureFolder: paths.folder,
     cleanedUp,
+    ...(baseExportPath ? { baseExportPath } : {}),
   };
 };
 
@@ -1499,6 +1674,7 @@ const usage = () => [
   "  --allow-write            Required before creating fixtures.",
   "  --keep-fixture           Leave fixtures in the vault for inspection.",
   "  --ui                     Also exercise the live Notidian table DOM.",
+  "  --base-export            Also exercise the .base export command and cleanup.",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,

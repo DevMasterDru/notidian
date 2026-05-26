@@ -13,9 +13,12 @@ Run this harness after changes that affect:
 - Metadata-cache conflict detection.
 - Table undo paths that write files.
 - Table DOM rendering, paste, undo, rename, or conflict actions when using `--ui`.
+- `.base` export command behavior when using `--base-export`.
 - Plugin startup, reload, or vault integration behavior.
 
 Use a disposable test vault when possible. If you use a real working vault, make sure it is backed up.
+
+Before running command-level smoke tests such as `--base-export`, make sure the target vault's installed Notidian plugin bundle is the current build. A stale `.obsidian/plugins/notidian/main.js` can reload successfully while missing newly added commands.
 
 ## Safety Model
 
@@ -71,6 +74,12 @@ Run the live table UI smoke:
 npm run test:real-vault -- vault="Atlas Vault" --allow-write --ui
 ```
 
+Run the `.base` export command smoke:
+
+```bash
+npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
+```
+
 ## What The Harness Checks
 
 The source-of-truth smoke scenario performs these steps:
@@ -107,6 +116,17 @@ With `--ui`, the harness also performs live table scenarios:
 
 The conflict scenario intentionally creates the stale authority state inside Notidian's live path index instead of racing a real external file edit. Real external edits often refresh the table before a stale row can be exercised. The lower-level transaction tests cover detection against canonical metadata; this live UI step verifies that the rendered conflict action can force the attempted value through the same write path.
 
+With `--base-export`, the harness also performs a live `.base` export command scenario:
+
+1. Sets the active Notidian path to the fixture root folder.
+2. Executes the real `Export active folder as Obsidian Base` Obsidian command.
+3. Waits for the export preview modal.
+4. Reads the previewed output path from the modal.
+5. Clicks the real `Export .base` button.
+6. Waits for the generated `.base` file.
+7. Verifies the exported YAML contains a folder scope and table view.
+8. Deletes the exported `.base` file during fixture cleanup unless `--keep-fixture` was passed.
+
 ## Options
 
 | Option | Default | Purpose |
@@ -115,6 +135,7 @@ The conflict scenario intentionally creates the stale authority state inside Not
 | `--allow-write` | Off | Required before fixture creation. |
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
 | `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, conflict apply, and file-title rename workflows. |
+| `--base-export` | Off | Also exercises the live `.base` export command and deletes the generated `.base` file during cleanup. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
 | `--fixture-root=<folder>` | `Notidian Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
@@ -129,7 +150,7 @@ The harness has normal Jest tests that do not require Obsidian:
 npm test -- scripts/notidianRealVaultHarness.test.js --runInBand
 ```
 
-Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
+Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, optional `.base` export mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
 
 ## Current Limits
 
@@ -138,5 +159,6 @@ This is a smoke harness, not the final real-vault test suite.
 Still needed:
 
 - Broader live UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and additional metadata timing fixtures.
+- Deeper live `.base` validation inside Obsidian's native Bases renderer.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.

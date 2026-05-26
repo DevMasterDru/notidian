@@ -81,7 +81,7 @@ This fork is in active development. The current foundation is implemented and do
 
 - Redo support for table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
-- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, deeper native Bases renderer validation, and metadata timing fixtures.
 - Legacy Make.md context migration tooling.
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.
@@ -101,6 +101,12 @@ Opt-in live vault smoke test:
 
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write
+```
+
+Opt-in live `.base` export command smoke test:
+
+```bash
+npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
 ```
 
 ## Credits
