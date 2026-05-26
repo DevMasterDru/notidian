@@ -33,7 +33,7 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Paste operations show pending, failed, and skipped cell feedback derived from transaction results.
 - Direct value edits, field-option edits, and page-title rename edits show pending/failed/skipped cell feedback and reset failed optimistic editor state back to canonical data.
 - Bulk paste, cut, delete/clear, fill-from-single-cell paste, and page-title paste can be undone with `Cmd/Ctrl+Z` through the same authority-aware write paths.
-- Simple folder table views can be converted through a pure `.base` adapter that reports unsupported Notidian-only semantics instead of silently dropping them.
+- Simple folder table views can be previewed and exported through a `.base` command that reports unsupported Notidian-only semantics instead of silently dropping them.
 
 This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer. The long-term direction is Bases-first convergence: simple database views should become `.base`-compatible where semantics match, while Notidian keeps the enhanced editor, conflict handling, rename transactions, and migration tools.
 
@@ -86,7 +86,7 @@ This fork is in active development. The current foundation is implemented and do
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.
 - Broader reconciliation for external file moves/deletes.
-- Obsidian command/UI for `.base` export, `.base` import, mirroring, or custom Bases view behavior where semantics match.
+- `.base` import, mirroring, or custom Bases view behavior where semantics match.
 
 ## Development
 

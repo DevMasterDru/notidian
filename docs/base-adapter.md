@@ -25,7 +25,6 @@ Unsupported behavior is returned in a structured `unsupported` list. This is a c
 
 The adapter does not yet provide:
 
-- an Obsidian command for writing `.base` files;
 - `.base` import back into Notidian;
 - custom Bases view registration;
 - guaranteed handling for every Make.md predicate function;
@@ -57,6 +56,25 @@ The adapter returns:
 ```
 
 Callers should only write the YAML to a vault after presenting unsupported features to the user.
+
+## Obsidian Command
+
+Notidian includes the command:
+
+```text
+Export active folder as Obsidian Base
+```
+
+The command:
+
+- resolves the active folder, or the parent folder of the active note;
+- materializes frontmatter-backed columns before export;
+- chooses a new sibling `.base` path without overwriting existing files;
+- previews the generated YAML;
+- shows unsupported-feature warnings;
+- writes the `.base` file only after confirmation.
+
+If the previewed output path appears before the user confirms, the command refuses to overwrite it and asks the user to reopen the preview.
 
 ## Relationship To ADRs
 

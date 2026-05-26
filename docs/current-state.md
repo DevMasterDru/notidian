@@ -113,11 +113,13 @@ The report reads a single folder context, compares context rows with frontmatter
 
 ### Bases Adapter
 
-Notidian now has a pure `.base` adapter for simple folder table views.
+Notidian now has a pure `.base` adapter for simple folder table views and an opt-in command that previews the export before writing.
 
 The adapter can convert a `SpaceTable` plus an optional table predicate into a Bases-compatible document shape and deterministic YAML. It maps file identity to `file.name`, frontmatter-backed columns to note properties, simple file projections such as `File.ctime` to `file.ctime`, and visible table preferences such as order, limit, group-by, simple filters, display names, and summaries where the semantics are supported.
 
-Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, file writing commands, and custom Bases view registration.
+Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and custom Bases view registration.
+
+The command `Export active folder as Obsidian Base` resolves the active folder or the parent folder of the active note, materializes frontmatter-backed columns, chooses a non-overwriting sibling `.base` path, previews the YAML and warnings, and writes only after user confirmation.
 
 ### Table Edit Feedback
 
@@ -185,7 +187,7 @@ The following work remains before Notidian should be considered final:
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, and file-title rename paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
-- A pure `.base` export adapter exists, but there is not yet an Obsidian command for writing `.base` files, `.base` import, mirroring, or custom Bases view behavior.
+- A previewed `.base` export command exists, but there is not yet `.base` import, mirroring, or custom Bases view behavior.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
@@ -218,7 +220,8 @@ The following work remains before Notidian should be considered final:
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
-| Pure `.base` export adapter | [notidianBaseAdapter.ts](../src/core/utils/bases/notidianBaseAdapter.ts) and [notidianBaseAdapter.test.ts](../src/core/utils/bases/notidianBaseAdapter.test.ts) |
+| Pure `.base` export adapter | [notidianBaseAdapter.ts](../src/core/utils/bases/notidianBaseAdapter.ts), [baseExportWorkflow.ts](../src/core/utils/bases/baseExportWorkflow.ts), [notidianBaseAdapter.test.ts](../src/core/utils/bases/notidianBaseAdapter.test.ts), and [baseExportWorkflow.test.ts](../src/core/utils/bases/baseExportWorkflow.test.ts) |
+| `.base` preview/export command | [baseExportCommand.tsx](../src/adapters/obsidian/bases/baseExportCommand.tsx) and [BaseExportPreviewModal.tsx](../src/core/react/components/Bases/BaseExportPreviewModal.tsx) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 

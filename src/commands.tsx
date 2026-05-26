@@ -1,4 +1,5 @@
 import { moveSpaceFiles } from "adapters/obsidian/filesystem/spaceFileOps";
+import { openBaseExportPreview } from "adapters/obsidian/bases/baseExportCommand";
 import { openPathFixer } from "adapters/obsidian/fileSystemPathFixer";
 import { FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidian/ui/explorer/ContextExplorerLeafView";
 import { showWarningsModal } from "core/react/components/Navigator/SyncWarnings";
@@ -191,6 +192,11 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
       id: "mk-open-file-context",
       name: i18n.commandPalette.openFileContext,
       callback: () => plugin.openFileContextLeaf(FILE_CONTEXT_VIEW_TYPE, true),
+    });
+    plugin.addCommand({
+      id: "notidian-export-active-folder-base",
+      name: "Export active folder as Obsidian Base",
+      callback: () => openBaseExportPreview(plugin),
     });
   }
   if (plugin.superstate.settings.inlineBacklinks) {
