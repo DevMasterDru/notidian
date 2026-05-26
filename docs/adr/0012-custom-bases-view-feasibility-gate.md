@@ -26,6 +26,7 @@ There are important constraints:
 
 - the local `obsidian` package used by this repository does not yet expose typed `BasesView`, `QueryController`, or `registerBasesView` declarations;
 - the custom view read path is documented, but the full write/edit surface needed for Notidian's table UX still needs runtime proof;
+- live capability capture showed no native `entry.setValue` surface, so the first safe write path must route through Obsidian's existing file/frontmatter authority instead of assuming a Bases row writer;
 - a full replacement before proving the API would risk weakening current file-title rename, frontmatter conflict, paste, and undo guarantees;
 - Notidian must not create a hidden mirror table under the custom view just to make the UI work.
 
@@ -45,9 +46,11 @@ The first implementation is intentionally a feasibility gate:
 - read visible property order from the Bases view config when available;
 - read rows from the current Bases query result (`groupedData` or `data`);
 - render a basic table projection from those native Bases entries;
+- allow the first narrow edit path for ordinary note properties by writing through Obsidian's `fileManager.processFrontMatter`;
+- keep file projections, formulas, and file-title cells read-only until their authority-aware transaction paths are mapped into the custom view;
 - keep the existing Notidian context table as the production enhanced editor until Bases-backed editing is proven.
 
-The custom view must not persist ordinary row values. It is a projection over the Bases result. Ordinary data remains governed by files, file names, and frontmatter.
+The custom view must not persist hidden ordinary row values. It is a projection over the Bases result, and accepted ordinary property edits go directly to Markdown frontmatter. Ordinary data remains governed by files, file names, and frontmatter.
 
 ## Why This Is The Best Next Step
 
@@ -94,9 +97,12 @@ Implemented behavior:
 - When supported, it registers `notidian-table` with display name `Notidian Table`.
 - The factory creates `NotidianBasesView`.
 - `NotidianBasesView` renders from the live Bases query result, not from Notidian context MDB rows.
+- Ordinary note-property cells are editable and write to the row file with `fileManager.processFrontMatter`.
+- `file.*` and `formula.*` cells are read-only; `file.name` is intentionally not editable yet because page-title edits must go through rename transactions.
 - The snapshot helper is pure and tested so future API-shape changes can be handled without hiding durable data.
+- The cell edit planner is pure and tested so unsupported targets fail before the UI can accept a detached value.
 - The view captures runtime capabilities for the active controller, config, data, first entry, value object, and apparent write surface.
-- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"` and fails if capability metadata is missing or incomplete.
+- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"`, fails if capability metadata is missing or incomplete, edits a `status` note-property cell, and verifies the Beta fixture note's frontmatter changes.
 - The smoke `.base` includes `file.ext == "md"` because live testing proved a folder-scoped Base can otherwise include the `.base` file itself as a row.
 
 The capability capture records:
@@ -119,6 +125,7 @@ Still needed:
 - mapping Notidian's current table edit transaction helpers into a Bases-hosted view;
 - page-title rename cells inside the custom view;
 - range copy/cut/paste, conflict feedback, undo, and future redo inside the custom view;
+- typed frontmatter edits beyond the current string value path;
 - migration behavior for existing Make.md context-only columns when a view is moved to `.base`.
 
 ## Invariants

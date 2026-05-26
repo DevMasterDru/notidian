@@ -16,9 +16,12 @@ jest.mock(
 
 import {
   NOTIDIAN_BASES_VIEW_TYPE,
+  notidianBasesCellEditPlan,
+  notidianBasesNotePropertyKey,
   notidianBasesRuntimeCapabilities,
   notidianBasesViewSnapshot,
   registerNotidianBasesView,
+  writeNotidianBasesCellEdit,
 } from "./notidianBasesView";
 
 const parentEl = () =>
@@ -210,5 +213,133 @@ describe("notidianBasesRuntimeCapabilities", () => {
       notes:
         "No documented Bases cell-write API is assumed. Notidian writes must route through file/frontmatter authorities until a runtime write surface is proven.",
     });
+  });
+});
+
+describe("notidianBasesNotePropertyKey", () => {
+  it("maps Bases note properties to frontmatter keys", () => {
+    expect(notidianBasesNotePropertyKey("note.status")).toBe("status");
+    expect(notidianBasesNotePropertyKey("status")).toBe("status");
+    expect(notidianBasesNotePropertyKey("note.owner.name")).toBe(
+      "owner.name"
+    );
+  });
+
+  it("keeps file and formula properties read-only", () => {
+    expect(notidianBasesNotePropertyKey("file.name")).toBeNull();
+    expect(notidianBasesNotePropertyKey("file.path")).toBeNull();
+    expect(notidianBasesNotePropertyKey("formula.remaining")).toBeNull();
+    expect(notidianBasesNotePropertyKey("")).toBeNull();
+    expect(notidianBasesNotePropertyKey("note.")).toBeNull();
+  });
+});
+
+describe("notidianBasesCellEditPlan", () => {
+  it("plans ordinary note property edits as frontmatter writes", () => {
+    expect(
+      notidianBasesCellEditPlan({
+        path: "Relays & Devices/Pump.md",
+        propertyId: "note.status",
+        value: "active",
+      })
+    ).toEqual({
+      ok: true,
+      path: "Relays & Devices/Pump.md",
+      propertyId: "note.status",
+      propertyKey: "status",
+      value: "active",
+    });
+  });
+
+  it("rejects missing paths and read-only properties", () => {
+    expect(
+      notidianBasesCellEditPlan({
+        path: "",
+        propertyId: "status",
+        value: "active",
+      })
+    ).toEqual({
+      ok: false,
+      reason: "missing-path",
+      propertyId: "status",
+    });
+
+    expect(
+      notidianBasesCellEditPlan({
+        path: "Relays & Devices/Pump.md",
+        propertyId: "file.name",
+        value: "Pump 2",
+      })
+    ).toEqual({
+      ok: false,
+      reason: "read-only-property",
+      path: "Relays & Devices/Pump.md",
+      propertyId: "file.name",
+    });
+  });
+});
+
+describe("writeNotidianBasesCellEdit", () => {
+  it("writes planned note property edits through Obsidian frontmatter", async () => {
+    const file = {
+      path: "Relays & Devices/Pump.md",
+      extension: "md",
+    };
+    const frontmatter = {
+      status: "queued",
+      rating: 2,
+    };
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn(() => file),
+      },
+      fileManager: {
+        processFrontMatter: jest.fn(async (_file: unknown, update: any) => {
+          update(frontmatter);
+        }),
+      },
+    };
+
+    await writeNotidianBasesCellEdit(app, {
+      ok: true,
+      path: "Relays & Devices/Pump.md",
+      propertyId: "note.status",
+      propertyKey: "status",
+      value: "active",
+    });
+
+    expect(app.vault.getAbstractFileByPath).toHaveBeenCalledWith(
+      "Relays & Devices/Pump.md"
+    );
+    expect(app.fileManager.processFrontMatter).toHaveBeenCalledWith(
+      file,
+      expect.any(Function)
+    );
+    expect(frontmatter).toEqual({
+      status: "active",
+      rating: 2,
+    });
+  });
+
+  it("fails instead of accepting a write without Obsidian frontmatter authority", async () => {
+    await expect(
+      writeNotidianBasesCellEdit(
+        {
+          vault: {
+            getAbstractFileByPath: jest.fn(() => ({
+              path: "Relays & Devices/Pump.md",
+              extension: "md",
+            })),
+          },
+        },
+        {
+          ok: true,
+          path: "Relays & Devices/Pump.md",
+          propertyId: "note.status",
+          propertyKey: "status",
+          value: "active",
+        }
+      )
+    ).rejects.toThrow("processFrontMatter");
   });
 });

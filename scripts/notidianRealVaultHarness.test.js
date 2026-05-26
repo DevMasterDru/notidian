@@ -369,7 +369,12 @@ describe("notidian real vault harness", () => {
 
   it("runs the optional custom Bases view smoke scenario and cleans up the .base file", async () => {
     const calls = [];
-    const evalResponses = ["=> old", "=> active", "=> active"];
+    const evalResponses = [
+      "=> old",
+      "=> active",
+      "=> active",
+      "=> base-view-active",
+    ];
     const baseViewPath =
       "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base";
     const runner = jest.fn(async (args) => {
@@ -386,6 +391,7 @@ describe("notidian real vault harness", () => {
             basePath: baseViewPath,
             rowCount: 2,
             tableText: "Notidian Table status rating Beta active",
+            editedValue: "base-view-active",
             capabilities: {
               configMethods: ["get", "getOrder", "set"],
               dataShape: {
@@ -425,6 +431,7 @@ describe("notidian real vault harness", () => {
       fixtureFolder: "Notidian Integration Fixtures",
       cleanedUp: true,
       baseViewPath,
+      baseViewEditValue: "base-view-active",
       baseViewCapabilities: {
         configMethods: ["get", "getOrder", "set"],
         entryHasSetValue: false,

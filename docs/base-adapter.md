@@ -85,9 +85,9 @@ Notidian registers a custom Bases view type when the running Obsidian host suppo
 notidian-table
 ```
 
-This is currently a feasibility gate. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, and renders a basic table projection. It does not write values, persist a hidden mirror, or replace the current context-backed Notidian table editor.
+This is currently a feasibility gate with one proven write slice. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, renders a basic table projection, and lets ordinary note-property cells write through Obsidian frontmatter. It does not persist a hidden mirror or replace the current context-backed Notidian table editor.
 
-Use this view type only to validate the Bases-hosted surface for now. The future goal is to move Notidian's enhanced table interactions into this view after file-title renames, frontmatter writes, conflict handling, range paste, and undo have equivalent safety in the Bases-hosted path.
+Use this view type only to validate the Bases-hosted surface for now. File properties, formulas, and `file.name` are read-only in the custom view. The future goal is to move Notidian's enhanced table interactions into this view after file-title renames, typed frontmatter edits, conflict handling, range paste, and undo have equivalent safety in the Bases-hosted path.
 
 The runtime capability snapshot records the controller keys, config methods, data shape, first entry/value methods, and whether an entry appears to expose a native `setValue` write method. This keeps the next editing step grounded in the actual Obsidian runtime rather than undocumented assumptions.
 
@@ -96,6 +96,8 @@ The live harness can validate the registration and renderer in Obsidian:
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
 ```
+
+That smoke also edits the Beta fixture's `status` note property through the custom Bases view and waits until Obsidian metadata reports the changed frontmatter value.
 
 ## Real-Vault Verification
 

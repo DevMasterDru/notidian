@@ -67,6 +67,43 @@ type BasesViewPlugin = {
   ) => boolean | void;
 };
 
+export type NotidianBasesCellEditRequest = {
+  path?: string;
+  propertyId?: string;
+  value: string;
+};
+
+export type NotidianBasesCellEditPlan =
+  | {
+      ok: true;
+      path: string;
+      propertyId: string;
+      propertyKey: string;
+      value: string;
+    }
+  | {
+      ok: false;
+      reason: "missing-path" | "missing-property" | "read-only-property";
+      path?: string;
+      propertyId?: string;
+    };
+
+type NotidianBasesViewAppLike = {
+  vault?: {
+    getAbstractFileByPath?: (path: string) => unknown;
+  };
+  fileManager?: {
+    processFrontMatter?: (
+      file: unknown,
+      update: (frontmatter: Record<string, unknown>) => void
+    ) => Promise<void> | void;
+  };
+};
+
+type NotidianBasesRenderOptions = {
+  writeCell?: (request: NotidianBasesCellEditRequest) => Promise<void>;
+};
+
 export type NotidianBasesViewSnapshot = {
   properties: string[];
   groups: {
@@ -173,6 +210,108 @@ const valueToText = (value: unknown): string => {
 
 const fileNameWithoutMarkdownExtension = (fileName: string): string =>
   fileName.endsWith(".md") ? fileName.slice(0, -3) : fileName;
+
+export const notidianBasesNotePropertyKey = (
+  propertyId: string
+): string | null => {
+  const normalized = String(propertyId ?? "").trim();
+  if (!normalized) return null;
+  if (normalized.startsWith("file.") || normalized.startsWith("formula.")) {
+    return null;
+  }
+
+  const propertyKey = normalized.startsWith("note.")
+    ? normalized.slice("note.".length)
+    : normalized;
+
+  return propertyKey.trim().length > 0 ? propertyKey : null;
+};
+
+export const notidianBasesCellEditPlan = ({
+  path,
+  propertyId,
+  value,
+}: NotidianBasesCellEditRequest): NotidianBasesCellEditPlan => {
+  const normalizedPropertyId = String(propertyId ?? "").trim();
+  if (!normalizedPropertyId) {
+    return {
+      ok: false,
+      reason: "missing-property",
+    };
+  }
+
+  const normalizedPath = String(path ?? "").trim();
+  if (!normalizedPath) {
+    return {
+      ok: false,
+      reason: "missing-path",
+      propertyId: normalizedPropertyId,
+    };
+  }
+
+  const propertyKey = notidianBasesNotePropertyKey(normalizedPropertyId);
+  if (!propertyKey) {
+    return {
+      ok: false,
+      reason: "read-only-property",
+      path: normalizedPath,
+      propertyId: normalizedPropertyId,
+    };
+  }
+
+  return {
+    ok: true,
+    path: normalizedPath,
+    propertyId: normalizedPropertyId,
+    propertyKey,
+    value: String(value ?? ""),
+  };
+};
+
+export const writeNotidianBasesCellEdit = async (
+  app: NotidianBasesViewAppLike | undefined,
+  edit: NotidianBasesCellEditPlan
+): Promise<void> => {
+  if (edit.ok !== true) {
+    throw new Error(`Cannot write skipped Bases cell edit: ${edit.reason}`);
+  }
+
+  const file = app?.vault?.getAbstractFileByPath?.(edit.path);
+  if (!file) {
+    throw new Error(
+      `Cannot write Bases cell edit; file not found: ${edit.path}`
+    );
+  }
+
+  const fileRecord = file as { extension?: unknown; path?: unknown };
+  const extension = String(fileRecord.extension ?? "").toLowerCase();
+  const filePath = String(fileRecord.path ?? edit.path).toLowerCase();
+  if (extension && extension !== "md") {
+    throw new Error(
+      `Cannot write Bases cell edit to non-Markdown file: ${edit.path}`
+    );
+  }
+  if (!extension && !filePath.endsWith(".md")) {
+    throw new Error(
+      `Cannot write Bases cell edit to non-Markdown file: ${edit.path}`
+    );
+  }
+
+  const processFrontMatter = app?.fileManager?.processFrontMatter;
+  if (typeof processFrontMatter !== "function") {
+    throw new Error(
+      "Obsidian fileManager.processFrontMatter is required for Bases cell edits."
+    );
+  }
+
+  await processFrontMatter.call(
+    app?.fileManager,
+    file,
+    (frontmatter: Record<string, unknown>) => {
+      frontmatter[edit.propertyKey] = edit.value;
+    }
+  );
+};
 
 const entryValueText = (
   entry: BasesEntryLike,
@@ -318,13 +457,92 @@ const renderHeaderCell = (rowEl: HTMLElement, text: string): void => {
   rowEl.createEl("th", { text });
 };
 
-const renderCell = (rowEl: HTMLElement, text: string): void => {
-  rowEl.createEl("td", { text });
+const renderReadOnlyCell = (
+  rowEl: HTMLElement,
+  propertyId: string,
+  text: string
+): void => {
+  rowEl.createEl("td", {
+    attr: {
+      "data-property-id": propertyId,
+      "data-editable": "false",
+    },
+    text,
+  });
+};
+
+const renderEditableCell = (
+  rowEl: HTMLElement,
+  path: string,
+  propertyId: string,
+  text: string,
+  writeCell: (request: NotidianBasesCellEditRequest) => Promise<void>
+): void => {
+  const cellEl = rowEl.createEl("td", {
+    attr: {
+      "data-property-id": propertyId,
+      "data-editable": "true",
+    },
+  });
+  const editorEl = cellEl.createSpan({
+    cls: "notidian-bases-table-view__cell-editor",
+    text,
+  });
+  editorEl.setAttribute("contenteditable", "true");
+  editorEl.setAttribute("spellcheck", "false");
+
+  let previousValue = text;
+  let commitPromise: Promise<void> | null = null;
+  const clearState = (): void => {
+    cellEl.removeAttribute("data-edit-state");
+    cellEl.removeAttribute("title");
+  };
+  const commit = async (): Promise<void> => {
+    if (commitPromise) return commitPromise;
+
+    const nextValue = editorEl.textContent ?? "";
+    if (nextValue === previousValue) return;
+
+    commitPromise = (async () => {
+      cellEl.setAttribute("data-edit-state", "pending");
+      try {
+        await writeCell({
+          path,
+          propertyId,
+          value: nextValue,
+        });
+        previousValue = nextValue;
+        cellEl.setAttribute("data-edit-state", "applied");
+      } catch (error) {
+        editorEl.textContent = previousValue;
+        cellEl.setAttribute("data-edit-state", "failed");
+        cellEl.setAttribute(
+          "title",
+          String((error as { message?: unknown })?.message ?? error)
+        );
+      } finally {
+        commitPromise = null;
+      }
+    })();
+
+    return commitPromise;
+  };
+
+  editorEl.addEventListener("focus", clearState);
+  editorEl.addEventListener("blur", () => {
+    void commit();
+  });
+  editorEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    editorEl.blur();
+  });
 };
 
 const renderSnapshot = (
   containerEl: HTMLElement,
-  snapshot: NotidianBasesViewSnapshot
+  snapshot: NotidianBasesViewSnapshot,
+  options: NotidianBasesRenderOptions = {}
 ): void => {
   containerEl.empty();
 
@@ -368,9 +586,25 @@ const renderSnapshot = (
     for (const row of group.rows) {
       const rowEl = tbodyEl.createEl("tr");
       if (row.path) rowEl.setAttribute("data-path", row.path);
-      for (const value of row.values) {
-        renderCell(rowEl, value);
-      }
+      row.values.forEach((value, index) => {
+        const propertyId = snapshot.properties[index] ?? "";
+        if (
+          row.path &&
+          options.writeCell &&
+          notidianBasesNotePropertyKey(propertyId)
+        ) {
+          renderEditableCell(
+            rowEl,
+            row.path,
+            propertyId,
+            value,
+            options.writeCell
+          );
+          return;
+        }
+
+        renderReadOnlyCell(rowEl, propertyId, value);
+      });
     }
   }
 
@@ -386,15 +620,28 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
   readonly type = NOTIDIAN_BASES_VIEW_TYPE;
   private containerEl: HTMLElement;
   private controller: BasesQueryControllerLike;
+  private obsidianApp: NotidianBasesViewAppLike | undefined;
 
   constructor(
     controller: BasesQueryControllerLike,
-    parentEl: HTMLElement
+    parentEl: HTMLElement,
+    app?: NotidianBasesViewAppLike
   ) {
     super(controller);
     this.controller = controller;
+    this.obsidianApp = app;
     this.containerEl = parentEl.createDiv("notidian-bases-table-view");
   }
+
+  private writeCell = async (
+    request: NotidianBasesCellEditRequest
+  ): Promise<void> => {
+    const plan = notidianBasesCellEditPlan(request);
+    if (plan.ok !== true) {
+      throw new Error(`Cannot write Bases cell edit: ${plan.reason}`);
+    }
+    await writeNotidianBasesCellEdit(this.obsidianApp, plan);
+  };
 
   public onDataUpdated(): void {
     const capabilities = notidianBasesRuntimeCapabilities({
@@ -405,7 +652,9 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
       "data-notidian-bases-capabilities",
       JSON.stringify(capabilities)
     );
-    renderSnapshot(this.containerEl, notidianBasesViewSnapshot(this));
+    renderSnapshot(this.containerEl, notidianBasesViewSnapshot(this), {
+      writeCell: this.obsidianApp ? this.writeCell : undefined,
+    });
   }
 }
 
@@ -424,7 +673,11 @@ export const registerNotidianBasesView = (
         controller: BasesQueryControllerLike,
         containerEl: HTMLElement
       ) =>
-        new NotidianBasesView(controller, containerEl),
+        new NotidianBasesView(
+          controller,
+          containerEl,
+          (plugin as { app?: NotidianBasesViewAppLike })?.app
+        ),
     }) !== false
   );
 };

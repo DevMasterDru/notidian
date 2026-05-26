@@ -11,6 +11,7 @@ const DEFAULT_TABLE_UI_PASTE_STATUS = "paste-active";
 const DEFAULT_TABLE_UI_PASTE_RATING = "7";
 const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
 const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
+const DEFAULT_BASE_VIEW_EDIT_VALUE = "base-view-active";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
 
@@ -1259,7 +1260,9 @@ const baseViewEvalCode = ({
   pluginId,
   folder,
   basePath,
+  betaPath,
   expectedTitle,
+  editValue,
   timeoutMs,
   pollIntervalMs,
 }) => {
@@ -1285,10 +1288,102 @@ const baseViewEvalCode = ({
     const pluginId = ${JSON.stringify(pluginId)};
     const folder = ${JSON.stringify(folder)};
     const basePath = ${JSON.stringify(basePath)};
+    const betaPath = ${JSON.stringify(betaPath)};
     const expectedTitle = ${JSON.stringify(expectedTitle)};
+    const editValue = ${JSON.stringify(editValue)};
     const baseContent = ${JSON.stringify(baseContent)};
     const timeoutMs = ${Number(timeoutMs)};
     const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const frontmatterValue = () => {
+      const file = app.vault.getAbstractFileByPath(betaPath);
+      if (!file) return undefined;
+      return app.metadataCache.getFileCache(file)?.frontmatter?.status;
+    };
+    const editStatusCell = async (view) => {
+      const headers = Array.from(view.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const statusColumnIndex = headers.findIndex((header) =>
+        ["status", "note.status"].includes(header)
+      );
+      if (statusColumnIndex < 0) {
+        return { ok: false, reason: "missing-edit-column", columns: headers };
+      }
+      const row = Array.from(view.querySelectorAll("tbody tr[data-path]"))
+        .find((candidate) =>
+          candidate.getAttribute("data-path") === betaPath ||
+          candidate.innerText.includes(expectedTitle)
+        );
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-edit-row",
+          columns: headers,
+          tableText: view.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[statusColumnIndex];
+      const editor = cell?.querySelector("[contenteditable='true']");
+      if (!editor) {
+        return {
+          ok: false,
+          reason: "missing-edit-editor",
+          columns: headers,
+          cellHtml: cell?.outerHTML?.slice(0, 500) ?? "",
+        };
+      }
+      editor.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const inserted = typeof document.execCommand == "function"
+        ? document.execCommand("insertText", false, editValue)
+        : false;
+      if (!inserted) {
+        editor.textContent = editValue;
+      }
+      const inputEvent = typeof InputEvent == "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: editValue,
+          })
+        : new Event("input", { bubbles: true });
+      editor.dispatchEvent(inputEvent);
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: view,
+        })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("blur", {
+          bubbles: false,
+          relatedTarget: view,
+        })
+      );
+      if (document.activeElement === editor) {
+        editor.blur();
+      }
+
+      const start = Date.now();
+      do {
+        if (String(frontmatterValue()) == editValue) {
+          return { ok: true, editedValue: editValue };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "edit-not-applied",
+        currentValue: frontmatterValue(),
+      };
+    };
     try {
       const plugin = app.plugins.plugins[pluginId];
       if (!plugin) {
@@ -1360,12 +1455,22 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
+            const editResult = await editStatusCell(view);
+            if (!editResult.ok) {
+              return finish({
+                ...editResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             return finish({
               ok: true,
               basePath,
               rowCount,
               tableText: lastText,
               capabilities,
+              editedValue: editResult.editedValue,
             });
           }
         }
@@ -1568,7 +1673,9 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
         pluginId: config.pluginId,
         folder: paths.folder,
         basePath: paths.baseViewPath,
+        betaPath: paths.betaPath,
         expectedTitle: `${paths.runId}-Beta`,
+        editValue: DEFAULT_BASE_VIEW_EDIT_VALUE,
         timeoutMs: config.timeoutMs,
         pollIntervalMs: config.pollIntervalMs,
       }),
@@ -1582,10 +1689,24 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected .base path; got ${result.basePath}`
     );
   }
+  if (result.editedValue != DEFAULT_BASE_VIEW_EDIT_VALUE) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected editedValue=${DEFAULT_BASE_VIEW_EDIT_VALUE}; got ${result.editedValue}`
+    );
+  }
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: DEFAULT_BASE_VIEW_EDIT_VALUE,
+  });
 
   return {
     baseViewPath: result.basePath,
     baseViewCapabilities: baseViewCapabilitySummary(result.capabilities),
+    baseViewEditValue: result.editedValue,
   };
 };
 
@@ -1759,6 +1880,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseExportPath = null;
   let baseViewPath = null;
   let baseViewCapabilities = null;
+  let baseViewEditValue = null;
   let scenarioError = null;
 
   try {
@@ -1859,6 +1981,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       });
       baseViewPath = viewPaths.baseViewPath ?? null;
       baseViewCapabilities = viewPaths.baseViewCapabilities ?? null;
+      baseViewEditValue = viewPaths.baseViewEditValue ?? null;
     }
 
     const devErrors = await runObsidian(config, execute, "dev:errors");
@@ -1906,6 +2029,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseExportPath ? { baseExportPath } : {}),
     ...(baseViewPath ? { baseViewPath } : {}),
     ...(baseViewCapabilities ? { baseViewCapabilities } : {}),
+    ...(baseViewEditValue ? { baseViewEditValue } : {}),
   };
 };
 

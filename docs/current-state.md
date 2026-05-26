@@ -131,9 +131,11 @@ notidian-table
 
 The first view is a native-alignment spike, not the final table editor. It uses a runtime compatibility shim because the local `obsidian` development package does not yet expose typed Bases APIs. When available, the view is registered as `Notidian Table`, reads visible property order from the Bases view config, reads rows from the current Bases query result, captures runtime capabilities, and renders a basic table projection.
 
-This view does not persist ordinary row values and does not replace the current context-backed Notidian table. It exists to prove that `.base` can host Notidian's future table UX before moving file-title renames, frontmatter writes, range paste, conflict feedback, and undo into the Bases-hosted surface.
+The custom view now has the first narrow write path: editing an ordinary note property cell writes the value through Obsidian's `fileManager.processFrontMatter` API to the row Markdown file. `file.*` and `formula.*` properties stay read-only in this view, and `file.name` is not yet wired to the file-rename transaction path.
 
-The real-vault smoke harness has an opt-in `--base-view` mode that writes a temporary `.base` file using `type: "notidian-table"`, opens it in Obsidian, verifies the custom view DOM and fixture rows, verifies capability metadata, and cleans up the `.base` file.
+This view does not persist a hidden mirror of ordinary row values and does not replace the current context-backed Notidian table. It exists to prove that `.base` can host Notidian's future table UX before moving file-title renames, range paste, conflict feedback, and undo into the Bases-hosted surface.
+
+The real-vault smoke harness has an opt-in `--base-view` mode that writes a temporary `.base` file using `type: "notidian-table"`, opens it in Obsidian, verifies the custom view DOM and fixture rows, verifies capability metadata, edits a note-property cell, verifies the Markdown frontmatter changed, and cleans up the `.base` file.
 
 The durable decision is recorded in [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md).
 
@@ -203,7 +205,7 @@ The following work remains before Notidian should be considered final:
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, file-title rename, and `.base` export command paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, deeper native Bases renderer validation, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
-- A previewed `.base` export command and minimal custom Bases view registration exist, but there is not yet `.base` import, mirroring, or full Bases-backed table editing.
+- A previewed `.base` export command and custom Bases view with single-cell note-property editing exist, but there is not yet `.base` import, mirroring, file-title editing, range editing, conflict feedback, undo, or full Bases-backed table editing.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
