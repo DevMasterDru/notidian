@@ -846,6 +846,23 @@ width: 24px;
   color: var(--text-muted);
 }
 
+.notidian-bases-table-view__table td[data-edit-action="frontmatter-conflict"] {
+  outline: 1px solid var(--text-warning);
+  outline-offset: -1px;
+}
+
+.notidian-bases-table-view__cell-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.notidian-bases-table-view__cell-action {
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--font-ui-smaller);
+}
+
 .notidian-bases-table-view__group th {
   background: var(--background-primary-alt);
   color: var(--text-normal);

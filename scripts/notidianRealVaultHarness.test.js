@@ -375,8 +375,8 @@ describe("notidian real vault harness", () => {
       "=> old",
       "=> active",
       "=> active",
-      "=> base-view-paste-active",
-      "=> 9",
+      "=> base-view-conflict-applied",
+      "=> 2",
     ];
     const baseViewPath =
       "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base";
@@ -399,6 +399,11 @@ describe("notidian real vault harness", () => {
               rating: "9",
               status: "base-view-paste-active",
             },
+            undoValues: {
+              rating: "2",
+              status: "base-view-active",
+            },
+            conflictAppliedValue: "base-view-conflict-applied",
             renamedPath:
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
             renamedTitle:
@@ -447,6 +452,11 @@ describe("notidian real vault harness", () => {
         rating: "9",
         status: "base-view-paste-active",
       },
+      baseViewUndoValues: {
+        rating: "2",
+        status: "base-view-active",
+      },
+      baseViewConflictAppliedValue: "base-view-conflict-applied",
       baseViewRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
       baseViewRenameTitle:

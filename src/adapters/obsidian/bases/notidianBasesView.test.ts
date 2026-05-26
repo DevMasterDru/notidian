@@ -17,8 +17,10 @@ jest.mock(
 import {
   NOTIDIAN_BASES_VIEW_TYPE,
   notidianBasesCellEditPlan,
+  notidianBasesCreateUndoEntry,
   notidianBasesNotePropertyKey,
   notidianBasesParseTsv,
+  notidianBasesRowsWithVisibleBaseValues,
   notidianBasesStructuredPastePlan,
   notidianBasesRuntimeCapabilities,
   notidianBasesViewSnapshot,
@@ -357,6 +359,88 @@ describe("writeNotidianBasesCellEdit", () => {
     });
   });
 
+  it("skips stale note property edits when frontmatter changed outside the view", async () => {
+    const file = {
+      path: "Relays & Devices/Pump.md",
+      extension: "md",
+    };
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn(() => file),
+      },
+      metadataCache: {
+        getFileCache: jest.fn(() => ({
+          frontmatter: {
+            status: "external",
+          },
+        })),
+      },
+      fileManager: {
+        processFrontMatter: jest.fn(),
+      },
+    };
+
+    await expect(
+      writeNotidianBasesCellEdit(app, {
+        ok: true,
+        authority: "frontmatter",
+        path: "Relays & Devices/Pump.md",
+        propertyId: "status",
+        propertyKey: "status",
+        value: "active",
+        baseValue: "queued",
+      })
+    ).rejects.toMatchObject({
+      reason: "frontmatter-conflict",
+      currentValue: "external",
+      baseValue: "queued",
+      attemptedValue: "active",
+    });
+    expect(app.fileManager.processFrontMatter).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit forced note property writes after conflict review", async () => {
+    const file = {
+      path: "Relays & Devices/Pump.md",
+      extension: "md",
+    };
+    const frontmatter = {
+      status: "external",
+    };
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn(() => file),
+      },
+      metadataCache: {
+        getFileCache: jest.fn(() => ({
+          frontmatter,
+        })),
+      },
+      fileManager: {
+        processFrontMatter: jest.fn(async (_file: unknown, update: any) => {
+          update(frontmatter);
+        }),
+      },
+    };
+
+    await writeNotidianBasesCellEdit(app, {
+      ok: true,
+      authority: "frontmatter",
+      path: "Relays & Devices/Pump.md",
+      propertyId: "status",
+      propertyKey: "status",
+      value: "active",
+      baseValue: "queued",
+      forceFrontmatterWrite: true,
+    });
+
+    expect(frontmatter.status).toBe("active");
+    expect(app.fileManager.processFrontMatter).toHaveBeenCalledWith(
+      file,
+      expect.any(Function)
+    );
+  });
+
   it("fails instead of accepting a write without Obsidian frontmatter authority", async () => {
     await expect(
       writeNotidianBasesCellEdit(
@@ -450,6 +534,27 @@ describe("writeNotidianBasesCellEdit", () => {
 });
 
 describe("notidianBasesStructuredPastePlan", () => {
+  it("prefers visible accepted cell base values over stale snapshot values", () => {
+    expect(
+      notidianBasesRowsWithVisibleBaseValues({
+        properties: ["file.name", "status", "rating"],
+        rows: [
+          {
+            path: "Relays & Devices/Beta.md",
+            values: ["Beta", "queued", "2"],
+          },
+        ],
+        baseValueForCell: (_rowIndex, columnIndex) =>
+          columnIndex == 1 ? "base-view-active" : undefined,
+      })
+    ).toEqual([
+      {
+        path: "Relays & Devices/Beta.md",
+        values: ["Beta", "base-view-active", "2"],
+      },
+    ]);
+  });
+
   it("plans TSV paste across note-property cells", () => {
     expect(notidianBasesParseTsv("active\t7\npaused\t3")).toEqual([
       ["active", "7"],
@@ -459,8 +564,8 @@ describe("notidianBasesStructuredPastePlan", () => {
     const plan = notidianBasesStructuredPastePlan({
       properties: ["file.name", "status", "rating"],
       rows: [
-        { path: "Relays & Devices/Beta.md" },
-        { path: "Relays & Devices/Gamma.md" },
+        { path: "Relays & Devices/Beta.md", values: ["Beta", "queued", "2"] },
+        { path: "Relays & Devices/Gamma.md", values: ["Gamma", "old", "1"] },
       ],
       startRowIndex: 0,
       startColumnIndex: 1,
@@ -474,6 +579,7 @@ describe("notidianBasesStructuredPastePlan", () => {
         request: {
           path: "Relays & Devices/Beta.md",
           propertyId: "status",
+          baseValue: "queued",
           value: "active",
         },
       },
@@ -483,6 +589,7 @@ describe("notidianBasesStructuredPastePlan", () => {
         request: {
           path: "Relays & Devices/Beta.md",
           propertyId: "rating",
+          baseValue: "2",
           value: "7",
         },
       },
@@ -492,6 +599,7 @@ describe("notidianBasesStructuredPastePlan", () => {
         request: {
           path: "Relays & Devices/Gamma.md",
           propertyId: "status",
+          baseValue: "old",
           value: "paused",
         },
       },
@@ -501,6 +609,7 @@ describe("notidianBasesStructuredPastePlan", () => {
         request: {
           path: "Relays & Devices/Gamma.md",
           propertyId: "rating",
+          baseValue: "1",
           value: "3",
         },
       },
@@ -511,7 +620,7 @@ describe("notidianBasesStructuredPastePlan", () => {
   it("skips file names, read-only properties, and out-of-bounds cells", () => {
     const plan = notidianBasesStructuredPastePlan({
       properties: ["file.name", "status", "file.path"],
-      rows: [{ path: "Relays & Devices/Beta.md" }],
+      rows: [{ path: "Relays & Devices/Beta.md", values: ["Beta", "queued", ""] }],
       startRowIndex: 0,
       startColumnIndex: 0,
       text: "New Beta\tactive\tOther.md\tignored",
@@ -524,6 +633,7 @@ describe("notidianBasesStructuredPastePlan", () => {
         request: {
           path: "Relays & Devices/Beta.md",
           propertyId: "status",
+          baseValue: "queued",
           value: "active",
         },
       },
@@ -548,5 +658,64 @@ describe("notidianBasesStructuredPastePlan", () => {
         value: "ignored",
       },
     ]);
+  });
+});
+
+describe("notidianBasesCreateUndoEntry", () => {
+  it("creates inverse writes for applied note-property edits", () => {
+    expect(
+      notidianBasesCreateUndoEntry({
+        label: "Paste cells",
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "status",
+            baseValue: "queued",
+            value: "active",
+          },
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "rating",
+            baseValue: "2",
+            value: "9",
+          },
+        ],
+      })
+    ).toEqual({
+      label: "Paste cells",
+      writes: [
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          baseValue: "active",
+          value: "queued",
+        },
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "rating",
+          baseValue: "9",
+          value: "2",
+        },
+      ],
+    });
+  });
+
+  it("skips file-name writes until custom Bases rename undo is implemented", () => {
+    expect(
+      notidianBasesCreateUndoEntry({
+        label: "Rename file",
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "file.name",
+            baseValue: "Beta",
+            value: "Renamed Beta",
+          },
+        ],
+      })
+    ).toEqual({
+      label: "Rename file",
+      writes: [],
+    });
   });
 });

@@ -5,6 +5,8 @@ import {
 } from "core/utils/contexts/pageTitle";
 
 export const NOTIDIAN_BASES_VIEW_TYPE = "notidian-table";
+const NOTIDIAN_BASES_BASE_VALUE_ATTR = "data-notidian-bases-base-value";
+const NOTIDIAN_BASES_CONFLICT_ACTION = "frontmatter-conflict";
 
 type BasesQueryControllerLike = Record<string, unknown>;
 
@@ -75,6 +77,8 @@ export type NotidianBasesCellEditRequest = {
   path?: string;
   propertyId?: string;
   value: string;
+  baseValue?: string;
+  forceFrontmatterWrite?: boolean;
 };
 
 export type NotidianBasesCellEditPlan =
@@ -85,6 +89,8 @@ export type NotidianBasesCellEditPlan =
       propertyId: string;
       propertyKey: string;
       value: string;
+      baseValue?: string;
+      forceFrontmatterWrite?: boolean;
     }
   | {
       ok: true;
@@ -134,10 +140,24 @@ export type NotidianBasesStructuredPastePlan = {
 
 export type NotidianBasesStructuredPastePlanParams = {
   properties: string[];
-  rows: { path?: string }[];
+  rows: { path?: string; values?: string[] }[];
   startRowIndex: number;
   startColumnIndex: number;
   text: string;
+};
+
+export type NotidianBasesRowsWithVisibleBaseValuesParams = {
+  properties: string[];
+  rows: { path?: string; values?: string[] }[];
+  baseValueForCell: (
+    rowIndex: number,
+    columnIndex: number
+  ) => string | undefined;
+};
+
+export type NotidianBasesUndoEntry = {
+  label: string;
+  writes: NotidianBasesCellEditRequest[];
 };
 
 type NotidianBasesStructuredPasteRequest = {
@@ -150,11 +170,21 @@ type NotidianBasesStructuredPasteResult = {
   applied: number;
   failed: number;
   skipped: number;
+  appliedWrites: NotidianBasesCellEditRequest[];
+  failedWrites: {
+    request: NotidianBasesCellEditRequest;
+    error: unknown;
+  }[];
 };
 
 type NotidianBasesViewAppLike = {
   vault?: {
     getAbstractFileByPath?: (path: string) => unknown;
+  };
+  metadataCache?: {
+    getFileCache?: (
+      file: unknown
+    ) => { frontmatter?: Record<string, unknown> } | null | undefined;
   };
   fileManager?: {
     processFrontMatter?: (
@@ -165,8 +195,33 @@ type NotidianBasesViewAppLike = {
   };
 };
 
+export class NotidianBasesFrontmatterConflictError extends Error {
+  readonly reason = "frontmatter-conflict";
+  readonly currentValue: string;
+  readonly baseValue: string;
+  readonly attemptedValue: string;
+
+  constructor({
+    currentValue,
+    baseValue,
+    attemptedValue,
+  }: {
+    currentValue: string;
+    baseValue: string;
+    attemptedValue: string;
+  }) {
+    super("Frontmatter changed outside Notidian. Reload before editing.");
+    this.name = "NotidianBasesFrontmatterConflictError";
+    this.currentValue = currentValue;
+    this.baseValue = baseValue;
+    this.attemptedValue = attemptedValue;
+  }
+}
+
 type NotidianBasesRenderOptions = {
   writeCell?: (request: NotidianBasesCellEditRequest) => Promise<void>;
+  pushUndoEntry?: (entry: NotidianBasesUndoEntry) => void;
+  undoLast?: () => Promise<NotidianBasesStructuredPasteResult>;
 };
 
 export type NotidianBasesViewSnapshot = {
@@ -308,6 +363,24 @@ const notidianBasesIsStructuredPasteText = (text: string): boolean => {
   return matrix.length > 1 || matrix.some((row) => row.length > 1);
 };
 
+export const notidianBasesRowsWithVisibleBaseValues = ({
+  properties,
+  rows,
+  baseValueForCell,
+}: NotidianBasesRowsWithVisibleBaseValuesParams): {
+  path?: string;
+  values: string[];
+}[] =>
+  rows.map((row, rowIndex) => ({
+    ...row,
+    values: properties.map(
+      (_property, columnIndex) =>
+        baseValueForCell(rowIndex, columnIndex) ??
+        row.values?.[columnIndex] ??
+        ""
+    ),
+  }));
+
 export const notidianBasesStructuredPastePlan = ({
   properties,
   rows,
@@ -372,6 +445,7 @@ export const notidianBasesStructuredPastePlan = ({
         request: {
           path: row.path,
           propertyId,
+          baseValue: row.values?.[columnIndex],
           value,
         },
       });
@@ -381,10 +455,35 @@ export const notidianBasesStructuredPastePlan = ({
   return { writes, skipped };
 };
 
+export const notidianBasesCreateUndoEntry = ({
+  label,
+  writes,
+}: NotidianBasesUndoEntry): NotidianBasesUndoEntry => ({
+  label,
+  writes: writes.flatMap((write) => {
+    const propertyId = String(write.propertyId ?? "").trim();
+    if (!notidianBasesNotePropertyKey(propertyId)) return [];
+    if (write.baseValue === undefined || write.baseValue === write.value) {
+      return [];
+    }
+
+    return [
+      {
+        path: write.path,
+        propertyId,
+        baseValue: write.value,
+        value: write.baseValue,
+      },
+    ];
+  }),
+});
+
 export const notidianBasesCellEditPlan = ({
   path,
   propertyId,
   value,
+  baseValue,
+  forceFrontmatterWrite,
 }: NotidianBasesCellEditRequest): NotidianBasesCellEditPlan => {
   const normalizedPropertyId = String(propertyId ?? "").trim();
   if (!normalizedPropertyId) {
@@ -444,8 +543,50 @@ export const notidianBasesCellEditPlan = ({
     propertyId: normalizedPropertyId,
     propertyKey,
     value: String(value ?? ""),
+    baseValue: baseValue === undefined ? undefined : String(baseValue ?? ""),
+    forceFrontmatterWrite,
   };
 };
+
+const notidianBasesCurrentFrontmatterValue = (
+  app: NotidianBasesViewAppLike | undefined,
+  file: unknown,
+  propertyKey: string
+): string | undefined => {
+  const frontmatter = app?.metadataCache?.getFileCache?.(file)?.frontmatter;
+  if (!frontmatter || !(propertyKey in frontmatter)) return undefined;
+  return valueToText(frontmatter[propertyKey]);
+};
+
+const notidianBasesConflictFromError = (
+  error: unknown
+): NotidianBasesFrontmatterConflictError | null => {
+  if (error instanceof NotidianBasesFrontmatterConflictError) return error;
+  const conflict = error as
+    | {
+        reason?: unknown;
+        currentValue?: unknown;
+        baseValue?: unknown;
+        attemptedValue?: unknown;
+      }
+    | undefined;
+  if (conflict?.reason !== "frontmatter-conflict") return null;
+  return new NotidianBasesFrontmatterConflictError({
+    currentValue: String(conflict.currentValue ?? ""),
+    baseValue: String(conflict.baseValue ?? ""),
+    attemptedValue: String(conflict.attemptedValue ?? ""),
+  });
+};
+
+const notidianBasesConflictTitle = (
+  conflict: NotidianBasesFrontmatterConflictError
+): string =>
+  [
+    conflict.message,
+    `Current: ${conflict.currentValue}`,
+    `Table had: ${conflict.baseValue}`,
+    `Attempted: ${conflict.attemptedValue}`,
+  ].join("\n");
 
 export const writeNotidianBasesCellEdit = async (
   app: NotidianBasesViewAppLike | undefined,
@@ -496,6 +637,24 @@ export const writeNotidianBasesCellEdit = async (
 
     await renameFile.call(app?.fileManager, file, edit.newPath);
     return;
+  }
+
+  const currentValue = notidianBasesCurrentFrontmatterValue(
+    app,
+    file,
+    edit.propertyKey
+  );
+  if (
+    !edit.forceFrontmatterWrite &&
+    edit.baseValue !== undefined &&
+    currentValue !== undefined &&
+    currentValue !== edit.baseValue
+  ) {
+    throw new NotidianBasesFrontmatterConflictError({
+      currentValue,
+      baseValue: edit.baseValue,
+      attemptedValue: edit.value,
+    });
   }
 
   const processFrontMatter = app?.fileManager?.processFrontMatter;
@@ -680,6 +839,14 @@ const renderEditableCell = (
   columnIndex: number,
   text: string,
   writeCell: (request: NotidianBasesCellEditRequest) => Promise<void>,
+  pushUndoEntry: ((entry: NotidianBasesUndoEntry) => void) | undefined,
+  focusTable: () => void,
+  showConflict: (
+    rowIndex: number,
+    columnIndex: number,
+    request: NotidianBasesCellEditRequest,
+    error: unknown
+  ) => boolean,
   pasteCells?: (
     request: NotidianBasesStructuredPasteRequest
   ) => Promise<NotidianBasesStructuredPasteResult>
@@ -690,6 +857,7 @@ const renderEditableCell = (
       "data-editable": "true",
       "data-row-index": String(rowIndex),
       "data-column-index": String(columnIndex),
+      [NOTIDIAN_BASES_BASE_VALUE_ATTR]: text,
     },
   });
   const editorEl = cellEl.createSpan({
@@ -699,35 +867,54 @@ const renderEditableCell = (
   editorEl.setAttribute("contenteditable", "true");
   editorEl.setAttribute("spellcheck", "false");
 
-  let previousValue = text;
   let commitPromise: Promise<void> | null = null;
+  const getBaseValue = (): string =>
+    cellEl.getAttribute(NOTIDIAN_BASES_BASE_VALUE_ATTR) ?? "";
+  const setBaseValue = (value: string): void => {
+    cellEl.setAttribute(NOTIDIAN_BASES_BASE_VALUE_ATTR, value);
+  };
   const clearState = (): void => {
     cellEl.removeAttribute("data-edit-state");
+    cellEl.removeAttribute("data-edit-action");
     cellEl.removeAttribute("title");
+    cellEl
+      .querySelector(".notidian-bases-table-view__cell-actions")
+      ?.remove();
   };
   const commit = async (): Promise<void> => {
     if (commitPromise) return commitPromise;
 
+    const previousValue = getBaseValue();
     const nextValue = editorEl.textContent ?? "";
     if (nextValue === previousValue) return;
 
     commitPromise = (async () => {
       cellEl.setAttribute("data-edit-state", "pending");
+      const request = {
+        path,
+        propertyId,
+        value: nextValue,
+        baseValue: previousValue,
+      };
       try {
-        await writeCell({
-          path,
-          propertyId,
-          value: nextValue,
-        });
-        previousValue = nextValue;
+        await writeCell(request);
+        setBaseValue(nextValue);
         cellEl.setAttribute("data-edit-state", "applied");
+        pushUndoEntry?.(
+          notidianBasesCreateUndoEntry({
+            label: "Edit cell",
+            writes: [request],
+          })
+        );
       } catch (error) {
-        editorEl.textContent = previousValue;
+        if (showConflict(rowIndex, columnIndex, request, error)) return;
+
         cellEl.setAttribute("data-edit-state", "failed");
         cellEl.setAttribute(
           "title",
           String((error as { message?: unknown })?.message ?? error)
         );
+        editorEl.textContent = previousValue;
       } finally {
         commitPromise = null;
       }
@@ -744,6 +931,7 @@ const renderEditableCell = (
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     editorEl.blur();
+    focusTable();
   });
   editorEl.addEventListener("paste", (event: ClipboardEvent) => {
     const text = event.clipboardData?.getData("text/plain") ?? "";
@@ -751,6 +939,7 @@ const renderEditableCell = (
 
     event.preventDefault();
     editorEl.blur();
+    focusTable();
     void pasteCells({
       startRowIndex: rowIndex,
       startColumnIndex: columnIndex,
@@ -785,37 +974,170 @@ const renderSnapshot = (
 
   const tableEl = containerEl.createEl("table", {
     cls: "notidian-bases-table-view__table",
+    attr: {
+      tabindex: "0",
+    },
   });
   const dataRowEls: HTMLElement[] = [];
+  const cellAt = (
+    rowIndex: number,
+    columnIndex: number
+  ): HTMLElement | undefined =>
+    dataRowEls[rowIndex]?.children[columnIndex] as HTMLElement | undefined;
+  const editorForCell = (cellEl: HTMLElement | undefined): HTMLElement | null =>
+    cellEl?.querySelector(".notidian-bases-table-view__cell-editor") ?? null;
+  const clearCellActions = (cellEl: HTMLElement | undefined): void => {
+    if (!cellEl) return;
+    cellEl.removeAttribute("data-edit-action");
+    cellEl
+      .querySelector(".notidian-bases-table-view__cell-actions")
+      ?.remove();
+  };
   const setCellState = (
     rowIndex: number,
     columnIndex: number,
     state: "pending" | "applied" | "failed" | "skipped",
     title?: string
   ): void => {
-    const cellEl = dataRowEls[rowIndex]?.children[columnIndex] as
-      | HTMLElement
-      | undefined;
+    const cellEl = cellAt(rowIndex, columnIndex);
     if (!cellEl) return;
     cellEl.setAttribute("data-edit-state", state);
+    if (state !== "skipped") clearCellActions(cellEl);
     if (title) {
       cellEl.setAttribute("title", title);
     } else {
       cellEl.removeAttribute("title");
     }
   };
+  const clearCellState = (
+    rowIndex: number,
+    columnIndex: number
+  ): void => {
+    const cellEl = cellAt(rowIndex, columnIndex);
+    if (!cellEl) return;
+    cellEl.removeAttribute("data-edit-state");
+    cellEl.removeAttribute("title");
+    clearCellActions(cellEl);
+  };
   const setCellText = (
     rowIndex: number,
     columnIndex: number,
     text: string
   ): void => {
-    const cellEl = dataRowEls[rowIndex]?.children[columnIndex] as
-      | HTMLElement
-      | undefined;
-    const editorEl = cellEl?.querySelector(
-      ".notidian-bases-table-view__cell-editor"
-    );
+    const editorEl = editorForCell(cellAt(rowIndex, columnIndex));
     if (editorEl) editorEl.textContent = text;
+  };
+  const setCellBaseValue = (
+    rowIndex: number,
+    columnIndex: number,
+    value: string
+  ): void => {
+    cellAt(rowIndex, columnIndex)?.setAttribute(
+      NOTIDIAN_BASES_BASE_VALUE_ATTR,
+      value
+    );
+  };
+  const targetForRequest = (
+    request: NotidianBasesCellEditRequest
+  ): { rowIndex: number; columnIndex: number } | null => {
+    const path = String(request.path ?? "");
+    const propertyId = String(request.propertyId ?? "");
+    const rowIndex = flatRows.findIndex((row) => row.path === path);
+    const columnIndex = snapshot.properties.indexOf(propertyId);
+    if (rowIndex < 0 || columnIndex < 0) return null;
+    return { rowIndex, columnIndex };
+  };
+  const pushUndoForWrites = (
+    label: string,
+    writes: NotidianBasesCellEditRequest[]
+  ): void => {
+    options.pushUndoEntry?.(
+      notidianBasesCreateUndoEntry({
+        label,
+        writes,
+      })
+    );
+  };
+  const showConflict = (
+    rowIndex: number,
+    columnIndex: number,
+    request: NotidianBasesCellEditRequest,
+    error: unknown
+  ): boolean => {
+    const conflict = notidianBasesConflictFromError(error);
+    if (!conflict) return false;
+
+    const cellEl = cellAt(rowIndex, columnIndex);
+    const editorEl = editorForCell(cellEl);
+    if (!cellEl || !editorEl) return true;
+
+    clearCellActions(cellEl);
+    editorEl.textContent = conflict.baseValue;
+    cellEl.setAttribute("data-edit-state", "skipped");
+    cellEl.setAttribute("data-edit-action", NOTIDIAN_BASES_CONFLICT_ACTION);
+    cellEl.setAttribute("title", notidianBasesConflictTitle(conflict));
+
+    const actionsEl = cellEl.createDiv({
+      cls: "notidian-bases-table-view__cell-actions",
+    });
+    actionsEl.addEventListener("mousedown", (event) => {
+      event.stopPropagation();
+    });
+    const reloadButton = actionsEl.createEl("button", {
+      cls: "notidian-bases-table-view__cell-action",
+      text: "Reload",
+      attr: {
+        type: "button",
+        title: "Reload current file value",
+      },
+    });
+    reloadButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      editorEl.textContent = conflict.currentValue;
+      setCellBaseValue(rowIndex, columnIndex, conflict.currentValue);
+      clearCellState(rowIndex, columnIndex);
+    });
+
+    const applyButton = actionsEl.createEl("button", {
+      cls: "notidian-bases-table-view__cell-action",
+      text: "Apply anyway",
+      attr: {
+        type: "button",
+        title: "Apply this value to the file",
+      },
+    });
+    applyButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const forcedRequest: NotidianBasesCellEditRequest = {
+        ...request,
+        baseValue: conflict.currentValue,
+        value: conflict.attemptedValue,
+        forceFrontmatterWrite: true,
+      };
+      void (async () => {
+        setCellState(rowIndex, columnIndex, "pending");
+        try {
+          await options.writeCell?.(forcedRequest);
+          setCellText(rowIndex, columnIndex, conflict.attemptedValue);
+          setCellBaseValue(rowIndex, columnIndex, conflict.attemptedValue);
+          clearCellActions(cellEl);
+          setCellState(rowIndex, columnIndex, "applied");
+          pushUndoForWrites("Apply cell", [forcedRequest]);
+        } catch (applyError) {
+          if (showConflict(rowIndex, columnIndex, forcedRequest, applyError)) {
+            return;
+          }
+          setCellState(
+            rowIndex,
+            columnIndex,
+            "failed",
+            String((applyError as { message?: unknown })?.message ?? applyError)
+          );
+        }
+      })();
+    });
+
+    return true;
   };
   const pasteCells =
     options.writeCell &&
@@ -826,7 +1148,14 @@ const renderSnapshot = (
     }: NotidianBasesStructuredPasteRequest): Promise<NotidianBasesStructuredPasteResult> => {
       const plan = notidianBasesStructuredPastePlan({
         properties: snapshot.properties,
-        rows: flatRows,
+        rows: notidianBasesRowsWithVisibleBaseValues({
+          properties: snapshot.properties,
+          rows: flatRows,
+          baseValueForCell: (rowIndex, columnIndex) =>
+            cellAt(rowIndex, columnIndex)?.getAttribute(
+              NOTIDIAN_BASES_BASE_VALUE_ATTR
+            ) ?? undefined,
+        }),
         startRowIndex,
         startColumnIndex,
         text,
@@ -835,6 +1164,8 @@ const renderSnapshot = (
         applied: 0,
         failed: 0,
         skipped: plan.skipped.length,
+        appliedWrites: [],
+        failedWrites: [],
       };
 
       tableEl.setAttribute("data-notidian-bases-paste-state", "pending");
@@ -857,8 +1188,26 @@ const renderSnapshot = (
             write.request.value
           );
           setCellState(write.rowIndex, write.columnIndex, "applied");
+          setCellBaseValue(
+            write.rowIndex,
+            write.columnIndex,
+            write.request.value
+          );
           result.applied += 1;
+          result.appliedWrites.push(write.request);
         } catch (error) {
+          if (
+            showConflict(
+              write.rowIndex,
+              write.columnIndex,
+              write.request,
+              error
+            )
+          ) {
+            result.skipped += 1;
+            continue;
+          }
+
           setCellState(
             write.rowIndex,
             write.columnIndex,
@@ -866,8 +1215,11 @@ const renderSnapshot = (
             String((error as { message?: unknown })?.message ?? error)
           );
           result.failed += 1;
+          result.failedWrites.push({ request: write.request, error });
         }
       }
+
+      pushUndoForWrites("Paste cells", result.appliedWrites);
 
       const state =
         result.failed > 0
@@ -882,6 +1234,60 @@ const renderSnapshot = (
       );
       return result;
     });
+  const undoLast = async (): Promise<void> => {
+    if (!options.undoLast) return;
+
+    tableEl.setAttribute("data-notidian-bases-undo-state", "pending");
+    const result = await options.undoLast();
+    for (const request of result.appliedWrites) {
+      const target = targetForRequest(request);
+      if (!target) continue;
+      setCellText(target.rowIndex, target.columnIndex, request.value);
+      setCellBaseValue(target.rowIndex, target.columnIndex, request.value);
+      setCellState(target.rowIndex, target.columnIndex, "applied");
+    }
+    for (const failed of result.failedWrites) {
+      const target = targetForRequest(failed.request);
+      if (!target) continue;
+      if (
+        showConflict(
+          target.rowIndex,
+          target.columnIndex,
+          failed.request,
+          failed.error
+        )
+      ) {
+        continue;
+      }
+      setCellState(
+        target.rowIndex,
+        target.columnIndex,
+        "failed",
+        String((failed.error as { message?: unknown })?.message ?? failed.error)
+      );
+    }
+
+    const state =
+      result.failed > 0 ? "failed" : result.applied > 0 ? "applied" : "skipped";
+    tableEl.setAttribute("data-notidian-bases-undo-state", state);
+    containerEl.setAttribute(
+      "data-notidian-bases-last-undo",
+      JSON.stringify({
+        applied: result.applied,
+        failed: result.failed,
+        skipped: result.skipped,
+      })
+    );
+  };
+  tableEl.addEventListener("keydown", (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.isContentEditable) return;
+    if (!(event.metaKey || event.ctrlKey)) return;
+    if (event.shiftKey || event.key.toLowerCase() !== "z") return;
+
+    event.preventDefault();
+    void undoLast();
+  });
 
   const theadEl = tableEl.createEl("thead");
   const headerRowEl = theadEl.createEl("tr");
@@ -924,6 +1330,9 @@ const renderSnapshot = (
             index,
             value,
             options.writeCell,
+            options.pushUndoEntry,
+            () => tableEl.focus(),
+            showConflict,
             pasteCells || undefined
           );
           return;
@@ -948,6 +1357,7 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
   private containerEl: HTMLElement;
   private controller: BasesQueryControllerLike;
   private obsidianApp: NotidianBasesViewAppLike | undefined;
+  private undoStack: NotidianBasesUndoEntry[] = [];
 
   constructor(
     controller: BasesQueryControllerLike,
@@ -970,6 +1380,45 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
     await writeNotidianBasesCellEdit(this.obsidianApp, plan);
   };
 
+  private pushUndoEntry = (entry: NotidianBasesUndoEntry): void => {
+    if (entry.writes.length === 0) return;
+    this.undoStack = [...this.undoStack, entry].slice(-20);
+    this.containerEl.setAttribute(
+      "data-notidian-bases-undo-depth",
+      String(this.undoStack.length)
+    );
+  };
+
+  private undoLast = async (): Promise<NotidianBasesStructuredPasteResult> => {
+    const entry = this.undoStack.pop();
+    this.containerEl.setAttribute(
+      "data-notidian-bases-undo-depth",
+      String(this.undoStack.length)
+    );
+
+    const result: NotidianBasesStructuredPasteResult = {
+      applied: 0,
+      failed: 0,
+      skipped: entry ? 0 : 1,
+      appliedWrites: [],
+      failedWrites: [],
+    };
+    if (!entry) return result;
+
+    for (const request of entry.writes) {
+      try {
+        await this.writeCell(request);
+        result.applied += 1;
+        result.appliedWrites.push(request);
+      } catch (error) {
+        result.failed += 1;
+        result.failedWrites.push({ request, error });
+      }
+    }
+
+    return result;
+  };
+
   public onDataUpdated(): void {
     const capabilities = notidianBasesRuntimeCapabilities({
       controller: this.controller,
@@ -981,6 +1430,8 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
     );
     renderSnapshot(this.containerEl, notidianBasesViewSnapshot(this), {
       writeCell: this.obsidianApp ? this.writeCell : undefined,
+      pushUndoEntry: this.obsidianApp ? this.pushUndoEntry : undefined,
+      undoLast: this.obsidianApp ? this.undoLast : undefined,
     });
   }
 }

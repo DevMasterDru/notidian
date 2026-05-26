@@ -14,6 +14,8 @@ const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
 const DEFAULT_BASE_VIEW_EDIT_VALUE = "base-view-active";
 const DEFAULT_BASE_VIEW_PASTE_STATUS = "base-view-paste-active";
 const DEFAULT_BASE_VIEW_PASTE_RATING = "9";
+const DEFAULT_BASE_VIEW_CONFLICT_EXTERNAL = "base-view-conflict-external";
+const DEFAULT_BASE_VIEW_CONFLICT_APPLIED = "base-view-conflict-applied";
 const DEFAULT_BASE_VIEW_RENAME_SUFFIX = "Beta Base Renamed";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
@@ -1269,6 +1271,8 @@ const baseViewEvalCode = ({
   editValue,
   pasteStatusValue,
   pasteRatingValue,
+  conflictExternalValue,
+  conflictAppliedValue,
   renameTitle,
   renamePath,
   timeoutMs,
@@ -1301,6 +1305,8 @@ const baseViewEvalCode = ({
     const editValue = ${JSON.stringify(editValue)};
     const pasteStatusValue = ${JSON.stringify(pasteStatusValue)};
     const pasteRatingValue = ${JSON.stringify(pasteRatingValue)};
+    const conflictExternalValue = ${JSON.stringify(conflictExternalValue)};
+    const conflictAppliedValue = ${JSON.stringify(conflictAppliedValue)};
     const renameTitle = ${JSON.stringify(renameTitle)};
     const renamePath = ${JSON.stringify(renamePath)};
     const baseContent = ${JSON.stringify(baseContent)};
@@ -1317,7 +1323,28 @@ const baseViewEvalCode = ({
       if (!file) return undefined;
       return app.metadataCache.getFileCache(file)?.frontmatter?.[property];
     };
-    const editStatusCell = async (view) => {
+    const markdownFrontmatterValue = async (path, property) => {
+      const file = app.vault.getAbstractFileByPath(path);
+      if (!file) return undefined;
+      const content = await app.vault.cachedRead(file);
+      const match = String(content).match(/^---\\n([\\s\\S]*?)\\n---/);
+      if (!match) return undefined;
+      const line = match[1]
+        .split("\\n")
+        .find((candidate) => candidate.startsWith(property + ":"));
+      if (!line) return undefined;
+      return line
+        .slice(property.length + 1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
+    };
+    const editStatusCell = async (
+      view,
+      nextValue = editValue,
+      waitForMetadata = true,
+      beforeCommit = null,
+      baseValueOverride = null
+    ) => {
       const headers = Array.from(view.querySelectorAll("thead th"))
         .map((header) => header.innerText.trim());
       const statusColumnIndex = headers.findIndex((header) =>
@@ -1349,6 +1376,13 @@ const baseViewEvalCode = ({
           cellHtml: cell?.outerHTML?.slice(0, 500) ?? "",
         };
       }
+      if (baseValueOverride != null) {
+        cell.setAttribute(
+          "data-notidian-bases-base-value",
+          String(baseValueOverride)
+        );
+        editor.textContent = String(baseValueOverride);
+      }
       editor.focus();
       const selection = window.getSelection();
       const range = document.createRange();
@@ -1356,19 +1390,22 @@ const baseViewEvalCode = ({
       selection?.removeAllRanges();
       selection?.addRange(range);
       const inserted = typeof document.execCommand == "function"
-        ? document.execCommand("insertText", false, editValue)
+        ? document.execCommand("insertText", false, nextValue)
         : false;
       if (!inserted) {
-        editor.textContent = editValue;
+        editor.textContent = nextValue;
       }
       const inputEvent = typeof InputEvent == "function"
         ? new InputEvent("input", {
             bubbles: true,
             inputType: "insertText",
-            data: editValue,
+            data: nextValue,
           })
         : new Event("input", { bubbles: true });
       editor.dispatchEvent(inputEvent);
+      if (typeof beforeCommit == "function") {
+        beforeCommit();
+      }
       editor.dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
       );
@@ -1388,10 +1425,14 @@ const baseViewEvalCode = ({
         editor.blur();
       }
 
+      if (!waitForMetadata) {
+        return { ok: true, editedValue: nextValue };
+      }
+
       const start = Date.now();
       do {
-        if (String(frontmatterValue(betaPath, "status")) == editValue) {
-          return { ok: true, editedValue: editValue };
+        if (String(frontmatterValue(betaPath, "status")) == nextValue) {
+          return { ok: true, editedValue: nextValue };
         }
         await sleep(pollIntervalMs);
       } while (Date.now() - start <= timeoutMs);
@@ -1436,6 +1477,8 @@ const baseViewEvalCode = ({
       }
 
       editor.focus();
+      const baseBeforePaste = cell.getAttribute("data-notidian-bases-base-value");
+      const textBeforePaste = editor.innerText.trim();
       const payload = pasteStatusValue + "\\t" + pasteRatingValue;
       let dataTransfer = null;
       if (typeof DataTransfer == "function") {
@@ -1486,6 +1529,10 @@ const baseViewEvalCode = ({
               status: pasteStatusValue,
               rating: pasteRatingValue,
             },
+            pasteDebug: {
+              baseBeforePaste,
+              textBeforePaste,
+            },
           };
         }
         await sleep(pollIntervalMs);
@@ -1496,6 +1543,141 @@ const baseViewEvalCode = ({
         reason: "paste-not-applied",
         currentStatus: frontmatterValue(betaPath, "status"),
         currentRating: frontmatterValue(betaPath, "rating"),
+      };
+    };
+    const undoPastedStatusAndRating = async (view) => {
+      const table = view.querySelector(".notidian-bases-table-view__table");
+      if (!table) {
+        return { ok: false, reason: "missing-undo-table" };
+      }
+      table.focus();
+      const undoEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "z",
+        metaKey: true,
+        ctrlKey: true,
+      });
+      table.dispatchEvent(undoEvent);
+      if (!undoEvent.defaultPrevented) {
+        return { ok: false, reason: "undo-not-intercepted" };
+      }
+
+      const start = Date.now();
+      const debug = {
+        undoDepthBefore: view.getAttribute("data-notidian-bases-undo-depth"),
+        statusBeforeUndo: frontmatterValue(betaPath, "status"),
+        ratingBeforeUndo: frontmatterValue(betaPath, "rating"),
+      };
+      do {
+        debug.undoState = table.getAttribute("data-notidian-bases-undo-state");
+        debug.lastUndo = view.getAttribute("data-notidian-bases-last-undo");
+        debug.markdownStatus = await markdownFrontmatterValue(betaPath, "status");
+        debug.markdownRating = await markdownFrontmatterValue(betaPath, "rating");
+        if (
+          String(debug.markdownStatus) == editValue &&
+          String(debug.markdownRating) == "2"
+        ) {
+          return {
+            ok: true,
+            undoValues: {
+              status: editValue,
+              rating: "2",
+            },
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "undo-not-applied",
+        currentStatus: frontmatterValue(betaPath, "status"),
+        currentRating: frontmatterValue(betaPath, "rating"),
+        debug,
+      };
+    };
+    const applyConflictStatus = async (view) => {
+      const file = app.vault.getAbstractFileByPath(betaPath);
+      const cache = file ? app.metadataCache.getFileCache(file) : null;
+      if (!cache?.frontmatter) {
+        return { ok: false, reason: "missing-conflict-cache" };
+      }
+      const conflictDebug = {
+        cacheBeforeEdit: cache.frontmatter.status,
+        cacheAfterMutation: null,
+        cellBaseBeforeEdit: null,
+      };
+
+      const editResult = await editStatusCell(
+        view,
+        conflictAppliedValue,
+        false,
+        () => {
+          cache.frontmatter.status = conflictExternalValue;
+          conflictDebug.cacheAfterMutation = cache.frontmatter.status;
+        },
+        editValue
+      );
+      if (!editResult.ok) return editResult;
+
+      const start = Date.now();
+      let lastCellHtml = "";
+      do {
+        const latest = latestView() || view;
+        const row = Array.from(latest.querySelectorAll("tbody tr[data-path]"))
+          .find((candidate) =>
+            candidate.getAttribute("data-path") === betaPath ||
+            candidate.innerText.includes(expectedTitle)
+          );
+        const conflictCell = row
+          ? Array.from(row.children).find(
+              (cell) =>
+                cell.getAttribute("data-edit-action") ==
+                "frontmatter-conflict"
+            )
+          : null;
+        if (row && conflictDebug.cellBaseBeforeEdit == null) {
+          const headers = Array.from(latest.querySelectorAll("thead th"))
+            .map((header) => header.innerText.trim());
+          const statusColumnIndex = headers.findIndex((header) =>
+            ["status", "note.status"].includes(header)
+          );
+          conflictDebug.cellBaseBeforeEdit = row.children[statusColumnIndex]
+            ?.getAttribute("data-notidian-bases-base-value");
+        }
+        if (conflictCell) {
+          lastCellHtml = conflictCell.outerHTML.slice(0, 800);
+          const applyButton = Array.from(conflictCell.querySelectorAll("button"))
+            .find((button) => button.innerText.trim() == "Apply anyway");
+          if (applyButton) {
+            applyButton.click();
+            const applyStart = Date.now();
+            do {
+              if (String(frontmatterValue(betaPath, "status")) == conflictAppliedValue) {
+                return {
+                  ok: true,
+                  conflictAppliedValue,
+                };
+              }
+              await sleep(pollIntervalMs);
+            } while (Date.now() - applyStart <= timeoutMs);
+            return {
+              ok: false,
+              reason: "conflict-apply-not-visible",
+              currentValue: frontmatterValue(betaPath, "status"),
+            };
+          }
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "missing-conflict-action",
+        currentValue: frontmatterValue(betaPath, "status"),
+        debug: conflictDebug,
+        cellHtml: lastCellHtml,
       };
     };
     const editFileNameCell = async (view) => {
@@ -1673,6 +1855,25 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
+            const undoResult = await undoPastedStatusAndRating(latestView() || view);
+            if (!undoResult.ok) {
+              return finish({
+                ...undoResult,
+                pasteDebug: pasteResult.pasteDebug,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
+            const conflictResult = await applyConflictStatus(latestView() || view);
+            if (!conflictResult.ok) {
+              return finish({
+                ...conflictResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             const renameResult = await editFileNameCell(latestView() || view);
             if (!renameResult.ok) {
               return finish({
@@ -1690,6 +1891,8 @@ const baseViewEvalCode = ({
               capabilities,
               editedValue: editResult.editedValue,
               pastedValues: pasteResult.pastedValues,
+              undoValues: undoResult.undoValues,
+              conflictAppliedValue: conflictResult.conflictAppliedValue,
               renamedPath: renameResult.renamedPath,
               renamedTitle: renameResult.renamedTitle,
             });
@@ -1733,6 +1936,18 @@ const formatUiFailure = (result) =>
     result?.reason || "unknown",
     result?.message ? `(${result.message})` : "",
     result?.columns ? `columns=${result.columns.join(",")}` : "",
+    result?.currentStatus !== undefined
+      ? `currentStatus=${result.currentStatus}`
+      : "",
+    result?.currentRating !== undefined
+      ? `currentRating=${result.currentRating}`
+      : "",
+    result?.currentValue !== undefined ? `currentValue=${result.currentValue}` : "",
+    result?.cellHtml ? `cellHtml=${String(result.cellHtml).slice(0, 300)}` : "",
+    result?.debug ? `debug=${JSON.stringify(result.debug).slice(0, 600)}` : "",
+    result?.pasteDebug
+      ? `pasteDebug=${JSON.stringify(result.pasteDebug).slice(0, 400)}`
+      : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1900,6 +2115,8 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
         editValue: DEFAULT_BASE_VIEW_EDIT_VALUE,
         pasteStatusValue: DEFAULT_BASE_VIEW_PASTE_STATUS,
         pasteRatingValue: DEFAULT_BASE_VIEW_PASTE_RATING,
+        conflictExternalValue: DEFAULT_BASE_VIEW_CONFLICT_EXTERNAL,
+        conflictAppliedValue: DEFAULT_BASE_VIEW_CONFLICT_APPLIED,
         renameTitle: `${paths.runId}-${DEFAULT_BASE_VIEW_RENAME_SUFFIX}`,
         renamePath: paths.betaBaseRenamedPath,
         timeoutMs: config.timeoutMs,
@@ -1928,6 +2145,19 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected pastedValues status=${DEFAULT_BASE_VIEW_PASTE_STATUS} rating=${DEFAULT_BASE_VIEW_PASTE_RATING}; got ${JSON.stringify(result.pastedValues)}`
     );
   }
+  if (
+    result.undoValues?.status != DEFAULT_BASE_VIEW_EDIT_VALUE ||
+    result.undoValues?.rating != "2"
+  ) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected undoValues status=${DEFAULT_BASE_VIEW_EDIT_VALUE} rating=2; got ${JSON.stringify(result.undoValues)}`
+    );
+  }
+  if (result.conflictAppliedValue != DEFAULT_BASE_VIEW_CONFLICT_APPLIED) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected conflictAppliedValue=${DEFAULT_BASE_VIEW_CONFLICT_APPLIED}; got ${result.conflictAppliedValue}`
+    );
+  }
   if (result.renamedPath != paths.betaBaseRenamedPath) {
     throw new Error(
       `Notidian custom Bases view smoke failed: expected renamedPath=${paths.betaBaseRenamedPath}; got ${result.renamedPath}`
@@ -1939,14 +2169,14 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     runner,
     path: result.renamedPath,
     property: "status",
-    expected: DEFAULT_BASE_VIEW_PASTE_STATUS,
+    expected: DEFAULT_BASE_VIEW_CONFLICT_APPLIED,
   });
   await waitForMetadataValue({
     config,
     runner,
     path: result.renamedPath,
     property: "rating",
-    expected: DEFAULT_BASE_VIEW_PASTE_RATING,
+    expected: "2",
   });
 
   return {
@@ -1954,6 +2184,8 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     baseViewCapabilities: baseViewCapabilitySummary(result.capabilities),
     baseViewEditValue: result.editedValue,
     baseViewPasteValues: result.pastedValues,
+    baseViewUndoValues: result.undoValues,
+    baseViewConflictAppliedValue: result.conflictAppliedValue,
     baseViewRenamedPath: result.renamedPath,
     baseViewRenameTitle: result.renamedTitle,
   };
@@ -2131,6 +2363,8 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseViewCapabilities = null;
   let baseViewEditValue = null;
   let baseViewPasteValues = null;
+  let baseViewUndoValues = null;
+  let baseViewConflictAppliedValue = null;
   let baseViewRenamedPath = null;
   let baseViewRenameTitle = null;
   let betaPath = paths.betaPath;
@@ -2236,6 +2470,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseViewCapabilities = viewPaths.baseViewCapabilities ?? null;
       baseViewEditValue = viewPaths.baseViewEditValue ?? null;
       baseViewPasteValues = viewPaths.baseViewPasteValues ?? null;
+      baseViewUndoValues = viewPaths.baseViewUndoValues ?? null;
+      baseViewConflictAppliedValue =
+        viewPaths.baseViewConflictAppliedValue ?? null;
       baseViewRenamedPath = viewPaths.baseViewRenamedPath ?? null;
       baseViewRenameTitle = viewPaths.baseViewRenameTitle ?? null;
       betaPath = viewPaths.baseViewRenamedPath ?? betaPath;
@@ -2289,6 +2526,8 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseViewCapabilities ? { baseViewCapabilities } : {}),
     ...(baseViewEditValue ? { baseViewEditValue } : {}),
     ...(baseViewPasteValues ? { baseViewPasteValues } : {}),
+    ...(baseViewUndoValues ? { baseViewUndoValues } : {}),
+    ...(baseViewConflictAppliedValue ? { baseViewConflictAppliedValue } : {}),
     ...(baseViewRenamedPath ? { baseViewRenamedPath } : {}),
     ...(baseViewRenameTitle ? { baseViewRenameTitle } : {}),
   };
