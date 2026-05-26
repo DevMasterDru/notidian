@@ -22,14 +22,16 @@ If you need the current implementation status rather than the decision history, 
 | [0008](0008-table-undo-journal.md) | Table undo journal | Defines the table-local undo stack for bulk operations and why replay goes through authority-aware write paths. |
 | [0009](0009-frontmatter-conflict-detection.md) | Frontmatter conflict detection | Defines stale frontmatter write detection so table edits do not overwrite newer canonical metadata. |
 | [0010](0010-legacy-context-audit-and-migration.md) | Legacy context audit and migration | Defines audit-first migration for old Make.md contexts so frontmatter authority can be restored without losing context data. |
+| [0011](0011-bases-first-convergence.md) | Bases-first convergence | Defines Notidian's long-term convergence toward Obsidian Bases semantics while keeping Notidian as the enhanced editor and migration layer. |
 
 ## Decision Summary
 
-Notidian uses an authority-partitioned model:
+Notidian uses an authority-partitioned model with Bases-first convergence:
 
 - File paths and file names are canonical page identity.
 - Markdown frontmatter is canonical ordinary note metadata.
-- Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, compatibility cache state, and explicitly Notidian-owned fields.
+- `.base`-compatible semantics are preferred for database view definitions wherever they can represent the behavior safely.
+- Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, compatibility cache state, legacy state, and explicitly Notidian-owned fields.
 - Projected values from files/frontmatter may be cached for rendering, but they must be rebuilt from the owning layer and must not become the durable source of truth.
 
 ## Maintenance Rule

@@ -9,6 +9,7 @@ This directory preserves the durable reasoning and implementation planning behin
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md) describes the opt-in live Obsidian verification workflow.
 - [Legacy Context Audit Report](legacy-context-audit-report.md) describes the read-only report for older Make.md contexts.
 - [Architecture Decision Records](adr/README.md) are the durable source of truth for architectural decisions.
+- [ADR 0011](adr/0011-bases-first-convergence.md) is the current strategic north star: Notidian should converge toward Obsidian Bases semantics while keeping its enhanced editor and migration layer.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) is the canonical full record for editable page titles and file renames.
 - `docs/superpowers` contains historical specs and plans from implementation work. These files preserve useful development context, but they do not override the ADRs.
 
@@ -18,7 +19,8 @@ Notidian's current architecture is intentionally authority-partitioned:
 
 - Markdown files own page identity.
 - Markdown frontmatter owns ordinary user-editable metadata.
-- Notidian context MDB files own view state, row order, compatibility state, formulas, relations, and Notidian-specific fields.
+- `.base`-compatible semantics are the preferred long-term representation for database view definitions.
+- Notidian context MDB files currently own view state, row order, compatibility state, formulas, relations, legacy state, and explicit Notidian-specific fields.
 - Cached projections of file/frontmatter data can be used for rendering, but they must be rebuildable from the owning layer.
 
 ## Architecture Decisions
@@ -36,6 +38,8 @@ The most important ADRs are:
 - [ADR 0007: Table edit feedback](adr/0007-table-edit-feedback.md)
 - [ADR 0008: Table undo journal](adr/0008-table-undo-journal.md)
 - [ADR 0009: Frontmatter conflict detection](adr/0009-frontmatter-conflict-detection.md)
+- [ADR 0010: Legacy context audit and migration](adr/0010-legacy-context-audit-and-migration.md)
+- [ADR 0011: Bases-first convergence](adr/0011-bases-first-convergence.md)
 
 ADR 0003 is the canonical full record for the page-title/file-rename decision. It explains why naive direct file-name editing was risky, why the selected transaction model was chosen, and what invariants future work must preserve.
 
@@ -81,4 +85,5 @@ Key implementation plans:
 - Keep implementation plans as historical execution records.
 - Update ADR 0003 whenever the page-title rename transaction changes materially.
 - Update ADR 0001 whenever ownership of file identity, frontmatter metadata, context data, or computed data changes materially.
+- Update ADR 0011 whenever Notidian changes its relationship to Obsidian Bases, `.base` files, custom Bases views, or context-to-base migration.
 - Do not bury source-of-truth decisions only in chat history, tests, or generated bundle diffs.

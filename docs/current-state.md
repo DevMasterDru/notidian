@@ -10,16 +10,32 @@ The key rule is:
 
 > File-backed data belongs to files and frontmatter. Notidian may project, edit, and organize it, but it must not silently become governed by a hidden context database.
 
+The strategic direction is Bases-first convergence. Obsidian Bases semantics are the preferred long-term model for ordinary database views, while Notidian remains the enhanced editor and migration layer for workflows that need stronger UX or safety than plain Bases currently provides.
+
 ## Source Of Truth
 
 | Data kind | Canonical owner | Current Notidian behavior |
 | --- | --- | --- |
 | Page identity | Markdown file path/name | Displayed as the `File`/page-title cell and changed through rename transactions. |
 | Ordinary note metadata | Markdown frontmatter / Obsidian metadata cache | Discovered as table columns and edited through frontmatter writes. |
-| View layout | Notidian context MDB | Stores column order, hidden columns, filters, grouping, sorting, and view state. |
+| View layout | `.base`-compatible semantics long term; Notidian context MDB today | Stores column order, hidden columns, filters, grouping, sorting, and view state today. Future work should bridge or migrate simple views toward `.base` where semantics match. |
 | Context-native fields | Notidian context MDB | Stores values only when a field is explicitly Notidian-owned. |
 | Formulas, aggregates, file projections | Computed from current inputs | Displayed as projections, not durable user-entered values. |
 | Relations | Notidian context model | Preserved from Make.md semantics unless later mapped to frontmatter links. |
+
+### Bases-First Convergence
+
+Notidian should not remain a full Make.md-style parallel database. Future database work should prefer Obsidian Bases semantics for files, properties, formulas, filters, visible columns, and view definitions.
+
+That does not mean an immediate Bases-only rewrite. Notidian still owns value in:
+
+- controlled file-title rename transactions;
+- spreadsheet-style range editing;
+- frontmatter conflict detection and explicit overwrite handling;
+- migration review for legacy Make.md contexts;
+- compatibility display for context-only data that cannot yet round-trip to `.base`.
+
+The durable decision is recorded in [ADR 0011](adr/0011-bases-first-convergence.md).
 
 ## Implemented Behavior
 
@@ -161,7 +177,7 @@ The following work remains before Notidian should be considered final:
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, and file-title rename paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
-- `.base` import/export is not implemented.
+- `.base` import/export, mirroring, or custom Bases view behavior is not implemented.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
@@ -177,6 +193,7 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
 - Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
 - Use [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) for legacy context audit and migration rules.
+- Use [ADR 0011](adr/0011-bases-first-convergence.md) for the Bases-first convergence north star.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Implementation Map

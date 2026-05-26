@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Refined by [ADR 0011](0011-bases-first-convergence.md).
 
 ## Date
 
@@ -95,12 +95,14 @@ Tradeoffs:
 
 ## Future Interoperability Direction
 
-The recommended future path is a bridge, not an immediate replacement:
+The original recommended future path was a bridge, not an immediate replacement:
 
 - Export a simple Notidian folder context to `.base`.
 - Import a simple `.base` table into a Notidian view.
 - Map visible columns, filters, sort order, and formulas where semantics match.
 - Mark unsupported Notidian-only features explicitly instead of silently dropping them.
+
+ADR 0011 keeps the no-immediate-rewrite constraint but makes the long-term direction more explicit: Notidian should converge toward Bases-compatible semantics for ordinary database views, while context MDB storage becomes compatibility or explicit advanced Notidian state.
 
 ## Relationship To Other ADRs
 

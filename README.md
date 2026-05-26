@@ -10,6 +10,7 @@ Notidian uses an authority-partitioned database model:
 - The page title is the file name/path.
 - Ordinary editable properties are frontmatter.
 - Folder and table views are projections over files and properties.
+- Obsidian Bases semantics are the preferred long-term model for ordinary database views.
 - Notidian context MDB files store view state, ordering, formulas, relations, compatibility cache state, and explicitly Notidian-owned fields.
 - Existing Obsidian tools such as Properties, Bases, Dataview, scripts, and direct YAML edits should see the same data.
 
@@ -33,7 +34,7 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Direct value edits, field-option edits, and page-title rename edits show pending/failed/skipped cell feedback and reset failed optimistic editor state back to canonical data.
 - Bulk paste, cut, delete/clear, fill-from-single-cell paste, and page-title paste can be undone with `Cmd/Ctrl+Z` through the same authority-aware write paths.
 
-This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the view/configuration engine while files and frontmatter remain the durable data layer.
+This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer. The long-term direction is Bases-first convergence: simple database views should become `.base`-compatible where semantics match, while Notidian keeps the enhanced editor, conflict handling, rename transactions, and migration tools.
 
 ## Documentation
 
@@ -50,6 +51,8 @@ The most important records are:
 - [ADR 0007: Table edit feedback](docs/adr/0007-table-edit-feedback.md)
 - [ADR 0008: Table undo journal](docs/adr/0008-table-undo-journal.md)
 - [ADR 0009: Frontmatter conflict detection](docs/adr/0009-frontmatter-conflict-detection.md)
+- [ADR 0010: Legacy context audit and migration](docs/adr/0010-legacy-context-audit-and-migration.md)
+- [ADR 0011: Bases-first convergence](docs/adr/0011-bases-first-convergence.md)
 
 ADR 0003 is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
 
@@ -82,7 +85,7 @@ This fork is in active development. The current foundation is implemented and do
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.
 - Broader reconciliation for external file moves/deletes.
-- `.base` import/export or bridge behavior where semantics match.
+- `.base` import/export, mirroring, or custom Bases view behavior where semantics match.
 
 ## Development
 
