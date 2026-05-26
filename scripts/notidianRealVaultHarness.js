@@ -39,6 +39,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     keepFixture: false,
     includeUi: false,
     includeBaseExport: false,
+    includeBaseView: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -63,6 +64,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--base-export") {
       config.includeBaseExport = true;
+      continue;
+    }
+    if (arg == "--base-view") {
+      config.includeBaseView = true;
       continue;
     }
 
@@ -170,6 +175,7 @@ const createFixturePaths = (config, now = new Date()) => {
     betaPath: `${prefix}-Beta.md`,
     alphaRenamedPath: `${prefix}-Alpha Renamed.md`,
     alphaUiRenamedPath: `${prefix}-Alpha UI Renamed.md`,
+    baseViewPath: `${prefix}-Notidian Table.base`,
   };
 };
 
@@ -1249,6 +1255,113 @@ const baseExportEvalCode = ({ pluginId, folder, timeoutMs, pollIntervalMs }) =>
     }
   })()`.replace(/\s+/g, " ");
 
+const baseViewEvalCode = ({
+  pluginId,
+  folder,
+  basePath,
+  expectedTitle,
+  timeoutMs,
+  pollIntervalMs,
+}) => {
+  const baseContent = [
+    "filters:",
+    "  and:",
+    `    - ${JSON.stringify(`file.inFolder(${JSON.stringify(folder)})`)}`,
+    "views:",
+    '  - type: "notidian-table"',
+    '    name: "Notidian Table Smoke"',
+    "    order:",
+    '      - "file.name"',
+    '      - "status"',
+    '      - "rating"',
+    "",
+  ].join("\n");
+
+  return `(async () => {
+    const marker = "notidianBaseView";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const pluginId = ${JSON.stringify(pluginId)};
+    const folder = ${JSON.stringify(folder)};
+    const basePath = ${JSON.stringify(basePath)};
+    const expectedTitle = ${JSON.stringify(expectedTitle)};
+    const baseContent = ${JSON.stringify(baseContent)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    try {
+      const plugin = app.plugins.plugins[pluginId];
+      if (!plugin) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      if (plugin.notidianBasesViewRegistered !== true) {
+        return finish({
+          ok: false,
+          reason: "not-registered",
+          registered: plugin.notidianBasesViewRegistered,
+        });
+      }
+      if (!app.vault.getAbstractFileByPath(folder)) {
+        return finish({ ok: false, reason: "missing-folder", folder });
+      }
+      const existing = app.vault.getAbstractFileByPath(basePath);
+      if (existing) {
+        await app.vault.modify(existing, baseContent);
+      } else {
+        await app.vault.create(basePath, baseContent);
+      }
+      const baseFile = app.vault.getAbstractFileByPath(basePath);
+      if (!baseFile) {
+        return finish({ ok: false, reason: "base-not-created", basePath });
+      }
+      await app.workspace.getLeaf(true).openFile(baseFile);
+
+      const start = Date.now();
+      let sawView = false;
+      let lastText = "";
+      let rowCount = 0;
+      do {
+        const views = Array.from(
+          document.querySelectorAll(".notidian-bases-table-view")
+        );
+        const view = views[views.length - 1];
+        if (view) {
+          sawView = true;
+          lastText = (view.innerText || "").slice(0, 1000);
+          rowCount = view.querySelectorAll("tbody tr[data-path]").length;
+          if (
+            lastText.includes("Notidian Table") &&
+            lastText.includes(expectedTitle) &&
+            lastText.includes("status") &&
+            lastText.includes("rating")
+          ) {
+            return finish({
+              ok: true,
+              basePath,
+              rowCount,
+              tableText: lastText,
+            });
+          }
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return finish({
+        ok: false,
+        reason: sawView ? "custom-view-not-settled" : "missing-custom-view",
+        basePath,
+        rowCount,
+        tableText: lastText,
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`;
+};
+
 const parseJsonEvalResult = (output) => {
   const normalized = normalizeCliValue(output);
   try {
@@ -1282,6 +1395,13 @@ const assertBaseExportEvalOk = (result) => {
   if (result?.ok) return;
   throw new Error(
     `Notidian base export smoke failed: ${formatUiFailure(result)}`
+  );
+};
+
+const assertBaseViewEvalOk = (result) => {
+  if (result?.ok) return;
+  throw new Error(
+    `Notidian custom Bases view smoke failed: ${formatUiFailure(result)}`
   );
 };
 
@@ -1379,6 +1499,32 @@ const runBaseExportSmokeScenario = async ({ config, runner, paths }) => {
 
   return {
     baseExportPath: result.outputPath,
+  };
+};
+
+const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
+  const result = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: baseViewEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        basePath: paths.baseViewPath,
+        expectedTitle: `${paths.runId}-Beta`,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertBaseViewEvalOk(result);
+
+  if (!String(result.basePath ?? "").endsWith(".base")) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected .base path; got ${result.basePath}`
+    );
+  }
+
+  return {
+    baseViewPath: result.basePath,
   };
 };
 
@@ -1550,6 +1696,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   const paths = createFixturePaths(config, config.now?.() ?? new Date());
   let primaryPath = paths.alphaPath;
   let baseExportPath = null;
+  let baseViewPath = null;
   let scenarioError = null;
 
   try {
@@ -1642,6 +1789,15 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseExportPath = exportPaths.baseExportPath ?? null;
     }
 
+    if (config.includeBaseView) {
+      const viewPaths = await runBaseViewSmokeScenario({
+        config,
+        runner: execute,
+        paths,
+      });
+      baseViewPath = viewPaths.baseViewPath ?? null;
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -1659,7 +1815,11 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     runner: execute,
     paths,
     primaryPath,
-    extraPaths: baseExportPath ? [baseExportPath] : [],
+    extraPaths: [
+      baseExportPath,
+      baseViewPath,
+      config.includeBaseView ? paths.baseViewPath : null,
+    ].filter(Boolean),
   });
 
   if (!scenarioError && cleanedUp) {
@@ -1681,6 +1841,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     fixtureFolder: paths.folder,
     cleanedUp,
     ...(baseExportPath ? { baseExportPath } : {}),
+    ...(baseViewPath ? { baseViewPath } : {}),
   };
 };
 
@@ -1694,6 +1855,7 @@ const usage = () => [
   "  --keep-fixture           Leave fixtures in the vault for inspection.",
   "  --ui                     Also exercise the live Notidian table DOM.",
   "  --base-export            Also exercise the .base export command and cleanup.",
+  "  --base-view              Also exercise the notidian-table custom Bases view.",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,

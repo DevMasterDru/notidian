@@ -10,7 +10,7 @@ For architectural reasoning, read the ADRs. This page is the practical behavior 
 | --- | --- | --- |
 | Page title | Markdown file path/name | The `File` cell displays the basename without extension. Editing it renames the file. |
 | Ordinary metadata | Markdown frontmatter | Existing YAML properties appear as table columns and edits write back to the note. |
-| View layout | Notidian context MDB | Column order, hidden columns, sort/group/filter state, and row order stay in the context. |
+| View layout | Notidian context MDB today; `.base` semantics long term | Column order, hidden columns, sort/group/filter state, and row order stay in the context until equivalent `.base` coverage is proven. |
 | Notidian-owned fields | Notidian context MDB | Values stay in the context only when the field is explicitly context-owned. |
 | Formulas and projections | Computed from current inputs | Displayed in the table, but skipped by paste and normal value writes. |
 
@@ -177,7 +177,7 @@ These are known gaps, not accidental omissions:
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
 - Authority-aware property rename/delete/schema flows.
-- `.base` import/export or bridge behavior.
+- `.base` import, mirroring, and full Bases-backed table editing.
 
 ## Related Records
 

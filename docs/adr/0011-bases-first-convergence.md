@@ -141,6 +141,8 @@ Use Obsidian's custom Bases view surface to determine whether Notidian's enhance
 
 This prototype is the proof point before deeper context engine removal.
 
+Initial status: ADR 0012 implements the first feasibility gate. Notidian now registers a minimal `notidian-table` custom Bases view when the runtime supports it, reads the native Bases query result, and renders a basic table projection. It does not yet replace the current safe table editor.
+
 ### 5. Migrate Simple Contexts Toward `.base`
 
 After adapter and audit coverage are stable, simple folder contexts should be exportable or mirrorable as `.base` files.

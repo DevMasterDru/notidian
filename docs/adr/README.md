@@ -23,6 +23,7 @@ If you need the current implementation status rather than the decision history, 
 | [0009](0009-frontmatter-conflict-detection.md) | Frontmatter conflict detection | Defines stale frontmatter write detection so table edits do not overwrite newer canonical metadata. |
 | [0010](0010-legacy-context-audit-and-migration.md) | Legacy context audit and migration | Defines audit-first migration for old Make.md contexts so frontmatter authority can be restored without losing context data. |
 | [0011](0011-bases-first-convergence.md) | Bases-first convergence | Defines Notidian's long-term convergence toward Obsidian Bases semantics while keeping Notidian as the enhanced editor and migration layer. |
+| [0012](0012-custom-bases-view-feasibility-gate.md) | Custom Bases view feasibility gate | Defines the first `notidian-table` custom Bases view as a native-alignment proof point before replacing the current safe table editor. |
 
 ## Decision Summary
 
@@ -32,6 +33,7 @@ Notidian uses an authority-partitioned model with Bases-first convergence:
 - Markdown frontmatter is canonical ordinary note metadata.
 - `.base`-compatible semantics are preferred for database view definitions wherever they can represent the behavior safely.
 - Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, compatibility cache state, legacy state, and explicitly Notidian-owned fields.
+- Custom Bases views are the preferred proof surface for moving the enhanced table UX into `.base` files, but current context-backed table behavior remains available until parity is proven.
 - Projected values from files/frontmatter may be cached for rendering, but they must be rebuilt from the owning layer and must not become the durable source of truth.
 
 ## Maintenance Rule

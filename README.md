@@ -34,6 +34,7 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Direct value edits, field-option edits, and page-title rename edits show pending/failed/skipped cell feedback and reset failed optimistic editor state back to canonical data.
 - Bulk paste, cut, delete/clear, fill-from-single-cell paste, and page-title paste can be undone with `Cmd/Ctrl+Z` through the same authority-aware write paths.
 - Simple folder table views can be previewed and exported through a `.base` command that reports unsupported Notidian-only semantics instead of silently dropping them.
+- A minimal `notidian-table` custom Bases view is registered when the running Obsidian host supports custom Bases views, as the first proof that `.base` files can host Notidian's future table surface.
 
 This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer. The long-term direction is Bases-first convergence: simple database views should become `.base`-compatible where semantics match, while Notidian keeps the enhanced editor, conflict handling, rename transactions, and migration tools.
 
@@ -54,6 +55,7 @@ The most important records are:
 - [ADR 0009: Frontmatter conflict detection](docs/adr/0009-frontmatter-conflict-detection.md)
 - [ADR 0010: Legacy context audit and migration](docs/adr/0010-legacy-context-audit-and-migration.md)
 - [ADR 0011: Bases-first convergence](docs/adr/0011-bases-first-convergence.md)
+- [ADR 0012: Custom Bases view feasibility gate](docs/adr/0012-custom-bases-view-feasibility-gate.md)
 
 ADR 0003 is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
 
@@ -86,7 +88,7 @@ This fork is in active development. The current foundation is implemented and do
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.
 - Broader reconciliation for external file moves/deletes.
-- `.base` import, mirroring, or custom Bases view behavior where semantics match.
+- `.base` import, mirroring, and full custom Bases view table editing where semantics match.
 
 ## Development
 
@@ -113,6 +115,12 @@ Opt-in live `.base` export command smoke test:
 
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
+```
+
+Opt-in live custom Bases view smoke test:
+
+```bash
+npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
 ```
 
 ## Credits

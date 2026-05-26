@@ -1,5 +1,6 @@
 
 import { SPACE_VIEW_TYPE, SpaceViewContainer } from "adapters/obsidian/SpaceViewContainer";
+import { registerNotidianBasesView } from "adapters/obsidian/bases/notidianBasesView";
 import { DEFAULT_SETTINGS } from "core/schemas/settings";
 import {
   App, MarkdownView,
@@ -159,6 +160,7 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
   
   superstate: Superstate;
   ui: ObsidianUI;
+  notidianBasesViewRegistered = false;
 
   
   
@@ -688,6 +690,7 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     
   this.superstate.saveSettings = () => this.saveSettings();
   this.loadViews();
+  this.notidianBasesViewRegistered = registerNotidianBasesView(this);
     
   let cachePersister : LocalCachePersister;
     if (Platform.isMobile) {

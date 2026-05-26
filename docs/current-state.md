@@ -117,9 +117,25 @@ Notidian now has a pure `.base` adapter for simple folder table views and an opt
 
 The adapter can convert a `SpaceTable` plus an optional table predicate into a Bases-compatible document shape and deterministic YAML. It maps file identity to `file.name`, frontmatter-backed columns to note properties, simple file projections such as `File.ctime` to `file.ctime`, and visible table preferences such as order, limit, group-by, simple filters, display names, and summaries where the semantics are supported.
 
-Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and custom Bases view registration.
+Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and full Bases-backed table editing.
 
 The command `Export active folder as Obsidian Base` resolves the active folder or the parent folder of the active note, materializes frontmatter-backed columns, chooses a non-overwriting sibling `.base` path, previews the YAML and warnings, and writes only after user confirmation. The real-vault smoke harness has an opt-in `--base-export` mode that executes the command, confirms the preview, verifies the generated folder-scoped table YAML, and cleans up the exported file.
+
+### Custom Bases View Feasibility Gate
+
+Notidian registers a custom Bases view type when the running Obsidian host supports the custom Bases view API:
+
+```text
+notidian-table
+```
+
+The first view is a native-alignment spike, not the final table editor. It uses a runtime compatibility shim because the local `obsidian` development package does not yet expose typed Bases APIs. When available, the view is registered as `Notidian Table`, reads visible property order from the Bases view config, reads rows from the current Bases query result, and renders a basic table projection.
+
+This view does not persist ordinary row values and does not replace the current context-backed Notidian table. It exists to prove that `.base` can host Notidian's future table UX before moving file-title renames, frontmatter writes, range paste, conflict feedback, and undo into the Bases-hosted surface.
+
+The real-vault smoke harness has an opt-in `--base-view` mode that writes a temporary `.base` file using `type: "notidian-table"`, opens it in Obsidian, verifies the custom view DOM and fixture rows, and cleans up the `.base` file.
+
+The durable decision is recorded in [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md).
 
 ### Table Edit Feedback
 
@@ -187,7 +203,7 @@ The following work remains before Notidian should be considered final:
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, file-title rename, and `.base` export command paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, deeper native Bases renderer validation, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
-- A previewed `.base` export command exists, but there is not yet `.base` import, mirroring, or custom Bases view behavior.
+- A previewed `.base` export command and minimal custom Bases view registration exist, but there is not yet `.base` import, mirroring, or full Bases-backed table editing.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
@@ -205,6 +221,7 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
 - Use [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) for legacy context audit and migration rules.
 - Use [ADR 0011](adr/0011-bases-first-convergence.md) for the Bases-first convergence north star.
+- Use [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) for the custom Bases view feasibility gate.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Implementation Map
@@ -222,6 +239,7 @@ The following work remains before Notidian should be considered final:
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
 | Pure `.base` export adapter | [notidianBaseAdapter.ts](../src/core/utils/bases/notidianBaseAdapter.ts), [baseExportWorkflow.ts](../src/core/utils/bases/baseExportWorkflow.ts), [notidianBaseAdapter.test.ts](../src/core/utils/bases/notidianBaseAdapter.test.ts), and [baseExportWorkflow.test.ts](../src/core/utils/bases/baseExportWorkflow.test.ts) |
 | `.base` preview/export command | [baseExportCommand.tsx](../src/adapters/obsidian/bases/baseExportCommand.tsx) and [BaseExportPreviewModal.tsx](../src/core/react/components/Bases/BaseExportPreviewModal.tsx) |
+| Custom Bases view registration | [notidianBasesView.ts](../src/adapters/obsidian/bases/notidianBasesView.ts) and [notidianBasesView.test.ts](../src/adapters/obsidian/bases/notidianBasesView.test.ts) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 | Local vault plugin installer | [notidianInstallToVault.js](../scripts/notidianInstallToVault.js) and [notidianInstallToVault.test.js](../scripts/notidianInstallToVault.test.js) |

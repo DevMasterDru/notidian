@@ -769,3 +769,50 @@ width: 24px;
   opacity: var(--link-unresolved-opacity);
   filter: var(--link-unresolved-filter);
 }
+
+.notidian-bases-table-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.notidian-bases-table-view__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-normal);
+}
+
+.notidian-bases-table-view__count,
+.notidian-bases-table-view__diagnostic,
+.notidian-bases-table-view__empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.notidian-bases-table-view__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-ui-small);
+}
+
+.notidian-bases-table-view__table th,
+.notidian-bases-table-view__table td {
+  border: 1px solid var(--background-modifier-border);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.notidian-bases-table-view__table th {
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-weight: var(--font-medium);
+}
+
+.notidian-bases-table-view__group th {
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+}

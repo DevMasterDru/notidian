@@ -13,6 +13,7 @@ const baseConfig = {
   keepFixture: false,
   includeUi: false,
   includeBaseExport: false,
+  includeBaseView: false,
   pluginId: "notidian",
   fixtureRoot: "Notidian Integration Fixtures",
   timeoutMs: 10000,
@@ -36,6 +37,7 @@ describe("notidian real vault harness", () => {
           "--command-timeout-ms=15000",
           "--cleanup-settle-ms=1500",
           "--base-export",
+          "--base-view",
         ],
         { OBSIDIAN_BIN: "obsidian-dev" }
       )
@@ -45,6 +47,7 @@ describe("notidian real vault harness", () => {
       keepFixture: true,
       includeUi: false,
       includeBaseExport: true,
+      includeBaseView: true,
       pluginId: "notidian-dev",
       fixtureRoot: "Notidian Smoke Fixtures",
       timeoutMs: 2500,
@@ -64,6 +67,7 @@ describe("notidian real vault harness", () => {
       allowWrite: true,
       includeUi: true,
       includeBaseExport: false,
+      includeBaseView: false,
     });
   });
 
@@ -101,6 +105,8 @@ describe("notidian real vault harness", () => {
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
       alphaUiRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha UI Renamed.md",
+      baseViewPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base",
     });
   });
 
@@ -359,6 +365,108 @@ describe("notidian real vault harness", () => {
       "delete",
       "dev:errors",
     ]);
+  });
+
+  it("runs the optional custom Bases view smoke scenario and cleans up the .base file", async () => {
+    const calls = [];
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const baseViewPath =
+      "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base";
+    const runner = jest.fn(async (args) => {
+      calls.push(args);
+      const command = args[1];
+      if (command == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianBaseView")) {
+          return JSON.stringify({
+            ok: true,
+            basePath: baseViewPath,
+            rowCount: 2,
+            tableText: "Notidian Table status rating Beta active",
+          });
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (command == "property:read") return "active";
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    const result = await runRealVaultSmokeHarness(
+      {
+        ...baseConfig,
+        includeBaseView: true,
+        now: () => new Date("2026-05-25T10:20:30.456Z"),
+      },
+      runner
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      fixtureFolder: "Notidian Integration Fixtures",
+      cleanedUp: true,
+      baseViewPath,
+    });
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" && args.join(" ").includes("notidianBaseView")
+      )
+    ).toBe(true);
+    expect(calls.some((args) => args.includes(`path=${baseViewPath}`))).toBe(
+      true
+    );
+    expect(calls.map((args) => args[1]).slice(-4)).toEqual([
+      "delete",
+      "delete",
+      "delete",
+      "dev:errors",
+    ]);
+  });
+
+  it("fails loudly when the optional custom Bases view smoke does not render", async () => {
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianBaseView")) {
+          return JSON.stringify({
+            ok: false,
+            reason: "missing-custom-view",
+          });
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (command == "property:read") return "active";
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    await expect(
+      runRealVaultSmokeHarness(
+        {
+          ...baseConfig,
+          includeBaseView: true,
+          now: () => new Date("2026-05-25T10:20:30.456Z"),
+        },
+        runner
+      )
+    ).rejects.toThrow(
+      "Notidian custom Bases view smoke failed: missing-custom-view"
+    );
   });
 
   it("fails loudly when the optional base export smoke reports invalid YAML", async () => {

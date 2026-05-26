@@ -1,6 +1,6 @@
 # Bases Adapter
 
-The Bases adapter is the first implementation step for ADR 0011's Bases-first convergence path.
+The Bases adapter is the first implementation step for ADR 0011's Bases-first convergence path. ADR 0012 adds the next gate: a minimal custom Bases view that proves Notidian can attach a future table surface to `.base` files.
 
 It is intentionally pure and conservative. It converts a Notidian `SpaceTable` plus an optional table predicate into an in-memory `.base` document shape and deterministic YAML. It does not write files, mutate context MDB data, or claim that every Notidian context can round-trip to native Bases.
 
@@ -26,10 +26,10 @@ Unsupported behavior is returned in a structured `unsupported` list. This is a c
 The adapter does not yet provide:
 
 - `.base` import back into Notidian;
-- custom Bases view registration;
 - guaranteed handling for every Make.md predicate function;
 - stable sort export, because current documented Bases syntax does not expose a general portable sort field;
 - context-owned values, relations, aggregates, or complex formulas.
+- full Bases-backed Notidian table editing.
 
 Context-owned values must be migrated to frontmatter or kept as explicit Notidian-owned state before they can be represented in native Bases.
 
@@ -76,6 +76,24 @@ The command:
 
 If the previewed output path appears before the user confirms, the command refuses to overwrite it and asks the user to reopen the preview.
 
+## Custom Bases View
+
+Notidian registers a custom Bases view type when the running Obsidian host supports the custom Bases view API:
+
+```text
+notidian-table
+```
+
+This is currently a feasibility gate. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, and renders a basic table projection. It does not write values, persist a hidden mirror, or replace the current context-backed Notidian table editor.
+
+Use this view type only to validate the Bases-hosted surface for now. The future goal is to move Notidian's enhanced table interactions into this view after file-title renames, frontmatter writes, conflict handling, range paste, and undo have equivalent safety in the Bases-hosted path.
+
+The live harness can validate the registration and renderer in Obsidian:
+
+```bash
+npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
+```
+
 ## Real-Vault Verification
 
 The live Obsidian harness can exercise the export command end to end:
@@ -89,5 +107,6 @@ The smoke scenario sets the active Notidian path to the fixture folder, executes
 ## Relationship To ADRs
 
 - [ADR 0011](adr/0011-bases-first-convergence.md) defines why Notidian is converging toward Bases semantics.
+- [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) defines why the custom Bases view is a feasibility gate before a table rewrite.
 - [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) defines why legacy context data must be audited before cleanup.
 - [ADR 0001](adr/0001-authority-partitioned-database-model.md) defines the source-of-truth model that this adapter preserves.
