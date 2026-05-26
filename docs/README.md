@@ -6,6 +6,7 @@ This directory preserves the durable reasoning and implementation planning behin
 
 - [Current State](current-state.md) describes what the implementation does today.
 - [Table Database Workflows](table-database-workflows.md) describes how the current table behaves in practical database use.
+- [Bases Adapter](base-adapter.md) describes the first pure `.base` export adapter and its current limitations.
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md) describes the opt-in live Obsidian verification workflow.
 - [Legacy Context Audit Report](legacy-context-audit-report.md) describes the read-only report for older Make.md contexts.
 - [Architecture Decision Records](adr/README.md) are the durable source of truth for architectural decisions.
@@ -54,6 +55,7 @@ Current implementation reference:
 Practical workflow guide:
 
 - [Table Database Workflows](table-database-workflows.md)
+- [Bases Adapter](base-adapter.md)
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md)
 - [Legacy Context Audit Report](legacy-context-audit-report.md)
 

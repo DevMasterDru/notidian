@@ -111,6 +111,14 @@ npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Re
 
 The report reads a single folder context, compares context rows with frontmatter, and emits Markdown or JSON. Partial reports created with `--max-files` are marked as incomplete and cannot be treated as automatically applicable. There is still no destructive legacy migration command.
 
+### Bases Adapter
+
+Notidian now has a pure `.base` adapter for simple folder table views.
+
+The adapter can convert a `SpaceTable` plus an optional table predicate into a Bases-compatible document shape and deterministic YAML. It maps file identity to `file.name`, frontmatter-backed columns to note properties, simple file projections such as `File.ctime` to `file.ctime`, and visible table preferences such as order, limit, group-by, simple filters, display names, and summaries where the semantics are supported.
+
+Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, file writing commands, and custom Bases view registration.
+
 ### Table Edit Feedback
 
 Paste operations and direct single-cell edits now surface transaction state in the table:
@@ -177,12 +185,13 @@ The following work remains before Notidian should be considered final:
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, and file-title rename paths, but broader multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
-- `.base` import/export, mirroring, or custom Bases view behavior is not implemented.
+- A pure `.base` export adapter exists, but there is not yet an Obsidian command for writing `.base` files, `.base` import, mirroring, or custom Bases view behavior.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
 
 - Use [Table Database Workflows](table-database-workflows.md) for practical table usage and troubleshooting.
+- Use [Bases Adapter](base-adapter.md) for the current pure `.base` export adapter scope.
 - Use [Real Vault Smoke Harness](real-vault-smoke-harness.md) for opt-in live Obsidian verification.
 - Use [Legacy Context Audit Report](legacy-context-audit-report.md) for read-only reports on old Make.md contexts.
 - Use [ADR 0001](adr/0001-authority-partitioned-database-model.md) for the source-of-truth model.
@@ -209,6 +218,7 @@ The following work remains before Notidian should be considered final:
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
+| Pure `.base` export adapter | [notidianBaseAdapter.ts](../src/core/utils/bases/notidianBaseAdapter.ts) and [notidianBaseAdapter.test.ts](../src/core/utils/bases/notidianBaseAdapter.test.ts) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 
