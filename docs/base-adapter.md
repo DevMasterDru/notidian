@@ -1,6 +1,6 @@
 # Bases Adapter
 
-The Bases adapter is the first implementation step for ADR 0011's Bases-first convergence path. ADR 0012 adds the next gate: a minimal custom Bases view that proves Notidian can attach a future table surface to `.base` files.
+The Bases adapter is the first implementation step for ADR 0011's Bases-first convergence path. ADR 0012 adds the next gate: a custom Bases view that proves Notidian can attach a future table surface to `.base` files.
 
 It is intentionally pure and conservative. It converts a Notidian `SpaceTable` plus an optional table predicate into an in-memory `.base` document shape and deterministic YAML. It does not write files, mutate context MDB data, or claim that every Notidian context can round-trip to native Bases.
 
@@ -85,9 +85,9 @@ Notidian registers a custom Bases view type when the running Obsidian host suppo
 notidian-table
 ```
 
-This is currently a feasibility gate with several proven interaction slices. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, renders a basic table projection, lets ordinary note-property cells write through Obsidian frontmatter, lets structured TSV paste update ordinary note-property cells through the same frontmatter path, detects stale frontmatter before note-property writes, supports Reload and Apply anyway conflict actions, supports `Cmd/Ctrl+Z` undo for applied note-property edits/pastes, and lets `file.name` cells rename the row Markdown file. It does not persist a hidden mirror or replace the current context-backed Notidian table editor.
+This is currently a feasibility gate with several proven interaction slices. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, renders a table projection, lets ordinary note-property cells write through Obsidian frontmatter, lets structured TSV paste update ordinary note-property cells through the same frontmatter path, detects stale frontmatter before note-property writes, supports Reload and Apply anyway conflict actions, supports `Cmd/Ctrl+Z` undo for applied note-property edits/pastes, lets `file.name` cells rename the row Markdown file, and lets structured TSV paste include `file.name` cells after rename preflight. It does not persist a hidden mirror or replace the current context-backed Notidian table editor.
 
-Use this view type only to validate the Bases-hosted surface for now. File properties other than `file.name` and formulas are read-only in the custom view. Structured paste intentionally skips title/file/formula targets until bulk rename preflight, rename undo, redo, and typed value preservation have equivalent safety in the Bases-hosted path. The future goal is to move Notidian's enhanced table interactions into this view once those safeguards are proven.
+Use this view type only to validate the Bases-hosted surface for now. File properties other than `file.name` and formulas are read-only in the custom view. File-name paste preflights the batch for unsafe names, duplicate targets, existing target files, and source-target collisions before any rename. Mixed file-name/property paste applies renames first, retargets dependent property writes to the renamed path, and stores inverse writes in reverse transaction order so undo does not depend on metadata reload timing. The custom view still needs copy/cut, redo, typed value preservation, and swap/cycle title paste through temporary paths before it can replace the context-backed table. The future goal is to move Notidian's enhanced table interactions into this view once those safeguards are proven.
 
 The runtime capability snapshot records the controller keys, config methods, data shape, first entry/value methods, and whether an entry appears to expose a native `setValue` write method. This keeps the next editing step grounded in the actual Obsidian runtime rather than undocumented assumptions.
 
@@ -97,7 +97,7 @@ The live harness can validate the registration and renderer in Obsidian:
 npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
 ```
 
-That smoke also edits the Beta fixture's `status` note property, pastes status/rating TSV values into note-property cells, undoes that paste, applies a surfaced frontmatter conflict, renames the Beta fixture through `file.name`, and waits until Obsidian metadata reports the changed frontmatter values on the renamed path.
+That smoke also edits the Beta fixture's `status` note property, pastes status/rating TSV values into note-property cells, undoes that paste, applies a surfaced frontmatter conflict, pastes into the Beta fixture's `file.name` and `status` cells, undoes that mixed title/status paste, performs a final `file.name` rename, and waits until Obsidian metadata reports the changed frontmatter values on the renamed path.
 
 ## Real-Vault Verification
 

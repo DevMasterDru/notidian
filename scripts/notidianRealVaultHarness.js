@@ -16,6 +16,8 @@ const DEFAULT_BASE_VIEW_PASTE_STATUS = "base-view-paste-active";
 const DEFAULT_BASE_VIEW_PASTE_RATING = "9";
 const DEFAULT_BASE_VIEW_CONFLICT_EXTERNAL = "base-view-conflict-external";
 const DEFAULT_BASE_VIEW_CONFLICT_APPLIED = "base-view-conflict-applied";
+const DEFAULT_BASE_VIEW_PASTE_RENAME_SUFFIX = "Beta Base Pasted";
+const DEFAULT_BASE_VIEW_PASTE_RENAME_STATUS = "base-view-title-paste-status";
 const DEFAULT_BASE_VIEW_RENAME_SUFFIX = "Beta Base Renamed";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
@@ -208,13 +210,35 @@ const createObsidianRunner = (
   new Promise((resolve, reject) => {
     const child = spawn(obsidianBin, args, {
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let forceKillTimeout = null;
+    const commandKillGraceMs = Math.min(
+      1000,
+      Math.max(50, Math.floor(commandTimeoutMs / 2))
+    );
+    const signalChildTree = (signal) => {
+      try {
+        if (process.platform === "win32") {
+          child.kill(signal);
+          return;
+        }
+        process.kill(-child.pid, signal);
+      } catch (_error) {}
+    };
+    const clearTimers = () => {
+      clearTimeout(timeout);
+      if (forceKillTimeout) clearTimeout(forceKillTimeout);
+    };
     const timeout = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      signalChildTree("SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        signalChildTree("SIGKILL");
+      }, commandKillGraceMs);
     }, commandTimeoutMs);
 
     child.stdout.on("data", (chunk) => {
@@ -224,11 +248,11 @@ const createObsidianRunner = (
       stderr += chunk.toString();
     });
     child.on("error", (error) => {
-      clearTimeout(timeout);
+      clearTimers();
       reject(error);
     });
     child.on("close", (code) => {
-      clearTimeout(timeout);
+      clearTimers();
       if (timedOut) {
         reject(
           new Error(
@@ -1273,6 +1297,9 @@ const baseViewEvalCode = ({
   pasteRatingValue,
   conflictExternalValue,
   conflictAppliedValue,
+  pasteRenameTitle,
+  pasteRenamePath,
+  pasteRenameStatusValue,
   renameTitle,
   renamePath,
   timeoutMs,
@@ -1307,6 +1334,9 @@ const baseViewEvalCode = ({
     const pasteRatingValue = ${JSON.stringify(pasteRatingValue)};
     const conflictExternalValue = ${JSON.stringify(conflictExternalValue)};
     const conflictAppliedValue = ${JSON.stringify(conflictAppliedValue)};
+    const pasteRenameTitle = ${JSON.stringify(pasteRenameTitle)};
+    const pasteRenamePath = ${JSON.stringify(pasteRenamePath)};
+    const pasteRenameStatusValue = ${JSON.stringify(pasteRenameStatusValue)};
     const renameTitle = ${JSON.stringify(renameTitle)};
     const renamePath = ${JSON.stringify(renamePath)};
     const baseContent = ${JSON.stringify(baseContent)};
@@ -1680,6 +1710,146 @@ const baseViewEvalCode = ({
         cellHtml: lastCellHtml,
       };
     };
+    const pasteFileNameAndStatus = async (view) => {
+      const headers = Array.from(view.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const fileNameColumnIndex = headers.findIndex((header) =>
+        header === "file.name"
+      );
+      if (fileNameColumnIndex < 0) {
+        return { ok: false, reason: "missing-title-paste-column", columns: headers };
+      }
+      const row = Array.from(view.querySelectorAll("tbody tr[data-path]"))
+        .find((candidate) =>
+          candidate.getAttribute("data-path") === betaPath ||
+          candidate.innerText.includes(expectedTitle)
+        );
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-title-paste-row",
+          columns: headers,
+          tableText: view.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[fileNameColumnIndex];
+      const editor = cell?.querySelector("[contenteditable='true']");
+      if (!editor) {
+        return {
+          ok: false,
+          reason: "missing-title-paste-editor",
+          columns: headers,
+          cellHtml: cell?.outerHTML?.slice(0, 500) ?? "",
+        };
+      }
+
+      editor.focus();
+      const payload = pasteRenameTitle + "\\t" + pasteRenameStatusValue;
+      let dataTransfer = null;
+      if (typeof DataTransfer == "function") {
+        dataTransfer = new DataTransfer();
+        dataTransfer.setData("text/plain", payload);
+      }
+      const pasteEvent = typeof ClipboardEvent == "function"
+        ? new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dataTransfer,
+          })
+        : new Event("paste", { bubbles: true, cancelable: true });
+      if (dataTransfer && !pasteEvent.clipboardData) {
+        try {
+          Object.defineProperty(pasteEvent, "clipboardData", {
+            value: dataTransfer,
+          });
+        } catch (_error) {}
+      }
+      if (!dataTransfer) {
+        try {
+          Object.defineProperty(pasteEvent, "clipboardData", {
+            value: {
+              getData: (type) => type == "text/plain" ? payload : "",
+            },
+          });
+        } catch (_error) {}
+      }
+      editor.dispatchEvent(pasteEvent);
+      if (!pasteEvent.defaultPrevented) {
+        return {
+          ok: false,
+          reason: "title-paste-not-intercepted",
+          columns: headers,
+        };
+      }
+
+      const start = Date.now();
+      do {
+        const renamedFile = app.vault.getAbstractFileByPath(pasteRenamePath);
+        if (
+          renamedFile &&
+          String(await markdownFrontmatterValue(pasteRenamePath, "status")) ==
+            pasteRenameStatusValue
+        ) {
+          return {
+            ok: true,
+            titlePastePath: pasteRenamePath,
+            titlePasteTitle: pasteRenameTitle,
+            titlePasteStatusValue: pasteRenameStatusValue,
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "title-paste-not-applied",
+        pasteRenamePath,
+        currentStatus: await markdownFrontmatterValue(pasteRenamePath, "status"),
+      };
+    };
+    const undoFileNamePaste = async (view) => {
+      const table = view.querySelector(".notidian-bases-table-view__table");
+      if (!table) {
+        return { ok: false, reason: "missing-title-undo-table" };
+      }
+      table.focus();
+      const undoEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "z",
+        metaKey: true,
+        ctrlKey: true,
+      });
+      table.dispatchEvent(undoEvent);
+      if (!undoEvent.defaultPrevented) {
+        return { ok: false, reason: "title-undo-not-intercepted" };
+      }
+
+      const start = Date.now();
+      do {
+        const originalFile = app.vault.getAbstractFileByPath(betaPath);
+        const renamedFile = app.vault.getAbstractFileByPath(pasteRenamePath);
+        if (
+          originalFile &&
+          !renamedFile &&
+          String(await markdownFrontmatterValue(betaPath, "status")) ==
+            conflictAppliedValue
+        ) {
+          return {
+            ok: true,
+            titleUndoPath: betaPath,
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "title-undo-not-applied",
+        originalExists: Boolean(app.vault.getAbstractFileByPath(betaPath)),
+        renamedExists: Boolean(app.vault.getAbstractFileByPath(pasteRenamePath)),
+      };
+    };
     const editFileNameCell = async (view) => {
       const headers = Array.from(view.querySelectorAll("thead th"))
         .map((header) => header.innerText.trim());
@@ -1874,6 +2044,24 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
+            const titlePasteResult = await pasteFileNameAndStatus(latestView() || view);
+            if (!titlePasteResult.ok) {
+              return finish({
+                ...titlePasteResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
+            const titleUndoResult = await undoFileNamePaste(latestView() || view);
+            if (!titleUndoResult.ok) {
+              return finish({
+                ...titleUndoResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             const renameResult = await editFileNameCell(latestView() || view);
             if (!renameResult.ok) {
               return finish({
@@ -1893,6 +2081,10 @@ const baseViewEvalCode = ({
               pastedValues: pasteResult.pastedValues,
               undoValues: undoResult.undoValues,
               conflictAppliedValue: conflictResult.conflictAppliedValue,
+              titlePastePath: titlePasteResult.titlePastePath,
+              titlePasteTitle: titlePasteResult.titlePasteTitle,
+              titlePasteStatusValue: titlePasteResult.titlePasteStatusValue,
+              titleUndoPath: titleUndoResult.titleUndoPath,
               renamedPath: renameResult.renamedPath,
               renamedTitle: renameResult.renamedTitle,
             });
@@ -2117,6 +2309,9 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
         pasteRatingValue: DEFAULT_BASE_VIEW_PASTE_RATING,
         conflictExternalValue: DEFAULT_BASE_VIEW_CONFLICT_EXTERNAL,
         conflictAppliedValue: DEFAULT_BASE_VIEW_CONFLICT_APPLIED,
+        pasteRenameTitle: `${paths.runId}-${DEFAULT_BASE_VIEW_PASTE_RENAME_SUFFIX}`,
+        pasteRenamePath: `${paths.prefix}-${DEFAULT_BASE_VIEW_PASTE_RENAME_SUFFIX}.md`,
+        pasteRenameStatusValue: DEFAULT_BASE_VIEW_PASTE_RENAME_STATUS,
         renameTitle: `${paths.runId}-${DEFAULT_BASE_VIEW_RENAME_SUFFIX}`,
         renamePath: paths.betaBaseRenamedPath,
         timeoutMs: config.timeoutMs,
@@ -2158,6 +2353,22 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected conflictAppliedValue=${DEFAULT_BASE_VIEW_CONFLICT_APPLIED}; got ${result.conflictAppliedValue}`
     );
   }
+  const expectedTitlePastePath = `${paths.prefix}-${DEFAULT_BASE_VIEW_PASTE_RENAME_SUFFIX}.md`;
+  if (result.titlePastePath != expectedTitlePastePath) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected titlePastePath=${expectedTitlePastePath}; got ${result.titlePastePath}`
+    );
+  }
+  if (result.titleUndoPath != paths.betaPath) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected titleUndoPath=${paths.betaPath}; got ${result.titleUndoPath}`
+    );
+  }
+  if (result.titlePasteStatusValue != DEFAULT_BASE_VIEW_PASTE_RENAME_STATUS) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected titlePasteStatusValue=${DEFAULT_BASE_VIEW_PASTE_RENAME_STATUS}; got ${result.titlePasteStatusValue}`
+    );
+  }
   if (result.renamedPath != paths.betaBaseRenamedPath) {
     throw new Error(
       `Notidian custom Bases view smoke failed: expected renamedPath=${paths.betaBaseRenamedPath}; got ${result.renamedPath}`
@@ -2186,6 +2397,9 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     baseViewPasteValues: result.pastedValues,
     baseViewUndoValues: result.undoValues,
     baseViewConflictAppliedValue: result.conflictAppliedValue,
+    baseViewTitlePastePath: result.titlePastePath,
+    baseViewTitlePasteStatusValue: result.titlePasteStatusValue,
+    baseViewTitleUndoPath: result.titleUndoPath,
     baseViewRenamedPath: result.renamedPath,
     baseViewRenameTitle: result.renamedTitle,
   };
@@ -2365,6 +2579,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseViewPasteValues = null;
   let baseViewUndoValues = null;
   let baseViewConflictAppliedValue = null;
+  let baseViewTitlePastePath = null;
+  let baseViewTitlePasteStatusValue = null;
+  let baseViewTitleUndoPath = null;
   let baseViewRenamedPath = null;
   let baseViewRenameTitle = null;
   let betaPath = paths.betaPath;
@@ -2473,6 +2690,10 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseViewUndoValues = viewPaths.baseViewUndoValues ?? null;
       baseViewConflictAppliedValue =
         viewPaths.baseViewConflictAppliedValue ?? null;
+      baseViewTitlePastePath = viewPaths.baseViewTitlePastePath ?? null;
+      baseViewTitlePasteStatusValue =
+        viewPaths.baseViewTitlePasteStatusValue ?? null;
+      baseViewTitleUndoPath = viewPaths.baseViewTitleUndoPath ?? null;
       baseViewRenamedPath = viewPaths.baseViewRenamedPath ?? null;
       baseViewRenameTitle = viewPaths.baseViewRenameTitle ?? null;
       betaPath = viewPaths.baseViewRenamedPath ?? betaPath;
@@ -2528,6 +2749,11 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseViewPasteValues ? { baseViewPasteValues } : {}),
     ...(baseViewUndoValues ? { baseViewUndoValues } : {}),
     ...(baseViewConflictAppliedValue ? { baseViewConflictAppliedValue } : {}),
+    ...(baseViewTitlePastePath ? { baseViewTitlePastePath } : {}),
+    ...(baseViewTitlePasteStatusValue
+      ? { baseViewTitlePasteStatusValue }
+      : {}),
+    ...(baseViewTitleUndoPath ? { baseViewTitleUndoPath } : {}),
     ...(baseViewRenamedPath ? { baseViewRenamedPath } : {}),
     ...(baseViewRenameTitle ? { baseViewRenameTitle } : {}),
   };

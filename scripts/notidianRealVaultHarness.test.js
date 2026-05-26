@@ -404,6 +404,11 @@ describe("notidian real vault harness", () => {
               status: "base-view-active",
             },
             conflictAppliedValue: "base-view-conflict-applied",
+            titlePastePath:
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Pasted.md",
+            titlePasteStatusValue: "base-view-title-paste-status",
+            titleUndoPath:
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
             renamedPath:
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
             renamedTitle:
@@ -457,6 +462,11 @@ describe("notidian real vault harness", () => {
         status: "base-view-active",
       },
       baseViewConflictAppliedValue: "base-view-conflict-applied",
+      baseViewTitlePastePath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Pasted.md",
+      baseViewTitlePasteStatusValue: "base-view-title-paste-status",
+      baseViewTitleUndoPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
       baseViewRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
       baseViewRenameTitle:
@@ -735,5 +745,16 @@ describe("notidian real vault harness", () => {
     await expect(
       runner(["-e", "setTimeout(() => {}, 1000)"])
     ).rejects.toThrow("timed out after 25ms");
+  });
+
+  it("escalates timed out Obsidian CLI children that ignore SIGTERM", async () => {
+    const runner = createObsidianRunner("/bin/sh", 25);
+    const started = Date.now();
+
+    await expect(
+      runner(["-c", "trap '' TERM; sleep 0.5"])
+    ).rejects.toThrow("timed out after 25ms");
+
+    expect(Date.now() - started).toBeLessThan(300);
   });
 });

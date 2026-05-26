@@ -20,6 +20,7 @@ import {
   notidianBasesCreateUndoEntry,
   notidianBasesNotePropertyKey,
   notidianBasesParseTsv,
+  notidianBasesPreflightFileNameWrites,
   notidianBasesRowsWithVisibleBaseValues,
   notidianBasesStructuredPastePlan,
   notidianBasesRuntimeCapabilities,
@@ -555,6 +556,63 @@ describe("notidianBasesStructuredPastePlan", () => {
     ]);
   });
 
+  it("plans file-name paste as rename writes with base titles", () => {
+    const plan = notidianBasesStructuredPastePlan({
+      properties: ["file.name", "status"],
+      rows: [
+        { path: "Relays & Devices/Beta.md", values: ["Beta", "queued"] },
+        { path: "Relays & Devices/Gamma.md", values: ["Gamma", "old"] },
+      ],
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      text: "Beta Renamed\tactive\nGamma Renamed\tpaused",
+    });
+
+    expect(plan.writes).toEqual([
+      {
+        rowIndex: 0,
+        columnIndex: 0,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "file.name",
+          baseValue: "Beta",
+          value: "Beta Renamed",
+        },
+      },
+      {
+        rowIndex: 0,
+        columnIndex: 1,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          baseValue: "queued",
+          value: "active",
+        },
+      },
+      {
+        rowIndex: 1,
+        columnIndex: 0,
+        request: {
+          path: "Relays & Devices/Gamma.md",
+          propertyId: "file.name",
+          baseValue: "Gamma",
+          value: "Gamma Renamed",
+        },
+      },
+      {
+        rowIndex: 1,
+        columnIndex: 1,
+        request: {
+          path: "Relays & Devices/Gamma.md",
+          propertyId: "status",
+          baseValue: "old",
+          value: "paused",
+        },
+      },
+    ]);
+    expect(plan.skipped).toEqual([]);
+  });
+
   it("plans TSV paste across note-property cells", () => {
     expect(notidianBasesParseTsv("active\t7\npaused\t3")).toEqual([
       ["active", "7"],
@@ -617,13 +675,13 @@ describe("notidianBasesStructuredPastePlan", () => {
     expect(plan.skipped).toEqual([]);
   });
 
-  it("skips file names, read-only properties, and out-of-bounds cells", () => {
+  it("skips read-only properties and out-of-bounds cells", () => {
     const plan = notidianBasesStructuredPastePlan({
       properties: ["file.name", "status", "file.path"],
       rows: [{ path: "Relays & Devices/Beta.md", values: ["Beta", "queued", ""] }],
       startRowIndex: 0,
-      startColumnIndex: 0,
-      text: "New Beta\tactive\tOther.md\tignored",
+      startColumnIndex: 1,
+      text: "active\tOther.md\tignored",
     });
 
     expect(plan.writes).toEqual([
@@ -641,12 +699,6 @@ describe("notidianBasesStructuredPastePlan", () => {
     expect(plan.skipped).toEqual([
       {
         rowIndex: 0,
-        columnIndex: 0,
-        reason: "file-name-paste-unsupported",
-        value: "New Beta",
-      },
-      {
-        rowIndex: 0,
         columnIndex: 2,
         reason: "read-only-property",
         value: "Other.md",
@@ -656,6 +708,143 @@ describe("notidianBasesStructuredPastePlan", () => {
         columnIndex: 3,
         reason: "out-of-bounds",
         value: "ignored",
+      },
+    ]);
+  });
+});
+
+describe("notidianBasesPreflightFileNameWrites", () => {
+  it("accepts unique safe file-name paste targets", () => {
+    expect(
+      notidianBasesPreflightFileNameWrites({
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "file.name",
+            baseValue: "Beta",
+            value: "Beta Renamed",
+          },
+          {
+            path: "Relays & Devices/Gamma.md",
+            propertyId: "file.name",
+            baseValue: "Gamma",
+            value: "Gamma Renamed",
+          },
+        ],
+        pathExists: () => false,
+      })
+    ).toEqual({
+      ok: true,
+      plans: [
+        {
+          path: "Relays & Devices/Beta.md",
+          newPath: "Relays & Devices/Beta Renamed.md",
+          value: "Beta Renamed",
+        },
+        {
+          path: "Relays & Devices/Gamma.md",
+          newPath: "Relays & Devices/Gamma Renamed.md",
+          value: "Gamma Renamed",
+        },
+      ],
+      issues: [],
+    });
+  });
+
+  it("rejects unsafe, duplicate, and existing file-name paste targets before rename", () => {
+    const result = notidianBasesPreflightFileNameWrites({
+      writes: [
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "file.name",
+          baseValue: "Beta",
+          value: "Bad/Name",
+        },
+        {
+          path: "Relays & Devices/Gamma.md",
+          propertyId: "file.name",
+          baseValue: "Gamma",
+          value: "Duplicate",
+        },
+        {
+          path: "Relays & Devices/Delta.md",
+          propertyId: "file.name",
+          baseValue: "Delta",
+          value: "Duplicate",
+        },
+        {
+          path: "Relays & Devices/Epsilon.md",
+          propertyId: "file.name",
+          baseValue: "Epsilon",
+          value: "Existing",
+        },
+      ],
+      pathExists: (path) => path == "Relays & Devices/Existing.md",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      {
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "file.name",
+          baseValue: "Beta",
+          value: "Bad/Name",
+        },
+        reason: "slash",
+      },
+      {
+        request: {
+          path: "Relays & Devices/Delta.md",
+          propertyId: "file.name",
+          baseValue: "Delta",
+          value: "Duplicate",
+        },
+        reason: "duplicate-target",
+        newPath: "Relays & Devices/Duplicate.md",
+      },
+      {
+        request: {
+          path: "Relays & Devices/Epsilon.md",
+          propertyId: "file.name",
+          baseValue: "Epsilon",
+          value: "Existing",
+        },
+        reason: "target-exists",
+        newPath: "Relays & Devices/Existing.md",
+      },
+    ]);
+  });
+
+  it("rejects file-name paste targets that collide with another source path", () => {
+    const result = notidianBasesPreflightFileNameWrites({
+      writes: [
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "file.name",
+          baseValue: "Beta",
+          value: "Gamma",
+        },
+        {
+          path: "Relays & Devices/Gamma.md",
+          propertyId: "file.name",
+          baseValue: "Gamma",
+          value: "Gamma Next",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      {
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "file.name",
+          baseValue: "Beta",
+          value: "Gamma",
+        },
+        reason: "target-source-conflict",
+        newPath: "Relays & Devices/Gamma.md",
       },
     ]);
   });
@@ -686,21 +875,21 @@ describe("notidianBasesCreateUndoEntry", () => {
       writes: [
         {
           path: "Relays & Devices/Beta.md",
-          propertyId: "status",
-          baseValue: "active",
-          value: "queued",
-        },
-        {
-          path: "Relays & Devices/Beta.md",
           propertyId: "rating",
           baseValue: "9",
           value: "2",
+        },
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          baseValue: "active",
+          value: "queued",
         },
       ],
     });
   });
 
-  it("skips file-name writes until custom Bases rename undo is implemented", () => {
+  it("creates inverse writes for applied file-name edits", () => {
     expect(
       notidianBasesCreateUndoEntry({
         label: "Rename file",
@@ -715,7 +904,52 @@ describe("notidianBasesCreateUndoEntry", () => {
       })
     ).toEqual({
       label: "Rename file",
-      writes: [],
+      writes: [
+        {
+          path: "Relays & Devices/Renamed Beta.md",
+          propertyId: "file.name",
+          baseValue: "Renamed Beta",
+          value: "Beta",
+        },
+      ],
+    });
+  });
+
+  it("undoes mixed file-name and note-property writes in reverse transaction order", () => {
+    expect(
+      notidianBasesCreateUndoEntry({
+        label: "Paste cells",
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "file.name",
+            baseValue: "Beta",
+            value: "Renamed Beta",
+          },
+          {
+            path: "Relays & Devices/Renamed Beta.md",
+            propertyId: "status",
+            baseValue: "queued",
+            value: "active",
+          },
+        ],
+      })
+    ).toEqual({
+      label: "Paste cells",
+      writes: [
+        {
+          path: "Relays & Devices/Renamed Beta.md",
+          propertyId: "status",
+          baseValue: "active",
+          value: "queued",
+        },
+        {
+          path: "Relays & Devices/Renamed Beta.md",
+          propertyId: "file.name",
+          baseValue: "Renamed Beta",
+          value: "Beta",
+        },
+      ],
     });
   });
 });

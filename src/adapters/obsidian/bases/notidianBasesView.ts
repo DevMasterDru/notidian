@@ -122,9 +122,11 @@ export type NotidianBasesStructuredPasteWrite = {
 
 export type NotidianBasesStructuredPasteSkippedReason =
   | "file-name-paste-unsupported"
+  | "file-name-preflight-failed"
   | "missing-path"
   | "out-of-bounds"
-  | "read-only-property";
+  | "read-only-property"
+  | NotidianBasesFileNamePreflightIssueReason;
 
 export type NotidianBasesStructuredPasteSkipped = {
   rowIndex: number;
@@ -158,6 +160,34 @@ export type NotidianBasesRowsWithVisibleBaseValuesParams = {
 export type NotidianBasesUndoEntry = {
   label: string;
   writes: NotidianBasesCellEditRequest[];
+};
+
+export type NotidianBasesFileNamePreflightIssueReason =
+  | "duplicate-target"
+  | "empty"
+  | "missing-path"
+  | "missing-property"
+  | "read-only-property"
+  | "slash"
+  | "target-exists"
+  | "target-source-conflict";
+
+export type NotidianBasesFileNamePreflightIssue = {
+  request: NotidianBasesCellEditRequest;
+  reason: NotidianBasesFileNamePreflightIssueReason;
+  newPath?: string;
+};
+
+export type NotidianBasesFileNamePreflightPlan = {
+  path: string;
+  newPath: string;
+  value: string;
+};
+
+export type NotidianBasesFileNamePreflightResult = {
+  ok: boolean;
+  plans: NotidianBasesFileNamePreflightPlan[];
+  issues: NotidianBasesFileNamePreflightIssue[];
 };
 
 type NotidianBasesStructuredPasteRequest = {
@@ -222,6 +252,7 @@ type NotidianBasesRenderOptions = {
   writeCell?: (request: NotidianBasesCellEditRequest) => Promise<void>;
   pushUndoEntry?: (entry: NotidianBasesUndoEntry) => void;
   undoLast?: () => Promise<NotidianBasesStructuredPasteResult>;
+  pathExists?: (path: string) => boolean;
 };
 
 export type NotidianBasesViewSnapshot = {
@@ -410,11 +441,15 @@ export const notidianBasesStructuredPastePlan = ({
       }
 
       if (notidianBasesIsFileNameProperty(propertyId)) {
-        skipped.push({
+        writes.push({
           rowIndex,
           columnIndex,
-          reason: "file-name-paste-unsupported",
-          value,
+          request: {
+            path: row.path,
+            propertyId,
+            baseValue: row.values?.[columnIndex],
+            value,
+          },
         });
         return;
       }
@@ -455,17 +490,110 @@ export const notidianBasesStructuredPastePlan = ({
   return { writes, skipped };
 };
 
+export const notidianBasesPreflightFileNameWrites = ({
+  writes,
+  pathExists = () => false,
+}: {
+  writes: NotidianBasesCellEditRequest[];
+  pathExists?: (path: string) => boolean;
+}): NotidianBasesFileNamePreflightResult => {
+  const fileNameWrites = writes.filter((write) =>
+    notidianBasesIsFileNameProperty(String(write.propertyId ?? ""))
+  );
+  const sourcePaths = new Set(
+    fileNameWrites
+      .map((write) => String(write.path ?? "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const seenTargets = new Set<string>();
+  const plans: NotidianBasesFileNamePreflightPlan[] = [];
+  const issues: NotidianBasesFileNamePreflightIssue[] = [];
+
+  for (const request of fileNameWrites) {
+    const plan = notidianBasesCellEditPlan(request);
+    if (plan.ok !== true) {
+      issues.push({
+        request,
+        reason: plan.reason,
+      });
+      continue;
+    }
+    if (plan.authority !== "file-name" || !plan.changed) continue;
+
+    const targetKey = plan.newPath.toLowerCase();
+    const sourceKey = plan.path.toLowerCase();
+    if (seenTargets.has(targetKey)) {
+      issues.push({
+        request,
+        reason: "duplicate-target",
+        newPath: plan.newPath,
+      });
+      continue;
+    }
+    seenTargets.add(targetKey);
+
+    if (sourcePaths.has(targetKey) && targetKey !== sourceKey) {
+      issues.push({
+        request,
+        reason: "target-source-conflict",
+        newPath: plan.newPath,
+      });
+      continue;
+    }
+
+    if (pathExists(plan.newPath) && targetKey !== sourceKey) {
+      issues.push({
+        request,
+        reason: "target-exists",
+        newPath: plan.newPath,
+      });
+      continue;
+    }
+
+    plans.push({
+      path: plan.path,
+      newPath: plan.newPath,
+      value: plan.value,
+    });
+  }
+
+  return {
+    ok: issues.length === 0,
+    plans,
+    issues,
+  };
+};
+
 export const notidianBasesCreateUndoEntry = ({
   label,
   writes,
-}: NotidianBasesUndoEntry): NotidianBasesUndoEntry => ({
-  label,
-  writes: writes.flatMap((write) => {
+}: NotidianBasesUndoEntry): NotidianBasesUndoEntry => {
+  const inverseWrites = writes.flatMap((write) => {
     const propertyId = String(write.propertyId ?? "").trim();
-    if (!notidianBasesNotePropertyKey(propertyId)) return [];
     if (write.baseValue === undefined || write.baseValue === write.value) {
       return [];
     }
+
+    if (notidianBasesIsFileNameProperty(propertyId)) {
+      try {
+        const renamedPath = write.path
+          ? buildPageTitleRename(write.path, write.value).newPath
+          : undefined;
+        if (!renamedPath) return [];
+        return [
+          {
+            path: renamedPath,
+            propertyId,
+            baseValue: write.value,
+            value: write.baseValue,
+          },
+        ];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    if (!notidianBasesNotePropertyKey(propertyId)) return [];
 
     return [
       {
@@ -475,8 +603,13 @@ export const notidianBasesCreateUndoEntry = ({
         value: write.baseValue,
       },
     ];
-  }),
-});
+  });
+
+  return {
+    label,
+    writes: inverseWrites.reverse(),
+  };
+};
 
 export const notidianBasesCellEditPlan = ({
   path,
@@ -841,6 +974,11 @@ const renderEditableCell = (
   writeCell: (request: NotidianBasesCellEditRequest) => Promise<void>,
   pushUndoEntry: ((entry: NotidianBasesUndoEntry) => void) | undefined,
   focusTable: () => void,
+  onAppliedWrite: (
+    rowIndex: number,
+    columnIndex: number,
+    request: NotidianBasesCellEditRequest
+  ) => void,
   showConflict: (
     rowIndex: number,
     columnIndex: number,
@@ -899,6 +1037,7 @@ const renderEditableCell = (
       try {
         await writeCell(request);
         setBaseValue(nextValue);
+        onAppliedWrite(rowIndex, columnIndex, request);
         cellEl.setAttribute("data-edit-state", "applied");
         pushUndoEntry?.(
           notidianBasesCreateUndoEntry({
@@ -979,6 +1118,7 @@ const renderSnapshot = (
     },
   });
   const dataRowEls: HTMLElement[] = [];
+  const rowPaths = flatRows.map((row) => row.path);
   const cellAt = (
     rowIndex: number,
     columnIndex: number
@@ -1037,12 +1177,46 @@ const renderSnapshot = (
       value
     );
   };
+  const setRowPath = (rowIndex: number, path: string | undefined): void => {
+    rowPaths[rowIndex] = path;
+    const rowEl = dataRowEls[rowIndex];
+    if (!rowEl) return;
+    if (path) {
+      rowEl.setAttribute("data-path", path);
+    } else {
+      rowEl.removeAttribute("data-path");
+    }
+  };
+  const currentRows = (): { path?: string; values?: string[] }[] =>
+    flatRows.map((row, rowIndex) => ({
+      ...row,
+      path: rowPaths[rowIndex],
+    }));
+  const renamePlanForRequest = (
+    request: NotidianBasesCellEditRequest
+  ): Extract<NotidianBasesCellEditPlan, { authority: "file-name" }> | null => {
+    if (!notidianBasesIsFileNameProperty(String(request.propertyId ?? ""))) {
+      return null;
+    }
+    const plan = notidianBasesCellEditPlan(request);
+    return plan.ok === true && plan.authority === "file-name" ? plan : null;
+  };
+  const applySuccessfulWriteToRenderedRow = (
+    rowIndex: number,
+    _columnIndex: number,
+    request: NotidianBasesCellEditRequest
+  ): void => {
+    const renamePlan = renamePlanForRequest(request);
+    if (renamePlan?.changed) {
+      setRowPath(rowIndex, renamePlan.newPath);
+    }
+  };
   const targetForRequest = (
     request: NotidianBasesCellEditRequest
   ): { rowIndex: number; columnIndex: number } | null => {
     const path = String(request.path ?? "");
     const propertyId = String(request.propertyId ?? "");
-    const rowIndex = flatRows.findIndex((row) => row.path === path);
+    const rowIndex = rowPaths.findIndex((rowPath) => rowPath === path);
     const columnIndex = snapshot.properties.indexOf(propertyId);
     if (rowIndex < 0 || columnIndex < 0) return null;
     return { rowIndex, columnIndex };
@@ -1120,6 +1294,7 @@ const renderSnapshot = (
           await options.writeCell?.(forcedRequest);
           setCellText(rowIndex, columnIndex, conflict.attemptedValue);
           setCellBaseValue(rowIndex, columnIndex, conflict.attemptedValue);
+          applySuccessfulWriteToRenderedRow(rowIndex, columnIndex, forcedRequest);
           clearCellActions(cellEl);
           setCellState(rowIndex, columnIndex, "applied");
           pushUndoForWrites("Apply cell", [forcedRequest]);
@@ -1150,7 +1325,7 @@ const renderSnapshot = (
         properties: snapshot.properties,
         rows: notidianBasesRowsWithVisibleBaseValues({
           properties: snapshot.properties,
-          rows: flatRows,
+          rows: currentRows(),
           baseValueForCell: (rowIndex, columnIndex) =>
             cellAt(rowIndex, columnIndex)?.getAttribute(
               NOTIDIAN_BASES_BASE_VALUE_ATTR
@@ -1167,6 +1342,61 @@ const renderSnapshot = (
         appliedWrites: [],
         failedWrites: [],
       };
+      const fileNameWrites = plan.writes.filter((write) =>
+        notidianBasesIsFileNameProperty(String(write.request.propertyId ?? ""))
+      );
+      const fileNameIssueRequests = new Set<NotidianBasesCellEditRequest>();
+      let executableWrites = plan.writes;
+      if (fileNameWrites.length > 0) {
+        const preflight = notidianBasesPreflightFileNameWrites({
+          writes: fileNameWrites.map((write) => write.request),
+          pathExists: options.pathExists,
+        });
+        if (!preflight.ok) {
+          executableWrites = plan.writes.filter(
+            (write) =>
+              !notidianBasesIsFileNameProperty(
+                String(write.request.propertyId ?? "")
+              )
+          );
+          for (const issue of preflight.issues) {
+            fileNameIssueRequests.add(issue.request);
+            const write = fileNameWrites.find(
+              (candidate) => candidate.request === issue.request
+            );
+            if (!write) continue;
+            setCellState(
+              write.rowIndex,
+              write.columnIndex,
+              "skipped",
+              issue.reason
+            );
+            result.skipped += 1;
+          }
+          for (const write of fileNameWrites) {
+            if (fileNameIssueRequests.has(write.request)) continue;
+            setCellState(
+              write.rowIndex,
+              write.columnIndex,
+              "skipped",
+              "file-name-preflight-failed"
+            );
+            result.skipped += 1;
+          }
+        }
+      }
+      const orderedWrites = [
+        ...executableWrites.filter((write) =>
+          notidianBasesIsFileNameProperty(String(write.request.propertyId ?? ""))
+        ),
+        ...executableWrites.filter(
+          (write) =>
+            !notidianBasesIsFileNameProperty(
+              String(write.request.propertyId ?? "")
+            )
+        ),
+      ];
+      const renamedPathByOriginalPath = new Map<string, string>();
 
       tableEl.setAttribute("data-notidian-bases-paste-state", "pending");
       for (const skipped of plan.skipped) {
@@ -1178,29 +1408,45 @@ const renderSnapshot = (
         );
       }
 
-      for (const write of plan.writes) {
+      for (const write of orderedWrites) {
         setCellState(write.rowIndex, write.columnIndex, "pending");
+        const request =
+          write.request.path && renamedPathByOriginalPath.has(write.request.path)
+            ? {
+                ...write.request,
+                path: renamedPathByOriginalPath.get(write.request.path),
+              }
+            : write.request;
         try {
-          await options.writeCell?.(write.request);
+          const renamePlan = renamePlanForRequest(request);
+          await options.writeCell?.(request);
           setCellText(
             write.rowIndex,
             write.columnIndex,
-            write.request.value
+            request.value
           );
           setCellState(write.rowIndex, write.columnIndex, "applied");
           setCellBaseValue(
             write.rowIndex,
             write.columnIndex,
-            write.request.value
+            request.value
+          );
+          if (renamePlan?.changed) {
+            renamedPathByOriginalPath.set(renamePlan.path, renamePlan.newPath);
+          }
+          applySuccessfulWriteToRenderedRow(
+            write.rowIndex,
+            write.columnIndex,
+            request
           );
           result.applied += 1;
-          result.appliedWrites.push(write.request);
+          result.appliedWrites.push(request);
         } catch (error) {
           if (
             showConflict(
               write.rowIndex,
               write.columnIndex,
-              write.request,
+              request,
               error
             )
           ) {
@@ -1215,7 +1461,7 @@ const renderSnapshot = (
             String((error as { message?: unknown })?.message ?? error)
           );
           result.failed += 1;
-          result.failedWrites.push({ request: write.request, error });
+          result.failedWrites.push({ request, error });
         }
       }
 
@@ -1244,6 +1490,11 @@ const renderSnapshot = (
       if (!target) continue;
       setCellText(target.rowIndex, target.columnIndex, request.value);
       setCellBaseValue(target.rowIndex, target.columnIndex, request.value);
+      applySuccessfulWriteToRenderedRow(
+        target.rowIndex,
+        target.columnIndex,
+        request
+      );
       setCellState(target.rowIndex, target.columnIndex, "applied");
     }
     for (const failed of result.failedWrites) {
@@ -1332,6 +1583,7 @@ const renderSnapshot = (
             options.writeCell,
             options.pushUndoEntry,
             () => tableEl.focus(),
+            applySuccessfulWriteToRenderedRow,
             showConflict,
             pasteCells || undefined
           );
@@ -1432,6 +1684,10 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
       writeCell: this.obsidianApp ? this.writeCell : undefined,
       pushUndoEntry: this.obsidianApp ? this.pushUndoEntry : undefined,
       undoLast: this.obsidianApp ? this.undoLast : undefined,
+      pathExists: this.obsidianApp
+        ? (path: string) =>
+            Boolean(this.obsidianApp?.vault?.getAbstractFileByPath?.(path))
+        : undefined,
     });
   }
 }

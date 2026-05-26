@@ -154,9 +154,11 @@ With `--base-view`, the harness also performs a live custom Bases view scenario:
 8. Pastes a one-row, two-column TSV payload into Beta `status` and `rating` note-property cells.
 9. Presses `Cmd/Ctrl+Z` in the custom view and verifies the pasted note-property cells are restored through frontmatter writes.
 10. Creates a deterministic stale frontmatter state, edits the visible `status` cell, clicks Apply anyway on the surfaced conflict action, and verifies the attempted value reaches the Markdown file.
-11. Edits the Beta row's `file.name` cell through the custom view and waits for the renamed Markdown file.
-12. Waits until Obsidian metadata reports the conflict-applied `status` and restored `rating` values on the renamed Beta fixture note.
-13. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
+11. Pastes a TSV payload into the Beta row's `file.name` and `status` cells, waits for the renamed Markdown file, and verifies the same-row status write lands on the renamed path.
+12. Presses `Cmd/Ctrl+Z` in the custom view and verifies the mixed title/status paste restores the status value before renaming the file back.
+13. Edits the Beta row's `file.name` cell through the custom view and waits for the final renamed Markdown file.
+14. Waits until Obsidian metadata reports the conflict-applied `status` and restored `rating` values on the renamed Beta fixture note.
+15. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
 
 ## Options
 
@@ -202,6 +204,6 @@ This is a smoke harness, not the final real-vault test suite.
 Still needed:
 
 - Broader live UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and additional metadata timing fixtures.
-- Deeper live `.base` validation for typed custom-view editing, multi-row custom-view paste, copy/cut, rejected title edits, title paste, rename undo, Bases formula/sort/group behavior, and runtime API changes.
+- Deeper live `.base` validation for typed custom-view editing, multi-row custom-view paste, copy/cut, rejected title edits, swap/cycle title paste, redo, Bases formula/sort/group behavior, and runtime API changes.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.
