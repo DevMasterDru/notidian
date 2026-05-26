@@ -101,6 +101,8 @@ describe("notidian real vault harness", () => {
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha.md",
       betaPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
+      betaBaseRenamedPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
       alphaRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
       alphaUiRenamedPath:
@@ -374,6 +376,7 @@ describe("notidian real vault harness", () => {
       "=> active",
       "=> active",
       "=> base-view-active",
+      "=> base-view-active",
     ];
     const baseViewPath =
       "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base";
@@ -392,6 +395,10 @@ describe("notidian real vault harness", () => {
             rowCount: 2,
             tableText: "Notidian Table status rating Beta active",
             editedValue: "base-view-active",
+            renamedPath:
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
+            renamedTitle:
+              "notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed",
             capabilities: {
               configMethods: ["get", "getOrder", "set"],
               dataShape: {
@@ -432,6 +439,10 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
       baseViewPath,
       baseViewEditValue: "base-view-active",
+      baseViewRenamedPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
+      baseViewRenameTitle:
+        "notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed",
       baseViewCapabilities: {
         configMethods: ["get", "getOrder", "set"],
         entryHasSetValue: false,
@@ -448,6 +459,13 @@ describe("notidian real vault harness", () => {
     expect(calls.some((args) => args.includes(`path=${baseViewPath}`))).toBe(
       true
     );
+    expect(
+      calls.some((args) =>
+        args.includes(
+          "path=Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md"
+        )
+      )
+    ).toBe(true);
     expect(calls.map((args) => args[1]).slice(-4)).toEqual([
       "delete",
       "delete",

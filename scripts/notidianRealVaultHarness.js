@@ -12,6 +12,7 @@ const DEFAULT_TABLE_UI_PASTE_RATING = "7";
 const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
 const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
 const DEFAULT_BASE_VIEW_EDIT_VALUE = "base-view-active";
+const DEFAULT_BASE_VIEW_RENAME_SUFFIX = "Beta Base Renamed";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
 
@@ -174,6 +175,7 @@ const createFixturePaths = (config, now = new Date()) => {
     prefix,
     alphaPath: `${prefix}-Alpha.md`,
     betaPath: `${prefix}-Beta.md`,
+    betaBaseRenamedPath: `${prefix}-${DEFAULT_BASE_VIEW_RENAME_SUFFIX}.md`,
     alphaRenamedPath: `${prefix}-Alpha Renamed.md`,
     alphaUiRenamedPath: `${prefix}-Alpha UI Renamed.md`,
     baseViewPath: `${prefix}-Notidian Table.base`,
@@ -1263,6 +1265,8 @@ const baseViewEvalCode = ({
   betaPath,
   expectedTitle,
   editValue,
+  renameTitle,
+  renamePath,
   timeoutMs,
   pollIntervalMs,
 }) => {
@@ -1291,6 +1295,8 @@ const baseViewEvalCode = ({
     const betaPath = ${JSON.stringify(betaPath)};
     const expectedTitle = ${JSON.stringify(expectedTitle)};
     const editValue = ${JSON.stringify(editValue)};
+    const renameTitle = ${JSON.stringify(renameTitle)};
+    const renamePath = ${JSON.stringify(renamePath)};
     const baseContent = ${JSON.stringify(baseContent)};
     const timeoutMs = ${Number(timeoutMs)};
     const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
@@ -1384,6 +1390,92 @@ const baseViewEvalCode = ({
         currentValue: frontmatterValue(),
       };
     };
+    const editFileNameCell = async (view) => {
+      const headers = Array.from(view.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const fileNameColumnIndex = headers.findIndex((header) =>
+        header === "file.name"
+      );
+      if (fileNameColumnIndex < 0) {
+        return { ok: false, reason: "missing-rename-column", columns: headers };
+      }
+      const row = Array.from(view.querySelectorAll("tbody tr[data-path]"))
+        .find((candidate) =>
+          candidate.getAttribute("data-path") === betaPath ||
+          candidate.innerText.includes(expectedTitle)
+        );
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-rename-row",
+          columns: headers,
+          tableText: view.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[fileNameColumnIndex];
+      const editor = cell?.querySelector("[contenteditable='true']");
+      if (!editor) {
+        return {
+          ok: false,
+          reason: "missing-rename-editor",
+          columns: headers,
+          cellHtml: cell?.outerHTML?.slice(0, 500) ?? "",
+        };
+      }
+      editor.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const inserted = typeof document.execCommand == "function"
+        ? document.execCommand("insertText", false, renameTitle)
+        : false;
+      if (!inserted) {
+        editor.textContent = renameTitle;
+      }
+      const inputEvent = typeof InputEvent == "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: renameTitle,
+          })
+        : new Event("input", { bubbles: true });
+      editor.dispatchEvent(inputEvent);
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: view,
+        })
+      );
+      editor.dispatchEvent(
+        new FocusEvent("blur", {
+          bubbles: false,
+          relatedTarget: view,
+        })
+      );
+      if (document.activeElement === editor) {
+        editor.blur();
+      }
+
+      const start = Date.now();
+      do {
+        const renamedFile = app.vault.getAbstractFileByPath(renamePath);
+        if (renamedFile) {
+          return { ok: true, renamedPath: renamePath, renamedTitle: renameTitle };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "rename-not-applied",
+        renamePath,
+      };
+    };
     try {
       const plugin = app.plugins.plugins[pluginId];
       if (!plugin) {
@@ -1464,6 +1556,15 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
+            const renameResult = await editFileNameCell(view);
+            if (!renameResult.ok) {
+              return finish({
+                ...renameResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             return finish({
               ok: true,
               basePath,
@@ -1471,6 +1572,8 @@ const baseViewEvalCode = ({
               tableText: lastText,
               capabilities,
               editedValue: editResult.editedValue,
+              renamedPath: renameResult.renamedPath,
+              renamedTitle: renameResult.renamedTitle,
             });
           }
         }
@@ -1625,12 +1728,13 @@ const cleanupFixtures = async ({
   runner,
   paths,
   primaryPath,
+  betaPath = paths.betaPath,
   extraPaths = [],
 }) => {
   if (config.keepFixture) return false;
 
   const deletePaths = [
-    ...new Set([primaryPath, paths.betaPath, ...extraPaths].filter(Boolean)),
+    ...new Set([primaryPath, betaPath, ...extraPaths].filter(Boolean)),
   ];
   for (const path of deletePaths) {
     await runObsidian(config, runner, "delete", {
@@ -1676,6 +1780,8 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
         betaPath: paths.betaPath,
         expectedTitle: `${paths.runId}-Beta`,
         editValue: DEFAULT_BASE_VIEW_EDIT_VALUE,
+        renameTitle: `${paths.runId}-${DEFAULT_BASE_VIEW_RENAME_SUFFIX}`,
+        renamePath: paths.betaBaseRenamedPath,
         timeoutMs: config.timeoutMs,
         pollIntervalMs: config.pollIntervalMs,
       }),
@@ -1694,11 +1800,16 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected editedValue=${DEFAULT_BASE_VIEW_EDIT_VALUE}; got ${result.editedValue}`
     );
   }
+  if (result.renamedPath != paths.betaBaseRenamedPath) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected renamedPath=${paths.betaBaseRenamedPath}; got ${result.renamedPath}`
+    );
+  }
 
   await waitForMetadataValue({
     config,
     runner,
-    path: paths.betaPath,
+    path: result.renamedPath,
     property: "status",
     expected: DEFAULT_BASE_VIEW_EDIT_VALUE,
   });
@@ -1707,6 +1818,8 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     baseViewPath: result.basePath,
     baseViewCapabilities: baseViewCapabilitySummary(result.capabilities),
     baseViewEditValue: result.editedValue,
+    baseViewRenamedPath: result.renamedPath,
+    baseViewRenameTitle: result.renamedTitle,
   };
 };
 
@@ -1881,6 +1994,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseViewPath = null;
   let baseViewCapabilities = null;
   let baseViewEditValue = null;
+  let baseViewRenamedPath = null;
+  let baseViewRenameTitle = null;
+  let betaPath = paths.betaPath;
   let scenarioError = null;
 
   try {
@@ -1982,6 +2098,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseViewPath = viewPaths.baseViewPath ?? null;
       baseViewCapabilities = viewPaths.baseViewCapabilities ?? null;
       baseViewEditValue = viewPaths.baseViewEditValue ?? null;
+      baseViewRenamedPath = viewPaths.baseViewRenamedPath ?? null;
+      baseViewRenameTitle = viewPaths.baseViewRenameTitle ?? null;
+      betaPath = viewPaths.baseViewRenamedPath ?? betaPath;
     }
 
     const devErrors = await runObsidian(config, execute, "dev:errors");
@@ -2001,6 +2120,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     runner: execute,
     paths,
     primaryPath,
+    betaPath,
     extraPaths: [
       baseExportPath,
       baseViewPath,
@@ -2030,6 +2150,8 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseViewPath ? { baseViewPath } : {}),
     ...(baseViewCapabilities ? { baseViewCapabilities } : {}),
     ...(baseViewEditValue ? { baseViewEditValue } : {}),
+    ...(baseViewRenamedPath ? { baseViewRenamedPath } : {}),
+    ...(baseViewRenameTitle ? { baseViewRenameTitle } : {}),
   };
 };
 

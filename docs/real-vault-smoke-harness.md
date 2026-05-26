@@ -151,8 +151,9 @@ With `--base-view`, the harness also performs a live custom Bases view scenario:
 5. Verifies the fixture row and visible `status` and `rating` properties render through the custom view.
 6. Verifies the view exposed runtime capability metadata for the Bases controller/config/data/value surface.
 7. Edits the Beta row's `status` note-property cell through the custom view.
-8. Waits until Obsidian metadata reports `status: base-view-active` on the Beta fixture note.
-9. Deletes the temporary `.base` file during fixture cleanup unless `--keep-fixture` was passed.
+8. Edits the Beta row's `file.name` cell through the custom view and waits for the renamed Markdown file.
+9. Waits until Obsidian metadata reports `status: base-view-active` on the renamed Beta fixture note.
+10. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
 
 ## Options
 
@@ -198,6 +199,6 @@ This is a smoke harness, not the final real-vault test suite.
 Still needed:
 
 - Broader live UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and additional metadata timing fixtures.
-- Deeper live `.base` validation for typed custom-view editing, file-title edits, range editing, Bases formula/sort/group behavior, and runtime API changes.
+- Deeper live `.base` validation for typed custom-view editing, rejected title edits, range editing, Bases formula/sort/group behavior, and runtime API changes.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.

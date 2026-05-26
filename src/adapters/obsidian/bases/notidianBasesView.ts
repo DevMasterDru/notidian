@@ -1,4 +1,8 @@
 import * as ObsidianApi from "obsidian";
+import {
+  buildPageTitleRename,
+  validatePageTitle,
+} from "core/utils/contexts/pageTitle";
 
 export const NOTIDIAN_BASES_VIEW_TYPE = "notidian-table";
 
@@ -76,14 +80,30 @@ export type NotidianBasesCellEditRequest = {
 export type NotidianBasesCellEditPlan =
   | {
       ok: true;
+      authority: "frontmatter";
       path: string;
       propertyId: string;
       propertyKey: string;
       value: string;
     }
   | {
+      ok: true;
+      authority: "file-name";
+      path: string;
+      propertyId: string;
+      title: string;
+      newPath: string;
+      value: string;
+      changed: boolean;
+    }
+  | {
       ok: false;
-      reason: "missing-path" | "missing-property" | "read-only-property";
+      reason:
+        | "missing-path"
+        | "missing-property"
+        | "read-only-property"
+        | "empty"
+        | "slash";
       path?: string;
       propertyId?: string;
     };
@@ -97,6 +117,7 @@ type NotidianBasesViewAppLike = {
       file: unknown,
       update: (frontmatter: Record<string, unknown>) => void
     ) => Promise<void> | void;
+    renameFile?: (file: unknown, newPath: string) => Promise<void> | void;
   };
 };
 
@@ -227,6 +248,9 @@ export const notidianBasesNotePropertyKey = (
   return propertyKey.trim().length > 0 ? propertyKey : null;
 };
 
+const notidianBasesIsFileNameProperty = (propertyId: string): boolean =>
+  propertyId === "file.name";
+
 export const notidianBasesCellEditPlan = ({
   path,
   propertyId,
@@ -249,6 +273,30 @@ export const notidianBasesCellEditPlan = ({
     };
   }
 
+  if (notidianBasesIsFileNameProperty(normalizedPropertyId)) {
+    const validation = validatePageTitle(value);
+    if (validation.ok === false) {
+      return {
+        ok: false,
+        reason: validation.reason,
+        path: normalizedPath,
+        propertyId: normalizedPropertyId,
+      };
+    }
+
+    const rename = buildPageTitleRename(normalizedPath, validation.title);
+    return {
+      ok: true,
+      authority: "file-name",
+      path: normalizedPath,
+      propertyId: normalizedPropertyId,
+      title: rename.title,
+      newPath: rename.newPath,
+      value: validation.title,
+      changed: rename.oldPath !== rename.newPath,
+    };
+  }
+
   const propertyKey = notidianBasesNotePropertyKey(normalizedPropertyId);
   if (!propertyKey) {
     return {
@@ -261,6 +309,7 @@ export const notidianBasesCellEditPlan = ({
 
   return {
     ok: true,
+    authority: "frontmatter",
     path: normalizedPath,
     propertyId: normalizedPropertyId,
     propertyKey,
@@ -295,6 +344,28 @@ export const writeNotidianBasesCellEdit = async (
     throw new Error(
       `Cannot write Bases cell edit to non-Markdown file: ${edit.path}`
     );
+  }
+
+  if (edit.authority === "file-name") {
+    if (!edit.changed) return;
+
+    const existingTarget = app?.vault?.getAbstractFileByPath?.(edit.newPath);
+    const isCaseOnlyRename = edit.newPath.toLowerCase() === edit.path.toLowerCase();
+    if (existingTarget && !isCaseOnlyRename) {
+      throw new Error(
+        `Cannot rename Bases file cell; target already exists: ${edit.newPath}`
+      );
+    }
+
+    const renameFile = app?.fileManager?.renameFile;
+    if (typeof renameFile !== "function") {
+      throw new Error(
+        "Obsidian fileManager.renameFile is required for Bases file-name edits."
+      );
+    }
+
+    await renameFile.call(app?.fileManager, file, edit.newPath);
+    return;
   }
 
   const processFrontMatter = app?.fileManager?.processFrontMatter;
@@ -591,7 +662,8 @@ const renderSnapshot = (
         if (
           row.path &&
           options.writeCell &&
-          notidianBasesNotePropertyKey(propertyId)
+          (notidianBasesNotePropertyKey(propertyId) ||
+            notidianBasesIsFileNameProperty(propertyId))
         ) {
           renderEditableCell(
             rowEl,

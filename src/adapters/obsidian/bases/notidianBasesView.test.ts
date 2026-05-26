@@ -225,7 +225,7 @@ describe("notidianBasesNotePropertyKey", () => {
     );
   });
 
-  it("keeps file and formula properties read-only", () => {
+  it("does not classify file and formula properties as note properties", () => {
     expect(notidianBasesNotePropertyKey("file.name")).toBeNull();
     expect(notidianBasesNotePropertyKey("file.path")).toBeNull();
     expect(notidianBasesNotePropertyKey("formula.remaining")).toBeNull();
@@ -244,6 +244,7 @@ describe("notidianBasesCellEditPlan", () => {
       })
     ).toEqual({
       ok: true,
+      authority: "frontmatter",
       path: "Relays & Devices/Pump.md",
       propertyId: "note.status",
       propertyKey: "status",
@@ -251,7 +252,26 @@ describe("notidianBasesCellEditPlan", () => {
     });
   });
 
-  it("rejects missing paths and read-only properties", () => {
+  it("plans file name edits as same-folder file renames", () => {
+    expect(
+      notidianBasesCellEditPlan({
+        path: "Relays & Devices/Pump.md",
+        propertyId: "file.name",
+        value: "Main Pump",
+      })
+    ).toEqual({
+      ok: true,
+      authority: "file-name",
+      path: "Relays & Devices/Pump.md",
+      propertyId: "file.name",
+      title: "Main Pump",
+      newPath: "Relays & Devices/Main Pump.md",
+      value: "Main Pump",
+      changed: true,
+    });
+  });
+
+  it("rejects missing paths, unsafe names, and read-only properties", () => {
     expect(
       notidianBasesCellEditPlan({
         path: "",
@@ -268,13 +288,26 @@ describe("notidianBasesCellEditPlan", () => {
       notidianBasesCellEditPlan({
         path: "Relays & Devices/Pump.md",
         propertyId: "file.name",
-        value: "Pump 2",
+        value: "Other/Pump 2",
+      })
+    ).toEqual({
+      ok: false,
+      reason: "slash",
+      path: "Relays & Devices/Pump.md",
+      propertyId: "file.name",
+    });
+
+    expect(
+      notidianBasesCellEditPlan({
+        path: "Relays & Devices/Pump.md",
+        propertyId: "file.path",
+        value: "Relays & Devices/Pump 2.md",
       })
     ).toEqual({
       ok: false,
       reason: "read-only-property",
       path: "Relays & Devices/Pump.md",
-      propertyId: "file.name",
+      propertyId: "file.path",
     });
   });
 });
@@ -302,6 +335,7 @@ describe("writeNotidianBasesCellEdit", () => {
 
     await writeNotidianBasesCellEdit(app, {
       ok: true,
+      authority: "frontmatter",
       path: "Relays & Devices/Pump.md",
       propertyId: "note.status",
       propertyKey: "status",
@@ -334,6 +368,7 @@ describe("writeNotidianBasesCellEdit", () => {
         },
         {
           ok: true,
+          authority: "frontmatter",
           path: "Relays & Devices/Pump.md",
           propertyId: "note.status",
           propertyKey: "status",
@@ -341,5 +376,73 @@ describe("writeNotidianBasesCellEdit", () => {
         }
       )
     ).rejects.toThrow("processFrontMatter");
+  });
+
+  it("renames file name edits through Obsidian fileManager", async () => {
+    const file = {
+      path: "Relays & Devices/Pump.md",
+      extension: "md",
+    };
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn((path: string) =>
+          path == "Relays & Devices/Pump.md" ? file : null
+        ),
+      },
+      fileManager: {
+        renameFile: jest.fn(async (): Promise<void> => undefined),
+      },
+    };
+
+    await writeNotidianBasesCellEdit(app, {
+      ok: true,
+      authority: "file-name",
+      path: "Relays & Devices/Pump.md",
+      propertyId: "file.name",
+      title: "Main Pump",
+      newPath: "Relays & Devices/Main Pump.md",
+      value: "Main Pump",
+      changed: true,
+    });
+
+    expect(app.fileManager.renameFile).toHaveBeenCalledWith(
+      file,
+      "Relays & Devices/Main Pump.md"
+    );
+  });
+
+  it("rejects file name edits when the target path already exists", async () => {
+    const source = {
+      path: "Relays & Devices/Pump.md",
+      extension: "md",
+    };
+    const target = {
+      path: "Relays & Devices/Main Pump.md",
+      extension: "md",
+    };
+    const app = {
+      vault: {
+        getAbstractFileByPath: jest.fn((path: string) =>
+          path == source.path ? source : path == target.path ? target : null
+        ),
+      },
+      fileManager: {
+        renameFile: jest.fn(async (): Promise<void> => undefined),
+      },
+    };
+
+    await expect(
+      writeNotidianBasesCellEdit(app, {
+        ok: true,
+        authority: "file-name",
+        path: source.path,
+        propertyId: "file.name",
+        title: "Main Pump",
+        newPath: target.path,
+        value: "Main Pump",
+        changed: true,
+      })
+    ).rejects.toThrow("already exists");
+    expect(app.fileManager.renameFile).not.toHaveBeenCalled();
   });
 });
