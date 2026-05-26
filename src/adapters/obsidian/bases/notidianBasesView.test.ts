@@ -17,11 +17,13 @@ jest.mock(
 import {
   NOTIDIAN_BASES_VIEW_TYPE,
   notidianBasesCellEditPlan,
+  notidianBasesClipboardTextForSelection,
   notidianBasesCreateUndoEntry,
   notidianBasesNotePropertyKey,
   notidianBasesParseTsv,
   notidianBasesPreflightFileNameWrites,
   notidianBasesRowsWithVisibleBaseValues,
+  notidianBasesStructuredCutPlan,
   notidianBasesStructuredPastePlan,
   notidianBasesRuntimeCapabilities,
   notidianBasesViewSnapshot,
@@ -708,6 +710,78 @@ describe("notidianBasesStructuredPastePlan", () => {
         columnIndex: 3,
         reason: "out-of-bounds",
         value: "ignored",
+      },
+    ]);
+  });
+});
+
+describe("notidianBasesSelectionClipboard", () => {
+  it("serializes a selected rectangle as TSV from visible Bases values", () => {
+    expect(
+      notidianBasesClipboardTextForSelection({
+        rows: [
+          { values: ["Beta", "active", "7"] },
+          { values: ["Gamma", "paused", "3"] },
+        ],
+        selection: {
+          anchor: { rowIndex: 0, columnIndex: 1 },
+          focus: { rowIndex: 1, columnIndex: 2 },
+          active: { rowIndex: 1, columnIndex: 2 },
+        },
+      })
+    ).toBe("active\t7\npaused\t3");
+  });
+
+  it("plans cut as clears for note-property cells while skipping file and formula cells", () => {
+    const plan = notidianBasesStructuredCutPlan({
+      properties: ["file.name", "status", "file.path", "rating"],
+      rows: [
+        {
+          path: "Relays & Devices/Beta.md",
+          values: ["Beta", "active", "Relays & Devices/Beta.md", "7"],
+        },
+      ],
+      selection: {
+        anchor: { rowIndex: 0, columnIndex: 0 },
+        focus: { rowIndex: 0, columnIndex: 3 },
+        active: { rowIndex: 0, columnIndex: 3 },
+      },
+    });
+
+    expect(plan.writes).toEqual([
+      {
+        rowIndex: 0,
+        columnIndex: 1,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          baseValue: "active",
+          value: "",
+        },
+      },
+      {
+        rowIndex: 0,
+        columnIndex: 3,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "rating",
+          baseValue: "7",
+          value: "",
+        },
+      },
+    ]);
+    expect(plan.skipped).toEqual([
+      {
+        rowIndex: 0,
+        columnIndex: 0,
+        reason: "read-only-property",
+        value: "Beta",
+      },
+      {
+        rowIndex: 0,
+        columnIndex: 2,
+        reason: "read-only-property",
+        value: "Relays & Devices/Beta.md",
       },
     ]);
   });

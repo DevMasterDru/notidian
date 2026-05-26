@@ -53,6 +53,7 @@ The first implementation is intentionally a feasibility gate:
 - allow `file.name` edits by renaming the row Markdown file through Obsidian's `fileManager.renameFile`;
 - allow structured TSV paste into `file.name` cells only after preflighting the rename batch for unsafe names, duplicate targets, existing target files, and source-target collisions;
 - apply file-name paste writes before same-row note-property writes, retarget dependent property writes to the renamed path, and undo the resulting transaction in reverse order;
+- allow range selection, TSV copy, and cut for ordinary note-property cells; cut copies displayed values first and then clears only frontmatter-backed properties through the same authority-aware write and undo path;
 - keep other file projections and formulas read-only until their authority-aware behavior is mapped into the custom view;
 - keep the existing Notidian context table as the production enhanced editor until Bases-backed editing is proven.
 
@@ -110,12 +111,14 @@ Implemented behavior:
 - `file.name` cells are editable and rename the row file with `fileManager.renameFile`; empty names, slash-containing names, duplicate targets, and non-Markdown files are rejected.
 - Structured TSV paste can include `file.name` cells. The custom view preflights all file-name writes in the pasted rectangle before applying any rename, skips the whole file-name portion when one target is unsafe, and still lets independent ordinary note-property writes continue.
 - For mixed file-name/property paste on the same row, the custom view applies the rename first, retargets later property writes to the renamed Markdown path, and stores undo writes in reverse transaction order so dependent frontmatter writes are undone before the file is renamed back.
+- Range selection marks the selected rectangle in transient DOM state and serializes displayed cell values as TSV for copy.
+- Cut uses the same selection but plans only ordinary note-property clears. It skips `file.name`, other file projections, formulas, missing paths, and out-of-bounds cells instead of trying to clear file identity or computed projections.
 - Other `file.*` and `formula.*` cells remain read-only.
 - The snapshot helper is pure and tested so future API-shape changes can be handled without hiding durable data.
 - The cell edit planner is pure and tested so unsupported targets fail before the UI can accept a detached value.
 - The structured paste planner is pure and tested so editable file-title and note-property targets are routed to authority-aware writes, while file-projection, formula, missing-path, and out-of-bounds targets are skipped before any write starts.
 - The view captures runtime capabilities for the active controller, config, data, first entry, value object, and apparent write surface.
-- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"`, fails if capability metadata is missing or incomplete, edits a `status` note-property cell, pastes status/rating TSV values into ordinary note-property cells, undoes that paste, applies a surfaced frontmatter conflict, pastes into the Beta fixture's `file.name` and `status` cells, undoes that mixed title/status paste, renames the Beta fixture note through `file.name`, and verifies the edited frontmatter remains visible on the renamed path.
+- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"`, fails if capability metadata is missing or incomplete, edits a `status` note-property cell, pastes status/rating TSV values into ordinary note-property cells, undoes that paste, applies a surfaced frontmatter conflict, copies and cuts a selected status/rating range, undoes that cut, pastes into the Beta fixture's `file.name` and `status` cells, undoes that mixed title/status paste, renames the Beta fixture note through `file.name`, and verifies the edited frontmatter remains visible on the renamed path.
 - The smoke `.base` includes `file.ext == "md"` because live testing proved a folder-scoped Base can otherwise include the `.base` file itself as a row.
 
 The capability capture records:
@@ -137,7 +140,8 @@ Still needed:
 - preserve capability snapshots from supported Obsidian versions as the API evolves;
 - mapping Notidian's current table edit transaction helpers into a Bases-hosted view;
 - richer bulk page-title paste inside the custom view, including swaps and cycles through temporary paths instead of conservative source-target rejection;
-- range copy/cut, richer conflict feedback, and future redo inside the custom view;
+- richer conflict feedback and future redo inside the custom view;
+- broader keyboard and multi-row range coverage beyond the current focused copy/cut path;
 - typed frontmatter edits beyond the current string value path;
 - migration behavior for existing Make.md context-only columns when a view is moved to `.base`.
 

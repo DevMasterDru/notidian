@@ -404,6 +404,15 @@ describe("notidian real vault harness", () => {
               status: "base-view-active",
             },
             conflictAppliedValue: "base-view-conflict-applied",
+            copiedText: "base-view-conflict-applied\t2",
+            cutValues: {
+              rating: "",
+              status: "",
+            },
+            cutUndoValues: {
+              rating: "2",
+              status: "base-view-conflict-applied",
+            },
             titlePastePath:
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Pasted.md",
             titlePasteStatusValue: "base-view-title-paste-status",
@@ -462,6 +471,15 @@ describe("notidian real vault harness", () => {
         status: "base-view-active",
       },
       baseViewConflictAppliedValue: "base-view-conflict-applied",
+      baseViewCopiedText: "base-view-conflict-applied\t2",
+      baseViewCutValues: {
+        rating: "",
+        status: "",
+      },
+      baseViewCutUndoValues: {
+        rating: "2",
+        status: "base-view-conflict-applied",
+      },
       baseViewTitlePastePath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Pasted.md",
       baseViewTitlePasteStatusValue: "base-view-title-paste-status",

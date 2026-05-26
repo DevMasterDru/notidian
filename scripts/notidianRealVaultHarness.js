@@ -1710,6 +1710,189 @@ const baseViewEvalCode = ({
         cellHtml: lastCellHtml,
       };
     };
+    const selectStatusRatingCells = (view) => {
+      const headers = Array.from(view.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const statusColumnIndex = headers.findIndex((header) =>
+        ["status", "note.status"].includes(header)
+      );
+      const ratingColumnIndex = headers.findIndex((header) =>
+        ["rating", "note.rating"].includes(header)
+      );
+      if (statusColumnIndex < 0 || ratingColumnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-copy-cut-columns",
+          columns: headers,
+        };
+      }
+      const row = Array.from(view.querySelectorAll("tbody tr[data-path]"))
+        .find((candidate) =>
+          candidate.getAttribute("data-path") === betaPath ||
+          candidate.innerText.includes(expectedTitle)
+        );
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-copy-cut-row",
+          columns: headers,
+          tableText: view.innerText.slice(0, 500),
+        };
+      }
+      const statusCell = row.children[statusColumnIndex];
+      const ratingCell = row.children[ratingColumnIndex];
+      if (!statusCell || !ratingCell) {
+        return {
+          ok: false,
+          reason: "missing-copy-cut-cells",
+          columns: headers,
+          rowHtml: row.outerHTML.slice(0, 500),
+        };
+      }
+
+      statusCell.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          buttons: 1,
+        })
+      );
+      ratingCell.dispatchEvent(
+        new MouseEvent("mouseenter", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          buttons: 1,
+        })
+      );
+
+      return {
+        ok: true,
+        statusCell,
+        ratingCell,
+        table: view.querySelector(".notidian-bases-table-view__table"),
+      };
+    };
+    const copyStatusRatingCells = async (view) => {
+      const selection = selectStatusRatingCells(view);
+      if (!selection.ok) return selection;
+      const expectedCopy = conflictAppliedValue + "\\t2";
+      selection.table?.focus();
+      const copyEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "c",
+        metaKey: true,
+        ctrlKey: true,
+      });
+      selection.table?.dispatchEvent(copyEvent);
+      if (!copyEvent.defaultPrevented) {
+        return { ok: false, reason: "copy-not-intercepted" };
+      }
+
+      const copiedText = view.getAttribute("data-notidian-bases-last-copy");
+      if (
+        copiedText == expectedCopy &&
+        selection.statusCell.getAttribute("data-selected") == "true" &&
+        selection.ratingCell.getAttribute("data-selected") == "true"
+      ) {
+        return { ok: true, copiedText };
+      }
+      return {
+        ok: false,
+        reason: "copy-not-recorded",
+        copiedText,
+        expectedCopy,
+        selection: view.getAttribute("data-notidian-bases-selection"),
+      };
+    };
+    const cutStatusRatingCells = async (view) => {
+      const selection = selectStatusRatingCells(view);
+      if (!selection.ok) return selection;
+      selection.table?.focus();
+      const cutEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "x",
+        metaKey: true,
+        ctrlKey: true,
+      });
+      selection.table?.dispatchEvent(cutEvent);
+      if (!cutEvent.defaultPrevented) {
+        return { ok: false, reason: "cut-not-intercepted" };
+      }
+
+      const start = Date.now();
+      do {
+        const markdownStatus = await markdownFrontmatterValue(betaPath, "status");
+        const markdownRating = await markdownFrontmatterValue(betaPath, "rating");
+        if (String(markdownStatus) == "" && String(markdownRating) == "") {
+          return {
+            ok: true,
+            cutValues: {
+              status: "",
+              rating: "",
+            },
+            copiedText: view.getAttribute("data-notidian-bases-last-copy"),
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "cut-not-applied",
+        currentStatus: await markdownFrontmatterValue(betaPath, "status"),
+        currentRating: await markdownFrontmatterValue(betaPath, "rating"),
+        lastCut: view.getAttribute("data-notidian-bases-last-cut"),
+      };
+    };
+    const undoCutStatusRatingCells = async (view) => {
+      const table = view.querySelector(".notidian-bases-table-view__table");
+      if (!table) {
+        return { ok: false, reason: "missing-cut-undo-table" };
+      }
+      table.focus();
+      const undoEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "z",
+        metaKey: true,
+        ctrlKey: true,
+      });
+      table.dispatchEvent(undoEvent);
+      if (!undoEvent.defaultPrevented) {
+        return { ok: false, reason: "cut-undo-not-intercepted" };
+      }
+
+      const start = Date.now();
+      do {
+        const markdownStatus = await markdownFrontmatterValue(betaPath, "status");
+        const markdownRating = await markdownFrontmatterValue(betaPath, "rating");
+        if (
+          String(markdownStatus) == conflictAppliedValue &&
+          String(markdownRating) == "2"
+        ) {
+          return {
+            ok: true,
+            cutUndoValues: {
+              status: conflictAppliedValue,
+              rating: "2",
+            },
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "cut-undo-not-applied",
+        currentStatus: await markdownFrontmatterValue(betaPath, "status"),
+        currentRating: await markdownFrontmatterValue(betaPath, "rating"),
+        lastUndo: view.getAttribute("data-notidian-bases-last-undo"),
+      };
+    };
     const pasteFileNameAndStatus = async (view) => {
       const headers = Array.from(view.querySelectorAll("thead th"))
         .map((header) => header.innerText.trim());
@@ -2044,6 +2227,33 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
+            const copyResult = await copyStatusRatingCells(latestView() || view);
+            if (!copyResult.ok) {
+              return finish({
+                ...copyResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
+            const cutResult = await cutStatusRatingCells(latestView() || view);
+            if (!cutResult.ok) {
+              return finish({
+                ...cutResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
+            const cutUndoResult = await undoCutStatusRatingCells(latestView() || view);
+            if (!cutUndoResult.ok) {
+              return finish({
+                ...cutUndoResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             const titlePasteResult = await pasteFileNameAndStatus(latestView() || view);
             if (!titlePasteResult.ok) {
               return finish({
@@ -2081,6 +2291,9 @@ const baseViewEvalCode = ({
               pastedValues: pasteResult.pastedValues,
               undoValues: undoResult.undoValues,
               conflictAppliedValue: conflictResult.conflictAppliedValue,
+              copiedText: copyResult.copiedText,
+              cutValues: cutResult.cutValues,
+              cutUndoValues: cutUndoResult.cutUndoValues,
               titlePastePath: titlePasteResult.titlePastePath,
               titlePasteTitle: titlePasteResult.titlePasteTitle,
               titlePasteStatusValue: titlePasteResult.titlePasteStatusValue,
@@ -2353,6 +2566,25 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected conflictAppliedValue=${DEFAULT_BASE_VIEW_CONFLICT_APPLIED}; got ${result.conflictAppliedValue}`
     );
   }
+  const expectedCopiedText = `${DEFAULT_BASE_VIEW_CONFLICT_APPLIED}\t2`;
+  if (result.copiedText != expectedCopiedText) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected copiedText=${expectedCopiedText}; got ${result.copiedText}`
+    );
+  }
+  if (result.cutValues?.status != "" || result.cutValues?.rating != "") {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected cutValues to be empty strings; got ${JSON.stringify(result.cutValues)}`
+    );
+  }
+  if (
+    result.cutUndoValues?.status != DEFAULT_BASE_VIEW_CONFLICT_APPLIED ||
+    result.cutUndoValues?.rating != "2"
+  ) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected cutUndoValues status=${DEFAULT_BASE_VIEW_CONFLICT_APPLIED} rating=2; got ${JSON.stringify(result.cutUndoValues)}`
+    );
+  }
   const expectedTitlePastePath = `${paths.prefix}-${DEFAULT_BASE_VIEW_PASTE_RENAME_SUFFIX}.md`;
   if (result.titlePastePath != expectedTitlePastePath) {
     throw new Error(
@@ -2397,6 +2629,9 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     baseViewPasteValues: result.pastedValues,
     baseViewUndoValues: result.undoValues,
     baseViewConflictAppliedValue: result.conflictAppliedValue,
+    baseViewCopiedText: result.copiedText,
+    baseViewCutValues: result.cutValues,
+    baseViewCutUndoValues: result.cutUndoValues,
     baseViewTitlePastePath: result.titlePastePath,
     baseViewTitlePasteStatusValue: result.titlePasteStatusValue,
     baseViewTitleUndoPath: result.titleUndoPath,
@@ -2579,6 +2814,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseViewPasteValues = null;
   let baseViewUndoValues = null;
   let baseViewConflictAppliedValue = null;
+  let baseViewCopiedText = null;
+  let baseViewCutValues = null;
+  let baseViewCutUndoValues = null;
   let baseViewTitlePastePath = null;
   let baseViewTitlePasteStatusValue = null;
   let baseViewTitleUndoPath = null;
@@ -2690,6 +2928,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseViewUndoValues = viewPaths.baseViewUndoValues ?? null;
       baseViewConflictAppliedValue =
         viewPaths.baseViewConflictAppliedValue ?? null;
+      baseViewCopiedText = viewPaths.baseViewCopiedText ?? null;
+      baseViewCutValues = viewPaths.baseViewCutValues ?? null;
+      baseViewCutUndoValues = viewPaths.baseViewCutUndoValues ?? null;
       baseViewTitlePastePath = viewPaths.baseViewTitlePastePath ?? null;
       baseViewTitlePasteStatusValue =
         viewPaths.baseViewTitlePasteStatusValue ?? null;
@@ -2749,6 +2990,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseViewPasteValues ? { baseViewPasteValues } : {}),
     ...(baseViewUndoValues ? { baseViewUndoValues } : {}),
     ...(baseViewConflictAppliedValue ? { baseViewConflictAppliedValue } : {}),
+    ...(baseViewCopiedText ? { baseViewCopiedText } : {}),
+    ...(baseViewCutValues ? { baseViewCutValues } : {}),
+    ...(baseViewCutUndoValues ? { baseViewCutUndoValues } : {}),
     ...(baseViewTitlePastePath ? { baseViewTitlePastePath } : {}),
     ...(baseViewTitlePasteStatusValue
       ? { baseViewTitlePasteStatusValue }

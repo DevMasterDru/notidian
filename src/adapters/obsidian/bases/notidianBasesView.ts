@@ -3,6 +3,7 @@ import {
   buildPageTitleRename,
   validatePageTitle,
 } from "core/utils/contexts/pageTitle";
+import { serializeTableClipboardGrid } from "core/utils/contexts/tableClipboard";
 
 export const NOTIDIAN_BASES_VIEW_TYPE = "notidian-table";
 const NOTIDIAN_BASES_BASE_VALUE_ATTR = "data-notidian-bases-base-value";
@@ -146,6 +147,30 @@ export type NotidianBasesStructuredPastePlanParams = {
   startRowIndex: number;
   startColumnIndex: number;
   text: string;
+};
+
+export type NotidianBasesCellCoord = {
+  rowIndex: number;
+  columnIndex: number;
+};
+
+export type NotidianBasesCellSelection = {
+  anchor: NotidianBasesCellCoord;
+  focus: NotidianBasesCellCoord;
+  active: NotidianBasesCellCoord;
+};
+
+export type NotidianBasesCellSelectionBounds = {
+  minRow: number;
+  maxRow: number;
+  minColumn: number;
+  maxColumn: number;
+};
+
+export type NotidianBasesSelectionPlanParams = {
+  properties: string[];
+  rows: { path?: string; values?: string[] }[];
+  selection: NotidianBasesCellSelection;
 };
 
 export type NotidianBasesRowsWithVisibleBaseValuesParams = {
@@ -394,6 +419,27 @@ const notidianBasesIsStructuredPasteText = (text: string): boolean => {
   return matrix.length > 1 || matrix.some((row) => row.length > 1);
 };
 
+const clampIndex = (value: number, max: number): number =>
+  Math.max(0, Math.min(Number.isFinite(value) ? value : 0, Math.max(0, max)));
+
+export const notidianBasesSelectionBounds = (
+  selection: NotidianBasesCellSelection,
+  rowCount: number,
+  columnCount: number
+): NotidianBasesCellSelectionBounds => {
+  const anchorRow = clampIndex(selection.anchor.rowIndex, rowCount - 1);
+  const focusRow = clampIndex(selection.focus.rowIndex, rowCount - 1);
+  const anchorColumn = clampIndex(selection.anchor.columnIndex, columnCount - 1);
+  const focusColumn = clampIndex(selection.focus.columnIndex, columnCount - 1);
+
+  return {
+    minRow: Math.min(anchorRow, focusRow),
+    maxRow: Math.max(anchorRow, focusRow),
+    minColumn: Math.min(anchorColumn, focusColumn),
+    maxColumn: Math.max(anchorColumn, focusColumn),
+  };
+};
+
 export const notidianBasesRowsWithVisibleBaseValues = ({
   properties,
   rows,
@@ -411,6 +457,101 @@ export const notidianBasesRowsWithVisibleBaseValues = ({
         ""
     ),
   }));
+
+export const notidianBasesClipboardTextForSelection = ({
+  rows,
+  selection,
+}: Omit<NotidianBasesSelectionPlanParams, "properties">): string => {
+  const columnCount = rows.reduce(
+    (count, row) => Math.max(count, row.values?.length ?? 0),
+    0
+  );
+  const bounds = notidianBasesSelectionBounds(
+    selection,
+    rows.length,
+    columnCount
+  );
+  const grid: string[][] = [];
+
+  for (let row = bounds.minRow; row <= bounds.maxRow; row++) {
+    const values: string[] = [];
+    for (let column = bounds.minColumn; column <= bounds.maxColumn; column++) {
+      values.push(rows[row]?.values?.[column] ?? "");
+    }
+    grid.push(values);
+  }
+
+  return serializeTableClipboardGrid(grid);
+};
+
+export const notidianBasesStructuredCutPlan = ({
+  properties,
+  rows,
+  selection,
+}: NotidianBasesSelectionPlanParams): NotidianBasesStructuredPastePlan => {
+  const writes: NotidianBasesStructuredPasteWrite[] = [];
+  const skipped: NotidianBasesStructuredPasteSkipped[] = [];
+  const bounds = notidianBasesSelectionBounds(
+    selection,
+    rows.length,
+    properties.length
+  );
+
+  for (let rowIndex = bounds.minRow; rowIndex <= bounds.maxRow; rowIndex++) {
+    for (
+      let columnIndex = bounds.minColumn;
+      columnIndex <= bounds.maxColumn;
+      columnIndex++
+    ) {
+      const row = rows[rowIndex];
+      const propertyId = properties[columnIndex];
+      const value = row?.values?.[columnIndex] ?? "";
+
+      if (!row || !propertyId) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "out-of-bounds",
+          value,
+        });
+        continue;
+      }
+
+      if (!notidianBasesNotePropertyKey(propertyId)) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "read-only-property",
+          value,
+        });
+        continue;
+      }
+
+      if (!row.path) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "missing-path",
+          value,
+        });
+        continue;
+      }
+
+      writes.push({
+        rowIndex,
+        columnIndex,
+        request: {
+          path: row.path,
+          propertyId,
+          baseValue: value,
+          value: "",
+        },
+      });
+    }
+  }
+
+  return { writes, skipped };
+};
 
 export const notidianBasesStructuredPastePlan = ({
   properties,
@@ -953,12 +1094,17 @@ const renderHeaderCell = (rowEl: HTMLElement, text: string): void => {
 const renderReadOnlyCell = (
   rowEl: HTMLElement,
   propertyId: string,
-  text: string
-): void => {
-  rowEl.createEl("td", {
+  text: string,
+  rowIndex: number,
+  columnIndex: number
+): HTMLElement => {
+  return rowEl.createEl("td", {
     attr: {
       "data-property-id": propertyId,
       "data-editable": "false",
+      "data-row-index": String(rowIndex),
+      "data-column-index": String(columnIndex),
+      [NOTIDIAN_BASES_BASE_VALUE_ATTR]: text,
     },
     text,
   });
@@ -988,7 +1134,7 @@ const renderEditableCell = (
   pasteCells?: (
     request: NotidianBasesStructuredPasteRequest
   ) => Promise<NotidianBasesStructuredPasteResult>
-): void => {
+): HTMLElement => {
   const cellEl = rowEl.createEl("td", {
     attr: {
       "data-property-id": propertyId,
@@ -1085,6 +1231,8 @@ const renderEditableCell = (
       text,
     });
   });
+
+  return cellEl;
 };
 
 const renderSnapshot = (
@@ -1119,6 +1267,7 @@ const renderSnapshot = (
   });
   const dataRowEls: HTMLElement[] = [];
   const rowPaths = flatRows.map((row) => row.path);
+  let cellSelection: NotidianBasesCellSelection | null = null;
   const cellAt = (
     rowIndex: number,
     columnIndex: number
@@ -1192,6 +1341,153 @@ const renderSnapshot = (
       ...row,
       path: rowPaths[rowIndex],
     }));
+  const visibleRowsWithBaseValues = (): { path?: string; values: string[] }[] =>
+    notidianBasesRowsWithVisibleBaseValues({
+      properties: snapshot.properties,
+      rows: currentRows(),
+      baseValueForCell: (rowIndex, columnIndex) =>
+        cellAt(rowIndex, columnIndex)?.getAttribute(
+          NOTIDIAN_BASES_BASE_VALUE_ATTR
+        ) ?? undefined,
+    });
+  const selectionBounds = (): NotidianBasesCellSelectionBounds | null =>
+    cellSelection
+      ? notidianBasesSelectionBounds(
+          cellSelection,
+          flatRows.length,
+          snapshot.properties.length
+        )
+      : null;
+  const updateSelectionAttributes = (): void => {
+    const bounds = selectionBounds();
+    for (let row = 0; row < flatRows.length; row++) {
+      for (let column = 0; column < snapshot.properties.length; column++) {
+        const cellEl = cellAt(row, column);
+        if (!cellEl) continue;
+        cellEl.removeAttribute("data-selected");
+        cellEl.removeAttribute("data-active-cell");
+        if (!bounds) continue;
+        const selected =
+          row >= bounds.minRow &&
+          row <= bounds.maxRow &&
+          column >= bounds.minColumn &&
+          column <= bounds.maxColumn;
+        if (selected) cellEl.setAttribute("data-selected", "true");
+        if (
+          cellSelection?.active.rowIndex === row &&
+          cellSelection?.active.columnIndex === column
+        ) {
+          cellEl.setAttribute("data-active-cell", "true");
+        }
+      }
+    }
+
+    if (bounds) {
+      containerEl.setAttribute(
+        "data-notidian-bases-selection",
+        JSON.stringify(bounds)
+      );
+    } else {
+      containerEl.removeAttribute("data-notidian-bases-selection");
+    }
+  };
+  const selectCell = (
+    rowIndex: number,
+    columnIndex: number,
+    extend = false
+  ): void => {
+    const coord = { rowIndex, columnIndex };
+    cellSelection =
+      extend && cellSelection
+        ? {
+            ...cellSelection,
+            focus: coord,
+            active: coord,
+          }
+        : {
+            anchor: coord,
+            focus: coord,
+            active: coord,
+        };
+    updateSelectionAttributes();
+  };
+  const moveSelection = (
+    direction: "up" | "down" | "left" | "right",
+    extend = false
+  ): void => {
+    if (!cellSelection) return;
+    const active = cellSelection.active;
+    const rowIndex =
+      direction === "up"
+        ? active.rowIndex - 1
+        : direction === "down"
+        ? active.rowIndex + 1
+        : active.rowIndex;
+    const columnIndex =
+      direction === "left"
+        ? active.columnIndex - 1
+        : direction === "right"
+        ? active.columnIndex + 1
+        : active.columnIndex;
+    const next = {
+      rowIndex: clampIndex(rowIndex, flatRows.length - 1),
+      columnIndex: clampIndex(columnIndex, snapshot.properties.length - 1),
+    };
+
+    cellSelection = extend
+      ? {
+          ...cellSelection,
+          focus: next,
+          active: next,
+        }
+      : {
+          anchor: next,
+          focus: next,
+          active: next,
+        };
+    updateSelectionAttributes();
+    cellAt(next.rowIndex, next.columnIndex)?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  };
+  const bindCellSelection = (
+    cellEl: HTMLElement,
+    rowIndex: number,
+    columnIndex: number
+  ): void => {
+    cellEl.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) return;
+      if ((event.target as HTMLElement | null)?.closest("button")) return;
+      selectCell(rowIndex, columnIndex, event.shiftKey);
+    });
+    cellEl.addEventListener("mouseenter", (event) => {
+      if ((event.buttons & 1) !== 1 || !cellSelection) return;
+      selectCell(rowIndex, columnIndex, true);
+    });
+  };
+  const hasNativeTextSelection = (): boolean => {
+    const selection = window.getSelection?.();
+    if (!selection || selection.toString().length === 0) return false;
+    const anchorNode = selection.anchorNode;
+    return Boolean(anchorNode && tableEl.contains(anchorNode));
+  };
+  const writeClipboardText = (text: string): void => {
+    containerEl.setAttribute("data-notidian-bases-last-copy", text);
+    tableEl.setAttribute("data-notidian-bases-copy-state", "applied");
+    void navigator.clipboard?.writeText?.(text)?.catch(() => {
+      tableEl.setAttribute("data-notidian-bases-copy-state", "failed");
+    });
+  };
+  const copySelection = (): string | null => {
+    if (!cellSelection) return null;
+    const text = notidianBasesClipboardTextForSelection({
+      rows: visibleRowsWithBaseValues(),
+      selection: cellSelection,
+    });
+    writeClipboardText(text);
+    return text;
+  };
   const renamePlanForRequest = (
     request: NotidianBasesCellEditRequest
   ): Extract<NotidianBasesCellEditPlan, { authority: "file-name" }> | null => {
@@ -1323,14 +1619,7 @@ const renderSnapshot = (
     }: NotidianBasesStructuredPasteRequest): Promise<NotidianBasesStructuredPasteResult> => {
       const plan = notidianBasesStructuredPastePlan({
         properties: snapshot.properties,
-        rows: notidianBasesRowsWithVisibleBaseValues({
-          properties: snapshot.properties,
-          rows: currentRows(),
-          baseValueForCell: (rowIndex, columnIndex) =>
-            cellAt(rowIndex, columnIndex)?.getAttribute(
-              NOTIDIAN_BASES_BASE_VALUE_ATTR
-            ) ?? undefined,
-        }),
+        rows: visibleRowsWithBaseValues(),
         startRowIndex,
         startColumnIndex,
         text,
@@ -1480,6 +1769,80 @@ const renderSnapshot = (
       );
       return result;
     });
+  const cutSelection = async (): Promise<void> => {
+    if (!options.writeCell || !cellSelection) return;
+    copySelection();
+
+    const plan = notidianBasesStructuredCutPlan({
+      properties: snapshot.properties,
+      rows: visibleRowsWithBaseValues(),
+      selection: cellSelection,
+    });
+    const result: NotidianBasesStructuredPasteResult = {
+      applied: 0,
+      failed: 0,
+      skipped: plan.skipped.length,
+      appliedWrites: [],
+      failedWrites: [],
+    };
+
+    tableEl.setAttribute("data-notidian-bases-cut-state", "pending");
+    for (const skipped of plan.skipped) {
+      setCellState(
+        skipped.rowIndex,
+        skipped.columnIndex,
+        "skipped",
+        skipped.reason
+      );
+    }
+
+    for (const write of plan.writes) {
+      setCellState(write.rowIndex, write.columnIndex, "pending");
+      try {
+        await options.writeCell(write.request);
+        setCellText(write.rowIndex, write.columnIndex, "");
+        setCellBaseValue(write.rowIndex, write.columnIndex, "");
+        setCellState(write.rowIndex, write.columnIndex, "applied");
+        result.applied += 1;
+        result.appliedWrites.push(write.request);
+      } catch (error) {
+        if (
+          showConflict(
+            write.rowIndex,
+            write.columnIndex,
+            write.request,
+            error
+          )
+        ) {
+          result.skipped += 1;
+          continue;
+        }
+
+        setCellState(
+          write.rowIndex,
+          write.columnIndex,
+          "failed",
+          String((error as { message?: unknown })?.message ?? error)
+        );
+        result.failed += 1;
+        result.failedWrites.push({ request: write.request, error });
+      }
+    }
+
+    pushUndoForWrites("Cut cells", result.appliedWrites);
+
+    const state =
+      result.failed > 0
+        ? "failed"
+        : result.applied > 0
+        ? "applied"
+        : "skipped";
+    tableEl.setAttribute("data-notidian-bases-cut-state", state);
+    containerEl.setAttribute(
+      "data-notidian-bases-last-cut",
+      JSON.stringify(result)
+    );
+  };
   const undoLast = async (): Promise<void> => {
     if (!options.undoLast) return;
 
@@ -1532,9 +1895,41 @@ const renderSnapshot = (
   };
   tableEl.addEventListener("keydown", (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
+    const key = event.key.toLowerCase();
+    const shortcut = event.metaKey || event.ctrlKey;
+
+    if (shortcut && (key === "c" || key === "x")) {
+      if (target?.isContentEditable && hasNativeTextSelection()) return;
+      if (!cellSelection) return;
+      event.preventDefault();
+      if (key === "c") {
+        copySelection();
+      } else {
+        void cutSelection();
+      }
+      return;
+    }
+
     if (target?.isContentEditable) return;
-    if (!(event.metaKey || event.ctrlKey)) return;
-    if (event.shiftKey || event.key.toLowerCase() !== "z") return;
+
+    const direction =
+      event.key === "ArrowUp"
+        ? "up"
+        : event.key === "ArrowDown"
+        ? "down"
+        : event.key === "ArrowLeft"
+        ? "left"
+        : event.key === "ArrowRight"
+        ? "right"
+        : null;
+    if (direction && cellSelection && !shortcut) {
+      event.preventDefault();
+      moveSelection(direction, event.shiftKey);
+      return;
+    }
+
+    if (!shortcut) return;
+    if (event.shiftKey || key !== "z") return;
 
     event.preventDefault();
     void undoLast();
@@ -1573,7 +1968,7 @@ const renderSnapshot = (
           (notidianBasesNotePropertyKey(propertyId) ||
             notidianBasesIsFileNameProperty(propertyId))
         ) {
-          renderEditableCell(
+          const cellEl = renderEditableCell(
             rowEl,
             row.path,
             propertyId,
@@ -1587,10 +1982,21 @@ const renderSnapshot = (
             showConflict,
             pasteCells || undefined
           );
+          bindCellSelection(cellEl, currentRowIndex, index);
           return;
         }
 
-        renderReadOnlyCell(rowEl, propertyId, value);
+        bindCellSelection(
+          renderReadOnlyCell(
+            rowEl,
+            propertyId,
+            value,
+            currentRowIndex,
+            index
+          ),
+          currentRowIndex,
+          index
+        );
       });
       rowIndex += 1;
     }
