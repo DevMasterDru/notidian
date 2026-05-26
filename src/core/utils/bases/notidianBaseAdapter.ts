@@ -338,7 +338,9 @@ const summariesForPredicate = (
 };
 
 const folderFilter = (folder?: string): BaseFilter | undefined =>
-  folder ? { and: [`file.inFolder(${JSON.stringify(folder)})`] } : undefined;
+  folder
+    ? { and: [`file.inFolder(${JSON.stringify(folder)})`, 'file.ext == "md"'] }
+    : undefined;
 
 export const notidianTableToBaseDocument = (
   table: SpaceTable,

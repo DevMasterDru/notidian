@@ -95,7 +95,19 @@ Implemented behavior:
 - The factory creates `NotidianBasesView`.
 - `NotidianBasesView` renders from the live Bases query result, not from Notidian context MDB rows.
 - The snapshot helper is pure and tested so future API-shape changes can be handled without hiding durable data.
-- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"`.
+- The view captures runtime capabilities for the active controller, config, data, first entry, value object, and apparent write surface.
+- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"` and fails if capability metadata is missing or incomplete.
+- The smoke `.base` includes `file.ext == "md"` because live testing proved a folder-scoped Base can otherwise include the `.base` file itself as a row.
+
+The capability capture records:
+
+- controller keys exposed to the custom view;
+- documented config methods such as `get`, `getOrder`, `getSort`, `getDisplayName`, and `set` when present;
+- whether `data`, `groupedData`, and visible properties are present;
+- the first entry's file path and value methods;
+- whether the entry appears to expose a native `setValue` method.
+
+This is intentionally diagnostic. It is not a new data model and it is not a durable user-facing metadata store.
 
 ## Current Limits
 
@@ -103,7 +115,7 @@ This ADR accepts only the feasibility gate, not final Bases-backed table parity.
 
 Still needed:
 
-- runtime inspection of the exact `QueryController`, `BasesView.data`, config, and edit/write APIs in the supported Obsidian version;
+- preserve capability snapshots from supported Obsidian versions as the API evolves;
 - mapping Notidian's current table edit transaction helpers into a Bases-hosted view;
 - page-title rename cells inside the custom view;
 - range copy/cut/paste, conflict feedback, undo, and future redo inside the custom view;

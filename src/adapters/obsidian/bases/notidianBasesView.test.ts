@@ -16,6 +16,7 @@ jest.mock(
 
 import {
   NOTIDIAN_BASES_VIEW_TYPE,
+  notidianBasesRuntimeCapabilities,
   notidianBasesViewSnapshot,
   registerNotidianBasesView,
 } from "./notidianBasesView";
@@ -134,5 +135,80 @@ describe("notidianBasesViewSnapshot", () => {
       },
     ]);
     expect(snapshot.rowCount).toBe(1);
+  });
+});
+
+describe("notidianBasesRuntimeCapabilities", () => {
+  it("captures the documented Bases read/config surface and value methods", () => {
+    const capabilities = notidianBasesRuntimeCapabilities({
+      controller: {
+        refresh: (): void => undefined,
+      },
+      view: {
+        config: {
+          get: (): undefined => undefined,
+          getOrder: () => ["file.name", "status"],
+          getSort: () => [],
+          getDisplayName: () => "Status",
+          set: (): undefined => undefined,
+        },
+        data: {
+          data: [
+            {
+              file: {
+                path: "Relays & Devices/Pump.md",
+                name: "Pump.md",
+              },
+              getValue: () => ({
+                isEmpty: () => false,
+                renderTo: (): undefined => undefined,
+                toString: () => "active",
+              }),
+            },
+          ],
+          groupedData: [
+            {
+              key: "",
+              entries: [],
+            },
+          ],
+          properties: ["file.name", "status"],
+        },
+      },
+    });
+
+    expect(capabilities).toEqual(
+      expect.objectContaining({
+        controllerKeys: ["refresh"],
+        configMethods: expect.arrayContaining([
+          "get",
+          "getDisplayName",
+          "getOrder",
+          "getSort",
+          "set",
+        ]),
+        dataShape: {
+          hasData: true,
+          hasGroupedData: true,
+          properties: ["file.name", "status"],
+          ungroupedCount: 1,
+          groupCount: 1,
+          groupedRowCount: 0,
+        },
+        firstEntry: {
+          keys: ["file", "getValue"],
+          fileKeys: ["name", "path"],
+          filePath: "Relays & Devices/Pump.md",
+          getValueType: "function",
+          valueMethods: ["isEmpty", "renderTo", "toString"],
+        },
+      })
+    );
+    expect(capabilities.writeSurface).toEqual({
+      entryHasSetValue: false,
+      configHasSet: true,
+      notes:
+        "No documented Bases cell-write API is assumed. Notidian writes must route through file/frontmatter authorities until a runtime write surface is proven.",
+    });
   });
 });

@@ -149,7 +149,8 @@ With `--base-view`, the harness also performs a live custom Bases view scenario:
 3. Opens the `.base` file through Obsidian.
 4. Waits for the `.notidian-bases-table-view` DOM.
 5. Verifies the fixture row and visible `status` and `rating` properties render through the custom view.
-6. Deletes the temporary `.base` file during fixture cleanup unless `--keep-fixture` was passed.
+6. Verifies the view exposed runtime capability metadata for the Bases controller/config/data/value surface.
+7. Deletes the temporary `.base` file during fixture cleanup unless `--keep-fixture` was passed.
 
 ## Options
 

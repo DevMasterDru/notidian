@@ -386,6 +386,19 @@ describe("notidian real vault harness", () => {
             basePath: baseViewPath,
             rowCount: 2,
             tableText: "Notidian Table status rating Beta active",
+            capabilities: {
+              configMethods: ["get", "getOrder", "set"],
+              dataShape: {
+                hasData: true,
+                properties: ["file.name", "status", "rating"],
+              },
+              firstEntry: {
+                valueMethods: ["isEmpty", "renderTo", "toString"],
+              },
+              writeSurface: {
+                entryHasSetValue: false,
+              },
+            },
           });
         }
         return evalResponses.shift() ?? "active";
@@ -412,6 +425,12 @@ describe("notidian real vault harness", () => {
       fixtureFolder: "Notidian Integration Fixtures",
       cleanedUp: true,
       baseViewPath,
+      baseViewCapabilities: {
+        configMethods: ["get", "getOrder", "set"],
+        entryHasSetValue: false,
+        properties: ["file.name", "status", "rating"],
+        valueMethods: ["isEmpty", "renderTo", "toString"],
+      },
     });
     expect(
       calls.some(
@@ -428,6 +447,48 @@ describe("notidian real vault harness", () => {
       "delete",
       "dev:errors",
     ]);
+  });
+
+  it("fails loudly when the optional custom Bases view smoke does not expose capabilities", async () => {
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianBaseView")) {
+          return JSON.stringify({
+            ok: true,
+            basePath:
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base",
+            rowCount: 2,
+            tableText: "Notidian Table status rating Beta active",
+          });
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (command == "property:read") return "active";
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    await expect(
+      runRealVaultSmokeHarness(
+        {
+          ...baseConfig,
+          includeBaseView: true,
+          now: () => new Date("2026-05-25T10:20:30.456Z"),
+        },
+        runner
+      )
+    ).rejects.toThrow(
+      "Notidian custom Bases view smoke failed: missing-capabilities"
+    );
   });
 
   it("fails loudly when the optional custom Bases view smoke does not render", async () => {

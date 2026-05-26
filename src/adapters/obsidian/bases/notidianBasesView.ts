@@ -29,7 +29,13 @@ type BasesQueryResultLike = {
 };
 
 type BasesViewConfigLike = {
+  get?: (key: string) => unknown;
+  getAsPropertyId?: (key: string) => unknown;
+  getDisplayName?: (propertyId: string) => string;
+  getEvaluatedFormula?: (view: unknown, key: string) => unknown;
   getOrder?: () => string[];
+  getSort?: () => unknown[];
+  set?: (key: string, value: unknown) => unknown;
 };
 
 type BasesViewSnapshotSource = {
@@ -74,6 +80,37 @@ export type NotidianBasesViewSnapshot = {
   diagnostics: string[];
 };
 
+export type NotidianBasesRuntimeCapabilities = {
+  controllerKeys: string[];
+  viewKeys: string[];
+  configMethods: string[];
+  dataShape: {
+    hasData: boolean;
+    hasGroupedData: boolean;
+    properties: string[];
+    ungroupedCount: number;
+    groupCount: number;
+    groupedRowCount: number;
+  };
+  firstEntry: {
+    keys: string[];
+    fileKeys: string[];
+    filePath?: string;
+    getValueType: string;
+    valueMethods: string[];
+  } | null;
+  writeSurface: {
+    entryHasSetValue: boolean;
+    configHasSet: boolean;
+    notes: string;
+  };
+};
+
+type RuntimeCapabilitySource = {
+  controller?: unknown;
+  view: BasesViewSnapshotSource;
+};
+
 const FallbackBasesView = class implements RuntimeBasesView {
   data?: BasesQueryResultLike;
   config?: BasesViewConfigLike;
@@ -85,6 +122,38 @@ const RuntimeBasesViewBase = (
   (ObsidianApi as unknown as { BasesView?: RuntimeBasesViewConstructor }).BasesView ??
   FallbackBasesView
 ) as RuntimeBasesViewConstructor;
+
+const sortedOwnKeys = (value: unknown): string[] =>
+  value && typeof value === "object" ? Object.keys(value).sort() : [];
+
+const methodNames = (value: unknown): string[] => {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) {
+    return [];
+  }
+
+  const names = new Set<string>();
+  let current: unknown = value;
+  let depth = 0;
+  while (
+    current &&
+    current !== Object.prototype &&
+    depth < 4
+  ) {
+    for (const name of Object.getOwnPropertyNames(current)) {
+      if (name === "constructor") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(current, name);
+      const member =
+        descriptor && "value" in descriptor
+          ? descriptor.value
+          : (value as Record<string, unknown>)[name];
+      if (typeof member === "function") names.add(name);
+    }
+    current = Object.getPrototypeOf(current);
+    depth += 1;
+  }
+
+  return [...names].sort();
+};
 
 const valueToText = (value: unknown): string => {
   if (value == null) return "";
@@ -153,6 +222,70 @@ const groupsFromData = (
     ];
   }
   return [];
+};
+
+const firstEntryFromData = (
+  data: BasesQueryResultLike | undefined
+): BasesEntryLike | undefined => {
+  if (Array.isArray(data?.data) && data.data.length > 0) return data.data[0];
+  if (Array.isArray(data?.groupedData)) {
+    for (const group of data.groupedData) {
+      if (Array.isArray(group.entries) && group.entries.length > 0) {
+        return group.entries[0];
+      }
+    }
+  }
+  return undefined;
+};
+
+export const notidianBasesRuntimeCapabilities = ({
+  controller,
+  view,
+}: RuntimeCapabilitySource): NotidianBasesRuntimeCapabilities => {
+  const data = view.data;
+  const properties = Array.isArray(data?.properties) ? data.properties : [];
+  const groupedData = Array.isArray(data?.groupedData) ? data.groupedData : [];
+  const firstEntry = firstEntryFromData(data);
+  const firstProperty = properties[0] ?? "file.name";
+  const firstValue =
+    firstEntry && typeof firstEntry.getValue === "function"
+      ? firstEntry.getValue(firstProperty)
+      : undefined;
+  const entryMethods = methodNames(firstEntry);
+  const configMethods = methodNames(view.config);
+
+  return {
+    controllerKeys: sortedOwnKeys(controller),
+    viewKeys: sortedOwnKeys(view),
+    configMethods,
+    dataShape: {
+      hasData: Array.isArray(data?.data),
+      hasGroupedData: Array.isArray(data?.groupedData),
+      properties,
+      ungroupedCount: Array.isArray(data?.data) ? data.data.length : 0,
+      groupCount: groupedData.length,
+      groupedRowCount: groupedData.reduce(
+        (count, group) =>
+          count + (Array.isArray(group.entries) ? group.entries.length : 0),
+        0
+      ),
+    },
+    firstEntry: firstEntry
+      ? {
+          keys: sortedOwnKeys(firstEntry),
+          fileKeys: sortedOwnKeys(firstEntry.file),
+          filePath: firstEntry.file?.path,
+          getValueType: typeof firstEntry.getValue,
+          valueMethods: methodNames(firstValue),
+        }
+      : null,
+    writeSurface: {
+      entryHasSetValue: entryMethods.includes("setValue"),
+      configHasSet: configMethods.includes("set"),
+      notes:
+        "No documented Bases cell-write API is assumed. Notidian writes must route through file/frontmatter authorities until a runtime write surface is proven.",
+    },
+  };
 };
 
 export const notidianBasesViewSnapshot = (
@@ -252,16 +385,26 @@ const renderSnapshot = (
 export class NotidianBasesView extends RuntimeBasesViewBase {
   readonly type = NOTIDIAN_BASES_VIEW_TYPE;
   private containerEl: HTMLElement;
+  private controller: BasesQueryControllerLike;
 
   constructor(
     controller: BasesQueryControllerLike,
     parentEl: HTMLElement
   ) {
     super(controller);
+    this.controller = controller;
     this.containerEl = parentEl.createDiv("notidian-bases-table-view");
   }
 
   public onDataUpdated(): void {
+    const capabilities = notidianBasesRuntimeCapabilities({
+      controller: this.controller,
+      view: this,
+    });
+    this.containerEl.setAttribute(
+      "data-notidian-bases-capabilities",
+      JSON.stringify(capabilities)
+    );
     renderSnapshot(this.containerEl, notidianBasesViewSnapshot(this));
   }
 }

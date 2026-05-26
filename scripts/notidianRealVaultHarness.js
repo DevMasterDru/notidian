@@ -1267,6 +1267,7 @@ const baseViewEvalCode = ({
     "filters:",
     "  and:",
     `    - ${JSON.stringify(`file.inFolder(${JSON.stringify(folder)})`)}`,
+    '    - "file.ext == \\"md\\""',
     "views:",
     '  - type: "notidian-table"',
     '    name: "Notidian Table Smoke"',
@@ -1328,17 +1329,43 @@ const baseViewEvalCode = ({
           sawView = true;
           lastText = (view.innerText || "").slice(0, 1000);
           rowCount = view.querySelectorAll("tbody tr[data-path]").length;
+          const capabilitiesText =
+            view.getAttribute("data-notidian-bases-capabilities") || "";
+          let capabilities = null;
+          if (capabilitiesText) {
+            try {
+              capabilities = JSON.parse(capabilitiesText);
+            } catch (error) {
+              return finish({
+                ok: false,
+                reason: "invalid-capabilities",
+                message: String(error?.message ?? error),
+                basePath,
+                tableText: lastText,
+              });
+            }
+          }
           if (
             lastText.includes("Notidian Table") &&
             lastText.includes(expectedTitle) &&
             lastText.includes("status") &&
             lastText.includes("rating")
           ) {
+            if (!capabilities) {
+              return finish({
+                ok: false,
+                reason: "missing-capabilities",
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             return finish({
               ok: true,
               basePath,
               rowCount,
               tableText: lastText,
+              capabilities,
             });
           }
         }
@@ -1403,6 +1430,38 @@ const assertBaseViewEvalOk = (result) => {
   throw new Error(
     `Notidian custom Bases view smoke failed: ${formatUiFailure(result)}`
   );
+};
+
+const baseViewCapabilitySummary = (capabilities) => ({
+  configMethods: capabilities?.configMethods ?? [],
+  entryHasSetValue: Boolean(capabilities?.writeSurface?.entryHasSetValue),
+  properties: capabilities?.dataShape?.properties ?? [],
+  valueMethods: capabilities?.firstEntry?.valueMethods ?? [],
+});
+
+const assertBaseViewCapabilities = (result) => {
+  const capabilities = result?.capabilities;
+  if (!capabilities) {
+    throw new Error(
+      "Notidian custom Bases view smoke failed: missing-capabilities"
+    );
+  }
+  if (capabilities.dataShape?.hasData !== true) {
+    throw new Error("Notidian custom Bases view smoke failed: missing-data");
+  }
+  const properties = capabilities.dataShape?.properties ?? [];
+  const expectedProperties = [
+    ["file.name"],
+    ["status", "note.status"],
+    ["rating", "note.rating"],
+  ];
+  for (const aliases of expectedProperties) {
+    if (!aliases.some((property) => properties.includes(property))) {
+      throw new Error(
+        `Notidian custom Bases view smoke failed: missing-property ${aliases[0]}`
+      );
+    }
+  }
 };
 
 const waitForMetadataValue = async ({
@@ -1516,6 +1575,7 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     })
   );
   assertBaseViewEvalOk(result);
+  assertBaseViewCapabilities(result);
 
   if (!String(result.basePath ?? "").endsWith(".base")) {
     throw new Error(
@@ -1525,6 +1585,7 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
 
   return {
     baseViewPath: result.basePath,
+    baseViewCapabilities: baseViewCapabilitySummary(result.capabilities),
   };
 };
 
@@ -1697,6 +1758,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let primaryPath = paths.alphaPath;
   let baseExportPath = null;
   let baseViewPath = null;
+  let baseViewCapabilities = null;
   let scenarioError = null;
 
   try {
@@ -1796,6 +1858,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
         paths,
       });
       baseViewPath = viewPaths.baseViewPath ?? null;
+      baseViewCapabilities = viewPaths.baseViewCapabilities ?? null;
     }
 
     const devErrors = await runObsidian(config, execute, "dev:errors");
@@ -1842,6 +1905,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     cleanedUp,
     ...(baseExportPath ? { baseExportPath } : {}),
     ...(baseViewPath ? { baseViewPath } : {}),
+    ...(baseViewCapabilities ? { baseViewCapabilities } : {}),
   };
 };
 

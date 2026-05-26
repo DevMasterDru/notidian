@@ -103,7 +103,7 @@ describe("notidianTableToBaseDocument", () => {
 
     expect(result.document).toEqual({
       filters: {
-        and: ['file.inFolder("Relays & Devices")'],
+        and: ['file.inFolder("Relays & Devices")', 'file.ext == "md"'],
       },
       properties: {
         status: {
@@ -187,6 +187,7 @@ describe("serializeBaseDocumentToYaml", () => {
         "filters:",
         "  and:",
         '    - "file.inFolder(\\"Relays & Devices\\")"',
+        '    - "file.ext == \\"md\\""',
         "properties:",
         "  status:",
         '    displayName: "Status"',

@@ -115,7 +115,7 @@ The report reads a single folder context, compares context rows with frontmatter
 
 Notidian now has a pure `.base` adapter for simple folder table views and an opt-in command that previews the export before writing.
 
-The adapter can convert a `SpaceTable` plus an optional table predicate into a Bases-compatible document shape and deterministic YAML. It maps file identity to `file.name`, frontmatter-backed columns to note properties, simple file projections such as `File.ctime` to `file.ctime`, and visible table preferences such as order, limit, group-by, simple filters, display names, and summaries where the semantics are supported.
+The adapter can convert a `SpaceTable` plus an optional table predicate into a Bases-compatible document shape and deterministic YAML. It maps file identity to `file.name`, frontmatter-backed columns to note properties, simple file projections such as `File.ctime` to `file.ctime`, and visible table preferences such as order, limit, group-by, simple filters, display names, and summaries where the semantics are supported. Folder exports also add `file.ext == "md"` so the generated `.base` file itself and other non-Markdown files do not appear as database rows.
 
 Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and full Bases-backed table editing.
 
@@ -129,11 +129,11 @@ Notidian registers a custom Bases view type when the running Obsidian host suppo
 notidian-table
 ```
 
-The first view is a native-alignment spike, not the final table editor. It uses a runtime compatibility shim because the local `obsidian` development package does not yet expose typed Bases APIs. When available, the view is registered as `Notidian Table`, reads visible property order from the Bases view config, reads rows from the current Bases query result, and renders a basic table projection.
+The first view is a native-alignment spike, not the final table editor. It uses a runtime compatibility shim because the local `obsidian` development package does not yet expose typed Bases APIs. When available, the view is registered as `Notidian Table`, reads visible property order from the Bases view config, reads rows from the current Bases query result, captures runtime capabilities, and renders a basic table projection.
 
 This view does not persist ordinary row values and does not replace the current context-backed Notidian table. It exists to prove that `.base` can host Notidian's future table UX before moving file-title renames, frontmatter writes, range paste, conflict feedback, and undo into the Bases-hosted surface.
 
-The real-vault smoke harness has an opt-in `--base-view` mode that writes a temporary `.base` file using `type: "notidian-table"`, opens it in Obsidian, verifies the custom view DOM and fixture rows, and cleans up the `.base` file.
+The real-vault smoke harness has an opt-in `--base-view` mode that writes a temporary `.base` file using `type: "notidian-table"`, opens it in Obsidian, verifies the custom view DOM and fixture rows, verifies capability metadata, and cleans up the `.base` file.
 
 The durable decision is recorded in [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md).
 

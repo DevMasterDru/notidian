@@ -9,6 +9,7 @@ It is intentionally pure and conservative. It converts a Notidian `SpaceTable` p
 The first adapter supports simple folder table views:
 
 - folder scope as a global `file.inFolder(...)` filter;
+- a global `file.ext == "md"` filter so exported `.base` files and other non-Markdown files do not appear as database rows;
 - the `File` column as `file.name`;
 - frontmatter-backed columns as note properties;
 - file property columns such as `File.ctime` as `file.ctime`;
@@ -84,9 +85,11 @@ Notidian registers a custom Bases view type when the running Obsidian host suppo
 notidian-table
 ```
 
-This is currently a feasibility gate. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, and renders a basic table projection. It does not write values, persist a hidden mirror, or replace the current context-backed Notidian table editor.
+This is currently a feasibility gate. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, and renders a basic table projection. It does not write values, persist a hidden mirror, or replace the current context-backed Notidian table editor.
 
 Use this view type only to validate the Bases-hosted surface for now. The future goal is to move Notidian's enhanced table interactions into this view after file-title renames, frontmatter writes, conflict handling, range paste, and undo have equivalent safety in the Bases-hosted path.
+
+The runtime capability snapshot records the controller keys, config methods, data shape, first entry/value methods, and whether an entry appears to expose a native `setValue` write method. This keeps the next editing step grounded in the actual Obsidian runtime rather than undocumented assumptions.
 
 The live harness can validate the registration and renderer in Obsidian:
 
