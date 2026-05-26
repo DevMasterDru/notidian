@@ -18,6 +18,7 @@ const baseConfig = {
   timeoutMs: 10000,
   commandTimeoutMs: 20000,
   pollIntervalMs: 0,
+  cleanupSettleMs: 0,
   obsidianBin: "obsidian",
 };
 
@@ -33,6 +34,7 @@ describe("notidian real vault harness", () => {
           "--fixture-root=Notidian Smoke Fixtures",
           "--timeout-ms=2500",
           "--command-timeout-ms=15000",
+          "--cleanup-settle-ms=1500",
           "--base-export",
         ],
         { OBSIDIAN_BIN: "obsidian-dev" }
@@ -48,6 +50,7 @@ describe("notidian real vault harness", () => {
       timeoutMs: 2500,
       commandTimeoutMs: 15000,
       pollIntervalMs: 250,
+      cleanupSettleMs: 1500,
       obsidianBin: "obsidian-dev",
     });
 
@@ -70,10 +73,12 @@ describe("notidian real vault harness", () => {
         ...baseConfig,
         vault: "",
         allowWrite: false,
+        cleanupSettleMs: -1,
       })
     ).toEqual([
       "Set vault=<name> or NOTIDIAN_REAL_VAULT before running the real-vault harness.",
       "Pass --allow-write to permit fixture creation in the selected vault.",
+      "Set --cleanup-settle-ms to zero or a positive integer.",
     ]);
   });
 

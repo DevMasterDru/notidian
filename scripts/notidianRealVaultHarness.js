@@ -5,6 +5,7 @@ const DEFAULT_PLUGIN_ID = "notidian";
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 20000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
+const DEFAULT_CLEANUP_SETTLE_MS = 1000;
 const DEFAULT_TABLE_UI_EDIT_VALUE = "ui-active";
 const DEFAULT_TABLE_UI_PASTE_STATUS = "paste-active";
 const DEFAULT_TABLE_UI_PASTE_RATING = "7";
@@ -43,6 +44,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     timeoutMs: DEFAULT_TIMEOUT_MS,
     commandTimeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+    cleanupSettleMs: DEFAULT_CLEANUP_SETTLE_MS,
     obsidianBin: env.OBSIDIAN_BIN ?? "obsidian",
   };
 
@@ -94,6 +96,12 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
           config.pollIntervalMs
         );
         break;
+      case "cleanup-settle-ms":
+        config.cleanupSettleMs = parseIntegerOption(
+          value,
+          config.cleanupSettleMs
+        );
+        break;
     }
   }
 
@@ -132,6 +140,10 @@ const validateHarnessConfig = (config) => {
 
   if (!Number.isFinite(config.pollIntervalMs) || config.pollIntervalMs < 0) {
     errors.push("Set --poll-interval-ms to zero or a positive integer.");
+  }
+
+  if (!Number.isFinite(config.cleanupSettleMs) || config.cleanupSettleMs < 0) {
+    errors.push("Set --cleanup-settle-ms to zero or a positive integer.");
   }
 
   return errors;
@@ -1638,6 +1650,10 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     scenarioError = error;
   }
 
+  if (!scenarioError && config.cleanupSettleMs > 0) {
+    await sleep(config.cleanupSettleMs);
+  }
+
   const cleanedUp = await cleanupFixtures({
     config,
     runner: execute,
@@ -1647,6 +1663,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   });
 
   if (!scenarioError && cleanedUp) {
+    if (config.cleanupSettleMs > 0) {
+      await sleep(config.cleanupSettleMs);
+    }
     const cleanupDevErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(cleanupDevErrors)) {
       throw new Error(
@@ -1679,6 +1698,7 @@ const usage = () => [
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,
   `  --command-timeout-ms=<ms> Defaults to ${DEFAULT_COMMAND_TIMEOUT_MS}.`,
+  `  --cleanup-settle-ms=<ms> Defaults to ${DEFAULT_CLEANUP_SETTLE_MS}.`,
 ].join("\n");
 
 const main = async (argv = process.argv.slice(2), env = process.env) => {

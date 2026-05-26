@@ -97,6 +97,12 @@ npx tsc -noEmit -skipLibCheck
 npm run build
 ```
 
+Install the current build into a local vault plugin directory:
+
+```bash
+npm run install:vault -- --vault-path="/Users/druker/Atlas Vault" --allow-write
+```
+
 Opt-in live vault smoke test:
 
 ```bash

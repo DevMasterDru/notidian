@@ -20,6 +20,12 @@ Use a disposable test vault when possible. If you use a real working vault, make
 
 Before running command-level smoke tests such as `--base-export`, make sure the target vault's installed Notidian plugin bundle is the current build. A stale `.obsidian/plugins/notidian/main.js` can reload successfully while missing newly added commands.
 
+```bash
+npm run build
+npm run install:vault -- --vault-path="/Users/druker/Atlas Vault" --allow-write
+obsidian vault="Atlas Vault" plugin:reload id=notidian
+```
+
 ## Safety Model
 
 The harness refuses to write unless both conditions are true:
@@ -41,6 +47,8 @@ The harness intentionally avoids creating a per-run folder. Notidian may create 
 When `--ui` is passed, the harness also writes the fixture root's default frame view predicate to table view. Use a dedicated fixture root for this command; the default `Notidian Integration Fixtures` folder is intended for that purpose.
 
 The harness wraps each Obsidian CLI command with a hard process timeout. File rename is performed through `obsidian eval` and Obsidian's `fileManager.renameFile` API instead of the CLI `rename` command because the CLI command can complete the rename but keep the child process open. The API path still exercises Obsidian's native rename event and metadata-cache behavior without letting a finished rename stall the smoke run.
+
+The harness waits briefly before and after fixture cleanup. This gives Obsidian's metadata cache and native Bases indexer time to settle before fixture files or exported `.base` files are deleted and before the final developer-error check runs.
 
 ## Run The Smoke Harness
 
@@ -141,6 +149,17 @@ With `--base-export`, the harness also performs a live `.base` export command sc
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
 | `--command-timeout-ms=<number>` | `20000` | Hard timeout for each Obsidian CLI child process. |
 | `--poll-interval-ms=<number>` | `250` | Delay between metadata-cache polls. |
+| `--cleanup-settle-ms=<number>` | `1000` | Delay before and after fixture cleanup so delayed Obsidian file/index events are captured. |
+
+## Install The Current Build
+
+Use the installer when you want the selected vault to run the repository's current `main.js`, `styles.css`, and `manifest.json`:
+
+```bash
+npm run install:vault -- --vault-path="/Users/druker/Atlas Vault" --allow-write
+```
+
+The installer writes only to `.obsidian/plugins/<plugin-id>` inside the target vault. It refuses to run without `--allow-write`, verifies that the source build artifacts exist, and checks that `manifest.json` matches the requested plugin id before copying.
 
 ## Unit-Test The Harness
 

@@ -224,6 +224,7 @@ The following work remains before Notidian should be considered final:
 | `.base` preview/export command | [baseExportCommand.tsx](../src/adapters/obsidian/bases/baseExportCommand.tsx) and [BaseExportPreviewModal.tsx](../src/core/react/components/Bases/BaseExportPreviewModal.tsx) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
+| Local vault plugin installer | [notidianInstallToVault.js](../scripts/notidianInstallToVault.js) and [notidianInstallToVault.test.js](../scripts/notidianInstallToVault.test.js) |
 
 ## Verification Commands
 
@@ -238,8 +239,9 @@ npm run build
 For local Obsidian validation after copying the built plugin into a vault:
 
 ```bash
-obsidian plugin:reload id=notidian
-obsidian dev:errors
+npm run install:vault -- --vault-path="/Users/druker/Atlas Vault" --allow-write
+obsidian vault="Atlas Vault" plugin:reload id=notidian
+obsidian vault="Atlas Vault" dev:errors
 ```
 
 For the opt-in real-vault smoke harness:
