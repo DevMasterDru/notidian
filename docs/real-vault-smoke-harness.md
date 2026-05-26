@@ -14,7 +14,7 @@ Run this harness after changes that affect:
 - Table undo paths that write files.
 - Table DOM rendering, paste, undo, rename, or conflict actions when using `--ui`.
 - `.base` export command behavior when using `--base-export`.
-- Custom Bases view registration and rendering when using `--base-view`.
+- Custom Bases view registration, rendering, editing, paste, and rename behavior when using `--base-view`.
 - Plugin startup, reload, or vault integration behavior.
 
 Use a disposable test vault when possible. If you use a real working vault, make sure it is backed up.
@@ -151,9 +151,10 @@ With `--base-view`, the harness also performs a live custom Bases view scenario:
 5. Verifies the fixture row and visible `status` and `rating` properties render through the custom view.
 6. Verifies the view exposed runtime capability metadata for the Bases controller/config/data/value surface.
 7. Edits the Beta row's `status` note-property cell through the custom view.
-8. Edits the Beta row's `file.name` cell through the custom view and waits for the renamed Markdown file.
-9. Waits until Obsidian metadata reports `status: base-view-active` on the renamed Beta fixture note.
-10. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
+8. Pastes a one-row, two-column TSV payload into Beta `status` and `rating` note-property cells.
+9. Edits the Beta row's `file.name` cell through the custom view and waits for the renamed Markdown file.
+10. Waits until Obsidian metadata reports the pasted `status` and `rating` values on the renamed Beta fixture note.
+11. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
 
 ## Options
 
@@ -199,6 +200,6 @@ This is a smoke harness, not the final real-vault test suite.
 Still needed:
 
 - Broader live UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and additional metadata timing fixtures.
-- Deeper live `.base` validation for typed custom-view editing, rejected title edits, range editing, Bases formula/sort/group behavior, and runtime API changes.
+- Deeper live `.base` validation for typed custom-view editing, multi-row custom-view paste, copy/cut, rejected title edits, title paste, Bases formula/sort/group behavior, and runtime API changes.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.

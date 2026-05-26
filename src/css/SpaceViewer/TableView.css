@@ -841,6 +841,11 @@ width: 24px;
   color: var(--text-error);
 }
 
+.notidian-bases-table-view__table td[data-edit-state="skipped"] {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
 .notidian-bases-table-view__group th {
   background: var(--background-primary-alt);
   color: var(--text-normal);

@@ -12,6 +12,8 @@ const DEFAULT_TABLE_UI_PASTE_RATING = "7";
 const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
 const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
 const DEFAULT_BASE_VIEW_EDIT_VALUE = "base-view-active";
+const DEFAULT_BASE_VIEW_PASTE_STATUS = "base-view-paste-active";
+const DEFAULT_BASE_VIEW_PASTE_RATING = "9";
 const DEFAULT_BASE_VIEW_RENAME_SUFFIX = "Beta Base Renamed";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
@@ -1265,6 +1267,8 @@ const baseViewEvalCode = ({
   betaPath,
   expectedTitle,
   editValue,
+  pasteStatusValue,
+  pasteRatingValue,
   renameTitle,
   renamePath,
   timeoutMs,
@@ -1295,15 +1299,23 @@ const baseViewEvalCode = ({
     const betaPath = ${JSON.stringify(betaPath)};
     const expectedTitle = ${JSON.stringify(expectedTitle)};
     const editValue = ${JSON.stringify(editValue)};
+    const pasteStatusValue = ${JSON.stringify(pasteStatusValue)};
+    const pasteRatingValue = ${JSON.stringify(pasteRatingValue)};
     const renameTitle = ${JSON.stringify(renameTitle)};
     const renamePath = ${JSON.stringify(renamePath)};
     const baseContent = ${JSON.stringify(baseContent)};
     const timeoutMs = ${Number(timeoutMs)};
     const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
-    const frontmatterValue = () => {
-      const file = app.vault.getAbstractFileByPath(betaPath);
+    const latestView = () => {
+      const views = Array.from(
+        document.querySelectorAll(".notidian-bases-table-view")
+      );
+      return views[views.length - 1];
+    };
+    const frontmatterValue = (path, property) => {
+      const file = app.vault.getAbstractFileByPath(path);
       if (!file) return undefined;
-      return app.metadataCache.getFileCache(file)?.frontmatter?.status;
+      return app.metadataCache.getFileCache(file)?.frontmatter?.[property];
     };
     const editStatusCell = async (view) => {
       const headers = Array.from(view.querySelectorAll("thead th"))
@@ -1378,7 +1390,7 @@ const baseViewEvalCode = ({
 
       const start = Date.now();
       do {
-        if (String(frontmatterValue()) == editValue) {
+        if (String(frontmatterValue(betaPath, "status")) == editValue) {
           return { ok: true, editedValue: editValue };
         }
         await sleep(pollIntervalMs);
@@ -1387,7 +1399,103 @@ const baseViewEvalCode = ({
       return {
         ok: false,
         reason: "edit-not-applied",
-        currentValue: frontmatterValue(),
+        currentValue: frontmatterValue(betaPath, "status"),
+      };
+    };
+    const pasteStatusAndRating = async (view) => {
+      const headers = Array.from(view.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const statusColumnIndex = headers.findIndex((header) =>
+        ["status", "note.status"].includes(header)
+      );
+      if (statusColumnIndex < 0) {
+        return { ok: false, reason: "missing-paste-column", columns: headers };
+      }
+      const row = Array.from(view.querySelectorAll("tbody tr[data-path]"))
+        .find((candidate) =>
+          candidate.getAttribute("data-path") === betaPath ||
+          candidate.innerText.includes(expectedTitle)
+        );
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-paste-row",
+          columns: headers,
+          tableText: view.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[statusColumnIndex];
+      const editor = cell?.querySelector("[contenteditable='true']");
+      if (!editor) {
+        return {
+          ok: false,
+          reason: "missing-paste-editor",
+          columns: headers,
+          cellHtml: cell?.outerHTML?.slice(0, 500) ?? "",
+        };
+      }
+
+      editor.focus();
+      const payload = pasteStatusValue + "\\t" + pasteRatingValue;
+      let dataTransfer = null;
+      if (typeof DataTransfer == "function") {
+        dataTransfer = new DataTransfer();
+        dataTransfer.setData("text/plain", payload);
+      }
+      const pasteEvent = typeof ClipboardEvent == "function"
+        ? new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dataTransfer,
+          })
+        : new Event("paste", { bubbles: true, cancelable: true });
+      if (dataTransfer && !pasteEvent.clipboardData) {
+        try {
+          Object.defineProperty(pasteEvent, "clipboardData", {
+            value: dataTransfer,
+          });
+        } catch (_error) {}
+      }
+      if (!dataTransfer) {
+        try {
+          Object.defineProperty(pasteEvent, "clipboardData", {
+            value: {
+              getData: (type) => type == "text/plain" ? payload : "",
+            },
+          });
+        } catch (_error) {}
+      }
+      editor.dispatchEvent(pasteEvent);
+      if (!pasteEvent.defaultPrevented) {
+        return {
+          ok: false,
+          reason: "paste-not-intercepted",
+          columns: headers,
+        };
+      }
+
+      const start = Date.now();
+      do {
+        if (
+          String(frontmatterValue(betaPath, "status")) == pasteStatusValue &&
+          String(frontmatterValue(betaPath, "rating")) == pasteRatingValue
+        ) {
+          return {
+            ok: true,
+            pastedValues: {
+              status: pasteStatusValue,
+              rating: pasteRatingValue,
+            },
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "paste-not-applied",
+        currentStatus: frontmatterValue(betaPath, "status"),
+        currentRating: frontmatterValue(betaPath, "rating"),
       };
     };
     const editFileNameCell = async (view) => {
@@ -1556,7 +1664,16 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
-            const renameResult = await editFileNameCell(view);
+            const pasteResult = await pasteStatusAndRating(latestView() || view);
+            if (!pasteResult.ok) {
+              return finish({
+                ...pasteResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
+            const renameResult = await editFileNameCell(latestView() || view);
             if (!renameResult.ok) {
               return finish({
                 ...renameResult,
@@ -1572,6 +1689,7 @@ const baseViewEvalCode = ({
               tableText: lastText,
               capabilities,
               editedValue: editResult.editedValue,
+              pastedValues: pasteResult.pastedValues,
               renamedPath: renameResult.renamedPath,
               renamedTitle: renameResult.renamedTitle,
             });
@@ -1780,6 +1898,8 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
         betaPath: paths.betaPath,
         expectedTitle: `${paths.runId}-Beta`,
         editValue: DEFAULT_BASE_VIEW_EDIT_VALUE,
+        pasteStatusValue: DEFAULT_BASE_VIEW_PASTE_STATUS,
+        pasteRatingValue: DEFAULT_BASE_VIEW_PASTE_RATING,
         renameTitle: `${paths.runId}-${DEFAULT_BASE_VIEW_RENAME_SUFFIX}`,
         renamePath: paths.betaBaseRenamedPath,
         timeoutMs: config.timeoutMs,
@@ -1800,6 +1920,14 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected editedValue=${DEFAULT_BASE_VIEW_EDIT_VALUE}; got ${result.editedValue}`
     );
   }
+  if (
+    result.pastedValues?.status != DEFAULT_BASE_VIEW_PASTE_STATUS ||
+    result.pastedValues?.rating != DEFAULT_BASE_VIEW_PASTE_RATING
+  ) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected pastedValues status=${DEFAULT_BASE_VIEW_PASTE_STATUS} rating=${DEFAULT_BASE_VIEW_PASTE_RATING}; got ${JSON.stringify(result.pastedValues)}`
+    );
+  }
   if (result.renamedPath != paths.betaBaseRenamedPath) {
     throw new Error(
       `Notidian custom Bases view smoke failed: expected renamedPath=${paths.betaBaseRenamedPath}; got ${result.renamedPath}`
@@ -1811,13 +1939,21 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     runner,
     path: result.renamedPath,
     property: "status",
-    expected: DEFAULT_BASE_VIEW_EDIT_VALUE,
+    expected: DEFAULT_BASE_VIEW_PASTE_STATUS,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: result.renamedPath,
+    property: "rating",
+    expected: DEFAULT_BASE_VIEW_PASTE_RATING,
   });
 
   return {
     baseViewPath: result.basePath,
     baseViewCapabilities: baseViewCapabilitySummary(result.capabilities),
     baseViewEditValue: result.editedValue,
+    baseViewPasteValues: result.pastedValues,
     baseViewRenamedPath: result.renamedPath,
     baseViewRenameTitle: result.renamedTitle,
   };
@@ -1994,6 +2130,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseViewPath = null;
   let baseViewCapabilities = null;
   let baseViewEditValue = null;
+  let baseViewPasteValues = null;
   let baseViewRenamedPath = null;
   let baseViewRenameTitle = null;
   let betaPath = paths.betaPath;
@@ -2098,6 +2235,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseViewPath = viewPaths.baseViewPath ?? null;
       baseViewCapabilities = viewPaths.baseViewCapabilities ?? null;
       baseViewEditValue = viewPaths.baseViewEditValue ?? null;
+      baseViewPasteValues = viewPaths.baseViewPasteValues ?? null;
       baseViewRenamedPath = viewPaths.baseViewRenamedPath ?? null;
       baseViewRenameTitle = viewPaths.baseViewRenameTitle ?? null;
       betaPath = viewPaths.baseViewRenamedPath ?? betaPath;
@@ -2150,6 +2288,7 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseViewPath ? { baseViewPath } : {}),
     ...(baseViewCapabilities ? { baseViewCapabilities } : {}),
     ...(baseViewEditValue ? { baseViewEditValue } : {}),
+    ...(baseViewPasteValues ? { baseViewPasteValues } : {}),
     ...(baseViewRenamedPath ? { baseViewRenamedPath } : {}),
     ...(baseViewRenameTitle ? { baseViewRenameTitle } : {}),
   };

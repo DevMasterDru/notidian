@@ -375,8 +375,8 @@ describe("notidian real vault harness", () => {
       "=> old",
       "=> active",
       "=> active",
-      "=> base-view-active",
-      "=> base-view-active",
+      "=> base-view-paste-active",
+      "=> 9",
     ];
     const baseViewPath =
       "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Notidian Table.base";
@@ -395,6 +395,10 @@ describe("notidian real vault harness", () => {
             rowCount: 2,
             tableText: "Notidian Table status rating Beta active",
             editedValue: "base-view-active",
+            pastedValues: {
+              rating: "9",
+              status: "base-view-paste-active",
+            },
             renamedPath:
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
             renamedTitle:
@@ -439,6 +443,10 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
       baseViewPath,
       baseViewEditValue: "base-view-active",
+      baseViewPasteValues: {
+        rating: "9",
+        status: "base-view-paste-active",
+      },
       baseViewRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Renamed.md",
       baseViewRenameTitle:

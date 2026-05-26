@@ -18,6 +18,8 @@ import {
   NOTIDIAN_BASES_VIEW_TYPE,
   notidianBasesCellEditPlan,
   notidianBasesNotePropertyKey,
+  notidianBasesParseTsv,
+  notidianBasesStructuredPastePlan,
   notidianBasesRuntimeCapabilities,
   notidianBasesViewSnapshot,
   registerNotidianBasesView,
@@ -444,5 +446,107 @@ describe("writeNotidianBasesCellEdit", () => {
       })
     ).rejects.toThrow("already exists");
     expect(app.fileManager.renameFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("notidianBasesStructuredPastePlan", () => {
+  it("plans TSV paste across note-property cells", () => {
+    expect(notidianBasesParseTsv("active\t7\npaused\t3")).toEqual([
+      ["active", "7"],
+      ["paused", "3"],
+    ]);
+
+    const plan = notidianBasesStructuredPastePlan({
+      properties: ["file.name", "status", "rating"],
+      rows: [
+        { path: "Relays & Devices/Beta.md" },
+        { path: "Relays & Devices/Gamma.md" },
+      ],
+      startRowIndex: 0,
+      startColumnIndex: 1,
+      text: "active\t7\npaused\t3",
+    });
+
+    expect(plan.writes).toEqual([
+      {
+        rowIndex: 0,
+        columnIndex: 1,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          value: "active",
+        },
+      },
+      {
+        rowIndex: 0,
+        columnIndex: 2,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "rating",
+          value: "7",
+        },
+      },
+      {
+        rowIndex: 1,
+        columnIndex: 1,
+        request: {
+          path: "Relays & Devices/Gamma.md",
+          propertyId: "status",
+          value: "paused",
+        },
+      },
+      {
+        rowIndex: 1,
+        columnIndex: 2,
+        request: {
+          path: "Relays & Devices/Gamma.md",
+          propertyId: "rating",
+          value: "3",
+        },
+      },
+    ]);
+    expect(plan.skipped).toEqual([]);
+  });
+
+  it("skips file names, read-only properties, and out-of-bounds cells", () => {
+    const plan = notidianBasesStructuredPastePlan({
+      properties: ["file.name", "status", "file.path"],
+      rows: [{ path: "Relays & Devices/Beta.md" }],
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      text: "New Beta\tactive\tOther.md\tignored",
+    });
+
+    expect(plan.writes).toEqual([
+      {
+        rowIndex: 0,
+        columnIndex: 1,
+        request: {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          value: "active",
+        },
+      },
+    ]);
+    expect(plan.skipped).toEqual([
+      {
+        rowIndex: 0,
+        columnIndex: 0,
+        reason: "file-name-paste-unsupported",
+        value: "New Beta",
+      },
+      {
+        rowIndex: 0,
+        columnIndex: 2,
+        reason: "read-only-property",
+        value: "Other.md",
+      },
+      {
+        rowIndex: 0,
+        columnIndex: 3,
+        reason: "out-of-bounds",
+        value: "ignored",
+      },
+    ]);
   });
 });

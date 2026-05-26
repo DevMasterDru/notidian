@@ -108,6 +108,50 @@ export type NotidianBasesCellEditPlan =
       propertyId?: string;
     };
 
+export type NotidianBasesStructuredPasteWrite = {
+  rowIndex: number;
+  columnIndex: number;
+  request: NotidianBasesCellEditRequest;
+};
+
+export type NotidianBasesStructuredPasteSkippedReason =
+  | "file-name-paste-unsupported"
+  | "missing-path"
+  | "out-of-bounds"
+  | "read-only-property";
+
+export type NotidianBasesStructuredPasteSkipped = {
+  rowIndex: number;
+  columnIndex: number;
+  reason: NotidianBasesStructuredPasteSkippedReason;
+  value: string;
+};
+
+export type NotidianBasesStructuredPastePlan = {
+  writes: NotidianBasesStructuredPasteWrite[];
+  skipped: NotidianBasesStructuredPasteSkipped[];
+};
+
+export type NotidianBasesStructuredPastePlanParams = {
+  properties: string[];
+  rows: { path?: string }[];
+  startRowIndex: number;
+  startColumnIndex: number;
+  text: string;
+};
+
+type NotidianBasesStructuredPasteRequest = {
+  startRowIndex: number;
+  startColumnIndex: number;
+  text: string;
+};
+
+type NotidianBasesStructuredPasteResult = {
+  applied: number;
+  failed: number;
+  skipped: number;
+};
+
 type NotidianBasesViewAppLike = {
   vault?: {
     getAbstractFileByPath?: (path: string) => unknown;
@@ -250,6 +294,92 @@ export const notidianBasesNotePropertyKey = (
 
 const notidianBasesIsFileNameProperty = (propertyId: string): boolean =>
   propertyId === "file.name";
+
+export const notidianBasesParseTsv = (text: string): string[][] => {
+  const normalized = String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n$/, "");
+  return normalized.split("\n").map((row) => row.split("\t"));
+};
+
+const notidianBasesIsStructuredPasteText = (text: string): boolean => {
+  const matrix = notidianBasesParseTsv(text);
+  return matrix.length > 1 || matrix.some((row) => row.length > 1);
+};
+
+export const notidianBasesStructuredPastePlan = ({
+  properties,
+  rows,
+  startRowIndex,
+  startColumnIndex,
+  text,
+}: NotidianBasesStructuredPastePlanParams): NotidianBasesStructuredPastePlan => {
+  const writes: NotidianBasesStructuredPasteWrite[] = [];
+  const skipped: NotidianBasesStructuredPasteSkipped[] = [];
+  const matrix = notidianBasesParseTsv(text);
+
+  matrix.forEach((pasteRow, pasteRowIndex) => {
+    pasteRow.forEach((value, pasteColumnIndex) => {
+      const rowIndex = startRowIndex + pasteRowIndex;
+      const columnIndex = startColumnIndex + pasteColumnIndex;
+      const row = rows[rowIndex];
+      const propertyId = properties[columnIndex];
+
+      if (!row || !propertyId) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "out-of-bounds",
+          value,
+        });
+        return;
+      }
+
+      if (notidianBasesIsFileNameProperty(propertyId)) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "file-name-paste-unsupported",
+          value,
+        });
+        return;
+      }
+
+      if (!notidianBasesNotePropertyKey(propertyId)) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "read-only-property",
+          value,
+        });
+        return;
+      }
+
+      if (!row.path) {
+        skipped.push({
+          rowIndex,
+          columnIndex,
+          reason: "missing-path",
+          value,
+        });
+        return;
+      }
+
+      writes.push({
+        rowIndex,
+        columnIndex,
+        request: {
+          path: row.path,
+          propertyId,
+          value,
+        },
+      });
+    });
+  });
+
+  return { writes, skipped };
+};
 
 export const notidianBasesCellEditPlan = ({
   path,
@@ -546,13 +676,20 @@ const renderEditableCell = (
   rowEl: HTMLElement,
   path: string,
   propertyId: string,
+  rowIndex: number,
+  columnIndex: number,
   text: string,
-  writeCell: (request: NotidianBasesCellEditRequest) => Promise<void>
+  writeCell: (request: NotidianBasesCellEditRequest) => Promise<void>,
+  pasteCells?: (
+    request: NotidianBasesStructuredPasteRequest
+  ) => Promise<NotidianBasesStructuredPasteResult>
 ): void => {
   const cellEl = rowEl.createEl("td", {
     attr: {
       "data-property-id": propertyId,
       "data-editable": "true",
+      "data-row-index": String(rowIndex),
+      "data-column-index": String(columnIndex),
     },
   });
   const editorEl = cellEl.createSpan({
@@ -608,6 +745,18 @@ const renderEditableCell = (
     event.preventDefault();
     editorEl.blur();
   });
+  editorEl.addEventListener("paste", (event: ClipboardEvent) => {
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (!pasteCells || !notidianBasesIsStructuredPasteText(text)) return;
+
+    event.preventDefault();
+    editorEl.blur();
+    void pasteCells({
+      startRowIndex: rowIndex,
+      startColumnIndex: columnIndex,
+      text,
+    });
+  });
 };
 
 const renderSnapshot = (
@@ -616,6 +765,7 @@ const renderSnapshot = (
   options: NotidianBasesRenderOptions = {}
 ): void => {
   containerEl.empty();
+  const flatRows = snapshot.groups.flatMap((group) => group.rows);
 
   const headerEl = containerEl.createDiv({
     cls: "notidian-bases-table-view__header",
@@ -636,6 +786,103 @@ const renderSnapshot = (
   const tableEl = containerEl.createEl("table", {
     cls: "notidian-bases-table-view__table",
   });
+  const dataRowEls: HTMLElement[] = [];
+  const setCellState = (
+    rowIndex: number,
+    columnIndex: number,
+    state: "pending" | "applied" | "failed" | "skipped",
+    title?: string
+  ): void => {
+    const cellEl = dataRowEls[rowIndex]?.children[columnIndex] as
+      | HTMLElement
+      | undefined;
+    if (!cellEl) return;
+    cellEl.setAttribute("data-edit-state", state);
+    if (title) {
+      cellEl.setAttribute("title", title);
+    } else {
+      cellEl.removeAttribute("title");
+    }
+  };
+  const setCellText = (
+    rowIndex: number,
+    columnIndex: number,
+    text: string
+  ): void => {
+    const cellEl = dataRowEls[rowIndex]?.children[columnIndex] as
+      | HTMLElement
+      | undefined;
+    const editorEl = cellEl?.querySelector(
+      ".notidian-bases-table-view__cell-editor"
+    );
+    if (editorEl) editorEl.textContent = text;
+  };
+  const pasteCells =
+    options.writeCell &&
+    (async ({
+      startRowIndex,
+      startColumnIndex,
+      text,
+    }: NotidianBasesStructuredPasteRequest): Promise<NotidianBasesStructuredPasteResult> => {
+      const plan = notidianBasesStructuredPastePlan({
+        properties: snapshot.properties,
+        rows: flatRows,
+        startRowIndex,
+        startColumnIndex,
+        text,
+      });
+      const result: NotidianBasesStructuredPasteResult = {
+        applied: 0,
+        failed: 0,
+        skipped: plan.skipped.length,
+      };
+
+      tableEl.setAttribute("data-notidian-bases-paste-state", "pending");
+      for (const skipped of plan.skipped) {
+        setCellState(
+          skipped.rowIndex,
+          skipped.columnIndex,
+          "skipped",
+          skipped.reason
+        );
+      }
+
+      for (const write of plan.writes) {
+        setCellState(write.rowIndex, write.columnIndex, "pending");
+        try {
+          await options.writeCell?.(write.request);
+          setCellText(
+            write.rowIndex,
+            write.columnIndex,
+            write.request.value
+          );
+          setCellState(write.rowIndex, write.columnIndex, "applied");
+          result.applied += 1;
+        } catch (error) {
+          setCellState(
+            write.rowIndex,
+            write.columnIndex,
+            "failed",
+            String((error as { message?: unknown })?.message ?? error)
+          );
+          result.failed += 1;
+        }
+      }
+
+      const state =
+        result.failed > 0
+          ? "failed"
+          : result.applied > 0
+          ? "applied"
+          : "skipped";
+      tableEl.setAttribute("data-notidian-bases-paste-state", state);
+      containerEl.setAttribute(
+        "data-notidian-bases-last-paste",
+        JSON.stringify(result)
+      );
+      return result;
+    });
+
   const theadEl = tableEl.createEl("thead");
   const headerRowEl = theadEl.createEl("tr");
   for (const property of snapshot.properties) {
@@ -643,6 +890,7 @@ const renderSnapshot = (
   }
 
   const tbodyEl = tableEl.createEl("tbody");
+  let rowIndex = 0;
   for (const group of snapshot.groups) {
     if (group.key) {
       const groupRowEl = tbodyEl.createEl("tr", {
@@ -656,7 +904,10 @@ const renderSnapshot = (
 
     for (const row of group.rows) {
       const rowEl = tbodyEl.createEl("tr");
+      const currentRowIndex = rowIndex;
+      rowEl.setAttribute("data-row-index", String(currentRowIndex));
       if (row.path) rowEl.setAttribute("data-path", row.path);
+      dataRowEls[currentRowIndex] = rowEl;
       row.values.forEach((value, index) => {
         const propertyId = snapshot.properties[index] ?? "";
         if (
@@ -669,14 +920,18 @@ const renderSnapshot = (
             rowEl,
             row.path,
             propertyId,
+            currentRowIndex,
+            index,
             value,
-            options.writeCell
+            options.writeCell,
+            pasteCells || undefined
           );
           return;
         }
 
         renderReadOnlyCell(rowEl, propertyId, value);
       });
+      rowIndex += 1;
     }
   }
 

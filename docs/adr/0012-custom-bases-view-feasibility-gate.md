@@ -47,6 +47,7 @@ The first implementation is intentionally a feasibility gate:
 - read rows from the current Bases query result (`groupedData` or `data`);
 - render a basic table projection from those native Bases entries;
 - allow the first narrow edit path for ordinary note properties by writing through Obsidian's `fileManager.processFrontMatter`;
+- allow structured TSV paste across ordinary note-property cells through the same frontmatter write path;
 - allow `file.name` edits by renaming the row Markdown file through Obsidian's `fileManager.renameFile`;
 - keep other file projections and formulas read-only until their authority-aware behavior is mapped into the custom view;
 - keep the existing Notidian context table as the production enhanced editor until Bases-backed editing is proven.
@@ -99,12 +100,14 @@ Implemented behavior:
 - The factory creates `NotidianBasesView`.
 - `NotidianBasesView` renders from the live Bases query result, not from Notidian context MDB rows.
 - Ordinary note-property cells are editable and write to the row file with `fileManager.processFrontMatter`.
+- Structured TSV paste is intercepted inside editable cells, planned against the visible Bases rows and columns, and applied only to ordinary note-property targets.
 - `file.name` cells are editable and rename the row file with `fileManager.renameFile`; empty names, slash-containing names, duplicate targets, and non-Markdown files are rejected.
 - Other `file.*` and `formula.*` cells remain read-only.
 - The snapshot helper is pure and tested so future API-shape changes can be handled without hiding durable data.
 - The cell edit planner is pure and tested so unsupported targets fail before the UI can accept a detached value.
+- The structured paste planner is pure and tested so file-title, file-projection, formula, missing-path, and out-of-bounds targets are skipped before any write starts.
 - The view captures runtime capabilities for the active controller, config, data, first entry, value object, and apparent write surface.
-- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"`, fails if capability metadata is missing or incomplete, edits a `status` note-property cell, renames the Beta fixture note through `file.name`, and verifies the edited frontmatter remains visible on the renamed path.
+- The real-vault smoke harness has an opt-in `--base-view` mode that creates and opens a temporary `.base` file with `type: "notidian-table"`, fails if capability metadata is missing or incomplete, edits a `status` note-property cell, pastes status/rating TSV values into ordinary note-property cells, renames the Beta fixture note through `file.name`, and verifies the edited frontmatter remains visible on the renamed path.
 - The smoke `.base` includes `file.ext == "md"` because live testing proved a folder-scoped Base can otherwise include the `.base` file itself as a row.
 
 The capability capture records:
@@ -126,7 +129,7 @@ Still needed:
 - preserve capability snapshots from supported Obsidian versions as the API evolves;
 - mapping Notidian's current table edit transaction helpers into a Bases-hosted view;
 - bulk page-title paste and rename undo inside the custom view;
-- range copy/cut/paste, conflict feedback, undo, and future redo inside the custom view;
+- range copy/cut, title paste, conflict feedback, undo, and future redo inside the custom view;
 - typed frontmatter edits beyond the current string value path;
 - migration behavior for existing Make.md context-only columns when a view is moved to `.base`.
 
