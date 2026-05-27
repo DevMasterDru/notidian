@@ -11,6 +11,7 @@ import {
   executeBulkPageTitleRename,
   renamePageTitleForRow,
 } from "core/utils/contexts/pageTitleRename";
+import { planPropertyColumnDelete } from "core/utils/contexts/propertyColumnActions";
 import {
   applyTableEditPathOverrides,
   combineTableEditTransactionResults,
@@ -771,7 +772,7 @@ export const ContextEditorProvider: React.FC<
     });
   };
 
-  const hideColumn = (col: SpaceTableColumn, hidden: true) => {
+  const hideColumn = (col: SpaceTableColumn, hidden: boolean) => {
     savePredicate({
       colsHidden: hidden
         ? [
@@ -949,17 +950,12 @@ export const ContextEditorProvider: React.FC<
     } else if (contextTable[tagSpacePathFromTag(table)]) {
       mdbtable = contextTable[tagSpacePathFromTag(table)];
     }
-    const newFields: SpaceProperty[] = mdbtable.cols.filter(
-      (f, i) => f.name != column.name
-    );
-    const newTable = {
-      ...mdbtable,
-      cols: newFields,
-      rows: mdbtable.rows.map((r) => {
-        const { [column.name]: val, ...rest } = r;
-        return rest;
-      }),
-    };
+    const deletePlan = planPropertyColumnDelete(mdbtable, column);
+    if (deletePlan.action == "hide") {
+      hideColumn(column, true);
+      return;
+    }
+    const newTable = deletePlan.table;
     if (table == "") {
       saveDB(newTable);
     } else if (contextTable[tagSpacePathFromTag(table)]) {

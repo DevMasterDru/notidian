@@ -1,6 +1,7 @@
 import i18n from "shared/i18n";
 
 import { normalizedSortForType } from "core/utils/contexts/predicate/sort";
+import { canDeletePropertyColumn } from "core/utils/contexts/propertyColumnActions";
 import { fieldForPropertyNameInput } from "core/utils/contexts/propertyNameValue";
 import { valueForPropertyTypeChange } from "core/utils/contexts/propertyTypeValue";
 import { nameForField } from "core/utils/frames/frames";
@@ -294,7 +295,7 @@ export const showPropertyMenu = (
         },
       });
     }
-    if (deleteColumn) {
+    if (deleteColumn && canDeletePropertyColumn(field)) {
       menuOptions.push({
         name: i18n.menu.deleteProperty,
         icon: "ui//trash",

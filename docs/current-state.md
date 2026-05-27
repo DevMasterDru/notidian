@@ -148,6 +148,8 @@ This planner is intentionally not a destructive UI command yet. It is the safety
 
 Until that planner-backed schema UI exists, editing the visible header text of a frontmatter-backed column is treated as a display alias. Notidian keeps the canonical YAML/frontmatter key unchanged so a context column rename cannot silently hide or orphan existing file metadata.
 
+Deleting a frontmatter-backed column from the table menu is also intentionally blocked until destructive schema UI exists. Users can hide the column from the current view; Notidian keeps the schema column and canonical YAML data intact.
+
 ### Table Edit Feedback
 
 Paste operations and direct single-cell edits now surface transaction state in the table:
@@ -211,6 +213,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Legacy context CLI reports are read-only, and partial frontmatter scans are never marked migration-ready.
 - Property create, rename, and delete planning can now preview canonical frontmatter consequences before destructive schema UI/apply work is added.
 - Frontmatter-backed header label edits do not rename canonical YAML keys; they store a display alias until planner-backed property rename UI exists.
+- Frontmatter-backed delete actions are hide-only until planner-backed destructive property deletion UI exists.
 
 ## Known Gaps
 
@@ -252,7 +255,7 @@ The following work remains before Notidian should be considered final:
 | Transient cell feedback | [tableEditFeedback.ts](../src/core/utils/contexts/tableEditFeedback.ts) and [tableEditFeedback.test.ts](../src/core/utils/contexts/tableEditFeedback.test.ts) |
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
-| Frontmatter schema planning | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts) and [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts) |
+| Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |

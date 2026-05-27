@@ -70,6 +70,8 @@ The final table UI commands for applying these plans are still pending. Until th
 
 Editing the visible header text of an existing frontmatter-backed column is currently a display-label change only. The underlying YAML key remains unchanged, so existing file metadata is not hidden or moved without a migration preview.
 
+For the same reason, frontmatter-backed columns can be hidden from the current view but not destructively deleted from the table menu yet. Deleting the actual YAML key from files requires the future migration preview and confirmation flow.
+
 ## Edit Page Titles
 
 The `File` column is the page-title column. It is not ordinary metadata.
