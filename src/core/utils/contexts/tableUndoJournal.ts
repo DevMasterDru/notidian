@@ -1,11 +1,13 @@
 import { PathPropertyName } from "shared/types/context";
 import { DBRow } from "shared/types/mdb";
 import { buildPageTitleRename, pageTitleFromPath } from "./pageTitle";
+import type { TableEditTransactionResult } from "./tableEditTransaction";
 import { TablePasteWrite } from "./tablePastePlan";
 
 export type TableUndoEntry = {
   label: string;
   writes: TablePasteWrite[];
+  redoWrites: TablePasteWrite[];
 };
 
 export type CreateTableUndoEntryParams = {
@@ -16,6 +18,16 @@ export type CreateTableUndoEntryParams = {
 
 const undoKeyForWrite = (write: TablePasteWrite): string =>
   `${write.rowId}::${write.columnId}`;
+
+const targetKeyForWrite = (write: {
+  rowId: string;
+  columnId?: string;
+  columnName: string;
+  table: string;
+}): string =>
+  `${write.rowId}::${write.columnId ?? write.columnName}::${write.columnName}::${
+    write.table
+  }`;
 
 const rowForWrite = (rows: DBRow[], write: TablePasteWrite): DBRow =>
   rows.find((row) => row._index == write.rowId) ?? rows[parseInt(write.rowId)];
@@ -43,6 +55,15 @@ const currentPathAfterWrite = (
     : write.path;
 };
 
+const sanitizeHistoryWrite = (write: TablePasteWrite): TablePasteWrite => {
+  const { forceFrontmatterWrite: _forceFrontmatterWrite, ...historyWrite } =
+    write as TablePasteWrite & { forceFrontmatterWrite?: boolean };
+
+  return Object.fromEntries(
+    Object.entries(historyWrite).filter(([, value]) => value !== undefined)
+  ) as TablePasteWrite;
+};
+
 export const createTableUndoEntry = ({
   label,
   rows,
@@ -62,17 +83,18 @@ export const createTableUndoEntry = ({
 
     return [
       ...entryWrites,
-      {
+      sanitizeHistoryWrite({
         ...write,
         path: currentPathAfterWrite(row, write),
         value: currentValue,
-      },
+      }),
     ];
   }, []);
 
   return {
     label,
     writes: inverseWrites,
+    redoWrites: writes.map(sanitizeHistoryWrite),
   };
 };
 
@@ -81,3 +103,22 @@ export const pushTableUndoEntry = (
   entry: TableUndoEntry,
   maxEntries = 20
 ): TableUndoEntry[] => [...stack, entry].slice(-maxEntries);
+
+export const filterTableUndoEntryForResult = (
+  entry: TableUndoEntry,
+  result: TableEditTransactionResult
+): TableUndoEntry => {
+  const rejectedTargets = new Set(
+    [...result.skipped, ...result.failed].map((issue) =>
+      targetKeyForWrite(issue.write)
+    )
+  );
+  const wasAccepted = (write: TablePasteWrite): boolean =>
+    !rejectedTargets.has(targetKeyForWrite(write));
+
+  return {
+    ...entry,
+    writes: entry.writes.filter(wasAccepted),
+    redoWrites: entry.redoWrites.filter(wasAccepted),
+  };
+};

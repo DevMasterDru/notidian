@@ -88,6 +88,7 @@ Notidian tables support rectangular spreadsheet-style selection.
 | Paste TSV into the active cell or selected range | `Cmd/Ctrl+V` |
 | Clear selected editable cells | `Backspace` or `Delete` |
 | Undo the last table operation | `Cmd/Ctrl+Z` |
+| Redo the last undone table operation | `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y` |
 | Clear the current selection | `Escape` |
 
 Copying a page-title cell copies the visible title, not the full file path.
@@ -128,7 +129,7 @@ Undo replays inverse writes through the same authority-aware paths as the origin
 - Frontmatter undo writes the previous value back to the Markdown file.
 - Context-owned undo writes the previous context value back to the context table.
 
-Redo is not implemented yet for the context-backed table journal.
+Redo uses `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y`. It replays the original accepted writes through the same authority-aware paths as the original operation. A new forward edit clears redo history, and redo does not reuse a previous forced conflict overwrite. If a bulk edit partially skips or fails, skipped and failed targets are left out of the undo/redo history.
 
 ## Understand Cell Feedback
 
@@ -171,10 +172,9 @@ This means the safe migration sequence is audit, preview, resolve blockers, then
 
 These are known gaps, not accidental omissions:
 
-- Redo support for context-backed table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - A table command for moving files between folders.
-- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, and Obsidian metadata reload timing.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
 - Authority-aware property rename/delete/schema flows.
 

@@ -98,7 +98,7 @@ Positive consequences:
 - The codebase has less active runtime surface.
 - The documentation has one database architecture.
 - AI agents default to Notidian for database work in Atlas Vault.
-- Future effort goes to Notidian quality: redo, schema operations, row creation/deletion/move, conflict merge, performance, and legacy migration.
+- Future effort goes to Notidian quality: schema operations, row creation/deletion/move, conflict merge, performance, and legacy migration.
 - The native Bases plugin can remain disabled in the vault.
 
 Tradeoffs:

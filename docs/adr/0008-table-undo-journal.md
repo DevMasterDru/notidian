@@ -20,16 +20,18 @@ A Notion-like table experience needs a fast undo path for these bulk operations,
 
 ## Decision
 
-Use a table-local, in-memory undo journal for bulk table operations.
+Use a table-local, in-memory undo/redo journal for bulk table operations.
 
-Before a bulk table operation executes, `TableView` builds an inverse `TableUndoEntry` from the current rendered row data. After the forward operation reports applied writes, the inverse entry is pushed onto a capped stack. Pressing `Cmd/Ctrl+Z` in the table pops the entry and replays its inverse writes through `applyTableEdits`.
+Before a bulk table operation executes, `TableView` builds a `TableUndoEntry` from the current rendered row data. The entry stores inverse writes for undo and sanitized accepted forward writes for redo. After the forward operation reports applied writes, the entry is pushed onto a capped undo stack. Pressing `Cmd/Ctrl+Z` in the table pops the entry and replays its inverse writes through `applyTableEdits`. Pressing `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y` replays the accepted forward writes through the same path.
 
-Undo therefore uses the same canonical execution paths as forward edits:
+Undo and redo therefore use the same canonical execution paths as forward edits:
 
 - File-title undo goes through the controlled rename transaction.
 - Frontmatter undo writes through Obsidian frontmatter.
 - Context-owned value undo writes through context MDB persistence.
 - Mixed file/property undo uses the same path override behavior as mixed forward paste.
+- Redo history is cleared by any new forward edit.
+- Redo writes do not preserve forced conflict flags, so redo cannot silently reuse a previous Apply anyway decision.
 
 ## Boundaries
 
@@ -53,7 +55,6 @@ It is not:
 
 - A durable audit trail.
 - A cross-session undo system.
-- A redo stack.
 - A conflict-resolution prompt.
 - A full rollback engine for partially applied cross-file failures.
 
@@ -96,15 +97,15 @@ True rollback across file renames and frontmatter batches would be useful, but i
 Positive consequences:
 
 - Users can undo the main high-risk bulk table operations with `Cmd/Ctrl+Z`.
-- Undo respects file/frontmatter/context authority boundaries.
+- Users can redo the last undone bulk table operations with `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y`.
+- Undo and redo respect file/frontmatter/context authority boundaries.
 - Immediate undo after title paste does not depend on metadata reload timing.
 - No durable hidden data-governance layer is introduced.
 
 Tradeoffs:
 
-- Undo is not available after the table component is destroyed or Obsidian is reloaded.
-- Redo is not implemented.
-- Undo does not detect external edits that happened after the original operation.
+- Undo and redo are not available after the table component is destroyed or Obsidian is reloaded.
+- Undo and redo do not bypass conflict detection when external edits happened after the original operation.
 - A partially failed undo reports failures through table feedback, but it is not a full rollback system.
 
 ## Implementation Notes
@@ -122,13 +123,15 @@ The undo helper:
 - Captures previous values from rendered row data.
 - Uses page titles rather than full paths for inverse file-title values.
 - Stores the expected post-edit file path on inverse file writes so immediate undo can rename from the correct current path.
+- Stores accepted forward writes for redo.
+- Filters skipped and failed targets out of the stored history after execution.
+- Removes forced conflict flags before writes are stored for redo.
 - Deduplicates repeated target cells.
 - Skips unchanged writes.
 - Caps the in-memory stack.
 
 ## Follow-Up Work
 
-- Add redo support.
 - Add inline conflict-resolution prompts before undo replay overwrites changed frontmatter.
 - Add durable audit/recovery only if a clear product need emerges.
 - Add real-vault fixture tests covering immediate undo after metadata reload-sensitive renames.

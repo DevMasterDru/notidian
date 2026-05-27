@@ -115,6 +115,6 @@ The helper returns `TableEditTransactionResult` with:
 
 ## Follow-Up Work
 
-- Extend table undo with redo support.
+- Add broader live-vault fixture coverage for metadata reload timing and rejected or partially applied table edits.
 - Add integration tests with a real vault fixture covering metadata reload after table edits.
 - Add inline conflict-resolution prompts for stale frontmatter edits.

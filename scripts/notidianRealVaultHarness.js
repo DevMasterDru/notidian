@@ -808,6 +808,113 @@ const tableUiUndoEvalCode = ({
     }
   })()`.replace(/\s+/g, " ");
 
+const tableUiRedoEvalCode = ({
+  folder,
+  rowTitle,
+  statusValue,
+  ratingValue,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiRedo";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const statusValue = ${JSON.stringify(statusValue)};
+    const ratingValue = ${JSON.stringify(ratingValue)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const findTable = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      return { ok: true, table, headers, row };
+    };
+    const cellText = (tableState, columnName) => {
+      const columnIndex = tableState.headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: tableState.headers.filter(Boolean),
+        };
+      }
+      const cell = tableState.row.children[columnIndex];
+      if (!cell) {
+        return {
+          ok: false,
+          reason: "missing-cell",
+          columns: tableState.headers.filter(Boolean),
+          columnIndex,
+          cellCount: tableState.row.children.length,
+        };
+      }
+      return { ok: true, value: cell.innerText.trim() };
+    };
+    try {
+      const tableState = findTable();
+      if (!tableState.ok) return finish(tableState);
+      tableState.table.focus();
+      tableState.table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "z",
+          code: "KeyZ",
+          metaKey: true,
+          shiftKey: true,
+        })
+      );
+      const start = Date.now();
+      let last = null;
+      do {
+        const nextState = findTable();
+        if (!nextState.ok) return finish(nextState);
+        const status = cellText(nextState, "status");
+        if (!status.ok) return finish(status);
+        const rating = cellText(nextState, "rating");
+        if (!rating.ok) return finish(rating);
+        last = { status: status.value, rating: rating.value };
+        if (last.status == statusValue && last.rating == ratingValue) {
+          return finish({ ok: true, editedValues: last });
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      return finish({
+        ok: false,
+        reason: "display-not-settled",
+        editedValues: last,
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
 const tableUiRenameEvalCode = ({
   folder,
   rowTitle,
@@ -1356,6 +1463,35 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     path: paths.betaPath,
     property: "rating",
     expected: "2",
+  });
+
+  const redoResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiRedoEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        statusValue: DEFAULT_TABLE_UI_PASTE_STATUS,
+        ratingValue: DEFAULT_TABLE_UI_PASTE_RATING,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("redo", redoResult);
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: DEFAULT_TABLE_UI_PASTE_STATUS,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "rating",
+    expected: DEFAULT_TABLE_UI_PASTE_RATING,
   });
 
   const conflictResult = parseJsonEvalResult(

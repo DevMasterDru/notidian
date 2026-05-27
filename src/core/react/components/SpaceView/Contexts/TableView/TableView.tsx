@@ -77,6 +77,7 @@ import {
 } from "core/utils/contexts/tablePastePlan";
 import {
   createTableUndoEntry,
+  filterTableUndoEntryForResult,
   pushTableUndoEntry,
   TableUndoEntry,
 } from "core/utils/contexts/tableUndoJournal";
@@ -185,6 +186,7 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [cellResetTokens, setCellResetTokens] =
     useState<TableCellResetTokens>({});
   const [tableUndoStack, setTableUndoStack] = useState<TableUndoEntry[]>([]);
+  const [tableRedoStack, setTableRedoStack] = useState<TableUndoEntry[]>([]);
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
   const feedbackOperationId = useRef(0);
@@ -301,6 +303,7 @@ export const TableView = (props: { superstate: Superstate }) => {
   const pushTableUndo = (entry: TableUndoEntry) => {
     if (entry.writes.length == 0) return;
     setTableUndoStack((stack) => pushTableUndoEntry(stack, entry));
+    setTableRedoStack([]);
   };
 
   const newRow = (name: string, index?: number, data?: DBRow) => {
@@ -426,7 +429,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       const result = await applyTableEdits(plan.writes);
       finishCellFeedbackOperation(operationId, result);
       if (result.applied > 0) {
-        pushTableUndo(undoEntry);
+        pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
       }
     };
     const clearCell = () => {
@@ -445,7 +448,29 @@ export const TableView = (props: { superstate: Superstate }) => {
         result.failed.length == 0 &&
         result.skipped.length == 0
       ) {
+        setTableRedoStack((stack) => pushTableUndoEntry(stack, undoEntry));
         props.superstate.ui.notify(`Undid ${undoEntry.label}.`);
+      } else {
+        setTableUndoStack((stack) => pushTableUndoEntry(stack, undoEntry));
+      }
+    };
+    const redoLastTableOperation = async () => {
+      const redoEntry = tableRedoStack[tableRedoStack.length - 1];
+      if (!redoEntry) return;
+      setTableRedoStack((stack) => stack.slice(0, -1));
+
+      const operationId = beginCellFeedbackOperation(redoEntry.redoWrites);
+      const result = await applyTableEdits(redoEntry.redoWrites);
+      finishCellFeedbackOperation(operationId, result);
+      if (
+        result.ok &&
+        result.failed.length == 0 &&
+        result.skipped.length == 0
+      ) {
+        setTableUndoStack((stack) => pushTableUndoEntry(stack, redoEntry));
+        props.superstate.ui.notify(`Redid ${redoEntry.label}.`);
+      } else {
+        setTableRedoStack((stack) => pushTableUndoEntry(stack, redoEntry));
       }
     };
     const nextRow = () => {
@@ -488,6 +513,17 @@ export const TableView = (props: { superstate: Superstate }) => {
     if (e.key == "v" && (e.metaKey || e.ctrlKey)) {
       navigator.clipboard.readText().then((f) => pasteSelection(f));
       e.preventDefault();
+    }
+    if (
+      ((e.key.toLowerCase() == "z" && e.shiftKey) ||
+        e.key.toLowerCase() == "y") &&
+      (e.metaKey || e.ctrlKey)
+    ) {
+      if (tableRedoStack.length > 0) {
+        redoLastTableOperation();
+        e.preventDefault();
+      }
+      return;
     }
     if (
       e.key.toLowerCase() == "z" &&

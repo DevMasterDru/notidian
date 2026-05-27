@@ -16,7 +16,7 @@
 - [x] Remove custom Bases view registration from `src/main.ts`.
 - [x] Remove the `.base` export command from `src/commands.tsx`.
 - [x] Delete the `.base` adapter, export modal, custom Bases view source, and their tests.
-- [x] Remove `--base-export` and `--base-view` from the real-vault harness interface.
+- [x] Remove the former native-Bases harness flags from the real-vault harness interface.
 - [x] Remove base-specific real-vault harness tests.
 
 ## Phase 1: Architecture Lock
@@ -47,25 +47,27 @@
   git diff --check
   ```
 
-  Result: focused Notidian-only/harness regression passed, full Jest passed
-  (`20` suites, `122` tests), TypeScript passed, production build passed, and
+  Current result after the redo/guardrail optimization pass: focused
+  Notidian-only/harness/redo regressions passed, full Jest passed (`20`
+  suites, `128` tests), TypeScript passed, production build passed, and
   `git diff --check` reported no whitespace errors.
 
 - [x] If installing into Atlas Vault, run:
 
   ```bash
   npm run install:vault -- --vault-path="/Users/druker/Atlas Vault" --allow-write
-  npm run test:real-vault -- vault="Atlas Vault" --allow-write
+  npm run test:real-vault -- vault="Atlas Vault" --allow-write --ui --command-timeout-ms=60000
   obsidian vault="Atlas Vault" dev:errors
   ```
 
   Result: installed `manifest.json`, `main.js`, and `styles.css` to the Atlas
-  Vault Notidian plugin directory; real-vault smoke passed and cleaned up its
-  fixture folder; Obsidian reported `No errors captured.`
+  Vault Notidian plugin directory; real-vault UI smoke passed paste, undo,
+  redo, conflict apply, file-title rename, and cleanup; Obsidian reported
+  `No errors captured.`
 
 ## Future Implementation Priority
 
-- [ ] Context-backed table redo.
+- [x] Context-backed table redo.
 - [ ] Schema create/rename/delete with frontmatter previews.
 - [ ] Row create/delete/move transactions.
 - [ ] Richer conflict merge UI.

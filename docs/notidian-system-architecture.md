@@ -32,7 +32,7 @@ User intent
   -> Notidian projection refresh
 ```
 
-The table may feel like a spreadsheet. It may render cached projections. It may store view state. It may use compatibility adapters. It must not accept ordinary data changes that did not reach the canonical owner.
+The table may feel like a spreadsheet. It may render cached projections. It may store view state. It may preserve legacy compatibility state. It must not accept ordinary data changes that did not reach the canonical owner.
 
 ## System Layers
 
@@ -42,7 +42,7 @@ The table may feel like a spreadsheet. It may render cached projections. It may 
 | Obsidian metadata cache | Current parsed view of files and frontmatter | Durable user values beyond what files contain. |
 | Notidian table UX | Selection, editing, copy/paste, fill, undo/redo, conflict UI, schema UI | Detached ordinary row data. |
 | Notidian transaction layer | Safe write planning and application | Silent overwrite or sync ambiguity. |
-| Notidian context MDB | View state, explicit Notidian-owned fields, legacy state, compatibility state | Ordinary note metadata unless explicitly Notidian-owned. |
+| Notidian context MDB | View state, explicit Notidian-owned fields, legacy state, legacy compatibility state | Ordinary note metadata unless explicitly Notidian-owned. |
 | Real-vault harness | Runtime proof in Obsidian | Product behavior that bypasses source-of-truth rules. |
 
 ## Database Model
@@ -125,7 +125,7 @@ Allowed context categories:
 
 - view layout: visible columns, widths, order, sort, grouping, filters, saved views;
 - UI preferences: density, collapsed groups, display options;
-- compatibility: Make.md legacy state and adapter metadata;
+- legacy compatibility: Make.md legacy state and adapter metadata;
 - explicit Notidian-owned fields;
 - formulas and relations that are not yet represented canonically elsewhere.
 
