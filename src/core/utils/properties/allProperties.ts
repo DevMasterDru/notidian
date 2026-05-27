@@ -211,7 +211,8 @@ export const materializeFrontmatterBackedContextTable = (
   const normalizedCols = sourceCols.map((col) => {
     if (
       contextHasOnlyDefaultColumns([col]) ||
-      !frontmatterProperties.has(col.name)
+      !frontmatterProperties.has(col.name) ||
+      isFrontmatterBackedProperty(col)
     ) {
       return col;
     }

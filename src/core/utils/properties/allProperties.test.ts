@@ -201,6 +201,47 @@ describe("materializeFrontmatterBackedContextTable", () => {
     ]);
   });
 
+  it("preserves explicit frontmatter-backed column types chosen by the user", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "a.md",
+        pathState({
+          status: "active",
+        }),
+      ],
+    ]);
+
+    const result = materializeFrontmatterBackedContextTable(
+      {
+        schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+        cols: [
+          ...(defaultContextFields.rows as any),
+          {
+            name: "status",
+            type: "option",
+            value: "",
+            schemaId: "files",
+            source: frontmatterPropertySource,
+          },
+        ],
+        rows: [{ [PathPropertyName]: "a.md" }],
+      },
+      pathsIndex,
+      ["a.md"],
+      settings,
+      true
+    );
+
+    expect(result.table.cols.find((col) => col.name === "status")).toEqual(
+      expect.objectContaining({
+        name: "status",
+        type: "option",
+        source: frontmatterPropertySource,
+      })
+    );
+    expect(result.changed).toBe(false);
+  });
+
   it("uses text when observed frontmatter values for one property have conflicting types", () => {
     const pathsIndex = new Map<string, any>([
       ["a.md", pathState({ voltage: 24 })],
