@@ -128,6 +128,16 @@ describe("notidian real vault harness", () => {
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true, path: args[0] });
         }
+        if (code.includes("notidianCleanupFixtures")) {
+          return JSON.stringify({
+            ok: true,
+            deleted: [
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
+            ],
+            missing: [],
+          });
+        }
         return evalResponses.shift() ?? "deleted";
       }
       if (command == "property:read") return "active";
@@ -165,8 +175,7 @@ describe("notidian real vault harness", () => {
       "read",
       "eval",
       "dev:errors",
-      "delete",
-      "delete",
+      "eval",
       "dev:errors",
     ]);
     expect(calls.every((args) => args[0] == "vault=Atlas Vault")).toBe(true);
@@ -177,6 +186,14 @@ describe("notidian real vault harness", () => {
           args[1] == "eval" && args.join(" ").includes("notidianRenameFile")
       )
     ).toBe(true);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" &&
+          args.join(" ").includes("notidianCleanupFixtures")
+      )
+    ).toBe(true);
+    expect(calls.map((args) => args[1])).not.toContain("delete");
   });
 
   it("runs the optional table UI smoke scenario before cleanup", async () => {
@@ -204,6 +221,13 @@ describe("notidian real vault harness", () => {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianCleanupFixtures")) {
+          return JSON.stringify({
+            ok: true,
+            deleted: [uiRenamedPath],
+            missing: [],
+          });
         }
         if (code.includes("notidianTableUiSetup")) {
           return JSON.stringify({ ok: true });
@@ -273,7 +297,7 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(20);
+      .toHaveLength(21);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
@@ -298,11 +322,58 @@ describe("notidian real vault harness", () => {
     expect(calls.some((args) => args.includes(`path=${uiRenamedPath}`))).toBe(
       true
     );
-    expect(calls.map((args) => args[1]).slice(-3)).toEqual([
-      "delete",
-      "delete",
+    expect(calls.map((args) => args[1]).slice(-2)).toEqual([
+      "eval",
       "dev:errors",
     ]);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" &&
+          args.join(" ").includes("notidianCleanupFixtures")
+      )
+    ).toBe(true);
+    expect(calls.map((args) => args[1])).not.toContain("delete");
+  });
+
+  it("reports API cleanup failures with the affected paths", async () => {
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      if (args[1] == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianCleanupFixtures")) {
+          return JSON.stringify({
+            ok: false,
+            reason: "delete-failed",
+            failed: [
+              {
+                path: "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
+                message: "locked",
+              },
+            ],
+          });
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (args[1] == "property:read") return "active";
+      if (args[1] == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (args[1] == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    await expect(
+      runRealVaultSmokeHarness({
+        ...baseConfig,
+        now: () => new Date("2026-05-25T10:20:30.456Z"),
+      }, runner)
+    ).rejects.toThrow(
+      "Fixture cleanup failed: delete-failed path=Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md message=locked"
+    );
   });
 
   it("fails loudly when the optional table UI smoke reports a missing table", async () => {
@@ -422,6 +493,12 @@ describe("notidian real vault harness", () => {
 
     expect(result.cleanedUp).toBe(false);
     expect(runner.mock.calls.map(([args]) => args[1])).not.toContain("delete");
+    expect(
+      runner.mock.calls.some(
+        ([args]) =>
+          args[1] == "eval" && args.join(" ").includes("notidianCleanupFixtures")
+      )
+    ).toBe(false);
   });
 
   it("times out stuck Obsidian CLI child processes", async () => {

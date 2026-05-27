@@ -45,7 +45,9 @@ The harness intentionally avoids creating a per-run folder. Notidian may create 
 
 When `--ui` is passed, the harness also writes the fixture root's default frame view predicate to table view. Use a dedicated fixture root for this command; the default `Notidian Integration Fixtures` folder is intended for that purpose.
 
-The harness wraps each Obsidian CLI command with a hard process timeout. File rename is performed through `obsidian eval` and Obsidian's `fileManager.renameFile` API instead of the CLI `rename` command because the CLI command can complete the rename but keep the child process open. The API path still exercises Obsidian's native rename event and metadata-cache behavior without letting a finished rename stall the smoke run.
+The harness wraps each Obsidian CLI command with a hard process timeout. File rename is performed through `obsidian eval` and Obsidian's `fileManager.renameFile` API instead of the CLI `rename` command because the CLI command can complete the rename but keep the child process open. Fixture cleanup is also performed through one API-backed `obsidian eval` call using `app.vault.delete(file, true)` for each fixture path. These API paths still exercise Obsidian's native file events and metadata-cache behavior while avoiding fragile per-file CLI commands.
+
+If the smoke scenario itself fails, that scenario failure remains the primary error even if best-effort cleanup also has trouble. If the scenario passes but cleanup fails, the harness reports the affected fixture path and cleanup error.
 
 The harness waits briefly before and after fixture cleanup. This gives Obsidian's metadata cache time to settle before fixture files are deleted and before the final developer-error check runs.
 
@@ -97,7 +99,7 @@ The source-of-truth smoke scenario performs these steps:
 10. Verifies the renamed file can be read.
 11. Waits until metadata cache reports the updated frontmatter on the renamed path.
 12. Checks captured developer errors.
-13. Deletes fixture notes unless `--keep-fixture` was passed.
+13. Deletes fixture notes through Obsidian's vault API unless `--keep-fixture` was passed.
 
 This proves the live vault supports the primitive operations Notidian's table transactions depend on.
 
@@ -151,7 +153,7 @@ The harness has normal Jest tests that do not require Obsidian:
 npm test -- scripts/notidianRealVaultHarness.test.js --runInBand
 ```
 
-Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
+Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, API-backed cleanup behavior, optional UI mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
 
 ## Current Limits
 

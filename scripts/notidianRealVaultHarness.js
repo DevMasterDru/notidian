@@ -355,6 +355,39 @@ const renameFileEvalCode = ({ fromPath, toPath }) =>
     }
   })()`.replace(/\s+/g, " ");
 
+const cleanupFixturesEvalCode = ({ paths }) =>
+  `(async () => {
+    const marker = "notidianCleanupFixtures";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const paths = ${JSON.stringify(paths)};
+    const deleted = [];
+    const missing = [];
+    const failed = [];
+    for (const path of paths) {
+      try {
+        const file = app.vault.getAbstractFileByPath(path);
+        if (!file) {
+          missing.push(path);
+          continue;
+        }
+        await app.vault.delete(file, true);
+        deleted.push(path);
+      } catch (error) {
+        failed.push({
+          path,
+          message: String(error?.message ?? error),
+        });
+      }
+    }
+    return finish({
+      ok: failed.length == 0,
+      reason: failed.length == 0 ? "deleted" : "delete-failed",
+      deleted,
+      missing,
+      failed,
+    });
+  })()`.replace(/\s+/g, " ");
+
 const tableUiEditEvalCode = ({
   folder,
   rowTitle,
@@ -1358,11 +1391,21 @@ const cleanupFixtures = async ({
   const deletePaths = [
     ...new Set([primaryPath, betaPath, ...extraPaths].filter(Boolean)),
   ];
-  for (const path of deletePaths) {
-    await runObsidian(config, runner, "delete", {
-      path,
-      permanent: true,
-    });
+  const cleanupResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: cleanupFixturesEvalCode({ paths: deletePaths }),
+    })
+  );
+
+  if (!cleanupResult?.ok) {
+    const failed = cleanupResult?.failed?.[0];
+    const path = failed?.path ? ` path=${failed.path}` : "";
+    const message = failed?.message ? ` message=${failed.message}` : "";
+    throw new Error(
+      `Fixture cleanup failed: ${
+        cleanupResult?.reason ?? "unknown"
+      }${path}${message}`
+    );
   }
 
   return true;
@@ -1660,13 +1703,22 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     await sleep(config.cleanupSettleMs);
   }
 
-  const cleanedUp = await cleanupFixtures({
-    config,
-    runner: execute,
-    paths,
-    primaryPath,
-    betaPath,
-  });
+  let cleanedUp = false;
+  let cleanupError = null;
+  try {
+    cleanedUp = await cleanupFixtures({
+      config,
+      runner: execute,
+      paths,
+      primaryPath,
+      betaPath,
+    });
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  if (scenarioError) throw scenarioError;
+  if (cleanupError) throw cleanupError;
 
   if (!scenarioError && cleanedUp) {
     if (config.cleanupSettleMs > 0) {
@@ -1679,8 +1731,6 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       );
     }
   }
-
-  if (scenarioError) throw scenarioError;
 
   return {
     ok: true,
