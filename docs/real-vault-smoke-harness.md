@@ -14,7 +14,7 @@ Run this harness after changes that affect:
 - Table undo paths that write files.
 - Table DOM rendering, paste, undo, rename, or conflict actions when using `--ui`.
 - `.base` export command behavior when using `--base-export`.
-- Custom Bases view registration, rendering, editing, paste, and rename behavior when using `--base-view`.
+- Custom Bases view registration, rendering, editing, paste, undo/redo, and rename behavior when using `--base-view`.
 - Plugin startup, reload, or vault integration behavior.
 
 Use a disposable test vault when possible. If you use a real working vault, make sure it is backed up.
@@ -157,11 +157,13 @@ With `--base-view`, the harness also performs a live custom Bases view scenario:
 11. Selects the Beta `status` and `rating` cells, presses `Cmd/Ctrl+C`, and verifies the selected range is serialized as TSV.
 12. Presses `Cmd/Ctrl+X` on the same range and verifies the copied cells are cleared through frontmatter writes.
 13. Presses `Cmd/Ctrl+Z` and verifies the cut note-property cells are restored through frontmatter writes.
-14. Pastes a TSV payload into the Beta row's `file.name` and `status` cells, waits for the renamed Markdown file, and verifies the same-row status write lands on the renamed path.
-15. Presses `Cmd/Ctrl+Z` in the custom view and verifies the mixed title/status paste restores the status value before renaming the file back.
-16. Edits the Beta row's `file.name` cell through the custom view and waits for the final renamed Markdown file.
-17. Waits until Obsidian metadata reports the conflict-applied `status` and restored `rating` values on the renamed Beta fixture note.
-18. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
+14. Presses `Cmd/Ctrl+Shift+Z` and verifies the cut is redone through frontmatter writes.
+15. Presses `Cmd/Ctrl+Z` again and verifies the cut cells are restored before later title tests continue.
+16. Pastes a TSV payload into the Beta row's `file.name` and `status` cells, waits for the renamed Markdown file, and verifies the same-row status write lands on the renamed path.
+17. Presses `Cmd/Ctrl+Z` in the custom view and verifies the mixed title/status paste restores the status value before renaming the file back.
+18. Edits the Beta row's `file.name` cell through the custom view and waits for the final renamed Markdown file.
+19. Waits until Obsidian metadata reports the conflict-applied `status` and restored `rating` values on the renamed Beta fixture note.
+20. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
 
 ## Options
 
@@ -206,7 +208,7 @@ This is a smoke harness, not the final real-vault test suite.
 
 Still needed:
 
-- Broader live UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and additional metadata timing fixtures.
-- Deeper live `.base` validation for typed custom-view editing, multi-row custom-view paste/copy/cut, rejected title edits, swap/cycle title paste, redo, Bases formula/sort/group behavior, and runtime API changes.
+- Broader live UI automation for multi-row paste, copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, and additional metadata timing fixtures.
+- Deeper live `.base` validation for typed custom-view editing, multi-row custom-view paste/copy/cut, rejected title edits, swap/cycle title paste, additional redo cases, Bases formula/sort/group behavior, and runtime API changes.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.

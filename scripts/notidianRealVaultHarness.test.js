@@ -413,6 +413,14 @@ describe("notidian real vault harness", () => {
               rating: "2",
               status: "base-view-conflict-applied",
             },
+            cutRedoValues: {
+              rating: "",
+              status: "",
+            },
+            cutRedoUndoValues: {
+              rating: "2",
+              status: "base-view-conflict-applied",
+            },
             titlePastePath:
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta Base Pasted.md",
             titlePasteStatusValue: "base-view-title-paste-status",
@@ -477,6 +485,14 @@ describe("notidian real vault harness", () => {
         status: "",
       },
       baseViewCutUndoValues: {
+        rating: "2",
+        status: "base-view-conflict-applied",
+      },
+      baseViewCutRedoValues: {
+        rating: "",
+        status: "",
+      },
+      baseViewCutRedoUndoValues: {
         rating: "2",
         status: "base-view-conflict-applied",
       },

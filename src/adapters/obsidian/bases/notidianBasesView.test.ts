@@ -18,6 +18,7 @@ import {
   NOTIDIAN_BASES_VIEW_TYPE,
   notidianBasesCellEditPlan,
   notidianBasesClipboardTextForSelection,
+  notidianBasesCreateHistoryEntry,
   notidianBasesCreateUndoEntry,
   notidianBasesNotePropertyKey,
   notidianBasesParseTsv,
@@ -1025,5 +1026,152 @@ describe("notidianBasesCreateUndoEntry", () => {
         },
       ],
     });
+  });
+});
+
+describe("notidianBasesCreateHistoryEntry", () => {
+  const createHistoryEntry = (
+    writes: Array<{
+      path: string;
+      propertyId: string;
+      baseValue?: string;
+      value: string;
+      forceFrontmatterWrite?: boolean;
+    }>
+  ) =>
+    notidianBasesCreateHistoryEntry({
+      label: "Paste cells",
+      writes,
+    });
+
+  it("stores forward note-property writes for redo and inverse writes for undo", () => {
+    expect(
+      createHistoryEntry([
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          baseValue: "queued",
+          value: "active",
+        },
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "rating",
+          baseValue: "2",
+          value: "9",
+        },
+      ])
+    ).toEqual({
+      label: "Paste cells",
+      undo: {
+        label: "Paste cells",
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "rating",
+            baseValue: "9",
+            value: "2",
+          },
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "status",
+            baseValue: "active",
+            value: "queued",
+          },
+        ],
+      },
+      redo: {
+        label: "Paste cells",
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "status",
+            baseValue: "queued",
+            value: "active",
+          },
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "rating",
+            baseValue: "2",
+            value: "9",
+          },
+        ],
+      },
+    });
+  });
+
+  it("stores file-name redo writes while undoing dependent writes before renaming back", () => {
+    expect(
+      createHistoryEntry([
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "file.name",
+          baseValue: "Beta",
+          value: "Renamed Beta",
+        },
+        {
+          path: "Relays & Devices/Renamed Beta.md",
+          propertyId: "status",
+          baseValue: "queued",
+          value: "active",
+        },
+      ])
+    ).toEqual({
+      label: "Paste cells",
+      undo: {
+        label: "Paste cells",
+        writes: [
+          {
+            path: "Relays & Devices/Renamed Beta.md",
+            propertyId: "status",
+            baseValue: "active",
+            value: "queued",
+          },
+          {
+            path: "Relays & Devices/Renamed Beta.md",
+            propertyId: "file.name",
+            baseValue: "Renamed Beta",
+            value: "Beta",
+          },
+        ],
+      },
+      redo: {
+        label: "Paste cells",
+        writes: [
+          {
+            path: "Relays & Devices/Beta.md",
+            propertyId: "file.name",
+            baseValue: "Beta",
+            value: "Renamed Beta",
+          },
+          {
+            path: "Relays & Devices/Renamed Beta.md",
+            propertyId: "status",
+            baseValue: "queued",
+            value: "active",
+          },
+        ],
+      },
+    });
+  });
+
+  it("does not preserve forced conflict overrides in redo writes", () => {
+    expect(
+      createHistoryEntry([
+        {
+          path: "Relays & Devices/Beta.md",
+          propertyId: "status",
+          baseValue: "external",
+          value: "applied",
+          forceFrontmatterWrite: true,
+        },
+      ]).redo.writes
+    ).toEqual([
+      {
+        path: "Relays & Devices/Beta.md",
+        propertyId: "status",
+        baseValue: "external",
+        value: "applied",
+      },
+    ]);
   });
 });

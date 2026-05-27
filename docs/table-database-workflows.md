@@ -128,7 +128,7 @@ Undo replays inverse writes through the same authority-aware paths as the origin
 - Frontmatter undo writes the previous value back to the Markdown file.
 - Context-owned undo writes the previous context value back to the context table.
 
-Redo is not implemented yet.
+Redo is not implemented yet for the context-backed table journal. The custom Bases view has transient redo for its applied edit, paste, cut, and rename history.
 
 ## Understand Cell Feedback
 
@@ -171,10 +171,10 @@ This means the safe migration sequence is audit, preview, resolve blockers, then
 
 These are known gaps, not accidental omissions:
 
-- Redo support for table operations.
+- Redo support for context-backed table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - A table command for moving files between folders.
-- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and Obsidian metadata reload timing.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
 - Authority-aware property rename/delete/schema flows.
 - `.base` import, mirroring, and full Bases-backed table editing.

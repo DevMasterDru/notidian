@@ -187,6 +187,12 @@ export type NotidianBasesUndoEntry = {
   writes: NotidianBasesCellEditRequest[];
 };
 
+export type NotidianBasesHistoryEntry = {
+  label: string;
+  undo: NotidianBasesUndoEntry;
+  redo: NotidianBasesUndoEntry;
+};
+
 export type NotidianBasesFileNamePreflightIssueReason =
   | "duplicate-target"
   | "empty"
@@ -275,8 +281,9 @@ export class NotidianBasesFrontmatterConflictError extends Error {
 
 type NotidianBasesRenderOptions = {
   writeCell?: (request: NotidianBasesCellEditRequest) => Promise<void>;
-  pushUndoEntry?: (entry: NotidianBasesUndoEntry) => void;
+  pushHistoryEntry?: (entry: NotidianBasesHistoryEntry) => void;
   undoLast?: () => Promise<NotidianBasesStructuredPasteResult>;
+  redoLast?: () => Promise<NotidianBasesStructuredPasteResult>;
   pathExists?: (path: string) => boolean;
 };
 
@@ -752,6 +759,50 @@ export const notidianBasesCreateUndoEntry = ({
   };
 };
 
+const notidianBasesCanReplayWrite = (
+  write: NotidianBasesCellEditRequest
+): boolean => {
+  const propertyId = String(write.propertyId ?? "").trim();
+  if (write.baseValue === undefined || write.baseValue === write.value) {
+    return false;
+  }
+
+  if (notidianBasesIsFileNameProperty(propertyId)) {
+    try {
+      return Boolean(write.path && buildPageTitleRename(write.path, write.value));
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  return Boolean(notidianBasesNotePropertyKey(propertyId));
+};
+
+export const notidianBasesCreateHistoryEntry = ({
+  label,
+  writes,
+}: NotidianBasesUndoEntry): NotidianBasesHistoryEntry => {
+  const redoWrites = writes
+    .filter(notidianBasesCanReplayWrite)
+    .map((write) => {
+      const replayWrite = { ...write };
+      delete replayWrite.forceFrontmatterWrite;
+      return replayWrite;
+    });
+
+  return {
+    label,
+    undo: notidianBasesCreateUndoEntry({
+      label,
+      writes: redoWrites,
+    }),
+    redo: {
+      label,
+      writes: redoWrites,
+    },
+  };
+};
+
 export const notidianBasesCellEditPlan = ({
   path,
   propertyId,
@@ -1118,7 +1169,7 @@ const renderEditableCell = (
   columnIndex: number,
   text: string,
   writeCell: (request: NotidianBasesCellEditRequest) => Promise<void>,
-  pushUndoEntry: ((entry: NotidianBasesUndoEntry) => void) | undefined,
+  pushHistoryEntry: ((entry: NotidianBasesHistoryEntry) => void) | undefined,
   focusTable: () => void,
   onAppliedWrite: (
     rowIndex: number,
@@ -1185,8 +1236,8 @@ const renderEditableCell = (
         setBaseValue(nextValue);
         onAppliedWrite(rowIndex, columnIndex, request);
         cellEl.setAttribute("data-edit-state", "applied");
-        pushUndoEntry?.(
-          notidianBasesCreateUndoEntry({
+        pushHistoryEntry?.(
+          notidianBasesCreateHistoryEntry({
             label: "Edit cell",
             writes: [request],
           })
@@ -1517,12 +1568,12 @@ const renderSnapshot = (
     if (rowIndex < 0 || columnIndex < 0) return null;
     return { rowIndex, columnIndex };
   };
-  const pushUndoForWrites = (
+  const pushHistoryForWrites = (
     label: string,
     writes: NotidianBasesCellEditRequest[]
   ): void => {
-    options.pushUndoEntry?.(
-      notidianBasesCreateUndoEntry({
+    options.pushHistoryEntry?.(
+      notidianBasesCreateHistoryEntry({
         label,
         writes,
       })
@@ -1593,7 +1644,7 @@ const renderSnapshot = (
           applySuccessfulWriteToRenderedRow(rowIndex, columnIndex, forcedRequest);
           clearCellActions(cellEl);
           setCellState(rowIndex, columnIndex, "applied");
-          pushUndoForWrites("Apply cell", [forcedRequest]);
+          pushHistoryForWrites("Apply cell", [forcedRequest]);
         } catch (applyError) {
           if (showConflict(rowIndex, columnIndex, forcedRequest, applyError)) {
             return;
@@ -1754,7 +1805,7 @@ const renderSnapshot = (
         }
       }
 
-      pushUndoForWrites("Paste cells", result.appliedWrites);
+      pushHistoryForWrites("Paste cells", result.appliedWrites);
 
       const state =
         result.failed > 0
@@ -1829,7 +1880,7 @@ const renderSnapshot = (
       }
     }
 
-    pushUndoForWrites("Cut cells", result.appliedWrites);
+    pushHistoryForWrites("Cut cells", result.appliedWrites);
 
     const state =
       result.failed > 0
@@ -1893,6 +1944,56 @@ const renderSnapshot = (
       })
     );
   };
+  const redoLast = async (): Promise<void> => {
+    if (!options.redoLast) return;
+
+    tableEl.setAttribute("data-notidian-bases-redo-state", "pending");
+    const result = await options.redoLast();
+    for (const request of result.appliedWrites) {
+      const target = targetForRequest(request);
+      if (!target) continue;
+      setCellText(target.rowIndex, target.columnIndex, request.value);
+      setCellBaseValue(target.rowIndex, target.columnIndex, request.value);
+      applySuccessfulWriteToRenderedRow(
+        target.rowIndex,
+        target.columnIndex,
+        request
+      );
+      setCellState(target.rowIndex, target.columnIndex, "applied");
+    }
+    for (const failed of result.failedWrites) {
+      const target = targetForRequest(failed.request);
+      if (!target) continue;
+      if (
+        showConflict(
+          target.rowIndex,
+          target.columnIndex,
+          failed.request,
+          failed.error
+        )
+      ) {
+        continue;
+      }
+      setCellState(
+        target.rowIndex,
+        target.columnIndex,
+        "failed",
+        String((failed.error as { message?: unknown })?.message ?? failed.error)
+      );
+    }
+
+    const state =
+      result.failed > 0 ? "failed" : result.applied > 0 ? "applied" : "skipped";
+    tableEl.setAttribute("data-notidian-bases-redo-state", state);
+    containerEl.setAttribute(
+      "data-notidian-bases-last-redo",
+      JSON.stringify({
+        applied: result.applied,
+        failed: result.failed,
+        skipped: result.skipped,
+      })
+    );
+  };
   tableEl.addEventListener("keydown", (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
     const key = event.key.toLowerCase();
@@ -1929,7 +2030,13 @@ const renderSnapshot = (
     }
 
     if (!shortcut) return;
-    if (event.shiftKey || key !== "z") return;
+    const wantsRedo = key === "y" || (key === "z" && event.shiftKey);
+    if (wantsRedo) {
+      event.preventDefault();
+      void redoLast();
+      return;
+    }
+    if (key !== "z") return;
 
     event.preventDefault();
     void undoLast();
@@ -1976,7 +2083,7 @@ const renderSnapshot = (
             index,
             value,
             options.writeCell,
-            options.pushUndoEntry,
+            options.pushHistoryEntry,
             () => tableEl.focus(),
             applySuccessfulWriteToRenderedRow,
             showConflict,
@@ -2015,7 +2122,8 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
   private containerEl: HTMLElement;
   private controller: BasesQueryControllerLike;
   private obsidianApp: NotidianBasesViewAppLike | undefined;
-  private undoStack: NotidianBasesUndoEntry[] = [];
+  private undoStack: NotidianBasesHistoryEntry[] = [];
+  private redoStack: NotidianBasesHistoryEntry[] = [];
 
   constructor(
     controller: BasesQueryControllerLike,
@@ -2038,22 +2146,29 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
     await writeNotidianBasesCellEdit(this.obsidianApp, plan);
   };
 
-  private pushUndoEntry = (entry: NotidianBasesUndoEntry): void => {
-    if (entry.writes.length === 0) return;
-    this.undoStack = [...this.undoStack, entry].slice(-20);
+  private updateHistoryDepthAttributes = (): void => {
     this.containerEl.setAttribute(
       "data-notidian-bases-undo-depth",
       String(this.undoStack.length)
+    );
+    this.containerEl.setAttribute(
+      "data-notidian-bases-redo-depth",
+      String(this.redoStack.length)
     );
   };
 
-  private undoLast = async (): Promise<NotidianBasesStructuredPasteResult> => {
-    const entry = this.undoStack.pop();
-    this.containerEl.setAttribute(
-      "data-notidian-bases-undo-depth",
-      String(this.undoStack.length)
-    );
+  private pushHistoryEntry = (entry: NotidianBasesHistoryEntry): void => {
+    if (entry.undo.writes.length === 0 || entry.redo.writes.length === 0) {
+      return;
+    }
+    this.undoStack = [...this.undoStack, entry].slice(-20);
+    this.redoStack = [];
+    this.updateHistoryDepthAttributes();
+  };
 
+  private replayHistoryEntry = async (
+    entry: NotidianBasesUndoEntry | undefined
+  ): Promise<NotidianBasesStructuredPasteResult> => {
     const result: NotidianBasesStructuredPasteResult = {
       applied: 0,
       failed: 0,
@@ -2077,6 +2192,28 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
     return result;
   };
 
+  private undoLast = async (): Promise<NotidianBasesStructuredPasteResult> => {
+    const entry = this.undoStack.pop();
+    const result = await this.replayHistoryEntry(entry?.undo);
+    if (entry && result.failed === 0 && result.applied > 0) {
+      this.redoStack = [...this.redoStack, entry].slice(-20);
+    }
+    this.updateHistoryDepthAttributes();
+
+    return result;
+  };
+
+  private redoLast = async (): Promise<NotidianBasesStructuredPasteResult> => {
+    const entry = this.redoStack.pop();
+    const result = await this.replayHistoryEntry(entry?.redo);
+    if (entry && result.failed === 0 && result.applied > 0) {
+      this.undoStack = [...this.undoStack, entry].slice(-20);
+    }
+    this.updateHistoryDepthAttributes();
+
+    return result;
+  };
+
   public onDataUpdated(): void {
     const capabilities = notidianBasesRuntimeCapabilities({
       controller: this.controller,
@@ -2088,13 +2225,15 @@ export class NotidianBasesView extends RuntimeBasesViewBase {
     );
     renderSnapshot(this.containerEl, notidianBasesViewSnapshot(this), {
       writeCell: this.obsidianApp ? this.writeCell : undefined,
-      pushUndoEntry: this.obsidianApp ? this.pushUndoEntry : undefined,
+      pushHistoryEntry: this.obsidianApp ? this.pushHistoryEntry : undefined,
       undoLast: this.obsidianApp ? this.undoLast : undefined,
+      redoLast: this.obsidianApp ? this.redoLast : undefined,
       pathExists: this.obsidianApp
         ? (path: string) =>
             Boolean(this.obsidianApp?.vault?.getAbstractFileByPath?.(path))
         : undefined,
     });
+    this.updateHistoryDepthAttributes();
   }
 }
 

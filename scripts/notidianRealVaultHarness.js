@@ -1893,6 +1893,49 @@ const baseViewEvalCode = ({
         lastUndo: view.getAttribute("data-notidian-bases-last-undo"),
       };
     };
+    const redoCutStatusRatingCells = async (view) => {
+      const table = view.querySelector(".notidian-bases-table-view__table");
+      if (!table) {
+        return { ok: false, reason: "missing-cut-redo-table" };
+      }
+      table.focus();
+      const redoEvent = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "z",
+        metaKey: true,
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      table.dispatchEvent(redoEvent);
+      if (!redoEvent.defaultPrevented) {
+        return { ok: false, reason: "cut-redo-not-intercepted" };
+      }
+
+      const start = Date.now();
+      do {
+        const markdownStatus = await markdownFrontmatterValue(betaPath, "status");
+        const markdownRating = await markdownFrontmatterValue(betaPath, "rating");
+        if (String(markdownStatus) == "" && String(markdownRating) == "") {
+          return {
+            ok: true,
+            cutRedoValues: {
+              status: "",
+              rating: "",
+            },
+          };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      return {
+        ok: false,
+        reason: "cut-redo-not-applied",
+        currentStatus: await markdownFrontmatterValue(betaPath, "status"),
+        currentRating: await markdownFrontmatterValue(betaPath, "rating"),
+        lastRedo: view.getAttribute("data-notidian-bases-last-redo"),
+      };
+    };
     const pasteFileNameAndStatus = async (view) => {
       const headers = Array.from(view.querySelectorAll("thead th"))
         .map((header) => header.innerText.trim());
@@ -2254,6 +2297,24 @@ const baseViewEvalCode = ({
                 tableText: lastText,
               });
             }
+            const cutRedoResult = await redoCutStatusRatingCells(latestView() || view);
+            if (!cutRedoResult.ok) {
+              return finish({
+                ...cutRedoResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
+            const cutRedoUndoResult = await undoCutStatusRatingCells(latestView() || view);
+            if (!cutRedoUndoResult.ok) {
+              return finish({
+                ...cutRedoUndoResult,
+                basePath,
+                rowCount,
+                tableText: lastText,
+              });
+            }
             const titlePasteResult = await pasteFileNameAndStatus(latestView() || view);
             if (!titlePasteResult.ok) {
               return finish({
@@ -2294,6 +2355,8 @@ const baseViewEvalCode = ({
               copiedText: copyResult.copiedText,
               cutValues: cutResult.cutValues,
               cutUndoValues: cutUndoResult.cutUndoValues,
+              cutRedoValues: cutRedoResult.cutRedoValues,
+              cutRedoUndoValues: cutRedoUndoResult.cutUndoValues,
               titlePastePath: titlePasteResult.titlePastePath,
               titlePasteTitle: titlePasteResult.titlePasteTitle,
               titlePasteStatusValue: titlePasteResult.titlePasteStatusValue,
@@ -2585,6 +2648,22 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
       `Notidian custom Bases view smoke failed: expected cutUndoValues status=${DEFAULT_BASE_VIEW_CONFLICT_APPLIED} rating=2; got ${JSON.stringify(result.cutUndoValues)}`
     );
   }
+  if (
+    result.cutRedoValues?.status != "" ||
+    result.cutRedoValues?.rating != ""
+  ) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected cutRedoValues to be empty strings; got ${JSON.stringify(result.cutRedoValues)}`
+    );
+  }
+  if (
+    result.cutRedoUndoValues?.status != DEFAULT_BASE_VIEW_CONFLICT_APPLIED ||
+    result.cutRedoUndoValues?.rating != "2"
+  ) {
+    throw new Error(
+      `Notidian custom Bases view smoke failed: expected cutRedoUndoValues status=${DEFAULT_BASE_VIEW_CONFLICT_APPLIED} rating=2; got ${JSON.stringify(result.cutRedoUndoValues)}`
+    );
+  }
   const expectedTitlePastePath = `${paths.prefix}-${DEFAULT_BASE_VIEW_PASTE_RENAME_SUFFIX}.md`;
   if (result.titlePastePath != expectedTitlePastePath) {
     throw new Error(
@@ -2632,6 +2711,8 @@ const runBaseViewSmokeScenario = async ({ config, runner, paths }) => {
     baseViewCopiedText: result.copiedText,
     baseViewCutValues: result.cutValues,
     baseViewCutUndoValues: result.cutUndoValues,
+    baseViewCutRedoValues: result.cutRedoValues,
+    baseViewCutRedoUndoValues: result.cutRedoUndoValues,
     baseViewTitlePastePath: result.titlePastePath,
     baseViewTitlePasteStatusValue: result.titlePasteStatusValue,
     baseViewTitleUndoPath: result.titleUndoPath,
@@ -2817,6 +2898,8 @@ const runRealVaultSmokeHarness = async (config, runner) => {
   let baseViewCopiedText = null;
   let baseViewCutValues = null;
   let baseViewCutUndoValues = null;
+  let baseViewCutRedoValues = null;
+  let baseViewCutRedoUndoValues = null;
   let baseViewTitlePastePath = null;
   let baseViewTitlePasteStatusValue = null;
   let baseViewTitleUndoPath = null;
@@ -2931,6 +3014,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       baseViewCopiedText = viewPaths.baseViewCopiedText ?? null;
       baseViewCutValues = viewPaths.baseViewCutValues ?? null;
       baseViewCutUndoValues = viewPaths.baseViewCutUndoValues ?? null;
+      baseViewCutRedoValues = viewPaths.baseViewCutRedoValues ?? null;
+      baseViewCutRedoUndoValues =
+        viewPaths.baseViewCutRedoUndoValues ?? null;
       baseViewTitlePastePath = viewPaths.baseViewTitlePastePath ?? null;
       baseViewTitlePasteStatusValue =
         viewPaths.baseViewTitlePasteStatusValue ?? null;
@@ -2993,6 +3079,8 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     ...(baseViewCopiedText ? { baseViewCopiedText } : {}),
     ...(baseViewCutValues ? { baseViewCutValues } : {}),
     ...(baseViewCutUndoValues ? { baseViewCutUndoValues } : {}),
+    ...(baseViewCutRedoValues ? { baseViewCutRedoValues } : {}),
+    ...(baseViewCutRedoUndoValues ? { baseViewCutRedoUndoValues } : {}),
     ...(baseViewTitlePastePath ? { baseViewTitlePastePath } : {}),
     ...(baseViewTitlePasteStatusValue
       ? { baseViewTitlePasteStatusValue }
