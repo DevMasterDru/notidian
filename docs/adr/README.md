@@ -16,30 +16,30 @@ If you need the current implementation status rather than the decision history, 
 | [0002](0002-frontmatter-backed-context-columns.md) | Frontmatter-backed context columns | Explains how existing YAML properties become visible/editable table columns without turning MDB rows into the durable metadata store. |
 | [0003](0003-editable-page-titles-through-file-renames.md) | Editable page titles through file renames | Canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks. |
 | [0004](0004-authority-hardening-transactions-and-reconciliation.md) | Authority hardening transactions and reconciliation | Records the transaction, persistence, type reconciliation, and rename deduplication hardening that keeps the authority model trustworthy. |
-| [0005](0005-obsidian-bases-alignment-without-replacing-contexts.md) | Obsidian Bases alignment without replacing contexts | Explains why Notidian aligns with Bases' data authority model while retaining Make.md contexts for richer view behavior. |
+| [0005](0005-obsidian-bases-alignment-without-replacing-contexts.md) | Obsidian Bases alignment without replacing contexts | Historical record for authority-model lessons taken from Bases before ADR 0014 removed Bases from the active architecture. |
 | [0006](0006-unified-table-edit-transactions.md) | Unified table edit transactions | Defines the shared execution path for normal value edits, field edits, paste writes, and future grid gestures. |
 | [0007](0007-table-edit-feedback.md) | Table edit feedback | Defines transient pending, failed, and skipped cell feedback derived from edit transaction results. |
 | [0008](0008-table-undo-journal.md) | Table undo journal | Defines the table-local undo stack for bulk operations and why replay goes through authority-aware write paths. |
 | [0009](0009-frontmatter-conflict-detection.md) | Frontmatter conflict detection | Defines stale frontmatter write detection so table edits do not overwrite newer canonical metadata. |
 | [0010](0010-legacy-context-audit-and-migration.md) | Legacy context audit and migration | Defines audit-first migration for old Make.md contexts so frontmatter authority can be restored without losing context data. |
-| [0011](0011-bases-first-convergence.md) | Bases-first convergence | Historical record for the Bases-first direction that produced the `.base` adapter and custom view work. Superseded by ADR 0013 as the product strategy. |
-| [0012](0012-custom-bases-view-feasibility-gate.md) | Custom Bases view feasibility gate | Defines the first `notidian-table` custom Bases view as an optional compatibility and runtime-proof surface. |
-| [0013](0013-notidian-first-canonical-file-architecture.md) | Notidian-first canonical file architecture | Current governing strategy: Notidian is the primary database UX, files/frontmatter are canonical ordinary data, and Bases is optional interop. |
+| [0011](0011-bases-first-convergence.md) | Bases-first convergence | Historical record for the Bases-first direction that produced the `.base` adapter and custom view work. Superseded by ADR 0014 as the product strategy. |
+| [0012](0012-custom-bases-view-feasibility-gate.md) | Custom Bases view feasibility gate | Historical record for the retired `notidian-table` custom Bases view experiment. |
+| [0013](0013-notidian-first-canonical-file-architecture.md) | Notidian-first canonical file architecture | Historical record for the Notidian-first/Bases-compatible strategy. Superseded by ADR 0014. |
+| [0014](0014-notidian-only-personal-database-engine.md) | Notidian-only personal database engine | Current governing strategy: Notidian is the only intended database engine/interface, while files/frontmatter remain canonical storage. |
 
 ## Decision Summary
 
-Notidian uses a Notidian-first canonical file architecture:
+Notidian uses a Notidian-only personal database architecture:
 
 - File paths and file names are canonical page identity.
 - Markdown frontmatter is canonical ordinary note metadata.
-- Notidian is the primary database UX.
-- Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, compatibility cache state, legacy state, and explicitly Notidian-owned fields.
-- `.base`-compatible semantics are supported for optional import, export, mirroring, and custom view compatibility.
-- Custom Bases views are a proof and compatibility surface, not the required primary table architecture.
+- Notidian is the only intended database engine/interface.
+- Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, legacy state, and explicitly Notidian-owned fields.
+- Native Bases and `.base` compatibility are not part of the active architecture.
 - Projected values from files/frontmatter may be cached for rendering, but they must be rebuilt from the owning layer and must not become the durable source of truth.
 
 ## Maintenance Rule
 
-Any future change that moves authority between files, frontmatter, context MDB storage, computed projections, or `.base` interoperability should update the relevant ADR in this directory. The goal is that a future maintainer can understand the governing decision without reconstructing it from chat history or implementation diffs.
+Any future change that moves authority between files, frontmatter, context MDB storage, or computed projections should update the relevant ADR in this directory. The goal is that a future maintainer can understand the governing decision without reconstructing it from chat history or implementation diffs.
 
 Changes that only add implemented behavior inside the accepted authority model should update [Current State](../current-state.md), and should add or update an ADR only when they change a durable architectural decision.

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Superseded:** Do not execute this plan for current work. It preserved optional Bases compatibility, but [ADR 0014](../../adr/0014-notidian-only-personal-database-engine.md) now governs Notidian as a personal Notidian-only database engine. Use [Notidian-only personal core plan](2026-05-27-notidian-only-personal-core.md) instead.
+
 **Goal:** Make Notidian a final, coherent, Notidian-first database system: Notidian is the primary Notion-like table UX, Markdown files/frontmatter/file identity are canonical ordinary data, context MDB is limited to explicit Notidian/legacy/view state, and Bases remains optional interoperability rather than the product center.
 
 **Architecture:** Notidian-first canonical file architecture. A database is a Notidian view over Markdown files. Row identity is file path. Page title is file basename edited through rename/move transactions. Ordinary fields are frontmatter-backed. View state and explicit Notidian-only state may live in context MDB. `.base` support is import/export/mirror/custom-view compatibility and must never become hidden ordinary data authority.

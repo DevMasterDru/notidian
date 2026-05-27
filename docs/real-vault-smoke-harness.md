@@ -13,13 +13,11 @@ Run this harness after changes that affect:
 - Metadata-cache conflict detection.
 - Table undo paths that write files.
 - Table DOM rendering, paste, undo, rename, or conflict actions when using `--ui`.
-- `.base` export command behavior when using `--base-export`.
-- Custom Bases view registration, rendering, editing, paste, undo/redo, and rename behavior when using `--base-view`.
 - Plugin startup, reload, or vault integration behavior.
 
 Use a disposable test vault when possible. If you use a real working vault, make sure it is backed up.
 
-Before running command-level smoke tests such as `--base-export`, make sure the target vault's installed Notidian plugin bundle is the current build. A stale `.obsidian/plugins/notidian/main.js` can reload successfully while missing newly added commands.
+Before running live smoke tests, make sure the target vault's installed Notidian plugin bundle is the current build. A stale `.obsidian/plugins/notidian/main.js` can reload successfully while missing newly added behavior.
 
 ```bash
 npm run build
@@ -49,7 +47,7 @@ When `--ui` is passed, the harness also writes the fixture root's default frame 
 
 The harness wraps each Obsidian CLI command with a hard process timeout. File rename is performed through `obsidian eval` and Obsidian's `fileManager.renameFile` API instead of the CLI `rename` command because the CLI command can complete the rename but keep the child process open. The API path still exercises Obsidian's native rename event and metadata-cache behavior without letting a finished rename stall the smoke run.
 
-The harness waits briefly before and after fixture cleanup. This gives Obsidian's metadata cache and native Bases indexer time to settle before fixture files or exported `.base` files are deleted and before the final developer-error check runs.
+The harness waits briefly before and after fixture cleanup. This gives Obsidian's metadata cache time to settle before fixture files are deleted and before the final developer-error check runs.
 
 ## Run The Smoke Harness
 
@@ -81,18 +79,6 @@ Run the live table UI smoke:
 
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write --ui
-```
-
-Run the `.base` export command smoke:
-
-```bash
-npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
-```
-
-Run the custom Bases view smoke:
-
-```bash
-npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
 ```
 
 ## What The Harness Checks
@@ -131,40 +117,6 @@ With `--ui`, the harness also performs live table scenarios:
 
 The conflict scenario intentionally creates the stale authority state inside Notidian's live path index instead of racing a real external file edit. Real external edits often refresh the table before a stale row can be exercised. The lower-level transaction tests cover detection against canonical metadata; this live UI step verifies that the rendered conflict action can force the attempted value through the same write path.
 
-With `--base-export`, the harness also performs a live `.base` export command scenario:
-
-1. Sets the active Notidian path to the fixture root folder.
-2. Executes the real `Export active folder as Obsidian Base` Obsidian command.
-3. Waits for the export preview modal.
-4. Reads the previewed output path from the modal.
-5. Clicks the real `Export .base` button.
-6. Waits for the generated `.base` file.
-7. Verifies the exported YAML contains a folder scope and table view.
-8. Deletes the exported `.base` file during fixture cleanup unless `--keep-fixture` was passed.
-
-With `--base-view`, the harness also performs a live custom Bases view scenario:
-
-1. Verifies the loaded Notidian plugin registered the custom Bases view.
-2. Writes a temporary `.base` file with `type: "notidian-table"`.
-3. Opens the `.base` file through Obsidian.
-4. Waits for the `.notidian-bases-table-view` DOM.
-5. Verifies the fixture row and visible `status` and `rating` properties render through the custom view.
-6. Verifies the view exposed runtime capability metadata for the Bases controller/config/data/value surface.
-7. Edits the Beta row's `status` note-property cell through the custom view.
-8. Pastes a one-row, two-column TSV payload into Beta `status` and `rating` note-property cells.
-9. Presses `Cmd/Ctrl+Z` in the custom view and verifies the pasted note-property cells are restored through frontmatter writes.
-10. Creates a deterministic stale frontmatter state, edits the visible `status` cell, clicks Apply anyway on the surfaced conflict action, and verifies the attempted value reaches the Markdown file.
-11. Selects the Beta `status` and `rating` cells, presses `Cmd/Ctrl+C`, and verifies the selected range is serialized as TSV.
-12. Presses `Cmd/Ctrl+X` on the same range and verifies the copied cells are cleared through frontmatter writes.
-13. Presses `Cmd/Ctrl+Z` and verifies the cut note-property cells are restored through frontmatter writes.
-14. Presses `Cmd/Ctrl+Shift+Z` and verifies the cut is redone through frontmatter writes.
-15. Presses `Cmd/Ctrl+Z` again and verifies the cut cells are restored before later title tests continue.
-16. Pastes a TSV payload into the Beta row's `file.name` and `status` cells, waits for the renamed Markdown file, and verifies the same-row status write lands on the renamed path.
-17. Presses `Cmd/Ctrl+Z` in the custom view and verifies the mixed title/status paste restores the status value before renaming the file back.
-18. Edits the Beta row's `file.name` cell through the custom view and waits for the final renamed Markdown file.
-19. Waits until Obsidian metadata reports the conflict-applied `status` and restored `rating` values on the renamed Beta fixture note.
-20. Deletes the temporary `.base` file and renamed fixture during cleanup unless `--keep-fixture` was passed.
-
 ## Options
 
 | Option | Default | Purpose |
@@ -173,8 +125,6 @@ With `--base-view`, the harness also performs a live custom Bases view scenario:
 | `--allow-write` | Off | Required before fixture creation. |
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
 | `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, conflict apply, and file-title rename workflows. |
-| `--base-export` | Off | Also exercises the live `.base` export command and deletes the generated `.base` file during cleanup. |
-| `--base-view` | Off | Also exercises the live `notidian-table` custom Bases view and deletes the temporary `.base` file during cleanup. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
 | `--fixture-root=<folder>` | `Notidian Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
@@ -200,7 +150,7 @@ The harness has normal Jest tests that do not require Obsidian:
 npm test -- scripts/notidianRealVaultHarness.test.js --runInBand
 ```
 
-Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, optional `.base` export mode, optional custom Bases view mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
+Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, optional UI mode, expanded UI workflow sequencing, UI failure reporting, child-process timeouts, and cleanup behavior.
 
 ## Current Limits
 
@@ -209,6 +159,5 @@ This is a smoke harness, not the final real-vault test suite.
 Still needed:
 
 - Broader live UI automation for multi-row paste, copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, and additional metadata timing fixtures.
-- Deeper live `.base` validation for typed custom-view editing, multi-row custom-view paste/copy/cut, rejected title edits, swap/cycle title paste, additional redo cases, Bases formula/sort/group behavior, and runtime API changes.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.

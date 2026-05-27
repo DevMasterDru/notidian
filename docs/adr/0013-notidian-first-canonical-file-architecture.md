@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0014](0014-notidian-only-personal-database-engine.md) as the current strategic architecture.
 
-Supersedes ADR 0011 as the strategic product direction. ADR 0011 remains useful historical context for why Bases alignment was explored, but Notidian is no longer defined as Bases-first.
+This ADR remains useful for the canonical file/frontmatter authority model. Its optional Bases compatibility pillar is no longer part of the target system.
 
 ## Date
 
@@ -28,7 +28,7 @@ The user's product preference is now explicit:
 - The data must behave like a Notion database where useful, but without Notion's unnecessary complexity.
 - Ordinary data governance must not be decoupled from Markdown files, file paths, and frontmatter.
 
-This changes the strategic center. Native Bases remains important for interoperability and semantics, but it should not own Notidian's product architecture.
+This changed the strategic center at the time. ADR 0014 later narrowed this further: native Bases is no longer an active compatibility target for this personal tool.
 
 ## Decision
 
@@ -42,8 +42,8 @@ The governing product contract is:
 - Markdown frontmatter owns ordinary editable properties.
 - Notidian context MDB stores view configuration, UI preferences, legacy state, compatibility state, relations, formulas that cannot yet be represented canonically elsewhere, and explicit Notidian-owned fields.
 - Context MDB must not silently own ordinary note metadata.
-- `.base` files are optional interoperability artifacts, import/export targets, mirror targets, or runtime proof surfaces. They are not the default product center and not the ordinary data authority.
-- Native Bases behavior informs compatibility decisions, but Notidian does not have to become native Bases.
+- `.base` files were optional interoperability artifacts, import/export targets, mirror targets, or runtime proof surfaces under this ADR. ADR 0014 removes them from the active target architecture.
+- Native Bases behavior informed compatibility decisions, but Notidian did not have to become native Bases.
 
 This decision keeps the strongest part of Bases alignment while removing the strategic mistake: treating native Bases as the destination instead of treating it as a compatible Obsidian surface.
 
@@ -61,7 +61,7 @@ Every durable value must have exactly one canonical owner.
 | View state | Notidian view model, stored in context MDB today | Own layout, visible columns, widths, filters, grouping, sorting, local IDs, and UX preferences. |
 | Explicit Notidian-owned fields | Notidian context MDB | Store only when the field is clearly labeled and cannot be treated as ordinary note metadata. |
 | Legacy Make.md values | Notidian context MDB until audited | Preserve, classify, migrate, or explicitly retain. |
-| Bases interop | `.base` files | Export/import/mirror supported semantics without making `.base` canonical. |
+| Bases interop | Retired by ADR 0014 | Historical research only; not part of the active Notidian-only core. |
 
 ## Why Direct File-Name Editing Was Avoided
 
@@ -170,8 +170,8 @@ Future work must preserve these rules:
 - A table edit is accepted only after the canonical write succeeds.
 - Stale frontmatter writes are skipped or explicitly resolved by the user.
 - Context MDB cannot silently shadow ordinary frontmatter.
-- `.base` files cannot become the only source of ordinary Notidian database data.
-- Unsupported import/export/mirror semantics must be surfaced.
+- `.base` files are not part of the active Notidian-only core.
+- Unsupported import/export/mirror semantics must be surfaced only if a future explicit Bases feature is reintroduced.
 - Legacy context-only values must not be stripped without audit, preview, and explicit resolution.
 - AI guidance for Atlas Vault database creation must default to Markdown files plus frontmatter plus Notidian views.
 
@@ -183,4 +183,5 @@ Future work must preserve these rules:
 - ADR 0005 remains historical Bases-alignment context but is narrowed by this ADR.
 - ADR 0010 remains the rule for audit-first legacy context migration.
 - ADR 0011 is superseded as the strategic product direction.
-- ADR 0012 remains accepted as an optional Bases compatibility and feasibility gate, not as a required table replacement path.
+- ADR 0012 is retired by ADR 0014.
+- ADR 0014 supersedes this ADR as the current personal-tool strategy.

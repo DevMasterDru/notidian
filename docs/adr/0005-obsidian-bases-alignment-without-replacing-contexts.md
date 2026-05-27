@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted. Refined by [ADR 0011](0011-bases-first-convergence.md).
+Superseded as strategy by [ADR 0014](0014-notidian-only-personal-database-engine.md).
+
+This record remains useful historical context for the authority-model lessons taken from Bases. Native Bases is no longer an active Notidian target.
 
 ## Date
 

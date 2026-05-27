@@ -2,9 +2,9 @@
 
 ## Status
 
-Superseded by [ADR 0013](0013-notidian-first-canonical-file-architecture.md) as the strategic product direction.
+Superseded by [ADR 0013](0013-notidian-first-canonical-file-architecture.md) and then [ADR 0014](0014-notidian-only-personal-database-engine.md) as the strategic product direction.
 
-This record remains accepted historical context for why Notidian explored Bases alignment, `.base` export, and custom Bases view feasibility. Current product decisions should follow ADR 0013.
+This record remains accepted historical context for why Notidian explored Bases alignment, `.base` export, and custom Bases view feasibility. Current product decisions should follow ADR 0014.
 
 ## Date
 
@@ -12,7 +12,7 @@ This record remains accepted historical context for why Notidian explored Bases 
 
 ## Context
 
-Historical note: this ADR was written when the preferred direction appeared to be native Bases-first convergence. Subsequent product evaluation changed the center to Notidian-first canonical files: Notidian is the primary database UX, while Bases is optional interoperability and runtime proof.
+Historical note: this ADR was written when the preferred direction appeared to be native Bases-first convergence. Subsequent product evaluation changed the center to Notidian-first canonical files, then to a Notidian-only personal database engine.
 
 Make.md built its own context/indexing/database mechanism before Obsidian Bases existed. That history explains why Make.md contexts contain schema, rows, ordering, formulas, relations, aggregates, view state, and compatibility data.
 
@@ -38,7 +38,7 @@ The question is no longer whether Notidian should merely "align" with Bases. It 
 
 ## Decision
 
-At the time this ADR was accepted, it adopted Bases-first convergence as Notidian's long-term architecture. ADR 0013 supersedes that strategy with Notidian-first canonical files while preserving Bases compatibility as an interoperability boundary.
+At the time this ADR was accepted, it adopted Bases-first convergence as Notidian's long-term architecture. ADR 0013 superseded that strategy with Notidian-first canonical files while preserving Bases compatibility as an interoperability boundary. ADR 0014 supersedes both by removing Bases from the active target architecture.
 
 Notidian's durable product contract is:
 
@@ -217,6 +217,7 @@ Future work must preserve these rules:
 ## Relationship To Other ADRs
 
 - ADR 0013 supersedes this ADR as the current product direction while preserving Bases compatibility as an interop boundary.
+- ADR 0014 supersedes ADR 0013 as the current personal-tool direction and removes Bases from the active architecture.
 - ADR 0001 defines the authority-partitioned model this decision narrows toward Bases semantics.
 - ADR 0002 defines frontmatter-backed context columns.
 - ADR 0003 defines controlled page-title renames.

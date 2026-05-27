@@ -10,7 +10,7 @@ For architectural reasoning, read the ADRs. This page is the practical behavior 
 | --- | --- | --- |
 | Page title | Markdown file path/name | The `File` cell displays the basename without extension. Editing it renames the file. |
 | Ordinary metadata | Markdown frontmatter | Existing YAML properties appear as table columns and edits write back to the note. |
-| View layout | Notidian view model, stored in context MDB today | Column order, hidden columns, sort/group/filter state, and row order stay in Notidian view state. `.base` import/export/mirroring is optional compatibility. |
+| View layout | Notidian view model, stored in context MDB today | Column order, hidden columns, sort/group/filter state, and row order stay in Notidian view state. |
 | Notidian-owned fields | Notidian context MDB | Values stay in the context only when the field is explicitly context-owned. |
 | Formulas and projections | Computed from current inputs | Displayed in the table, but skipped by paste and normal value writes. |
 
@@ -128,7 +128,7 @@ Undo replays inverse writes through the same authority-aware paths as the origin
 - Frontmatter undo writes the previous value back to the Markdown file.
 - Context-owned undo writes the previous context value back to the context table.
 
-Redo is not implemented yet for the context-backed table journal. The custom Bases view has transient redo for its applied edit, paste, cut, and rename history.
+Redo is not implemented yet for the context-backed table journal.
 
 ## Understand Cell Feedback
 
@@ -177,7 +177,6 @@ These are known gaps, not accidental omissions:
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
 - Authority-aware property rename/delete/schema flows.
-- `.base` import, mirroring, and optional custom Bases view parity with the primary Notidian table.
 
 ## Related Records
 

@@ -2,7 +2,7 @@
 
 Status: Accepted architecture reference.
 
-Governing ADR: [ADR 0013: Notidian-first canonical file architecture](adr/0013-notidian-first-canonical-file-architecture.md).
+Governing ADR: [ADR 0014: Notidian-only personal database engine](adr/0014-notidian-only-personal-database-engine.md).
 
 ## Mission
 
@@ -15,7 +15,7 @@ The system optimizes for:
 - file names editable as titles through real file operations;
 - frontmatter properties visible and editable as table columns;
 - explicit migration from old Make.md context data;
-- compatibility with Obsidian Bases without requiring native Bases as the main UI.
+- a single Notidian database engine/interface for Atlas Vault.
 
 The system does not optimize for cloning every Notion feature or preserving every Make.md feature. Features stay only when they serve the Notidian database workflow and can be implemented without hidden ordinary-data authority.
 
@@ -43,7 +43,6 @@ The table may feel like a spreadsheet. It may render cached projections. It may 
 | Notidian table UX | Selection, editing, copy/paste, fill, undo/redo, conflict UI, schema UI | Detached ordinary row data. |
 | Notidian transaction layer | Safe write planning and application | Silent overwrite or sync ambiguity. |
 | Notidian context MDB | View state, explicit Notidian-owned fields, legacy state, compatibility state | Ordinary note metadata unless explicitly Notidian-owned. |
-| Bases interop | Optional `.base` export/import/mirror/custom view compatibility | Required product governance. |
 | Real-vault harness | Runtime proof in Obsidian | Product behavior that bypasses source-of-truth rules. |
 
 ## Database Model
@@ -135,19 +134,6 @@ Disallowed context categories:
 - hidden copies of ordinary frontmatter values treated as durable row data;
 - detached page titles for Markdown-file rows;
 - bidirectional sync state that lets both frontmatter and context claim ownership of the same value.
-
-### `.base` Storage
-
-`.base` files are optional interoperability artifacts.
-
-They may be:
-
-- exported from a Notidian view;
-- imported into a Notidian view;
-- mirrored for compatibility;
-- used to host the optional `notidian-table` custom Bases view.
-
-They do not become the default source of truth for ordinary Notidian databases. If a `.base` view and a Notidian view disagree, ordinary data still comes from files and frontmatter; view configuration ownership depends on the explicit import/export/mirror mode.
 
 ### Transient State
 
@@ -272,61 +258,12 @@ The migration sequence is:
 
 Automatic cleanup is allowed only for duplicates that match frontmatter exactly and have no blocking context-only values or conflicts.
 
-## Bases Compatibility
-
-Bases compatibility is a product boundary, not the product center.
-
-### Export
-
-Export maps supported Notidian view semantics to `.base` YAML and reports unsupported features.
-
-Supported semantics should include:
-
-- folder scope;
-- Markdown-file rows;
-- frontmatter properties;
-- file projections;
-- visible columns;
-- display names;
-- simple filters;
-- grouping;
-- summaries where representable.
-
-Unsupported semantics must be visible in the export preview.
-
-### Import
-
-Import should create or update a Notidian view from supported `.base` semantics.
-
-Import must not convert `.base` into the ordinary data authority. Files and frontmatter still own row values.
-
-### Mirror
-
-Mirroring is optional and explicit.
-
-One side must own each concern:
-
-- files/frontmatter own ordinary data;
-- Notidian owns Notidian view UX state unless the user chooses a `.base`-owned view mirror;
-- unsupported semantics are reported and preserved where possible.
-
-### Custom Bases View
-
-`notidian-table` remains useful as:
-
-- runtime proof that Notidian can render a custom Bases query result;
-- compatibility for users who open `.base` files;
-- a test surface for Obsidian Bases API behavior.
-
-It is not required to become the only or primary Notidian table.
-
 ## AI And Skill Architecture
 
 AI agents should follow this hierarchy:
 
 ```text
 Notidian decides product and source-of-truth rules.
-Obsidian Bases explains .base compatibility semantics.
 Obsidian CLI proves behavior in a live vault.
 ```
 
@@ -335,9 +272,8 @@ For Atlas Vault database creation, the default format is:
 - a folder of Markdown files;
 - frontmatter properties for ordinary fields;
 - Notidian view configuration for database UX;
-- optional `.base` export only when the user asks for native Bases interoperability.
 
-Agents must not create hidden context-only ordinary metadata when the user asks for a database.
+Agents must not create hidden context-only ordinary metadata or native Bases files when the user asks for a database.
 
 ## Runtime Verification
 
@@ -358,13 +294,6 @@ npm run test:real-vault -- vault="Atlas Vault" --allow-write
 obsidian vault="Atlas Vault" dev:errors
 ```
 
-Use narrower live flags for focused coverage:
-
-```bash
-npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
-npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
-```
-
 ## Final Architecture Target
 
 The final Notidian system should be:
@@ -372,7 +301,7 @@ The final Notidian system should be:
 - Notidian-first in UX;
 - Markdown/frontmatter-first in data ownership;
 - context-aware only for explicit Notidian state and legacy preservation;
-- Bases-compatible without requiring native Bases;
+- independent of native Bases;
 - safe under external edits;
 - easy for AI agents to operate because there is one ordinary data authority;
 - smaller than Make.md because unused parallel database machinery is removed or demoted.
