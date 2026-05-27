@@ -79,6 +79,7 @@ import {
   createTableUndoEntry,
   filterTableUndoEntryForResult,
   pushTableUndoEntry,
+  tableUndoWriteForDirectEdit,
   TableUndoEntry,
 } from "core/utils/contexts/tableUndoJournal";
 import {
@@ -115,6 +116,16 @@ declare module "@tanstack/table-core" {
     schemaId: string;
   }
 }
+
+type TableUndoJournalState = {
+  undo: TableUndoEntry[];
+  redo: TableUndoEntry[];
+};
+
+const tableUndoJournalStore = new Map<string, TableUndoJournalState>();
+
+const tableUndoJournalForKey = (key: string): TableUndoJournalState =>
+  tableUndoJournalStore.get(key) ?? { undo: [], redo: [] };
 
 export enum CellEditMode {
   EditModeReadOnly,
@@ -156,6 +167,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     dbSchema,
     contextTable,
     saveDB,
+    source,
     selectedRows,
     selectRows,
     sortedColumns: cols,
@@ -187,14 +199,38 @@ export const TableView = (props: { superstate: Superstate }) => {
     useState<TableCellResetTokens>({});
   const [tableUndoStack, setTableUndoStack] = useState<TableUndoEntry[]>([]);
   const [tableRedoStack, setTableRedoStack] = useState<TableUndoEntry[]>([]);
+  const tableUndoStackRef = useRef<TableUndoEntry[]>([]);
+  const tableRedoStackRef = useRef<TableUndoEntry[]>([]);
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
   const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
+  const tableUndoJournalKey = `${source ?? spaceCache?.path ?? ""}::${
+    dbSchema?.id ?? ""
+  }`;
+  const replaceTableUndoJournal = (
+    undo: TableUndoEntry[],
+    redo: TableUndoEntry[]
+  ) => {
+    tableUndoJournalStore.set(tableUndoJournalKey, { undo, redo });
+    tableUndoStackRef.current = undo;
+    tableRedoStackRef.current = redo;
+    setTableUndoStack(undo);
+    setTableRedoStack(redo);
+  };
+
   useEffect(() => {
     setColsSize({ ...(predicate?.colsSize ?? {}), "+": 30 });
   }, [predicate]);
+
+  useEffect(() => {
+    const journal = tableUndoJournalForKey(tableUndoJournalKey);
+    tableUndoStackRef.current = journal.undo;
+    tableRedoStackRef.current = journal.redo;
+    setTableUndoStack(journal.undo);
+    setTableRedoStack(journal.redo);
+  }, [tableUndoJournalKey]);
 
   useEffect(() => {
     setCurrentEdit(null);
@@ -302,8 +338,26 @@ export const TableView = (props: { superstate: Superstate }) => {
 
   const pushTableUndo = (entry: TableUndoEntry) => {
     if (entry.writes.length == 0) return;
-    setTableUndoStack((stack) => pushTableUndoEntry(stack, entry));
-    setTableRedoStack([]);
+    const nextUndoStack = pushTableUndoEntry(
+      tableUndoStackRef.current,
+      entry
+    );
+    replaceTableUndoJournal(nextUndoStack, []);
+  };
+
+  const pushDirectTableUndo = (
+    write: ReturnType<typeof tableUndoWriteForDirectEdit>,
+    result: TableEditTransactionResult,
+    label = "Edit cell"
+  ) => {
+    if (!write || result.applied <= 0) return;
+    const undoEntry = createTableUndoEntry({
+      label,
+      rows: data,
+      columns: cols,
+      writes: [write],
+    });
+    pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
   };
 
   const newRow = (name: string, index?: number, data?: DBRow) => {
@@ -436,9 +490,11 @@ export const TableView = (props: { superstate: Superstate }) => {
       pasteSelection("", "Clear cells");
     };
     const undoLastTableOperation = async () => {
-      const undoEntry = tableUndoStack[tableUndoStack.length - 1];
+      const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
+      const undoEntry = currentJournal.undo[currentJournal.undo.length - 1];
       if (!undoEntry) return;
-      setTableUndoStack((stack) => stack.slice(0, -1));
+      const nextUndoStack = currentJournal.undo.slice(0, -1);
+      replaceTableUndoJournal(nextUndoStack, currentJournal.redo);
 
       const operationId = beginCellFeedbackOperation(undoEntry.writes);
       const result = await applyTableEdits(undoEntry.writes);
@@ -448,16 +504,28 @@ export const TableView = (props: { superstate: Superstate }) => {
         result.failed.length == 0 &&
         result.skipped.length == 0
       ) {
-        setTableRedoStack((stack) => pushTableUndoEntry(stack, undoEntry));
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        const nextRedoStack = pushTableUndoEntry(
+          latestJournal.redo,
+          undoEntry
+        );
+        replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
         props.superstate.ui.notify(`Undid ${undoEntry.label}.`);
       } else {
-        setTableUndoStack((stack) => pushTableUndoEntry(stack, undoEntry));
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        const restoredUndoStack = pushTableUndoEntry(
+          latestJournal.undo,
+          undoEntry
+        );
+        replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);
       }
     };
     const redoLastTableOperation = async () => {
-      const redoEntry = tableRedoStack[tableRedoStack.length - 1];
+      const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
+      const redoEntry = currentJournal.redo[currentJournal.redo.length - 1];
       if (!redoEntry) return;
-      setTableRedoStack((stack) => stack.slice(0, -1));
+      const nextRedoStack = currentJournal.redo.slice(0, -1);
+      replaceTableUndoJournal(currentJournal.undo, nextRedoStack);
 
       const operationId = beginCellFeedbackOperation(redoEntry.redoWrites);
       const result = await applyTableEdits(redoEntry.redoWrites);
@@ -467,10 +535,20 @@ export const TableView = (props: { superstate: Superstate }) => {
         result.failed.length == 0 &&
         result.skipped.length == 0
       ) {
-        setTableUndoStack((stack) => pushTableUndoEntry(stack, redoEntry));
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        const nextUndoStack = pushTableUndoEntry(
+          latestJournal.undo,
+          redoEntry
+        );
+        replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
         props.superstate.ui.notify(`Redid ${redoEntry.label}.`);
       } else {
-        setTableRedoStack((stack) => pushTableUndoEntry(stack, redoEntry));
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        const restoredRedoStack = pushTableUndoEntry(
+          latestJournal.redo,
+          redoEntry
+        );
+        replaceTableUndoJournal(latestJournal.undo, restoredRedoStack);
       }
     };
     const nextRow = () => {
@@ -519,7 +597,7 @@ export const TableView = (props: { superstate: Superstate }) => {
         e.key.toLowerCase() == "y") &&
       (e.metaKey || e.ctrlKey)
     ) {
-      if (tableRedoStack.length > 0) {
+      if (tableUndoJournalForKey(tableUndoJournalKey).redo.length > 0) {
         redoLastTableOperation();
         e.preventDefault();
       }
@@ -530,7 +608,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       (e.metaKey || e.ctrlKey) &&
       !e.shiftKey
     ) {
-      if (tableUndoStack.length > 0) {
+      if (tableUndoJournalForKey(tableUndoJournalKey).undo.length > 0) {
         undoLastTableOperation();
         e.preventDefault();
       }
@@ -608,6 +686,11 @@ export const TableView = (props: { superstate: Superstate }) => {
             const tableIndex = parseInt((data[index] as DBRow)["_index"]);
             const saveValue = async (value: string) => {
               if (initialValue != value) {
+                const undoWrite = tableUndoWriteForDirectEdit({
+                  rowId: rowIndex.toString(),
+                  column: f,
+                  value,
+                });
                 const operationId = beginCellFeedbackOperation([
                   feedbackWriteForDirectCellEdit({
                     rowId: rowIndex.toString(),
@@ -622,12 +705,21 @@ export const TableView = (props: { superstate: Superstate }) => {
                   f.table,
                   rowIndex
                 );
-                if (result) finishCellFeedbackOperation(operationId, result);
+                if (result) {
+                  finishCellFeedbackOperation(operationId, result);
+                  pushDirectTableUndo(undoWrite, result);
+                }
               }
               setCurrentEdit(null);
               setSelectedColumn(null);
             };
             const saveFieldValue = async (fieldValue: string, value: string) => {
+              const undoWrite = tableUndoWriteForDirectEdit({
+                rowId: rowIndex.toString(),
+                column: f,
+                value,
+                fieldValue,
+              });
               const operationId = beginCellFeedbackOperation([
                 feedbackWriteForDirectCellEdit({
                   rowId: rowIndex.toString(),
@@ -644,9 +736,17 @@ export const TableView = (props: { superstate: Superstate }) => {
                 f.table,
                 rowIndex
               );
-              if (result) finishCellFeedbackOperation(operationId, result);
+              if (result) {
+                finishCellFeedbackOperation(operationId, result);
+                pushDirectTableUndo(undoWrite, result);
+              }
             };
             const renameValue = async (value: string) => {
+              const undoWrite = tableUndoWriteForDirectEdit({
+                rowId: rowIndex.toString(),
+                column: f,
+                value,
+              });
               const write = feedbackWriteForDirectCellEdit({
                 rowId: rowIndex.toString(),
                 columnName: f.name,
@@ -671,6 +771,18 @@ export const TableView = (props: { superstate: Superstate }) => {
                       },
                     ],
               });
+              if (renamedPath) {
+                pushDirectTableUndo(
+                  undoWrite,
+                  {
+                    ok: true,
+                    applied: 1,
+                    skipped: [],
+                    failed: [],
+                  },
+                  "Rename file"
+                );
+              }
               return renamedPath;
             };
             const editMode = readMode

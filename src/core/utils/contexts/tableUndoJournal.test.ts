@@ -3,6 +3,7 @@ import {
   createTableUndoEntry,
   filterTableUndoEntryForResult,
   pushTableUndoEntry,
+  tableUndoWriteForDirectEdit,
 } from "./tableUndoJournal";
 
 const rows = [
@@ -21,6 +22,59 @@ const rows = [
 ];
 
 describe("tableUndoJournal", () => {
+  it("creates direct edit history writes with column authority", () => {
+    expect(
+      tableUndoWriteForDirectEdit({
+        rowId: "0",
+        column: {
+          name: "status",
+          type: "option",
+          source: "frontmatter",
+          value: JSON.stringify({
+            options: [{ name: "old", value: "old" }],
+          }),
+          table: "",
+        },
+        value: "active",
+        fieldValue: JSON.stringify({
+          options: [
+            { name: "old", value: "old" },
+            { name: "active", value: "active" },
+          ],
+        }),
+      })
+    ).toEqual({
+      rowId: "0",
+      columnId: "status",
+      columnName: "status",
+      table: "",
+      value: "active",
+      authority: "frontmatter",
+      fieldValue: JSON.stringify({
+        options: [
+          { name: "old", value: "old" },
+          { name: "active", value: "active" },
+        ],
+      }),
+    });
+  });
+
+  it("does not create direct edit history writes for computed columns", () => {
+    expect(
+      tableUndoWriteForDirectEdit({
+        rowId: "0",
+        column: {
+          name: "Created",
+          type: "fileprop",
+          source: "",
+          value: "File.ctime",
+          table: "",
+        },
+        value: "2026-05-27",
+      })
+    ).toBeNull();
+  });
+
   it("captures inverse property writes from current row data", () => {
     expect(
       createTableUndoEntry({
@@ -244,6 +298,69 @@ describe("tableUndoJournal", () => {
         authority: "frontmatter",
       },
     ]);
+  });
+
+  it("captures inverse field option configuration for direct option edits", () => {
+    const previousFieldValue = JSON.stringify({
+      options: [{ name: "old", value: "old" }],
+    });
+    const nextFieldValue = JSON.stringify({
+      options: [
+        { name: "old", value: "old" },
+        { name: "active", value: "active" },
+      ],
+    });
+
+    expect(
+      createTableUndoEntry({
+        label: "Edit cell",
+        rows,
+        columns: [
+          {
+            name: "status",
+            type: "option",
+            value: previousFieldValue,
+            source: "frontmatter",
+            table: "",
+          },
+        ],
+        writes: [
+          {
+            rowId: "0",
+            columnId: "status",
+            columnName: "status",
+            table: "",
+            value: "active",
+            authority: "frontmatter",
+            fieldValue: nextFieldValue,
+          },
+        ],
+      })
+    ).toEqual({
+      label: "Edit cell",
+      redoWrites: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "active",
+          authority: "frontmatter",
+          fieldValue: nextFieldValue,
+        },
+      ],
+      writes: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "old",
+          authority: "frontmatter",
+          fieldValue: previousFieldValue,
+        },
+      ],
+    });
   });
 
   it("removes skipped and failed targets from undo and redo history", () => {

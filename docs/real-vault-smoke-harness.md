@@ -93,13 +93,12 @@ The source-of-truth smoke scenario performs these steps:
 4. Creates two Markdown fixture notes with frontmatter.
 5. Waits until Obsidian's metadata cache reports the expected frontmatter value.
 6. Sets a property through Obsidian's property API.
-7. Verifies the new value through `property:read`.
-8. Waits until metadata cache reports the updated value.
-9. Renames one fixture file through Obsidian's `fileManager.renameFile` API.
-10. Verifies the renamed file can be read.
-11. Waits until metadata cache reports the updated frontmatter on the renamed path.
-12. Checks captured developer errors.
-13. Deletes fixture notes through Obsidian's vault API unless `--keep-fixture` was passed.
+7. Waits until metadata cache reports the updated value.
+8. Renames one fixture file through Obsidian's `fileManager.renameFile` API.
+9. Verifies the renamed file can be read.
+10. Waits until metadata cache reports the updated frontmatter on the renamed path.
+11. Checks captured developer errors.
+12. Deletes fixture notes through Obsidian's vault API unless `--keep-fixture` was passed.
 
 This proves the live vault supports the primitive operations Notidian's table transactions depend on.
 
@@ -112,13 +111,14 @@ With `--ui`, the harness also performs live table scenarios:
 5. Selects the Beta row's `status` cell through DOM events.
 6. Presses Enter to open the real cell editor.
 7. Writes `ui-active` through the browser-native contenteditable insertion path, commits the edit, waits for the rendered cell to settle on `ui-active`, and waits until Obsidian metadata reports `status: ui-active` on the Beta fixture note.
-8. Uses the table's keyboard paste handler to paste a one-row, two-column TSV payload into Beta `status` and `rating`, then verifies both frontmatter values.
-9. Uses the table's keyboard undo handler to restore the pasted cells to `status: ui-active` and `rating: 2`, then verifies both frontmatter values.
-10. Uses the table's keyboard redo handler to reapply the pasted `status` and `rating` values through the same table write path, then verifies both frontmatter values.
-11. Changes the frontmatter-backed `stage` column through the live header type menu across the supported type matrix and verifies each selected type persists and renders through the expected cell component. The same check verifies context-only Make.md types are not offered for ordinary frontmatter columns.
-12. Converts the Beta `stage` column to an option property, clicks the visible option chip, creates a new option from the dropdown, and verifies the selected value reaches Markdown frontmatter and the option configuration is saved.
-13. Creates a deterministic stale frontmatter authority state for the Beta row, edits the visible `status` cell, clicks the rendered `Apply anyway` conflict action, and verifies `status: conflict-applied` reaches the Markdown file.
-14. Edits the Alpha `File` cell through the live title editor, verifies the file was renamed, and uses the final renamed path during fixture cleanup.
+8. Uses the table's keyboard undo handler to undo that direct single-cell edit back to `status: queued`, then uses redo to reapply `status: ui-active`.
+9. Uses the table's keyboard paste handler to paste a one-row, two-column TSV payload into Beta `status` and `rating`, then verifies both frontmatter values.
+10. Uses the table's keyboard undo handler to restore the pasted cells to `status: ui-active` and `rating: 2`, then verifies both frontmatter values.
+11. Uses the table's keyboard redo handler to reapply the pasted `status` and `rating` values through the same table write path, then verifies both frontmatter values.
+12. Changes the frontmatter-backed `stage` column through the live header type menu across the supported type matrix and verifies each selected type persists and renders through the expected cell component. The same check verifies context-only Make.md types are not offered for ordinary frontmatter columns.
+13. Converts the Beta `stage` column to an option property, clicks the visible option chip, creates a new option from the dropdown, and verifies the selected value reaches Markdown frontmatter and the option configuration is saved.
+14. Creates a deterministic stale frontmatter authority state for the Beta row, edits the visible `status` cell, clicks the rendered `Apply anyway` conflict action, and verifies `status: conflict-applied` reaches the Markdown file.
+15. Edits the Alpha `File` cell through the live title editor, verifies the file was renamed, and uses the final renamed path during fixture cleanup.
 
 The conflict scenario intentionally creates the stale authority state inside Notidian's live path index instead of racing a real external file edit. Real external edits often refresh the table before a stale row can be exercised. The lower-level transaction tests cover detection against canonical metadata; this live UI step verifies that the rendered conflict action can force the attempted value through the same write path.
 

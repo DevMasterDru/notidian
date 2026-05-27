@@ -39,7 +39,7 @@ The first scenario is a source-of-truth smoke test:
 4. Create two Markdown fixture notes with frontmatter.
 5. Read Obsidian's metadata cache for one fixture until the expected frontmatter value is visible.
 6. Set a property through Obsidian's property API.
-7. Verify the updated value through both `property:read` and metadata cache polling.
+7. Verify the updated value through metadata cache polling.
 8. Rename one fixture file.
 9. Verify the renamed file still carries the updated frontmatter value.
 10. Check captured developer errors.

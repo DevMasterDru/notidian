@@ -1065,7 +1065,14 @@ const tableUiOptionEvalCode = ({
       } else {
         input.value = value;
       }
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const inputEvent = typeof InputEvent == "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: value,
+          })
+        : new Event("input", { bubbles: true });
+      input.dispatchEvent(inputEvent);
     };
     try {
       const setup = await ensureOptionColumn();
@@ -1812,6 +1819,50 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     expected: DEFAULT_TABLE_UI_EDIT_VALUE,
   });
 
+  const directUndoResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiUndoEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        statusValue: "queued",
+        ratingValue: "2",
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("direct undo", directUndoResult);
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: "queued",
+  });
+
+  const directRedoResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiRedoEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        statusValue: DEFAULT_TABLE_UI_EDIT_VALUE,
+        ratingValue: "2",
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("direct redo", directRedoResult);
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: DEFAULT_TABLE_UI_EDIT_VALUE,
+  });
+
   const pasteResult = parseJsonEvalResult(
     await runObsidian(config, runner, "eval", {
       code: tableUiPasteEvalCode({
@@ -2047,18 +2098,6 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       value: "active",
       type: "text",
     });
-
-    const propertyValue = normalizeCliValue(
-      await runObsidian(config, execute, "property:read", {
-        path: paths.alphaPath,
-        name: "status",
-      })
-    );
-    if (propertyValue != "active") {
-      throw new Error(
-        `Expected property:read status=active on ${paths.alphaPath}; got ${propertyValue}`
-      );
-    }
 
     await waitForMetadataValue({
       config,

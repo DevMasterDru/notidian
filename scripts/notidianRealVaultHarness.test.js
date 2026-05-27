@@ -140,7 +140,6 @@ describe("notidian real vault harness", () => {
         }
         return evalResponses.shift() ?? "deleted";
       }
-      if (command == "property:read") return "active";
       if (command == "read") return "---\nstatus: active\n---\n# Alpha";
       if (command == "dev:errors" && !args.includes("clear")) {
         return "No errors captured.";
@@ -169,7 +168,6 @@ describe("notidian real vault harness", () => {
       "create",
       "eval",
       "property:set",
-      "property:read",
       "eval",
       "eval",
       "read",
@@ -202,6 +200,8 @@ describe("notidian real vault harness", () => {
       "=> old",
       "=> active",
       "=> active",
+      "=> ui-active",
+      "=> queued",
       "=> ui-active",
       "=> paste-active",
       "=> 7",
@@ -291,7 +291,6 @@ describe("notidian real vault harness", () => {
         }
         return evalResponses.shift() ?? "ui-active";
       }
-      if (command == "property:read") return "active";
       if (command == "read") return "---\nstatus: active\n---\n# Alpha";
       if (command == "dev:errors" && !args.includes("clear")) {
         return "No errors captured.";
@@ -314,7 +313,7 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(24);
+      .toHaveLength(28);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
@@ -383,7 +382,6 @@ describe("notidian real vault harness", () => {
         }
         return evalResponses.shift() ?? "active";
       }
-      if (args[1] == "property:read") return "active";
       if (args[1] == "read") return "---\nstatus: active\n---\n# Alpha";
       if (args[1] == "dev:errors" && !args.includes("clear")) {
         return "No errors captured.";
@@ -421,7 +419,6 @@ describe("notidian real vault harness", () => {
         }
         return evalResponses.shift() ?? "active";
       }
-      if (command == "property:read") return "active";
       if (command == "read") return "---\nstatus: active\n---\n# Alpha";
       if (command == "dev:errors" && !args.includes("clear")) {
         return "No errors captured.";
@@ -442,7 +439,14 @@ describe("notidian real vault harness", () => {
   });
 
   it("fails loudly when an expanded table UI workflow fails", async () => {
-    const evalResponses = ["=> old", "=> active", "=> active", "=> ui-active"];
+    const evalResponses = [
+      "=> old",
+      "=> active",
+      "=> active",
+      "=> ui-active",
+      "=> queued",
+      "=> ui-active",
+    ];
     const runner = jest.fn(async (args) => {
       const command = args[1];
       if (command == "eval") {
@@ -461,6 +465,18 @@ describe("notidian real vault harness", () => {
             editedValue: "ui-active",
           });
         }
+        if (code.includes("notidianTableUiUndo")) {
+          return JSON.stringify({
+            ok: true,
+            editedValues: { status: "queued", rating: "2" },
+          });
+        }
+        if (code.includes("notidianTableUiRedo")) {
+          return JSON.stringify({
+            ok: true,
+            editedValues: { status: "ui-active", rating: "2" },
+          });
+        }
         if (code.includes("notidianTableUiPaste")) {
           return JSON.stringify({
             ok: false,
@@ -469,7 +485,6 @@ describe("notidian real vault harness", () => {
         }
         return evalResponses.shift() ?? "ui-active";
       }
-      if (command == "property:read") return "active";
       if (command == "read") return "---\nstatus: active\n---\n# Alpha";
       if (command == "dev:errors" && !args.includes("clear")) {
         return "No errors captured.";
@@ -499,7 +514,6 @@ describe("notidian real vault harness", () => {
         }
         return evalResponses.shift() ?? "active";
       }
-      if (args[1] == "property:read") return "active";
       if (args[1] == "read") return "---\nstatus: active\n---\n# Alpha";
       if (args[1] == "dev:errors" && !args.includes("clear")) {
         return "No errors captured.";

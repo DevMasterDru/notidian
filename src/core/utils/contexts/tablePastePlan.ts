@@ -19,6 +19,7 @@ export type TablePasteWrite = {
   table: string;
   value: string;
   path?: string;
+  fieldValue?: string;
   authority: Exclude<PropertyAuthority, "computed">;
 };
 

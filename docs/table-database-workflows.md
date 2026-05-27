@@ -139,12 +139,15 @@ Pasting follows these rules:
 
 Skipped cells are reported through cell feedback and an Obsidian notice. A skipped cell means the requested edit was not accepted.
 
-## Undo Bulk Table Operations
+## Undo Table Operations
 
 Press `Cmd/Ctrl+Z` while the table is focused to undo the last table operation.
 
 Undo is currently supported for:
 
+- Direct single-cell property edits.
+- Direct option edits that update option configuration and the selected value.
+- Direct page-title/file rename edits.
 - Paste.
 - Cut.
 - Delete/clear.
@@ -152,9 +155,9 @@ Undo is currently supported for:
 - Bulk page-title rename paste.
 - Mixed page-title/property paste.
 
-Undo is table-local and in-memory. It is not a durable audit log and it does not create another data-governance layer.
+Undo is table-scoped and in-memory. It can survive a table remount during the current plugin session, but it is not a durable audit log and it does not create another data-governance layer.
 
-The table currently keeps the last 20 undoable entries. Direct single-cell editor commits are not added to this journal yet; the journal is for range and paste-like table operations.
+The table currently keeps the last 20 undoable entries.
 
 Undo replays inverse writes through the same authority-aware paths as the original operation:
 

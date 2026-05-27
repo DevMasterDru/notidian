@@ -182,10 +182,13 @@ Reload refreshes canonical table data and clears the transient conflict feedback
 
 ### Table Undo Journal
 
-Bulk table operations now create an in-memory undo entry before execution and push it after the forward operation applies writes.
+Table operations now create an in-memory undo entry before execution and push it after the forward operation applies writes. The active undo stack is scoped to the table context, so immediate undo remains available across table remounts caused by frontmatter writes or context reloads.
 
 Supported undo paths:
 
+- Direct single-cell property edits.
+- Direct option edits that update option configuration and the selected cell value.
+- Direct page-title/file rename edits.
 - Paste.
 - Cut.
 - Delete/clear.
@@ -197,9 +200,9 @@ Pressing `Cmd/Ctrl+Z` while the table is focused replays the inverse writes thro
 
 Pressing `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y` replays the accepted forward writes from the redo stack through the same `applyTableEdits` path. Any new forward table edit clears redo history. Redo entries do not preserve forced conflict flags, so a redo cannot silently reuse a previous Apply anyway decision against newer frontmatter.
 
-If a bulk operation partially skips or fails, only accepted targets enter the undo/redo history.
+If an operation partially skips or fails, only accepted targets enter the undo/redo history.
 
-The undo journal is table-local and transient. It is not a durable audit log and it does not add a hidden data-governance layer.
+The undo journal is table-scoped and transient. It is not a durable audit log and it does not add a hidden data-governance layer.
 
 ## Guarantees
 
@@ -212,8 +215,8 @@ Notidian currently guarantees the following for implemented edit paths:
 - Bulk value writes update table/context snapshots from accumulated state rather than repeatedly saving stale row snapshots.
 - Mixed title/property paste writes non-file values to the renamed file path after successful rename.
 - Direct single-cell failures surface inline and reset back to canonical table data.
-- Bulk table operations can be undone through the same authority-aware edit paths that applied them.
-- Bulk table operations can be redone through the same authority-aware edit paths that applied them, without replaying forced conflict flags.
+- Direct and bulk table operations can be undone through the same authority-aware edit paths that applied them.
+- Direct and bulk table operations can be redone through the same authority-aware edit paths that applied them, without replaying forced conflict flags.
 - Immediate undo after title paste uses the expected current renamed path instead of depending on metadata reload timing.
 - Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
 - Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
@@ -228,7 +231,7 @@ Notidian currently guarantees the following for implemented edit paths:
 The following work remains before Notidian should be considered final:
 
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
-- The real-vault smoke harness includes live table direct edit, paste, undo, redo, frontmatter-backed type changes, option creation, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
+- The real-vault smoke harness includes live table direct edit undo/redo, paste, paste undo/redo, frontmatter-backed type changes, option creation, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property schema planning exists, but table UI/apply flows for create, rename, delete, default backfill, and schema conflict resolution are still needed.
 - Moving files between folders from table cells is not implemented.

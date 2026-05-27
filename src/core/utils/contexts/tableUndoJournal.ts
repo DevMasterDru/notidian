@@ -1,5 +1,8 @@
 import { PathPropertyName } from "shared/types/context";
-import { DBRow } from "shared/types/mdb";
+import { DBRow, SpaceProperty } from "shared/types/mdb";
+import {
+  propertyAuthorityForColumn,
+} from "../properties/propertyAuthority";
 import { buildPageTitleRename, pageTitleFromPath } from "./pageTitle";
 import type { TableEditTransactionResult } from "./tableEditTransaction";
 import { TablePasteWrite } from "./tablePastePlan";
@@ -14,6 +17,22 @@ export type CreateTableUndoEntryParams = {
   label: string;
   rows: DBRow[];
   writes: TablePasteWrite[];
+  columns?: DirectEditColumn[];
+};
+
+export type DirectEditColumn = Pick<
+  SpaceProperty,
+  "name" | "source" | "type" | "value"
+> & {
+  table?: string;
+};
+
+export type TableUndoWriteForDirectEditParams = {
+  rowId: string;
+  column: DirectEditColumn;
+  value: string;
+  path?: string;
+  fieldValue?: string;
 };
 
 const undoKeyForWrite = (write: TablePasteWrite): string =>
@@ -29,8 +48,50 @@ const targetKeyForWrite = (write: {
     write.table
   }`;
 
+const columnIdForDirectColumn = (column: DirectEditColumn): string =>
+  column.name + (column.table ?? "");
+
+export const tableUndoWriteForDirectEdit = ({
+  rowId,
+  column,
+  value,
+  path,
+  fieldValue,
+}: TableUndoWriteForDirectEditParams): TablePasteWrite | null => {
+  const authority = propertyAuthorityForColumn(column);
+  if (authority == "computed") return null;
+
+  return Object.fromEntries(
+    Object.entries({
+      rowId,
+      columnId: columnIdForDirectColumn(column),
+      columnName: column.name,
+      table: column.table ?? "",
+      value,
+      path,
+      fieldValue,
+      authority,
+    }).filter(([, entryValue]) => entryValue !== undefined)
+  ) as TablePasteWrite;
+};
+
 const rowForWrite = (rows: DBRow[], write: TablePasteWrite): DBRow =>
   rows.find((row) => row._index == write.rowId) ?? rows[parseInt(write.rowId)];
+
+const columnForWrite = (
+  columns: DirectEditColumn[] | undefined,
+  write: TablePasteWrite
+): DirectEditColumn | undefined =>
+  columns?.find(
+    (column) =>
+      column.name == write.columnName &&
+      (column.table ?? "") == write.table &&
+      columnIdForDirectColumn(column) == write.columnId
+  ) ??
+  columns?.find(
+    (column) =>
+      column.name == write.columnName && (column.table ?? "") == write.table
+  );
 
 const currentValueForWrite = (
   row: DBRow,
@@ -68,6 +129,7 @@ export const createTableUndoEntry = ({
   label,
   rows,
   writes,
+  columns,
 }: CreateTableUndoEntryParams): TableUndoEntry => {
   const seen = new Set<string>();
   const inverseWrites = writes.reduce<TablePasteWrite[]>((entryWrites, write) => {
@@ -87,6 +149,10 @@ export const createTableUndoEntry = ({
         ...write,
         path: currentPathAfterWrite(row, write),
         value: currentValue,
+        fieldValue:
+          write.fieldValue !== undefined
+            ? columnForWrite(columns, write)?.value ?? ""
+            : undefined,
       }),
     ];
   }, []);

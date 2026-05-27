@@ -10,7 +10,7 @@ Accepted.
 
 ## Context
 
-Notidian table editing now supports bulk paste, cut, clear, fill-from-selection paste, and page-title paste. These operations can touch many cells and can write through different authorities:
+Notidian table editing now supports direct single-cell edits, direct option edits, direct page-title edits, bulk paste, cut, clear, fill-from-selection paste, and page-title paste. These operations can touch one or many cells and can write through different authorities:
 
 - Markdown file names for page-title cells.
 - Markdown frontmatter for ordinary file-backed properties.
@@ -20,9 +20,11 @@ A Notion-like table experience needs a fast undo path for these bulk operations,
 
 ## Decision
 
-Use a table-local, in-memory undo/redo journal for bulk table operations.
+Use a table-scoped, in-memory undo/redo journal for table edit operations.
 
-Before a bulk table operation executes, `TableView` builds a `TableUndoEntry` from the current rendered row data. The entry stores inverse writes for undo and sanitized accepted forward writes for redo. After the forward operation reports applied writes, the entry is pushed onto a capped undo stack. Pressing `Cmd/Ctrl+Z` in the table pops the entry and replays its inverse writes through `applyTableEdits`. Pressing `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y` replays the accepted forward writes through the same path.
+Before an undoable table operation executes, `TableView` builds a `TableUndoEntry` from the current rendered row data and, when relevant, the current column configuration. The entry stores inverse writes for undo and sanitized accepted forward writes for redo. After the forward operation reports applied writes, the entry is pushed onto a capped undo stack. Pressing `Cmd/Ctrl+Z` in the table pops the entry and replays its inverse writes through `applyTableEdits`. Pressing `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y` replays the accepted forward writes through the same path.
+
+The in-memory stack is keyed by table context instead of by a single React component instance. This keeps immediate undo available when a frontmatter write or context reload recreates the rendered table, without making the journal durable across Obsidian reloads or sessions.
 
 Undo and redo therefore use the same canonical execution paths as forward edits:
 
@@ -35,8 +37,11 @@ Undo and redo therefore use the same canonical execution paths as forward edits:
 
 ## Boundaries
 
-This ADR covers table bulk operations initiated from the table selection model:
+This ADR covers table edit operations initiated from the table:
 
+- Direct single-cell property edits.
+- Direct option edits that update both option configuration and selected cell value.
+- Direct page-title/file rename edits.
 - Paste.
 - Cut.
 - Delete/clear.
@@ -47,9 +52,9 @@ This ADR covers table bulk operations initiated from the table selection model:
 The journal is intentionally:
 
 - In memory only.
-- Local to the table component.
+- Scoped to the current table context.
 - Capped to avoid unbounded growth.
-- Cleared by component lifecycle.
+- Cleared by Obsidian/plugin reload and normal session lifecycle.
 
 It is not:
 
@@ -96,15 +101,15 @@ True rollback across file renames and frontmatter batches would be useful, but i
 
 Positive consequences:
 
-- Users can undo the main high-risk bulk table operations with `Cmd/Ctrl+Z`.
-- Users can redo the last undone bulk table operations with `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y`.
+- Users can undo direct edits and the main high-risk bulk table operations with `Cmd/Ctrl+Z`.
+- Users can redo the last undone direct or bulk table operations with `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y`.
 - Undo and redo respect file/frontmatter/context authority boundaries.
 - Immediate undo after title paste does not depend on metadata reload timing.
 - No durable hidden data-governance layer is introduced.
 
 Tradeoffs:
 
-- Undo and redo are not available after the table component is destroyed or Obsidian is reloaded.
+- Undo and redo can survive a table component remount caused by context reload, but are not available after Obsidian or the plugin is reloaded.
 - Undo and redo do not bypass conflict detection when external edits happened after the original operation.
 - A partially failed undo reports failures through table feedback, but it is not a full rollback system.
 
@@ -121,9 +126,11 @@ Key files:
 The undo helper:
 
 - Captures previous values from rendered row data.
+- Captures previous column configuration for option-style field edits.
 - Uses page titles rather than full paths for inverse file-title values.
 - Stores the expected post-edit file path on inverse file writes so immediate undo can rename from the correct current path.
 - Stores accepted forward writes for redo.
+- Stores the active stack in a table-context session map so keyboard undo can read the latest journal even before a recreated table component has synchronized local refs.
 - Filters skipped and failed targets out of the stored history after execution.
 - Removes forced conflict flags before writes are stored for redo.
 - Deduplicates repeated target cells.
