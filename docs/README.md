@@ -5,13 +5,15 @@ This directory preserves the durable reasoning and implementation planning behin
 ## What Is Canonical
 
 - [Current State](current-state.md) describes what the implementation does today.
+- [Notidian System Architecture](notidian-system-architecture.md) is the full A-Z architecture reference.
 - [Table Database Workflows](table-database-workflows.md) describes how the current table behaves in practical database use.
 - [Bases Adapter](base-adapter.md) describes the pure `.base` export adapter, the custom Bases view gate, and current limitations.
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md) describes the opt-in live Obsidian verification workflow.
 - [Legacy Context Audit Report](legacy-context-audit-report.md) describes the read-only report for older Make.md contexts.
 - [Architecture Decision Records](adr/README.md) are the durable source of truth for architectural decisions.
-- [ADR 0011](adr/0011-bases-first-convergence.md) is the current strategic north star: Notidian should converge toward Obsidian Bases semantics while keeping its enhanced editor and migration layer.
-- [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) records why `notidian-table` starts as a custom Bases view feasibility gate rather than an immediate table rewrite.
+- [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) is the current strategic architecture: Notidian is the primary database UX, files/frontmatter are canonical ordinary data, and Bases is optional interop.
+- [ADR 0011](adr/0011-bases-first-convergence.md) is historical context for the earlier Bases-first direction and is superseded by ADR 0013.
+- [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) records why `notidian-table` starts as an optional custom Bases view feasibility gate rather than a required table rewrite.
 - [ADR 0003](adr/0003-editable-page-titles-through-file-renames.md) is the canonical full record for editable page titles and file renames.
 - `docs/superpowers` contains historical specs and plans from implementation work. These files preserve useful development context, but they do not override the ADRs.
 
@@ -21,9 +23,10 @@ Notidian's current architecture is intentionally authority-partitioned:
 
 - Markdown files own page identity.
 - Markdown frontmatter owns ordinary user-editable metadata.
-- `.base`-compatible semantics are the preferred long-term representation for database view definitions.
+- Notidian is the primary database UX.
 - Notidian context MDB files currently own view state, row order, compatibility state, formulas, relations, legacy state, and explicit Notidian-specific fields.
-- Custom Bases views are the proof surface for moving Notidian's enhanced table UX into `.base` files after runtime API and write-path safety are verified.
+- `.base`-compatible semantics are optional import/export/mirror/custom-view compatibility, not the ordinary data authority.
+- Custom Bases views are a proof and compatibility surface for `.base` workflows, not the required primary table architecture.
 - Cached projections of file/frontmatter data can be used for rendering, but they must be rebuildable from the owning layer.
 
 ## Architecture Decisions
@@ -44,6 +47,7 @@ The most important ADRs are:
 - [ADR 0010: Legacy context audit and migration](adr/0010-legacy-context-audit-and-migration.md)
 - [ADR 0011: Bases-first convergence](adr/0011-bases-first-convergence.md)
 - [ADR 0012: Custom Bases view feasibility gate](adr/0012-custom-bases-view-feasibility-gate.md)
+- [ADR 0013: Notidian-first canonical file architecture](adr/0013-notidian-first-canonical-file-architecture.md)
 
 ADR 0003 is the canonical full record for the page-title/file-rename decision. It explains why naive direct file-name editing was risky, why the selected transaction model was chosen, and what invariants future work must preserve.
 
@@ -82,6 +86,7 @@ Key implementation plans:
 - [Table range clipboard plan](superpowers/plans/2026-05-24-table-range-clipboard.md)
 - [Table edit transactions plan](superpowers/plans/2026-05-24-table-edit-transactions.md)
 - [Table edit feedback plan](superpowers/plans/2026-05-24-table-edit-feedback.md)
+- [Notidian-first architecture plan](superpowers/plans/2026-05-27-notidian-first-architecture.md)
 
 ## Documentation Rules
 
@@ -90,5 +95,5 @@ Key implementation plans:
 - Keep implementation plans as historical execution records.
 - Update ADR 0003 whenever the page-title rename transaction changes materially.
 - Update ADR 0001 whenever ownership of file identity, frontmatter metadata, context data, or computed data changes materially.
-- Update ADR 0011 for strategic Bases relationship changes, and ADR 0012 for changes to the custom Bases view gate, runtime API assumptions, or Bases-hosted table replacement path.
+- Update ADR 0013 for strategic Notidian architecture changes, ADR 0011 only for historical correction, and ADR 0012 for changes to the optional custom Bases view gate or runtime API assumptions.
 - Do not bury source-of-truth decisions only in chat history, tests, or generated bundle diffs.

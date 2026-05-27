@@ -10,7 +10,7 @@ The key rule is:
 
 > File-backed data belongs to files and frontmatter. Notidian may project, edit, and organize it, but it must not silently become governed by a hidden context database.
 
-The strategic direction is Bases-first convergence. Obsidian Bases semantics are the preferred long-term model for ordinary database views, while Notidian remains the enhanced editor and migration layer for workflows that need stronger UX or safety than plain Bases currently provides.
+The strategic direction is Notidian-first canonical file architecture. Notidian is the primary database UX. Obsidian Bases remains an optional compatibility, import/export, mirror, and runtime-proof surface; it is not the default product center or ordinary data authority.
 
 ## Source Of Truth
 
@@ -18,16 +18,32 @@ The strategic direction is Bases-first convergence. Obsidian Bases semantics are
 | --- | --- | --- |
 | Page identity | Markdown file path/name | Displayed as the `File`/page-title cell and changed through rename transactions. |
 | Ordinary note metadata | Markdown frontmatter / Obsidian metadata cache | Discovered as table columns and edited through frontmatter writes. |
-| View layout | `.base`-compatible semantics long term; Notidian context MDB today | Stores column order, hidden columns, filters, grouping, sorting, and view state today. Future work should bridge or migrate simple views toward `.base` where semantics match. |
+| View layout | Notidian view model, stored in context MDB today | Stores column order, hidden columns, filters, grouping, sorting, and view state. Future work may import, export, or mirror `.base` semantics where useful, but Notidian remains the primary database UX. |
 | Context-native fields | Notidian context MDB | Stores values only when a field is explicitly Notidian-owned. |
 | Formulas, aggregates, file projections | Computed from current inputs | Displayed as projections, not durable user-entered values. |
 | Relations | Notidian context model | Preserved from Make.md semantics unless later mapped to frontmatter links. |
 
-### Bases-First Convergence
+### Notidian-First Canonical Architecture
 
-Notidian should not remain a full Make.md-style parallel database. Future database work should prefer Obsidian Bases semantics for files, properties, formulas, filters, visible columns, and view definitions.
+Notidian should not remain a full Make.md-style parallel database, and it should not become merely a native Bases wrapper.
 
-That does not mean an immediate Bases-only rewrite. Notidian still owns value in:
+The durable direction is:
+
+- Notidian is the database surface the user primarily works in;
+- Markdown files are rows;
+- file path and basename are page identity;
+- frontmatter owns ordinary editable properties;
+- context MDB stores view state, explicit Notidian-owned state, compatibility state, and legacy state;
+- `.base` files are optional interoperability artifacts, not the default Notidian authority.
+
+Bases alignment was not a mistake. It remains useful for shared semantics and compatibility, especially for:
+
+- `.base` export/import/mirroring;
+- custom Bases view runtime proof;
+- file/property/formula vocabulary;
+- avoiding incompatible Obsidian database behavior.
+
+Notidian still owns necessary product value in:
 
 - controlled file-title rename transactions;
 - spreadsheet-style range editing;
@@ -35,7 +51,7 @@ That does not mean an immediate Bases-only rewrite. Notidian still owns value in
 - migration review for legacy Make.md contexts;
 - compatibility display for context-only data that cannot yet round-trip to `.base`.
 
-The durable decision is recorded in [ADR 0011](adr/0011-bases-first-convergence.md).
+The durable decision is recorded in [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md). [ADR 0011](adr/0011-bases-first-convergence.md) remains historical context and is superseded as the product direction.
 
 ## Implemented Behavior
 
@@ -117,7 +133,7 @@ Notidian now has a pure `.base` adapter for simple folder table views and an opt
 
 The adapter can convert a `SpaceTable` plus an optional table predicate into a Bases-compatible document shape and deterministic YAML. It maps file identity to `file.name`, frontmatter-backed columns to note properties, simple file projections such as `File.ctime` to `file.ctime`, and visible table preferences such as order, limit, group-by, simple filters, display names, and summaries where the semantics are supported. Folder exports also add `file.ext == "md"` so the generated `.base` file itself and other non-Markdown files do not appear as database rows.
 
-Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and full Bases-backed table editing.
+Unsupported Notidian-only semantics are returned as structured warnings instead of being silently dropped. Current unsupported areas include context-owned values, aggregates, complex formulas, many Make.md predicate functions, stable portable sort export, `.base` import, mirroring, and optional custom Bases view parity beyond the proven feasibility slices.
 
 The command `Export active folder as Obsidian Base` resolves the active folder or the parent folder of the active note, materializes frontmatter-backed columns, chooses a non-overwriting sibling `.base` path, previews the YAML and warnings, and writes only after user confirmation. The real-vault smoke harness has an opt-in `--base-export` mode that executes the command, confirms the preview, verifies the generated folder-scoped table YAML, and cleans up the exported file.
 
@@ -129,11 +145,11 @@ Notidian registers a custom Bases view type when the running Obsidian host suppo
 notidian-table
 ```
 
-The first view is a native-alignment feasibility gate, not the final table editor. It uses a runtime compatibility shim because the local `obsidian` development package does not yet expose typed Bases APIs. When available, the view is registered as `Notidian Table`, reads visible property order from the Bases view config, reads rows from the current Bases query result, captures runtime capabilities, and renders a table projection with focused authority-aware editing paths.
+The first view is a native-alignment feasibility gate and compatibility surface, not the required final table editor. It uses a runtime compatibility shim because the local `obsidian` development package does not yet expose typed Bases APIs. When available, the view is registered as `Notidian Table`, reads visible property order from the Bases view config, reads rows from the current Bases query result, captures runtime capabilities, and renders a table projection with focused authority-aware editing paths.
 
 The custom view now has the first narrow write paths: editing an ordinary note property cell writes the value through Obsidian's `fileManager.processFrontMatter` API to the row Markdown file, structured TSV paste can update ordinary note-property cells across a rectangular target, editing `file.name` renames the row Markdown file through Obsidian's `fileManager.renameFile` API, and structured TSV paste can include `file.name` cells after rename preflight. Ordinary note-property edits compare the visible Bases value against current frontmatter before writing, surface Reload and Apply anyway on conflicts, and push applied note-property edits/pastes into a transient custom-view undo/redo history. Range selection can copy displayed cells as TSV; cut copies the selected range and then clears only ordinary note-property cells through the same frontmatter write and undo/redo path, leaving file identity, other `file.*` projections, and formulas read-only. Title paste writes file-name renames before same-row property writes, retargets those property writes to the renamed path, and stores inverse writes in reverse transaction order so undo can restore dependent writes before renaming the file back. Redo replays the original accepted writes through the same authority-aware write path; conflict Apply anyway entries do not keep their force flag when replayed, so later redo can still surface fresh frontmatter conflicts.
 
-This view does not persist a hidden mirror of ordinary row values and does not replace the current context-backed Notidian table. It exists to prove that `.base` can host Notidian's future table UX before moving richer typed value handling and the remaining advanced table behaviors into the Bases-hosted surface.
+This view does not persist a hidden mirror of ordinary row values and does not supersede the current context-backed Notidian table. It exists to prove live Bases API behavior and provide optional `.base` compatibility. Richer typed value handling and advanced table behavior may be reused there, but Notidian's primary table UX does not depend on becoming Bases-hosted.
 
 The real-vault smoke harness has an opt-in `--base-view` mode that writes a temporary `.base` file using `type: "notidian-table"`, opens it in Obsidian, verifies the custom view DOM and fixture rows, verifies capability metadata, edits a note-property cell, pastes a status/rating TSV payload into ordinary note-property cells, undoes the paste, applies a surfaced frontmatter conflict, copies and cuts a selected status/rating range, undoes that cut, redoes it, undoes it again to restore the row, pastes into the `file.name` and `status` cells, undoes that mixed title/status paste, renames the file through the `file.name` cell, verifies the Markdown frontmatter remains visible on the renamed path, and cleans up the `.base` file.
 
@@ -206,12 +222,13 @@ The following work remains before Notidian should be considered final:
 - The real-vault smoke harness includes live table direct edit, paste, undo, conflict apply, file-title rename, and `.base` export command paths, but broader multi-row paste/copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, deeper native Bases renderer validation, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property rename/delete/schema operations need stronger authority-aware flows.
-- A previewed `.base` export command and custom Bases view with single-cell note-property editing, note-property TSV paste, range copy/cut for note-property cells, note-property conflict feedback, note-property undo/redo history, `file.name` renames, file-name TSV paste, and file-name undo/redo support exist, but there is not yet `.base` import, mirroring, typed value preservation, swap/cycle title paste inside the custom Bases view, or full Bases-backed table editing.
+- A previewed `.base` export command and custom Bases view with single-cell note-property editing, note-property TSV paste, range copy/cut for note-property cells, note-property conflict feedback, note-property undo/redo history, `file.name` renames, file-name TSV paste, and file-name undo/redo support exist, but there is not yet `.base` import, mirroring, typed value preservation, or swap/cycle title paste inside the optional custom Bases view.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
 
 - Use [Table Database Workflows](table-database-workflows.md) for practical table usage and troubleshooting.
+- Use [Notidian System Architecture](notidian-system-architecture.md) for the full A-Z architecture reference.
 - Use [Bases Adapter](base-adapter.md) for the current pure `.base` export adapter scope.
 - Use [Real Vault Smoke Harness](real-vault-smoke-harness.md) for opt-in live Obsidian verification.
 - Use [Legacy Context Audit Report](legacy-context-audit-report.md) for read-only reports on old Make.md contexts.
@@ -223,8 +240,9 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
 - Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
 - Use [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) for legacy context audit and migration rules.
-- Use [ADR 0011](adr/0011-bases-first-convergence.md) for the Bases-first convergence north star.
-- Use [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) for the custom Bases view feasibility gate.
+- Use [ADR 0011](adr/0011-bases-first-convergence.md) for historical Bases-first convergence context.
+- Use [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) for the optional custom Bases view feasibility gate.
+- Use [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) for the current Notidian-first architecture.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Implementation Map

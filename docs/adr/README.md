@@ -8,7 +8,7 @@ The most important rule across these ADRs is that **Obsidian vault data remains 
 
 If you only need the file-name/page-title decision, read [ADR 0003](0003-editable-page-titles-through-file-renames.md). It is intentionally self-contained because that decision has the highest risk of subtle data-governance regressions.
 
-If you need the current implementation status rather than the decision history, read [Current State](../current-state.md). If you need to use or troubleshoot the table behavior, read [Table Database Workflows](../table-database-workflows.md).
+If you need the current implementation status rather than the decision history, read [Current State](../current-state.md). If you need the full system architecture, read [Notidian System Architecture](../notidian-system-architecture.md). If you need to use or troubleshoot the table behavior, read [Table Database Workflows](../table-database-workflows.md).
 
 | ADR | Decision | Purpose |
 | --- | --- | --- |
@@ -22,18 +22,20 @@ If you need the current implementation status rather than the decision history, 
 | [0008](0008-table-undo-journal.md) | Table undo journal | Defines the table-local undo stack for bulk operations and why replay goes through authority-aware write paths. |
 | [0009](0009-frontmatter-conflict-detection.md) | Frontmatter conflict detection | Defines stale frontmatter write detection so table edits do not overwrite newer canonical metadata. |
 | [0010](0010-legacy-context-audit-and-migration.md) | Legacy context audit and migration | Defines audit-first migration for old Make.md contexts so frontmatter authority can be restored without losing context data. |
-| [0011](0011-bases-first-convergence.md) | Bases-first convergence | Defines Notidian's long-term convergence toward Obsidian Bases semantics while keeping Notidian as the enhanced editor and migration layer. |
-| [0012](0012-custom-bases-view-feasibility-gate.md) | Custom Bases view feasibility gate | Defines the first `notidian-table` custom Bases view as a native-alignment proof point before replacing the current safe table editor. |
+| [0011](0011-bases-first-convergence.md) | Bases-first convergence | Historical record for the Bases-first direction that produced the `.base` adapter and custom view work. Superseded by ADR 0013 as the product strategy. |
+| [0012](0012-custom-bases-view-feasibility-gate.md) | Custom Bases view feasibility gate | Defines the first `notidian-table` custom Bases view as an optional compatibility and runtime-proof surface. |
+| [0013](0013-notidian-first-canonical-file-architecture.md) | Notidian-first canonical file architecture | Current governing strategy: Notidian is the primary database UX, files/frontmatter are canonical ordinary data, and Bases is optional interop. |
 
 ## Decision Summary
 
-Notidian uses an authority-partitioned model with Bases-first convergence:
+Notidian uses a Notidian-first canonical file architecture:
 
 - File paths and file names are canonical page identity.
 - Markdown frontmatter is canonical ordinary note metadata.
-- `.base`-compatible semantics are preferred for database view definitions wherever they can represent the behavior safely.
+- Notidian is the primary database UX.
 - Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, compatibility cache state, legacy state, and explicitly Notidian-owned fields.
-- Custom Bases views are the preferred proof surface for moving the enhanced table UX into `.base` files, but current context-backed table behavior remains available until parity is proven.
+- `.base`-compatible semantics are supported for optional import, export, mirroring, and custom view compatibility.
+- Custom Bases views are a proof and compatibility surface, not the required primary table architecture.
 - Projected values from files/frontmatter may be cached for rendering, but they must be rebuilt from the owning layer and must not become the durable source of truth.
 
 ## Maintenance Rule

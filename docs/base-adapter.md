@@ -1,6 +1,6 @@
 # Bases Adapter
 
-The Bases adapter is the first implementation step for ADR 0011's Bases-first convergence path. ADR 0012 adds the next gate: a custom Bases view that proves Notidian can attach a future table surface to `.base` files.
+The Bases adapter is Notidian's optional `.base` interoperability layer under [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md). ADR 0011 explains the historical Bases-first convergence path that led to this adapter, and ADR 0012 defines the custom Bases view feasibility gate.
 
 It is intentionally pure and conservative. It converts a Notidian `SpaceTable` plus an optional table predicate into an in-memory `.base` document shape and deterministic YAML. It does not write files, mutate context MDB data, or claim that every Notidian context can round-trip to native Bases.
 
@@ -30,7 +30,7 @@ The adapter does not yet provide:
 - guaranteed handling for every Make.md predicate function;
 - stable sort export, because current documented Bases syntax does not expose a general portable sort field;
 - context-owned values, relations, aggregates, or complex formulas.
-- full Bases-backed Notidian table editing.
+- full optional custom Bases view parity with the primary Notidian table.
 
 Context-owned values must be migrated to frontmatter or kept as explicit Notidian-owned state before they can be represented in native Bases.
 
@@ -85,9 +85,9 @@ Notidian registers a custom Bases view type when the running Obsidian host suppo
 notidian-table
 ```
 
-This is currently a feasibility gate with several proven interaction slices. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, renders a table projection, lets ordinary note-property cells write through Obsidian frontmatter, lets structured TSV paste update ordinary note-property cells through the same frontmatter path, detects stale frontmatter before note-property writes, supports Reload and Apply anyway conflict actions, supports `Cmd/Ctrl+Z` undo and `Cmd/Ctrl+Shift+Z`/`Cmd/Ctrl+Y` redo for applied custom-view history, lets selected ranges copy displayed values as TSV, lets cut clear only ordinary note-property cells through frontmatter writes, lets `file.name` cells rename the row Markdown file, and lets structured TSV paste include `file.name` cells after rename preflight. It does not persist a hidden mirror or replace the current context-backed Notidian table editor.
+This is currently a feasibility gate and optional compatibility surface with several proven interaction slices. The view is registered as `Notidian Table`, reads rows and visible properties from Obsidian's current Bases query result, captures runtime capabilities, renders a table projection, lets ordinary note-property cells write through Obsidian frontmatter, lets structured TSV paste update ordinary note-property cells through the same frontmatter path, detects stale frontmatter before note-property writes, supports Reload and Apply anyway conflict actions, supports `Cmd/Ctrl+Z` undo and `Cmd/Ctrl+Shift+Z`/`Cmd/Ctrl+Y` redo for applied custom-view history, lets selected ranges copy displayed values as TSV, lets cut clear only ordinary note-property cells through frontmatter writes, lets `file.name` cells rename the row Markdown file, and lets structured TSV paste include `file.name` cells after rename preflight. It does not persist a hidden mirror or supersede the current context-backed Notidian table editor.
 
-Use this view type only to validate the Bases-hosted surface for now. File properties other than `file.name` and formulas are read-only in the custom view. File-name paste preflights the batch for unsafe names, duplicate targets, existing target files, and source-target collisions before any rename. Mixed file-name/property paste applies renames first, retargets dependent property writes to the renamed path, and stores inverse writes in reverse transaction order so undo does not depend on metadata reload timing. Redo stores the original accepted writes and replays them through the same file/frontmatter path; conflict Apply anyway writes are stored without their one-time force flag. Cut intentionally skips `file.name`, other file projections, and formulas rather than clearing file identity or computed data. The custom view still needs typed value preservation, broader multi-row range validation, and swap/cycle title paste through temporary paths before it can replace the context-backed table. The future goal is to move Notidian's enhanced table interactions into this view once those safeguards are proven.
+Use this view type to validate the Bases-hosted surface and support `.base` workflows. File properties other than `file.name` and formulas are read-only in the custom view. File-name paste preflights the batch for unsafe names, duplicate targets, existing target files, and source-target collisions before any rename. Mixed file-name/property paste applies renames first, retargets dependent property writes to the renamed path, and stores inverse writes in reverse transaction order so undo does not depend on metadata reload timing. Redo stores the original accepted writes and replays them through the same file/frontmatter path; conflict Apply anyway writes are stored without their one-time force flag. Cut intentionally skips `file.name`, other file projections, and formulas rather than clearing file identity or computed data. The custom view still needs typed value preservation, broader multi-row range validation, and swap/cycle title paste through temporary paths before it can claim parity with the primary Notidian table.
 
 The runtime capability snapshot records the controller keys, config methods, data shape, first entry/value methods, and whether an entry appears to expose a native `setValue` write method. This keeps the next editing step grounded in the actual Obsidian runtime rather than undocumented assumptions.
 
@@ -111,7 +111,8 @@ The smoke scenario sets the active Notidian path to the fixture folder, executes
 
 ## Relationship To ADRs
 
-- [ADR 0011](adr/0011-bases-first-convergence.md) defines why Notidian is converging toward Bases semantics.
-- [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) defines why the custom Bases view is a feasibility gate before a table rewrite.
+- [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) defines why Bases is optional interop instead of the product center.
+- [ADR 0011](adr/0011-bases-first-convergence.md) records the historical Bases-first direction that produced this adapter.
+- [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) defines why the custom Bases view is an optional feasibility gate.
 - [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) defines why legacy context data must be audited before cleanup.
 - [ADR 0001](adr/0001-authority-partitioned-database-model.md) defines the source-of-truth model that this adapter preserves.

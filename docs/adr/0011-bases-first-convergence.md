@@ -2,13 +2,17 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0013](0013-notidian-first-canonical-file-architecture.md) as the strategic product direction.
+
+This record remains accepted historical context for why Notidian explored Bases alignment, `.base` export, and custom Bases view feasibility. Current product decisions should follow ADR 0013.
 
 ## Date
 
 2026-05-26
 
 ## Context
+
+Historical note: this ADR was written when the preferred direction appeared to be native Bases-first convergence. Subsequent product evaluation changed the center to Notidian-first canonical files: Notidian is the primary database UX, while Bases is optional interoperability and runtime proof.
 
 Make.md built its own context/indexing/database mechanism before Obsidian Bases existed. That history explains why Make.md contexts contain schema, rows, ordering, formulas, relations, aggregates, view state, and compatibility data.
 
@@ -34,7 +38,7 @@ The question is no longer whether Notidian should merely "align" with Bases. It 
 
 ## Decision
 
-Adopt Bases-first convergence as Notidian's long-term architecture.
+At the time this ADR was accepted, it adopted Bases-first convergence as Notidian's long-term architecture. ADR 0013 supersedes that strategy with Notidian-first canonical files while preserving Bases compatibility as an interoperability boundary.
 
 Notidian's durable product contract is:
 
@@ -48,7 +52,7 @@ Notidian's durable product contract is:
 
 This refines ADR 0005. ADR 0005 correctly rejected an immediate replacement of contexts with `.base` files. This ADR goes further: the strategic center is now Bases-compatible semantics, with Make.md contexts gradually demoted to compatibility and explicit advanced state.
 
-## What Bases-First Means
+## What Bases-First Meant
 
 Bases-first does not mean Bases-only today.
 
@@ -212,6 +216,7 @@ Future work must preserve these rules:
 
 ## Relationship To Other ADRs
 
+- ADR 0013 supersedes this ADR as the current product direction while preserving Bases compatibility as an interop boundary.
 - ADR 0001 defines the authority-partitioned model this decision narrows toward Bases semantics.
 - ADR 0002 defines frontmatter-backed context columns.
 - ADR 0003 defines controlled page-title renames.

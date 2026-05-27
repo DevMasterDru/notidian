@@ -10,7 +10,7 @@ For architectural reasoning, read the ADRs. This page is the practical behavior 
 | --- | --- | --- |
 | Page title | Markdown file path/name | The `File` cell displays the basename without extension. Editing it renames the file. |
 | Ordinary metadata | Markdown frontmatter | Existing YAML properties appear as table columns and edits write back to the note. |
-| View layout | Notidian context MDB today; `.base` semantics long term | Column order, hidden columns, sort/group/filter state, and row order stay in the context until equivalent `.base` coverage is proven. |
+| View layout | Notidian view model, stored in context MDB today | Column order, hidden columns, sort/group/filter state, and row order stay in Notidian view state. `.base` import/export/mirroring is optional compatibility. |
 | Notidian-owned fields | Notidian context MDB | Values stay in the context only when the field is explicitly context-owned. |
 | Formulas and projections | Computed from current inputs | Displayed in the table, but skipped by paste and normal value writes. |
 
@@ -177,11 +177,12 @@ These are known gaps, not accidental omissions:
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, context-backed redo, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
 - Authority-aware property rename/delete/schema flows.
-- `.base` import, mirroring, and full Bases-backed table editing.
+- `.base` import, mirroring, and optional custom Bases view parity with the primary Notidian table.
 
 ## Related Records
 
 - [Current State](current-state.md) is the implementation reference.
+- [Notidian System Architecture](notidian-system-architecture.md) is the full architecture reference.
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md) explains opt-in live Obsidian verification.
 - [Legacy Context Audit Report](legacy-context-audit-report.md) explains read-only reports for older Make.md contexts.
 - [ADR 0001](adr/0001-authority-partitioned-database-model.md) defines the source-of-truth model.
@@ -192,3 +193,4 @@ These are known gaps, not accidental omissions:
 - [ADR 0008](adr/0008-table-undo-journal.md) explains undo.
 - [ADR 0009](adr/0009-frontmatter-conflict-detection.md) explains stale frontmatter conflict detection.
 - [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) explains legacy context audit and migration planning.
+- [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) explains the current Notidian-first architecture.

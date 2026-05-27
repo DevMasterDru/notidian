@@ -4,13 +4,15 @@
 
 Accepted.
 
+Amended by [ADR 0013](0013-notidian-first-canonical-file-architecture.md): the custom Bases view remains an optional compatibility and runtime-proof surface, not the required path for replacing Notidian's primary table UX.
+
 ## Date
 
 2026-05-26
 
 ## Context
 
-ADR 0011 made Bases-first convergence the strategic direction for Notidian. The remaining question is how to move toward native Bases without losing the table behavior Notidian already needs:
+ADR 0011 made Bases-first convergence the strategic direction for Notidian at the time this record was written. ADR 0013 now supersedes that strategic direction with Notidian-first canonical files. The custom Bases view still matters because it proves and preserves optional native compatibility without losing the table behavior Notidian already needs:
 
 - file rows governed by Markdown files;
 - ordinary editable properties governed by frontmatter;
@@ -20,7 +22,7 @@ ADR 0011 made Bases-first convergence the strategic direction for Notidian. The 
 
 Obsidian's custom Bases view API gives plugins a way to register a new view type for `.base` files. A custom view receives a Bases query controller and is notified through `onDataUpdated` when the Bases result changes. The view can read the current `BasesView.data` result, including grouped entries and visible properties.
 
-That is the right native surface to test before replacing Notidian's context-centered table renderer.
+That is the right native surface to test for compatibility and runtime feasibility. It is no longer assumed to be the required replacement for Notidian's primary table renderer.
 
 There are important constraints:
 
@@ -55,7 +57,7 @@ The first implementation is intentionally a feasibility gate:
 - apply file-name paste writes before same-row note-property writes, retarget dependent property writes to the renamed path, and undo the resulting transaction in reverse order;
 - allow range selection, TSV copy, and cut for ordinary note-property cells; cut copies displayed values first and then clears only frontmatter-backed properties through the same authority-aware write and undo/redo path;
 - keep other file projections and formulas read-only until their authority-aware behavior is mapped into the custom view;
-- keep the existing Notidian context table as the production enhanced editor until Bases-backed editing is proven.
+- keep the existing Notidian context table as the production enhanced editor; Bases-backed editing may become an optional compatible surface when it is proven.
 
 The custom view must not persist hidden ordinary row values. It is a projection over the Bases result, and accepted ordinary property edits go directly to Markdown frontmatter. Ordinary data remains governed by files, file names, and frontmatter.
 
@@ -69,7 +71,7 @@ This path balances the three competing goals:
 | Notion-like UX | It gives Notidian a place to move its spreadsheet/table interactions later without abandoning the existing safe table prematurely. |
 | Delivery and data safety | The first step proves registration and read lifecycle only, avoiding a broad rewrite against partially typed runtime APIs. |
 
-Keeping the current table as the production editor is not a rejection of Bases. It is the safe bridge: Notidian can compare its mature UX against the native Bases host surface before moving writes.
+Keeping the current table as the production editor is not a rejection of Bases. It is the correct ownership boundary: Notidian owns the primary UX, while the native Bases host surface remains available for compatibility experiments and optional workflows.
 
 ## Why Not A Full Custom Bases Table Immediately
 
@@ -134,12 +136,12 @@ This is intentionally diagnostic. It is not a new data model and it is not a dur
 
 ## Current Limits
 
-This ADR accepts only the feasibility gate, not final Bases-backed table parity.
+This ADR accepts only the feasibility gate, not a requirement for final Bases-backed table parity.
 
 Still needed:
 
 - preserve capability snapshots from supported Obsidian versions as the API evolves;
-- mapping Notidian's current table edit transaction helpers into a Bases-hosted view;
+- optionally mapping Notidian's current table edit transaction helpers into a Bases-hosted view;
 - richer bulk page-title paste inside the custom view, including swaps and cycles through temporary paths instead of conservative source-target rejection;
 - richer conflict feedback and broader custom-view redo validation beyond the current cut redo smoke path;
 - broader keyboard and multi-row range coverage beyond the current focused copy/cut path;
@@ -155,11 +157,12 @@ Future work on the custom Bases view must preserve these rules:
 - Editing ordinary note properties must write frontmatter before the UI accepts the value.
 - The custom view must not create durable hidden row values for ordinary frontmatter-backed properties.
 - Unsupported context-only data must be surfaced as unsupported, legacy, or explicit Notidian-owned state.
-- Current safe Notidian table behavior must remain available until the Bases-hosted path reaches equivalent safety.
+- Current safe Notidian table behavior must remain available regardless of whether the Bases-hosted path reaches equivalent safety.
 
 ## Relationship To Other ADRs
 
-- ADR 0011 defines Bases-first convergence.
+- ADR 0011 defines the historical Bases-first convergence direction.
+- ADR 0013 supersedes ADR 0011 and defines the current Notidian-first canonical file architecture.
 - ADR 0001 defines the authority-partitioned source-of-truth model.
 - ADR 0002 defines frontmatter-backed ordinary properties.
 - ADR 0003 defines file-title edits through rename transactions.
