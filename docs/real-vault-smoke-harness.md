@@ -115,8 +115,9 @@ With `--ui`, the harness also performs live table scenarios:
 8. Uses the table's keyboard paste handler to paste a one-row, two-column TSV payload into Beta `status` and `rating`, then verifies both frontmatter values.
 9. Uses the table's keyboard undo handler to restore the pasted cells to `status: ui-active` and `rating: 2`, then verifies both frontmatter values.
 10. Uses the table's keyboard redo handler to reapply the pasted `status` and `rating` values through the same table write path, then verifies both frontmatter values.
-11. Creates a deterministic stale frontmatter authority state for the Beta row, edits the visible `status` cell, clicks the rendered `Apply anyway` conflict action, and verifies `status: conflict-applied` reaches the Markdown file.
-12. Edits the Alpha `File` cell through the live title editor, verifies the file was renamed, and uses the final renamed path during fixture cleanup.
+11. Converts the Beta `stage` column to an option property, clicks the visible option chip, creates a new option from the dropdown, and verifies the selected value reaches Markdown frontmatter.
+12. Creates a deterministic stale frontmatter authority state for the Beta row, edits the visible `status` cell, clicks the rendered `Apply anyway` conflict action, and verifies `status: conflict-applied` reaches the Markdown file.
+13. Edits the Alpha `File` cell through the live title editor, verifies the file was renamed, and uses the final renamed path during fixture cleanup.
 
 The conflict scenario intentionally creates the stale authority state inside Notidian's live path index instead of racing a real external file edit. Real external edits often refresh the table before a stale row can be exercised. The lower-level transaction tests cover detection against canonical metadata; this live UI step verifies that the rendered conflict action can force the attempted value through the same write path.
 
@@ -161,6 +162,6 @@ This is a smoke harness, not the final real-vault test suite.
 
 Still needed:
 
-- Broader live UI automation for multi-row paste, copy/cut, rejected title paste, richer conflict merge flows, and additional metadata timing fixtures.
+- Broader live UI automation for multi-row paste, copy/cut, rejected title paste, multi-select option fields, richer conflict merge flows, and additional metadata timing fixtures.
 - Fixture tests for legacy Make.md context migration.
 - Separate disposable-vault setup automation.

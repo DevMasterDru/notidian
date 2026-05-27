@@ -209,6 +209,7 @@ describe("notidian real vault harness", () => {
       "=> 2",
       "=> paste-active",
       "=> 7",
+      "=> option-review",
       "=> conflict-applied",
       "=> active",
     ];
@@ -258,6 +259,13 @@ describe("notidian real vault harness", () => {
             editedValues: { status: "paste-active", rating: "7" },
           });
         }
+        if (code.includes("notidianTableUiOption")) {
+          return JSON.stringify({
+            ok: true,
+            editedValue: "option-review",
+            optionSaved: true,
+          });
+        }
         if (code.includes("notidianTableUiRename")) {
           return JSON.stringify({
             ok: true,
@@ -297,12 +305,13 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(21);
+      .toHaveLength(23);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
       "notidianTableUiUndo",
       "notidianTableUiRedo",
+      "notidianTableUiOption",
       "notidianTableUiRename",
       "notidianTableUiConflict",
     ].forEach((marker) => {
@@ -317,6 +326,12 @@ describe("notidian real vault harness", () => {
         (args) =>
           args[1] == "eval" &&
           args.join(" ").includes('execCommand("insertText"')
+      )
+    ).toBe(true);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" && args.join(" ").includes(".mk-cell-option-item")
       )
     ).toBe(true);
     expect(calls.some((args) => args.includes(`path=${uiRenamedPath}`))).toBe(

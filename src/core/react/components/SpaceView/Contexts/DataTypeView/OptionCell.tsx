@@ -304,13 +304,23 @@ export const OptionCell = (
       removeValue={removeValue}
       selectLabel={props.compactMode ? props.property.name : i18n.labels.select}
       editMode={props.editMode}
-      labelElement={(_props: PropsWithChildren<{ value: string }>) => {
+      openMenuOnLabelClick
+      labelElement={(
+        _props: PropsWithChildren<{
+          value: string;
+          onClick?: React.MouseEventHandler;
+          clickable?: boolean;
+        }>
+      ) => {
         const color =
           options.find((f) => f.value == _props.value)?.color ??
           "var(--mk-color-none)";
         return (
           <div
-            className="mk-cell-option-item"
+            className={`mk-cell-option-item${
+              _props.clickable ? " mk-cell-option-clickable" : ""
+            }`}
+            onClick={_props.onClick}
             style={{
               background: `${color}`,
               color:
@@ -332,12 +342,13 @@ export const OptionCellBase = (props: {
   value: any[];
   baseClass: string;
   menuProps?: () => SelectMenuProps;
-  labelElement: React.FC<PropsWithChildren<{ value: any }>>;
+  labelElement: React.FC<PropsWithChildren<Record<string, any>>>;
   multi: boolean;
   editMode: CellEditMode;
   selectLabel: string;
   removeValue?: (value: any) => void;
   superstate: Superstate;
+  openMenuOnLabelClick?: boolean;
 }) => {
   const { value, menuProps } = props;
   const menuRef = useRef(null);
@@ -365,7 +376,26 @@ export const OptionCellBase = (props: {
         value.map((o, i) => (
           <React.Fragment key={i}>
             {props.labelElement && (
-              <props.labelElement value={o}>
+              <props.labelElement
+                value={o}
+                clickable={
+                  props.openMenuOnLabelClick &&
+                  editable &&
+                  !props.multi &&
+                  !!menuProps
+                }
+                onClick={
+                  props.openMenuOnLabelClick &&
+                  editable &&
+                  !props.multi &&
+                  !!menuProps
+                    ? (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        showMenu();
+                      }
+                    : undefined
+                }
+              >
                 {editable ? (
                   !props.multi && value.length > 0 ? (
                     <div

@@ -34,6 +34,11 @@ If a file has a property that another file does not have, the table can still sh
 
 To edit an ordinary metadata value, edit the cell directly.
 
+Option properties behave like Notion-style selects. A single-option chip opens
+the option menu when you click the chip or its dropdown control. Typing a new
+option in that menu creates the option, selects it for the cell, and writes the
+selected value to frontmatter before Notidian accepts the table update.
+
 For frontmatter-backed columns, Notidian:
 
 1. Resolves the row's current file path.

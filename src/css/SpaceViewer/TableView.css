@@ -442,6 +442,10 @@ height: 60px;
 .mk-cell-option-item {
   padding: 4px;
 }
+
+.mk-cell-option-clickable {
+  cursor: pointer;
+}
 .mk-cell-space {
   display: flex;
   gap: 8px;

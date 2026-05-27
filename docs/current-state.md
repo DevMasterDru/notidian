@@ -88,6 +88,10 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 ### Unified Table Edit Transactions
 
 Normal value edits, field-option value edits, and paste value writes go through `executeTableValueWrites`.
+Single-option cells now open the option menu from the whole visible option chip,
+not only from the small dropdown glyph. Creating a new option from that menu
+saves the option configuration and the selected frontmatter value through the
+same transaction.
 
 That transaction helper:
 
