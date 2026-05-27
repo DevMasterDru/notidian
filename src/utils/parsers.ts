@@ -8,12 +8,20 @@ import { serializeMultiDisplayString, serializeMultiString } from "./serializers
 export const parseMultiString = (str: string): string[] => ensureString(str).startsWith("[") ? ensureArray(safelyParseJSON(str)).map(f => ensureString(f)) : parseMultiDisplayString(str)
   
   export const parseMultiDisplayString = (str: string):string[] => (ensureString(str).replace('\\,', ',')?.match(/(\\.|[^,])+/g) ?? []).map(f => f.trim());
+  const stringifyPropertyValue = (value: any): string => {
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    const nextValue = value.toString();
+    return typeof nextValue === "string" ? nextValue : "";
+  };
   export const parseProperty = (field: string, value: any, type?: string) : string => {
   const YAMLtype = type ?? detectPropertyType(value, field);
-  if (!value) return ""
+  if (value == null) return ""
   switch (YAMLtype) {
     case "tags-multi": {
-      return value;
+      return Array.isArray(value)
+        ? serializeMultiString(value.map((f) => stringifyPropertyValue(f)))
+        : stringifyPropertyValue(value);
     }
     break;
     case "object":
@@ -32,10 +40,12 @@ export const parseMultiString = (str: string): string[] => ensureString(str).sta
       }
       break;
     case "number":
-      return (value as number).toString();
+      return stringifyPropertyValue(value);
       break;
     case "boolean":
-      return value ? "true" : "false";
+      if (value === true || value === "true") return "true";
+      if (value === false || value === "false") return "false";
+      return "";
       break;
     case "date":
       {
@@ -107,7 +117,7 @@ export const parseMultiString = (str: string): string[] => ensureString(str).sta
     case "tag":
     case "option":
     case "image":
-      return value;
+      return stringifyPropertyValue(value);
       break;
   }
   return "";
@@ -136,4 +146,3 @@ export const parseLinkString = (string: string) => {
   if (stringValue) return stringValue;
   return string;
 };
-

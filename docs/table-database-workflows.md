@@ -39,6 +39,17 @@ the option menu when you click the chip or its dropdown control. Typing a new
 option in that menu creates the option, selects it for the cell, and writes the
 selected value to frontmatter before Notidian accepts the table update.
 
+Frontmatter-backed columns can use the reliable file-backed table types: Text,
+Number, Yes/No, Date, Option, Link, and Image. Notidian keeps the raw Markdown
+property canonical, while the selected column type controls how the table
+projects and edits that value. Context-only Make.md types such as Formula,
+Context, Flex, Aggregate, and Object are intentionally not offered for ordinary
+frontmatter columns.
+
+`Tags` is special. It represents Obsidian file tags, not an arbitrary YAML key.
+For non-`tags` properties, use Option or multi-option behavior for tag-like
+labels.
+
 For frontmatter-backed columns, Notidian:
 
 1. Resolves the row's current file path.

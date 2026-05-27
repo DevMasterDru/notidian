@@ -65,6 +65,9 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - If the current frontmatter value no longer matches the table row's base value, Notidian skips the stale write instead of overwriting external changes.
 - Frontmatter-backed and computed values are stripped before context MDB persistence so MDB rows do not become the durable data source.
 - Mixed observed frontmatter types resolve conservatively to `text`.
+- User-selected column types are preserved as schema/view metadata for frontmatter-backed properties and are used when projecting row values from Obsidian metadata.
+- Frontmatter-backed type menus expose only the reliable file-backed table types: Text, Number, Yes/No, Date, Option, Link, and Image. Make.md context-only types such as Formula, Context, Flex, Aggregate, and Object stay available for Notidian-owned columns, not ordinary frontmatter columns.
+- `Tags` is reserved for the real Obsidian tags property. A non-`tags` property that already has `tags-multi` type is rendered as a multi-option property so it does not accidentally display unrelated file tags.
 
 ### Editable Page Titles
 
@@ -218,13 +221,14 @@ Notidian currently guarantees the following for implemented edit paths:
 - Property create, rename, and delete planning can now preview canonical frontmatter consequences before destructive schema UI/apply work is added.
 - Frontmatter-backed header label edits do not rename canonical YAML keys; they store a display alias until planner-backed property rename UI exists.
 - Frontmatter-backed delete actions are hide-only until planner-backed destructive property deletion UI exists.
+- Frontmatter-backed type changes stay inside the supported file-backed type surface and do not expose context-only Make.md field types as ordinary property types.
 
 ## Known Gaps
 
 The following work remains before Notidian should be considered final:
 
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
-- The real-vault smoke harness includes live table direct edit, paste, undo, redo, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
+- The real-vault smoke harness includes live table direct edit, paste, undo, redo, frontmatter-backed type changes, option creation, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property schema planning exists, but table UI/apply flows for create, rename, delete, default backfill, and schema conflict resolution are still needed.
 - Moving files between folders from table cells is not implemented.

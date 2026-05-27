@@ -154,6 +154,16 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
       ></LinkCell>
     );
   } else if (fieldType.type == "tags-multi") {
+    if (column.name.toLowerCase() != "tags") {
+      return (
+        <OptionCell
+          {...viewProps}
+          multi={true}
+          saveOptions={saveFieldValue}
+          source={props.source}
+        ></OptionCell>
+      );
+    }
     return <TagCell {...viewProps}></TagCell>;
   } else if (fieldType.type == "image") {
     return (

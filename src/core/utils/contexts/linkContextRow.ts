@@ -91,7 +91,11 @@ const resolvedPath = resolvePath(_row[PathPropertyName], path?.path, (spacePath)
 
   const frontmatter = (paths.get(resolvedPath)?.metadata?.property ?? {});
   
-  const filteredFrontmatter = Object.keys(frontmatter).filter(f => fields.some(g => g.name == f) && f != PathPropertyName).reduce((p, c) => ({ ...p, [c]: parseProperty(c, frontmatter[c]) }), {})
+  const fieldsByName = new Map(fields.map((field) => [field.name, field]));
+  const filteredFrontmatter = Object.keys(frontmatter).filter(f => fieldsByName.has(f) && f != PathPropertyName).reduce((p, c) => {
+    const field = fieldsByName.get(c);
+    return { ...p, [c]: parseProperty(c, frontmatter[c], field?.type) };
+  }, {})
   
   const tagData : Record<string, string> = {};
   const tagField = fields.find(f => f.name?.toLowerCase() == 'tags');

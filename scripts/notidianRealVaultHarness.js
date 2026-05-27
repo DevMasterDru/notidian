@@ -10,6 +10,7 @@ const DEFAULT_TABLE_UI_EDIT_VALUE = "ui-active";
 const DEFAULT_TABLE_UI_PASTE_STATUS = "paste-active";
 const DEFAULT_TABLE_UI_PASTE_RATING = "7";
 const DEFAULT_TABLE_UI_OPTION_STAGE = "option-review";
+const DEFAULT_TABLE_UI_TYPE_COLUMN = "stage";
 const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
 const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
@@ -1165,6 +1166,150 @@ const tableUiOptionEvalCode = ({
     }
   })()`.replace(/\s+/g, " ");
 
+const tableUiTypeMatrixEvalCode = ({
+  pluginId,
+  folder,
+  columnName,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiTypeMatrix";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+    const folder = ${JSON.stringify(folder)};
+    const columnName = ${JSON.stringify(columnName)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const matrix = [
+      { label: "Text", type: "text", className: "mk-cell-text" },
+      { label: "Number", type: "number", className: "mk-cell-number" },
+      { label: "Yes/No", type: "boolean", className: "mk-cell-boolean" },
+      { label: "Date", type: "date", className: "mk-cell-date" },
+      { label: "Option", type: "option", className: "mk-cell-option" },
+      { label: "Link", type: "link", className: "mk-cell-link" },
+      { label: "Image", type: "image", className: "mk-cell-image" },
+    ];
+    const disallowedLabels = ["Tags", "Formula", "Context", "Flex", "Aggregate", "Object"];
+    const findTable = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      if (columnIndex < 0) {
+        return { ok: false, reason: "missing-column", columns: headers.filter(Boolean) };
+      }
+      const row = table.querySelector("tbody tr");
+      if (!row) return { ok: false, reason: "missing-row", columns: headers.filter(Boolean) };
+      const cell = row.children[columnIndex];
+      if (!cell) {
+        return { ok: false, reason: "missing-cell", columns: headers.filter(Boolean), columnIndex };
+      }
+      const header = Array.from(table.querySelectorAll("thead th"))[columnIndex];
+      return { ok: true, table, headers, header, cell };
+    };
+    const clearMenus = async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+      );
+      document.body.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0, view: window })
+      );
+      await sleep(100);
+    };
+    const openTypeMenu = async () => {
+      await clearMenus();
+      const found = findTable();
+      if (!found.ok) return found;
+      found.header.querySelector(".mk-col-header")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, button: 0, view: window })
+      );
+      await sleep(150);
+      let menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      const typeRow = Array.from(menu?.querySelectorAll(".mk-menu-option") ?? [])
+        .find((option) => option.innerText.includes("Type"));
+      if (!typeRow) {
+        return { ok: false, reason: "missing-type-row", menuText: menu?.innerText ?? "" };
+      }
+      typeRow.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, button: 0, view: window })
+      );
+      await sleep(150);
+      menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      if (!menu) return { ok: false, reason: "missing-type-menu" };
+      return { ok: true, menu };
+    };
+    const selectType = async ({ label, type, className }) => {
+      const menuResult = await openTypeMenu();
+      if (!menuResult.ok) return menuResult;
+      const typeMenuText = menuResult.menu.innerText;
+      const blockedLabel = disallowedLabels.find((name) =>
+        typeMenuText.split("\\n").map((item) => item.trim()).includes(name)
+      );
+      if (blockedLabel) {
+        return { ok: false, reason: "frontmatter-menu-allows-context-type", blockedLabel, typeMenuText };
+      }
+      const option = Array.from(menuResult.menu.querySelectorAll(".mk-menu-option"))
+        .find((item) => item.innerText.trim() === label);
+      if (!option) {
+        return { ok: false, reason: "missing-type-option", label, typeMenuText };
+      }
+      option.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, button: 0, view: window })
+      );
+      const start = Date.now();
+      let latest = null;
+      do {
+        await sleep(pollIntervalMs);
+        const table = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+        const column = table.cols.find((item) => item.name == columnName);
+        const found = findTable();
+        if (!found.ok) return found;
+        latest = {
+          label,
+          type: column?.type,
+          className: Array.from(found.cell.querySelector("div")?.classList ?? []),
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        };
+        if (
+          latest.type === type &&
+          latest.className.includes(className)
+        ) {
+          return { ok: true, ...latest };
+        }
+      } while (Date.now() - start <= timeoutMs);
+      return { ok: false, reason: "type-not-settled", expectedType: type, expectedClass: className, latest };
+    };
+    try {
+      if (!plugin?.superstate?.spaceManager) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      const results = [];
+      for (const item of matrix) {
+        const result = await selectType(item);
+        results.push(result);
+        if (!result.ok) return finish({ ...result, results });
+      }
+      return finish({ ok: true, results });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
 const tableUiRenameEvalCode = ({
   folder,
   rowTitle,
@@ -1753,6 +1898,19 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     property: "rating",
     expected: DEFAULT_TABLE_UI_PASTE_RATING,
   });
+
+  const typeMatrixResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiTypeMatrixEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        columnName: DEFAULT_TABLE_UI_TYPE_COLUMN,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("type matrix", typeMatrixResult);
 
   const optionResult = parseJsonEvalResult(
     await runObsidian(config, runner, "eval", {

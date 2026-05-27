@@ -259,6 +259,15 @@ describe("notidian real vault harness", () => {
             editedValues: { status: "paste-active", rating: "7" },
           });
         }
+        if (code.includes("notidianTableUiTypeMatrix")) {
+          return JSON.stringify({
+            ok: true,
+            results: [
+              { ok: true, label: "Text", type: "text" },
+              { ok: true, label: "Option", type: "option" },
+            ],
+          });
+        }
         if (code.includes("notidianTableUiOption")) {
           return JSON.stringify({
             ok: true,
@@ -305,12 +314,13 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(23);
+      .toHaveLength(24);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
       "notidianTableUiUndo",
       "notidianTableUiRedo",
+      "notidianTableUiTypeMatrix",
       "notidianTableUiOption",
       "notidianTableUiRename",
       "notidianTableUiConflict",

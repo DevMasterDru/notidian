@@ -3,6 +3,7 @@ import i18n from "shared/i18n";
 import { normalizedSortForType } from "core/utils/contexts/predicate/sort";
 import { canDeletePropertyColumn } from "core/utils/contexts/propertyColumnActions";
 import { fieldForPropertyNameInput } from "core/utils/contexts/propertyNameValue";
+import { propertyTypeOptionsForField } from "core/utils/contexts/propertyTypeMenu";
 import { valueForPropertyTypeChange } from "core/utils/contexts/propertyTypeValue";
 import { nameForField } from "core/utils/frames/frames";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
@@ -60,8 +61,7 @@ export const PropertyMenuComponent = (props: {
         saveOptions: selectedType,
         value: [],
         showAll: true,
-        options: fieldTypes
-          .filter((f) => !f.restricted)
+        options: propertyTypeOptionsForField(field)
           .map((f, i) => ({
             id: i + 1,
             name: f.label,
