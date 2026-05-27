@@ -1,6 +1,7 @@
 import i18n from "shared/i18n";
 
 import { normalizedSortForType } from "core/utils/contexts/predicate/sort";
+import { valueForPropertyTypeChange } from "core/utils/contexts/propertyTypeValue";
 import { nameForField } from "core/utils/frames/frames";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useState } from "react";
@@ -35,7 +36,11 @@ export const PropertyMenuComponent = (props: {
     const newField = {
       ...field,
       type: value[0],
-      value: JSON.stringify(getNewValueForType(field, value)),
+      value: valueForPropertyTypeChange({
+        field,
+        nextType: value[0],
+        observedOptions: props.options,
+      }),
     };
     setField(newField);
     props.saveField(newField);
@@ -86,20 +91,6 @@ export const PropertyMenuComponent = (props: {
     props.saveField(newField);
   };
   const fieldType = fieldTypeForType(field.type, field.name) ?? fieldTypes[0];
-  const getNewValueForType = (f: SpaceTableColumn, value: string[]): string => {
-    if (value[0].startsWith("option")) {
-      return JSON.stringify({
-        options: props.options.map((f) => ({
-          name: f,
-          value: f,
-        })),
-      });
-    }
-    return value[0] == fieldType.type || value[0] == fieldType.multiType
-      ? f.value
-      : null;
-  };
-
   return (
     <>
       <li>
