@@ -68,6 +68,7 @@ Positive consequences:
 Tradeoffs:
 
 - this ADR does not yet add the final UI for property creation, rename, delete, default backfill, or conflict resolution;
+- until that UI exists, direct header text edits for frontmatter-backed columns are display aliases rather than canonical YAML key renames;
 - the planner must be wired into UI commands and transaction helpers before users can safely run destructive schema migrations from the table;
 - formulas and view predicates that reference renamed properties still need update planning.
 

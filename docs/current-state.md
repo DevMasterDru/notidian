@@ -146,6 +146,8 @@ The planner can:
 
 This planner is intentionally not a destructive UI command yet. It is the safety foundation for property create, rename, delete, default backfill, and conflict-resolution UI.
 
+Until that planner-backed schema UI exists, editing the visible header text of a frontmatter-backed column is treated as a display alias. Notidian keeps the canonical YAML/frontmatter key unchanged so a context column rename cannot silently hide or orphan existing file metadata.
+
 ### Table Edit Feedback
 
 Paste operations and direct single-cell edits now surface transaction state in the table:
@@ -208,6 +210,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
 - Legacy context CLI reports are read-only, and partial frontmatter scans are never marked migration-ready.
 - Property create, rename, and delete planning can now preview canonical frontmatter consequences before destructive schema UI/apply work is added.
+- Frontmatter-backed header label edits do not rename canonical YAML keys; they store a display alias until planner-backed property rename UI exists.
 
 ## Known Gaps
 

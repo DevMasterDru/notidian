@@ -1,6 +1,7 @@
 import i18n from "shared/i18n";
 
 import { normalizedSortForType } from "core/utils/contexts/predicate/sort";
+import { fieldForPropertyNameInput } from "core/utils/contexts/propertyNameValue";
 import { valueForPropertyTypeChange } from "core/utils/contexts/propertyTypeValue";
 import { nameForField } from "core/utils/frames/frames";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
@@ -11,8 +12,6 @@ import { MenuObject } from "shared/types/menu";
 import { Anchors, Rect } from "shared/types/Pos";
 import { Sort } from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
-import { safelyParseJSON } from "shared/utils/json";
-import { sanitizeColumnName } from "shared/utils/sanitizers";
 import StickerModal from "../../../../../../shared/components/StickerModal";
 import { defaultMenu, menuInput, menuSeparator } from "../menu/SelectionMenu";
 import { PropertyValueComponent } from "./PropertyValue";
@@ -185,19 +184,7 @@ export const showPropertyMenu = (
   } = props;
 
   const saveName = (value: string) => {
-    const sanitizedName = sanitizeColumnName(value);
-    if (sanitizedName != value || !editable) {
-      const fieldValue = safelyParseJSON(field.value);
-      saveField({
-        ...field,
-        value: JSON.stringify({
-          ...fieldValue,
-          alias: value,
-        }),
-      });
-      return;
-    }
-    saveField({ ...field, name: value });
+    saveField(fieldForPropertyNameInput({ field, value, editable }));
   };
   const menuOptions: SelectOption[] = [];
 

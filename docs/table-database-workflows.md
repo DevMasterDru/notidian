@@ -68,6 +68,8 @@ The current implementation includes a non-destructive planner for property schem
 
 The final table UI commands for applying these plans are still pending. Until those commands exist, schema changes should be understood as planned behavior rather than a finished user-facing workflow.
 
+Editing the visible header text of an existing frontmatter-backed column is currently a display-label change only. The underlying YAML key remains unchanged, so existing file metadata is not hidden or moved without a migration preview.
+
 ## Edit Page Titles
 
 The `File` column is the page-title column. It is not ordinary metadata.
