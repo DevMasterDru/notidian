@@ -26,6 +26,7 @@ If you need the current implementation status rather than the decision history, 
 | [0012](0012-custom-bases-view-feasibility-gate.md) | Custom Bases view feasibility gate | Historical record for the retired `notidian-table` custom Bases view experiment. |
 | [0013](0013-notidian-first-canonical-file-architecture.md) | Notidian-first canonical file architecture | Historical record for the Notidian-first/Bases-compatible strategy. Superseded by ADR 0014. |
 | [0014](0014-notidian-only-personal-database-engine.md) | Notidian-only personal database engine | Current governing strategy: Notidian is the only intended database engine/interface, while files/frontmatter remain canonical storage. |
+| [0015](0015-canonical-schema-planning.md) | Canonical schema planning | Defines the pure planner for frontmatter property discovery, create, rename, and delete previews before destructive schema UI/apply flows. |
 
 ## Decision Summary
 
@@ -37,6 +38,7 @@ Notidian uses a Notidian-only personal database architecture:
 - Notidian context MDB files store view configuration, ordering, formulas, relations, display schema, legacy state, and explicitly Notidian-owned fields.
 - Native Bases and `.base` compatibility are not part of the active architecture.
 - Projected values from files/frontmatter may be cached for rendering, but they must be rebuilt from the owning layer and must not become the durable source of truth.
+- Property create/rename/delete operations must be planned against canonical frontmatter before any destructive write is offered.
 
 ## Maintenance Rule
 

@@ -214,9 +214,13 @@ The target architecture adds richer diff/merge for multi-cell operations so user
 
 Schema operations are file/frontmatter operations, not context-only display changes.
 
+Notidian has a pure schema planner for this layer. The planner does not call Obsidian APIs and does not mutate files. It produces a table preview, per-file classifications, and frontmatter write previews that later UI/apply commands can use after confirmation.
+
 ### Create Property
 
 Creating a property adds a view column immediately. It writes frontmatter only when a value is assigned or when the user explicitly requests default backfill.
+
+The current planner creates a `source: "frontmatter"` column and returns no frontmatter writes by default. Duplicate column names are blocked case-insensitively.
 
 ### Rename Property
 
@@ -228,6 +232,16 @@ Renaming a property is a migration:
 4. Apply frontmatter key changes file by file.
 5. Update Notidian view definitions and formulas that reference the property.
 
+The current planner classifies every affected file as:
+
+- `old-only`: safe automatic write from old key to new key, then remove old key;
+- `new-only`: no write needed for that file;
+- `both-same`: safe automatic removal of the old duplicate key;
+- `both-conflict`: automatic application blocked until the user resolves the collision;
+- `neither`: no write needed.
+
+The planner may preview safe writes even when conflicts exist, but automatic application must remain blocked until conflicts are resolved.
+
 ### Delete Property
 
 Deleting a property must distinguish between:
@@ -236,6 +250,8 @@ Deleting a property must distinguish between:
 - deleting the frontmatter key from files.
 
 The destructive option requires preview and confirmation.
+
+The current planner represents hide-only deletion as a view/schema preview with no frontmatter writes. It represents destructive deletion as an explicit list of affected files and `removeKeys` operations.
 
 ### Types
 

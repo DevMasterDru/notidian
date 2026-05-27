@@ -55,6 +55,19 @@ The conflicted cell shows two inline actions:
 
 Apply anyway is explicit by design. Notidian still never silently overwrites newer frontmatter.
 
+## Change Properties
+
+Notidian treats ordinary properties as frontmatter keys, so schema changes are migrations over files, not hidden context-only edits.
+
+The current implementation includes a non-destructive planner for property schema operations:
+
+- creating a property adds a frontmatter-backed table column without writing empty keys to every file;
+- renaming a property previews each file and blocks automatic application when a file already has conflicting old and new values;
+- deleting a property distinguishes hiding the column from deleting the key in Markdown frontmatter;
+- destructive deletion is represented as an explicit affected-file preview.
+
+The final table UI commands for applying these plans are still pending. Until those commands exist, schema changes should be understood as planned behavior rather than a finished user-facing workflow.
+
 ## Edit Page Titles
 
 The `File` column is the page-title column. It is not ordinary metadata.
@@ -176,7 +189,7 @@ These are known gaps, not accidental omissions:
 - A table command for moving files between folders.
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
-- Authority-aware property rename/delete/schema flows.
+- Table UI/apply commands for the existing property schema planner.
 
 ## Related Records
 
@@ -192,4 +205,6 @@ These are known gaps, not accidental omissions:
 - [ADR 0008](adr/0008-table-undo-journal.md) explains undo.
 - [ADR 0009](adr/0009-frontmatter-conflict-detection.md) explains stale frontmatter conflict detection.
 - [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) explains legacy context audit and migration planning.
-- [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) explains the current Notidian-first architecture.
+- [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) preserves historical Notidian-first/Bases-compatible reasoning.
+- [ADR 0014](adr/0014-notidian-only-personal-database-engine.md) explains the current Notidian-only architecture.
+- [ADR 0015](adr/0015-canonical-schema-planning.md) explains property schema planning.

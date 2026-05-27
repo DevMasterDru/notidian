@@ -128,6 +128,24 @@ npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Re
 
 The report reads a single folder context, compares context rows with frontmatter, and emits Markdown or JSON. Partial reports created with `--max-files` are marked as incomplete and cannot be treated as automatically applicable. There is still no destructive legacy migration command.
 
+### Canonical Schema Planning
+
+Notidian now has a pure schema planner for ordinary frontmatter-backed properties.
+
+The planner can:
+
+- discover existing frontmatter keys across a row set without writing files;
+- summarize present/missing counts and observed value types;
+- create a frontmatter-backed view column without writing empty frontmatter into every file;
+- reject duplicate property names case-insensitively;
+- preview property renames file by file;
+- classify rename rows as `old-only`, `new-only`, `both-same`, `both-conflict`, or `neither`;
+- block automatic rename application when a file contains conflicting old and new property values;
+- distinguish hiding a property from the view from deleting its frontmatter key from files;
+- produce explicit frontmatter write previews for future confirmed apply flows.
+
+This planner is intentionally not a destructive UI command yet. It is the safety foundation for property create, rename, delete, default backfill, and conflict-resolution UI.
+
 ### Table Edit Feedback
 
 Paste operations and direct single-cell edits now surface transaction state in the table:
@@ -189,6 +207,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Context MDB rows do not become the durable source of truth for frontmatter-backed or computed values.
 - Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
 - Legacy context CLI reports are read-only, and partial frontmatter scans are never marked migration-ready.
+- Property create, rename, and delete planning can now preview canonical frontmatter consequences before destructive schema UI/apply work is added.
 
 ## Known Gaps
 
@@ -197,7 +216,7 @@ The following work remains before Notidian should be considered final:
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
 - The real-vault smoke harness includes live table direct edit, paste, undo, redo, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
-- Property rename/delete/schema operations need stronger authority-aware flows.
+- Property schema planning exists, but table UI/apply flows for create, rename, delete, default backfill, and schema conflict resolution are still needed.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
@@ -218,6 +237,7 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) for historical custom Bases view context.
 - Use [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) for historical Notidian-first/Bases-compatible context.
 - Use [ADR 0014](adr/0014-notidian-only-personal-database-engine.md) for the current Notidian-only architecture.
+- Use [ADR 0015](adr/0015-canonical-schema-planning.md) for frontmatter property schema create/rename/delete planning.
 - Use `docs/superpowers` only as historical design and execution context.
 
 ## Implementation Map
@@ -231,6 +251,7 @@ The following work remains before Notidian should be considered final:
 | Transient cell feedback | [tableEditFeedback.ts](../src/core/utils/contexts/tableEditFeedback.ts) and [tableEditFeedback.test.ts](../src/core/utils/contexts/tableEditFeedback.test.ts) |
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
+| Frontmatter schema planning | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts) and [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
