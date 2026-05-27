@@ -2,7 +2,16 @@
 
 ## Status
 
-Accepted.
+Accepted historical context.
+
+The hardening decisions remain valid, but later focused ADRs now own the active operational rules:
+
+- [ADR 0003](0003-editable-page-titles-through-file-renames.md) for page-title rename transactions;
+- [ADR 0006](0006-unified-table-edit-transactions.md) for shared value write transactions;
+- [ADR 0009](0009-frontmatter-conflict-detection.md) for stale frontmatter detection;
+- [ADR 0015](0015-canonical-schema-planning.md) for frontmatter schema planning.
+
+Treat this record as the phase record for why the authority hardening work happened, not as the active implementation map.
 
 ## Date
 
@@ -114,6 +123,10 @@ The implementation was committed in the authority-hardening phase ending at comm
 
 ## Follow-Up Work
 
-- Add a single higher-level transaction API for all context cell edits.
-- Add UI conflict reporting for external edits that race with a Notidian edit.
-- Add integration tests using an actual vault fixture for rename, frontmatter write, and context reload behavior.
+Current gaps are tracked in [Current State](../current-state.md).
+
+Historical follow-ups from this phase have mostly moved into later focused records:
+
+- The higher-level value transaction path is covered by [ADR 0006](0006-unified-table-edit-transactions.md).
+- External edit conflict reporting is covered by [ADR 0009](0009-frontmatter-conflict-detection.md).
+- Real-vault verification is covered by [Real Vault Smoke Harness](../real-vault-smoke-harness.md).

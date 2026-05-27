@@ -52,7 +52,7 @@ Notidian still owns necessary product value in:
 - migration review for legacy Make.md contexts;
 - compatibility display for legacy context-only data until it is audited and migrated.
 
-The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-database-engine.md). [ADR 0011](adr/0011-bases-first-convergence.md), [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md), and [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) remain historical context.
+The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-database-engine.md). Historical Bases and Notidian-first/Bases-compatible records are preserved in the [ADR index](adr/README.md), but they are not part of the active roadmap.
 
 ## Implemented Behavior
 
@@ -233,12 +233,10 @@ The following work remains before Notidian should be considered final:
 - Use [ADR 0008](adr/0008-table-undo-journal.md) for the table-local undo journal.
 - Use [ADR 0009](adr/0009-frontmatter-conflict-detection.md) for frontmatter conflict detection.
 - Use [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) for legacy context audit and migration rules.
-- Use [ADR 0011](adr/0011-bases-first-convergence.md) for historical Bases-first convergence context.
-- Use [ADR 0012](adr/0012-custom-bases-view-feasibility-gate.md) for historical custom Bases view context.
-- Use [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) for historical Notidian-first/Bases-compatible context.
 - Use [ADR 0014](adr/0014-notidian-only-personal-database-engine.md) for the current Notidian-only architecture.
 - Use [ADR 0015](adr/0015-canonical-schema-planning.md) for frontmatter property schema create/rename/delete planning.
-- Use `docs/superpowers` only as historical design and execution context.
+- Use the [ADR index](adr/README.md) for historical/superseded decision records.
+- Treat `docs/superpowers` as historical execution evidence only. It does not override ADRs or current-state docs.
 
 ## Implementation Map
 

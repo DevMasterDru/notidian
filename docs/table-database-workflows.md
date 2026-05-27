@@ -205,6 +205,6 @@ These are known gaps, not accidental omissions:
 - [ADR 0008](adr/0008-table-undo-journal.md) explains undo.
 - [ADR 0009](adr/0009-frontmatter-conflict-detection.md) explains stale frontmatter conflict detection.
 - [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) explains legacy context audit and migration planning.
-- [ADR 0013](adr/0013-notidian-first-canonical-file-architecture.md) preserves historical Notidian-first/Bases-compatible reasoning.
 - [ADR 0014](adr/0014-notidian-only-personal-database-engine.md) explains the current Notidian-only architecture.
 - [ADR 0015](adr/0015-canonical-schema-planning.md) explains property schema planning.
+- [ADR Index](adr/README.md) lists historical and superseded records.
