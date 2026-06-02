@@ -283,6 +283,8 @@ export const en = {
     "unhideProperty": "Unhide Property",
     "sortAscending": "Sort Ascending",
     "sortDescending": "Sort Descending",
+    "freezeUpToColumn": "Freeze up to column",
+    "unfreezeColumns": "Unfreeze columns",
     "deleteRow": "Delete Item",
     "customSort": "Custom Sort",
     "groupSpaces": "Group Spaces",
@@ -381,6 +383,7 @@ export const en = {
     "alias": "Alias",
     "addFilter": "Add Filter",
     "loadMore": "Load More",
+    "loadAll": "Load All",
     "addCondition": "Add Condition",
     "customize": "Customize",
     "moreOptions": "More Options",
@@ -495,8 +498,8 @@ export const en = {
       "description": "Select a date from a calendar"
     },
     "option": {
-      "label": "Option",
-      "description": "Select one or multiple option from a list"
+      "label": "Select",
+      "description": "Select one value from a defined list"
     },
     "file": {
       "label": "File"
@@ -581,6 +584,7 @@ export const en = {
     "endTimeProperty": "End Time Property",
     "startOfDay": "Start Of Day",
     "endOfDay": "End Of Day",
+    "tableRowsLoaded": "${1} of ${2}",
     "itemsSelected": "${1} Selected",
     "createATemplateToGetStarted": "Create a template to get started",
     "iconCount": "${1} icons",

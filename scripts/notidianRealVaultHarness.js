@@ -10,6 +10,8 @@ const DEFAULT_TABLE_UI_EDIT_VALUE = "ui-active";
 const DEFAULT_TABLE_UI_PASTE_STATUS = "paste-active";
 const DEFAULT_TABLE_UI_PASTE_RATING = "7";
 const DEFAULT_TABLE_UI_OPTION_STAGE = "option-review";
+const DEFAULT_TABLE_UI_SELECT_EXISTING_STAGE = "todo";
+const DEFAULT_TABLE_UI_MULTI_SELECT_STAGE = ["multi-alpha", "multi-beta"];
 const DEFAULT_TABLE_UI_TYPE_COLUMN = "stage";
 const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
 const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
@@ -1141,29 +1143,631 @@ const tableUiOptionEvalCode = ({
       );
       addOption.dispatchEvent(
         new MouseEvent("click", { bubbles: true, button: 0 })
+	      );
+	      const settleStart = Date.now();
+	      let latest = {
+	        editedValue: "",
+	        optionSaved: false,
+	        columnValue: "",
+	      };
+	      do {
+	        const nextFound = findOptionCell();
+	        if (!nextFound.ok) return finish(nextFound);
+	        latest.editedValue = nextFound.cell.innerText.trim();
+	        if (latest.editedValue == newValue) {
+	          const updatedTable = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+	          const updatedColumn = updatedTable.cols.find((column) => column.name == columnName);
+	          latest.optionSaved = String(updatedColumn?.value ?? "").includes(newValue);
+	          latest.columnValue = String(updatedColumn?.value ?? "");
+	          if (latest.optionSaved) {
+	            return finish({
+	              ok: true,
+	              editedValue: latest.editedValue,
+	              optionSaved: true,
+	            });
+	          }
+	        }
+	        await sleep(pollIntervalMs);
+	      } while (Date.now() - settleStart <= timeoutMs);
+	      return finish({
+	        ok: false,
+	        reason: latest.editedValue == newValue
+	          ? "option-config-not-settled"
+	          : "display-not-settled",
+	        ...latest,
+	      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiMultiSelectEvalCode = ({
+  pluginId,
+  folder,
+  rowTitle,
+  rowPath,
+  columnName,
+  values,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiMultiSelect";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const rowPath = ${JSON.stringify(rowPath)};
+    const columnName = ${JSON.stringify(columnName)};
+    const values = ${JSON.stringify(values)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const clickElement = (element) => {
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, view: window }));
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, view: window }));
+    };
+    const setInputValue = (input, value) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      if (setter) {
+        setter.call(input, value);
+      } else {
+        input.value = value;
+      }
+      const inputEvent = typeof InputEvent == "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: value,
+          })
+        : new Event("input", { bubbles: true });
+      input.dispatchEvent(inputEvent);
+    };
+    const readMetadataValues = () => {
+      const file = app.vault.getAbstractFileByPath(rowPath);
+      if (!file) return [];
+      const rawValue = app.metadataCache.getFileCache(file)?.frontmatter?.[columnName];
+      if (rawValue == null) return [];
+      if (Array.isArray(rawValue)) return rawValue.map((value) => String(value));
+      if (typeof rawValue == "string") {
+        try {
+          const parsed = JSON.parse(rawValue);
+          if (Array.isArray(parsed)) return parsed.map((value) => String(value));
+        } catch (_) {}
+        return rawValue.length > 0 ? [rawValue] : [];
+      }
+      return [String(rawValue)];
+    };
+    const ensureMultiSelectColumn = async () => {
+      if (!plugin?.superstate?.spaceManager) {
+        return { ok: false, reason: "missing-plugin" };
+      }
+      const table = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+      const existing = table.cols.find((column) => column.name == columnName);
+      const options = values.map((value) => ({
+        name: value,
+        value,
+      }));
+      const nextColumn = {
+        ...(existing || {}),
+        name: columnName,
+        schemaId: ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)},
+        type: "option-multi",
+        value: JSON.stringify({ options }),
+        source: "frontmatter",
+        hidden: existing?.hidden ?? "",
+        unique: existing?.unique ?? "",
+        primary: existing?.primary ?? "",
+      };
+      const nextTable = {
+        ...table,
+        cols: existing
+          ? table.cols.map((column) => column.name == columnName ? nextColumn : column)
+          : [...table.cols, nextColumn],
+      };
+      await plugin.superstate.spaceManager.saveTable(folder, nextTable, true);
+      const file = app.vault.getAbstractFileByPath(rowPath);
+      if (!file) return { ok: false, reason: "missing-row-file", rowPath };
+      await app.fileManager.processFrontMatter(file, (frontmatter) => {
+        frontmatter[columnName] = [];
+      });
+      await plugin.superstate.reloadContextByPath(folder, {
+        force: true,
+        calculate: true,
+      });
+      return { ok: true };
+    };
+    const findOptionCell = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
       );
-      const settleStart = Date.now();
-      let latestValue = "";
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: headers.filter(Boolean),
+        };
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[columnIndex];
+      const optionCell = cell?.querySelector(".mk-cell-option");
+      if (!optionCell) {
+        return {
+          ok: false,
+          reason: "missing-option-cell",
+          columns: headers.filter(Boolean),
+          cellHtml: cell?.outerHTML.slice(0, 500),
+        };
+      }
+      return { ok: true, table, cell, optionCell, headers };
+    };
+    const selectValue = async (value) => {
+      let menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      if (!menu?.querySelector(".mk-menu-search-input")) {
+        const found = findOptionCell();
+        if (!found.ok) return found;
+        const addButton = found.cell.querySelector(".mk-cell-option-new");
+        if (!addButton) {
+          return { ok: false, reason: "missing-multi-select-add-button", cellHtml: found.cell.outerHTML.slice(0, 500) };
+        }
+        clickElement(addButton);
+        await sleep(250);
+        menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      }
+      if (!menu) return { ok: false, reason: "missing-multi-select-menu" };
+      const input = menu.querySelector(".mk-menu-search-input");
+      if (!input) {
+        return { ok: false, reason: "missing-multi-select-menu-input", menuText: menu.innerText.slice(0, 500) };
+      }
+      input.focus();
+      setInputValue(input, value);
+      await sleep(250);
+      const option = Array.from(menu.querySelectorAll(".mk-menu-option"))
+        .find((item) => item.innerText.split("\\n").map((part) => part.trim()).includes(value));
+      if (!option) {
+        return { ok: false, reason: "missing-multi-select-option", value, menuText: menu.innerText.slice(0, 500) };
+      }
+      clickElement(option);
+      await sleep(350);
+      return { ok: true };
+    };
+    try {
+      const setup = await ensureMultiSelectColumn();
+      if (!setup.ok) return finish(setup);
+      const renderStart = Date.now();
+      let found = null;
       do {
+        found = findOptionCell();
+        if (found.ok && found.cell.querySelector(".mk-cell-option-new") && readMetadataValues().length == 0) break;
+        await sleep(pollIntervalMs);
+      } while (Date.now() - renderStart <= timeoutMs);
+      if (!found?.ok) return finish(found || { ok: false, reason: "missing-option-cell" });
+      for (const value of values) {
+        const selected = await selectValue(value);
+        if (!selected.ok) return finish(selected);
+      }
+      const settleStart = Date.now();
+      let latest = null;
+      do {
+        const updatedTable = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+        const updatedColumn = updatedTable.cols.find((column) => column.name == columnName);
         const nextFound = findOptionCell();
         if (!nextFound.ok) return finish(nextFound);
-        latestValue = nextFound.cell.innerText.trim();
-        if (latestValue == newValue) {
-          const updatedTable = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
-          const updatedColumn = updatedTable.cols.find((column) => column.name == columnName);
-          return finish({
-            ok: true,
-            editedValue: latestValue,
-            optionSaved: String(updatedColumn?.value ?? "").includes(newValue),
-          });
+        const editedValues = readMetadataValues();
+        latest = {
+          editedValues,
+          type: updatedColumn?.type,
+          cellText: nextFound.cell.innerText.trim(),
+        };
+        if (
+          latest.type == "option-multi" &&
+          values.every((value) => editedValues.includes(value)) &&
+          values.every((value) => latest.cellText.includes(value))
+        ) {
+          return finish({ ok: true, editedValues, type: latest.type });
         }
         await sleep(pollIntervalMs);
       } while (Date.now() - settleStart <= timeoutMs);
+      return finish({ ok: false, reason: "multi-select-not-settled", latest });
+    } catch (error) {
       return finish({
         ok: false,
-        reason: "display-not-settled",
-        editedValue: latestValue,
+        reason: "exception",
+        message: String(error?.message ?? error),
       });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiSelectExistingOptionEvalCode = ({
+  pluginId,
+  folder,
+  rowTitle,
+  rowPath,
+  columnName,
+  currentValue,
+  targetValue,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiSelectExistingOption";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const rowPath = ${JSON.stringify(rowPath)};
+    const columnName = ${JSON.stringify(columnName)};
+    const currentValue = ${JSON.stringify(currentValue)};
+    const targetValue = ${JSON.stringify(targetValue)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const clickElement = (element) => {
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, view: window }));
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, view: window }));
+    };
+    const readMetadataValue = () => {
+      const file = app.vault.getAbstractFileByPath(rowPath);
+      if (!file) return "";
+      const rawValue = app.metadataCache.getFileCache(file)?.frontmatter?.[columnName];
+      if (rawValue == null) return "";
+      return Array.isArray(rawValue) ? rawValue.join(",") : String(rawValue);
+    };
+    const ensureSelectColumn = async () => {
+      if (!plugin?.superstate?.spaceManager) {
+        return { ok: false, reason: "missing-plugin" };
+      }
+      const table = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+      const existing = table.cols.find((column) => column.name == columnName);
+      const options = [currentValue, targetValue].map((value) => ({
+        name: value,
+        value,
+      }));
+      const nextColumn = {
+        ...(existing || {}),
+        name: columnName,
+        schemaId: ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)},
+        type: "option",
+        value: JSON.stringify({ options }),
+        source: "frontmatter",
+        hidden: existing?.hidden ?? "",
+        unique: existing?.unique ?? "",
+        primary: existing?.primary ?? "",
+      };
+      const nextTable = {
+        ...table,
+        cols: existing
+          ? table.cols.map((column) => column.name == columnName ? nextColumn : column)
+          : [...table.cols, nextColumn],
+      };
+      await plugin.superstate.spaceManager.saveTable(folder, nextTable, true);
+      const file = app.vault.getAbstractFileByPath(rowPath);
+      if (!file) return { ok: false, reason: "missing-row-file", rowPath };
+      await app.fileManager.processFrontMatter(file, (frontmatter) => {
+        frontmatter[columnName] = currentValue;
+      });
+      await plugin.superstate.reloadContextByPath(folder, {
+        force: true,
+        calculate: true,
+      });
+      return { ok: true };
+    };
+    const findOptionCell = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: headers.filter(Boolean),
+        };
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[columnIndex];
+      const optionCell = cell?.querySelector(".mk-cell-option");
+      if (!optionCell) {
+        return {
+          ok: false,
+          reason: "missing-option-cell",
+          columns: headers.filter(Boolean),
+          cellHtml: cell?.outerHTML.slice(0, 500),
+        };
+      }
+      return { ok: true, table, cell, optionCell, headers };
+    };
+    try {
+      if (!plugin?.superstate?.spaceManager) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      const table = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+      const column = table.cols.find((column) => column.name == columnName);
+      const columnValue = String(column?.value ?? "");
+      if (!columnValue.includes(currentValue) || !columnValue.includes(targetValue)) {
+        return finish({
+          ok: false,
+          reason: "select-option-config-missing",
+          columnValue,
+        });
+      }
+      const renderStart = Date.now();
+      let found = null;
+      do {
+        found = findOptionCell();
+        if (
+          found.ok &&
+          found.cell.innerText.includes(currentValue) &&
+          readMetadataValue() == currentValue
+        ) {
+          break;
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - renderStart <= timeoutMs);
+      if (!found?.ok) return finish(found || { ok: false, reason: "missing-option-cell" });
+      const optionChip = found.cell.querySelector(".mk-cell-option-item");
+      if (!optionChip) {
+        return finish({
+          ok: false,
+          reason: "missing-option-chip",
+          columns: found.headers.filter(Boolean),
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        });
+      }
+      clickElement(optionChip);
+      await sleep(250);
+      const menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      if (!menu) {
+        return finish({
+          ok: false,
+          reason: "missing-select-menu-after-chip-click",
+          columns: found.headers.filter(Boolean),
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        });
+      }
+      const option = Array.from(menu.querySelectorAll(".mk-menu-option"))
+        .find((item) => item.innerText.split("\\n").map((part) => part.trim()).includes(targetValue));
+      if (!option) {
+        return finish({
+          ok: false,
+          reason: "missing-existing-select-option",
+          menuText: menu.innerText.slice(0, 500),
+        });
+      }
+      clickElement(option);
+      const settleStart = Date.now();
+      let latest = null;
+      do {
+        const nextFound = findOptionCell();
+        if (!nextFound.ok) return finish(nextFound);
+        latest = {
+          editedValue: readMetadataValue(),
+          cellText: nextFound.cell.innerText.trim(),
+        };
+        if (
+          latest.editedValue == targetValue &&
+          latest.cellText.includes(targetValue)
+        ) {
+          return finish({ ok: true, editedValue: latest.editedValue });
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - settleStart <= timeoutMs);
+      return finish({ ok: false, reason: "select-existing-not-settled", latest });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiSelectEmptyExistingOptionEvalCode = ({
+  folder,
+  rowTitle,
+  rowPath,
+  columnName,
+  currentValue,
+  targetValue,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiSelectEmptyExistingOption";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const rowTitle = ${JSON.stringify(rowTitle)};
+    const rowPath = ${JSON.stringify(rowPath)};
+    const columnName = ${JSON.stringify(columnName)};
+    const currentValue = ${JSON.stringify(currentValue)};
+    const targetValue = ${JSON.stringify(targetValue)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const clickElement = (element) => {
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, view: window }));
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, view: window }));
+    };
+    const readMetadataValue = () => {
+      const file = app.vault.getAbstractFileByPath(rowPath);
+      if (!file) return "";
+      const rawValue = app.metadataCache.getFileCache(file)?.frontmatter?.[columnName];
+      if (rawValue == null) return "";
+      return Array.isArray(rawValue) ? rawValue.join(",") : String(rawValue);
+    };
+    const findOptionCell = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      if (columnIndex < 0) {
+        return {
+          ok: false,
+          reason: "missing-column",
+          columns: headers.filter(Boolean),
+        };
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          columns: headers.filter(Boolean),
+          tableText: table.innerText.slice(0, 500),
+        };
+      }
+      const cell = row.children[columnIndex];
+      const optionCell = cell?.querySelector(".mk-cell-option");
+      if (!optionCell) {
+        return {
+          ok: false,
+          reason: "missing-option-cell",
+          columns: headers.filter(Boolean),
+          cellHtml: cell?.outerHTML.slice(0, 500),
+        };
+      }
+      return { ok: true, table, cell, optionCell, headers };
+    };
+    const openMenu = async () => {
+      const found = findOptionCell();
+      if (!found.ok) return found;
+      const optionChip = found.cell.querySelector(".mk-cell-option-item");
+      if (!optionChip) {
+        return {
+          ok: false,
+          reason: "missing-option-chip",
+          columns: found.headers.filter(Boolean),
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        };
+      }
+      clickElement(optionChip);
+      await sleep(250);
+      const menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      if (!menu) {
+        return {
+          ok: false,
+          reason: "missing-select-menu-after-chip-click",
+          columns: found.headers.filter(Boolean),
+          cellHtml: found.cell.outerHTML.slice(0, 500),
+        };
+      }
+      return { ok: true, menu, found };
+    };
+    const clickMenuOption = (menu, value) => {
+      const options = Array.from(menu.querySelectorAll(".mk-menu-option"));
+      return options.find((item) =>
+        item.innerText.split("\\n").map((part) => part.trim()).includes(value)
+      );
+    };
+    try {
+      const firstMenu = await openMenu();
+      if (!firstMenu.ok) return finish(firstMenu);
+      const noneOption = Array.from(firstMenu.menu.querySelectorAll(".mk-menu-option"))[0];
+      if (!noneOption) {
+        return finish({
+          ok: false,
+          reason: "missing-select-none-option",
+          menuText: firstMenu.menu.innerText.slice(0, 500),
+        });
+      }
+      clickElement(noneOption);
+      const clearStart = Date.now();
+      let latest = null;
+      do {
+        const found = findOptionCell();
+        if (!found.ok) return finish(found);
+        latest = {
+          editedValue: readMetadataValue(),
+          cellText: found.cell.innerText.trim(),
+        };
+        if (latest.editedValue == "" && !latest.cellText.includes(currentValue)) break;
+        await sleep(pollIntervalMs);
+      } while (Date.now() - clearStart <= timeoutMs);
+      if (!latest || latest.editedValue != "") {
+        return finish({ ok: false, reason: "select-clear-not-settled", latest });
+      }
+      const secondMenu = await openMenu();
+      if (!secondMenu.ok) return finish(secondMenu);
+      const targetOption = clickMenuOption(secondMenu.menu, targetValue);
+      if (!targetOption) {
+        return finish({
+          ok: false,
+          reason: "missing-empty-select-existing-option",
+          menuText: secondMenu.menu.innerText.slice(0, 500),
+        });
+      }
+      clickElement(targetOption);
+      const settleStart = Date.now();
+      do {
+        const found = findOptionCell();
+        if (!found.ok) return finish(found);
+        latest = {
+          editedValue: readMetadataValue(),
+          cellText: found.cell.innerText.trim(),
+        };
+        if (
+          latest.editedValue == targetValue &&
+          latest.cellText.includes(targetValue)
+        ) {
+          return finish({ ok: true, editedValue: latest.editedValue });
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - settleStart <= timeoutMs);
+      return finish({ ok: false, reason: "empty-select-existing-not-settled", latest });
     } catch (error) {
       return finish({
         ok: false,
@@ -1194,7 +1798,8 @@ const tableUiTypeMatrixEvalCode = ({
       { label: "Number", type: "number", className: "mk-cell-number" },
       { label: "Yes/No", type: "boolean", className: "mk-cell-boolean" },
       { label: "Date", type: "date", className: "mk-cell-date" },
-      { label: "Option", type: "option", className: "mk-cell-option" },
+      { label: "Select", type: "option", className: "mk-cell-option" },
+      { label: "Multi-select", type: "option-multi", className: "mk-cell-option" },
       { label: "Link", type: "link", className: "mk-cell-link" },
       { label: "Image", type: "image", className: "mk-cell-image" },
     ];
@@ -1259,10 +1864,13 @@ const tableUiTypeMatrixEvalCode = ({
     const selectType = async ({ label, type, className }) => {
       const menuResult = await openTypeMenu();
       if (!menuResult.ok) return menuResult;
-      const typeMenuText = menuResult.menu.innerText;
-      const blockedLabel = disallowedLabels.find((name) =>
-        typeMenuText.split("\\n").map((item) => item.trim()).includes(name)
-      );
+	      const typeMenuText = menuResult.menu.innerText;
+	      if (typeMenuText.split("\\n").map((item) => item.trim()).includes("Option")) {
+	        return { ok: false, reason: "frontmatter-menu-still-shows-option-label", typeMenuText };
+	      }
+	      const blockedLabel = disallowedLabels.find((name) =>
+	        typeMenuText.split("\\n").map((item) => item.trim()).includes(name)
+	      );
       if (blockedLabel) {
         return { ok: false, reason: "frontmatter-menu-allows-context-type", blockedLabel, typeMenuText };
       }
@@ -1680,6 +2288,12 @@ const formatUiFailure = (result) =>
       ? `currentRating=${result.currentRating}`
       : "",
     result?.currentValue !== undefined ? `currentValue=${result.currentValue}` : "",
+    result?.columnValue !== undefined
+      ? `columnValue=${String(result.columnValue).slice(0, 400)}`
+      : "",
+    result?.editedValue !== undefined ? `editedValue=${result.editedValue}` : "",
+    result?.latest ? `latest=${JSON.stringify(result.latest).slice(0, 500)}` : "",
+    result?.menuText ? `menuText=${String(result.menuText).slice(0, 500)}` : "",
     result?.cellHtml ? `cellHtml=${String(result.cellHtml).slice(0, 300)}` : "",
     result?.debug ? `debug=${JSON.stringify(result.debug).slice(0, 600)}` : "",
     result?.pasteDebug
@@ -1994,6 +2608,107 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     path: paths.betaPath,
     property: "stage",
     expected: DEFAULT_TABLE_UI_OPTION_STAGE,
+  });
+
+  const selectExistingResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiSelectExistingOptionEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        rowPath: paths.betaPath,
+        columnName: "stage",
+        currentValue: DEFAULT_TABLE_UI_OPTION_STAGE,
+        targetValue: DEFAULT_TABLE_UI_SELECT_EXISTING_STAGE,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("select existing option", selectExistingResult);
+
+  if (selectExistingResult.editedValue != DEFAULT_TABLE_UI_SELECT_EXISTING_STAGE) {
+    throw new Error(
+      `Notidian table UI select existing option failed: expected editedValue=${DEFAULT_TABLE_UI_SELECT_EXISTING_STAGE}; got ${selectExistingResult.editedValue}`
+    );
+  }
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "stage",
+    expected: DEFAULT_TABLE_UI_SELECT_EXISTING_STAGE,
+  });
+
+  const selectEmptyExistingResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiSelectEmptyExistingOptionEvalCode({
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        rowPath: paths.betaPath,
+        columnName: "stage",
+        currentValue: DEFAULT_TABLE_UI_SELECT_EXISTING_STAGE,
+        targetValue: DEFAULT_TABLE_UI_OPTION_STAGE,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("empty select existing option", selectEmptyExistingResult);
+
+  if (selectEmptyExistingResult.editedValue != DEFAULT_TABLE_UI_OPTION_STAGE) {
+    throw new Error(
+      `Notidian table UI empty select existing option failed: expected editedValue=${DEFAULT_TABLE_UI_OPTION_STAGE}; got ${selectEmptyExistingResult.editedValue}`
+    );
+  }
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "stage",
+    expected: DEFAULT_TABLE_UI_OPTION_STAGE,
+  });
+
+  const multiSelectResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiMultiSelectEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        rowTitle: `${paths.runId}-Beta`,
+        rowPath: paths.betaPath,
+        columnName: "stage",
+        values: DEFAULT_TABLE_UI_MULTI_SELECT_STAGE,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("multi-select", multiSelectResult);
+
+  if (
+    JSON.stringify(multiSelectResult.editedValues) !=
+    JSON.stringify(DEFAULT_TABLE_UI_MULTI_SELECT_STAGE)
+  ) {
+    throw new Error(
+      `Notidian table UI multi-select failed: expected editedValues=${JSON.stringify(
+        DEFAULT_TABLE_UI_MULTI_SELECT_STAGE
+      )}; got ${JSON.stringify(multiSelectResult.editedValues)}`
+    );
+  }
+  if (multiSelectResult.type != "option-multi") {
+    throw new Error(
+      `Notidian table UI multi-select failed: expected type=option-multi; got ${multiSelectResult.type}`
+    );
+  }
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "stage",
+    expected: JSON.stringify(DEFAULT_TABLE_UI_MULTI_SELECT_STAGE),
   });
 
   const conflictResult = parseJsonEvalResult(

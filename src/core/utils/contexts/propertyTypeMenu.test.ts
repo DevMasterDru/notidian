@@ -1,5 +1,10 @@
 import { frontmatterPropertySource } from "core/utils/properties/allProperties";
-import { propertyTypeOptionsForField } from "./propertyTypeMenu";
+import { fieldTypeForType } from "schemas/mdb";
+import {
+  propertyTypeLabelForField,
+  propertyTypeOptionsForField,
+  shouldShowMultiToggleForPropertyType,
+} from "./propertyTypeMenu";
 
 describe("propertyTypeOptionsForField", () => {
   it("keeps context-only Make.md types out of frontmatter-backed column menus", () => {
@@ -14,6 +19,7 @@ describe("propertyTypeOptionsForField", () => {
       "boolean",
       "date",
       "option",
+      "option-multi",
       "link",
       "image",
     ]);
@@ -44,5 +50,46 @@ describe("propertyTypeOptionsForField", () => {
         source: frontmatterPropertySource,
       }).map((type) => type.type)
     ).toContain("tags-multi");
+  });
+
+  it("labels option-family fields as Select and Multi-select", () => {
+    expect(
+      propertyTypeLabelForField({
+        name: "status",
+        source: frontmatterPropertySource,
+        type: "option",
+      })
+    ).toBe("Select");
+
+    expect(
+      propertyTypeLabelForField({
+        name: "status",
+        source: frontmatterPropertySource,
+        type: "option-multi",
+      })
+    ).toBe("Multi-select");
+  });
+
+  it("does not show the generic Multiple toggle for option-family fields", () => {
+    expect(
+      shouldShowMultiToggleForPropertyType(fieldTypeForType("option"))
+    ).toBe(false);
+    expect(
+      shouldShowMultiToggleForPropertyType(fieldTypeForType("option-multi"))
+    ).toBe(false);
+    expect(shouldShowMultiToggleForPropertyType(fieldTypeForType("link"))).toBe(
+      true
+    );
+  });
+
+  it("does not expose the old Option label in frontmatter type menus", () => {
+    const labels = propertyTypeOptionsForField({
+      name: "status",
+      source: frontmatterPropertySource,
+    }).map((type) => type.label);
+
+    expect(labels).toContain("Select");
+    expect(labels).toContain("Multi-select");
+    expect(labels).not.toContain("Option");
   });
 });

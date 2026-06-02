@@ -15,6 +15,7 @@ export const defaultPredicate: Predicate = {
   colsHidden: [],
   colsSize: {},
   colsCalc: {},
+  frozenColumnCount: 0,
   limit: 0,
 };
 
@@ -33,5 +34,6 @@ export const defaultTablePredicate: Predicate = {
   colsHidden: [],
   colsSize: {},
   colsCalc: {},
+  frozenColumnCount: 0,
   limit: 0,
 };

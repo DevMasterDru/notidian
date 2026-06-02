@@ -1,5 +1,6 @@
 import {
   closestCenter,
+  type CollisionDetection,
   DndContext,
   DragEndEvent,
   DragOverEvent,
@@ -7,7 +8,10 @@ import {
   DragStartEvent,
   MeasuringStrategy,
   MouseSensor,
+  pointerWithin,
   TouchSensor,
+  useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -34,7 +38,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { DBRow, SpaceProperty } from "shared/types/mdb";
+import { DBRow, SpaceProperty, SpaceTableColumn } from "shared/types/mdb";
 import { uniq } from "shared/utils/array";
 import { ColumnHeader } from "./ColumnHeader";
 
@@ -90,6 +94,30 @@ import {
   selectionContainsCell,
 } from "core/utils/contexts/tableSelection";
 import {
+  moveVisibleRows,
+  rowDragSet,
+} from "core/utils/contexts/tableRowOrder";
+import {
+  clampFrozenColumnCount,
+  stickyOffsetsForFrozenColumns,
+} from "core/utils/contexts/tableFreeze";
+import {
+  isRowDndId,
+  resolveRowDropTargetId,
+  rowDndId,
+  rowIdFromDndId,
+  RowDragPoint,
+} from "core/utils/contexts/tableRowDragTarget";
+import {
+  rowDragOverlayColumns,
+  rowDragOverlayLabel,
+} from "core/utils/contexts/tableRowDragOverlay";
+import {
+  nextTableLoadMorePageSize,
+  tableLoadedRowCount,
+  tableLoadAllPageSize,
+} from "core/utils/contexts/tablePagination";
+import {
   aggregateFnTypes,
   calculateAggregate,
 } from "core/utils/contexts/predicate/aggregates";
@@ -122,7 +150,30 @@ type TableUndoJournalState = {
   redo: TableUndoEntry[];
 };
 
+type TableMarqueeRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+type TableRowMarqueeItem = {
+  rowId: string;
+  rect: DOMRect;
+};
+
+type TableRowMarqueeState = {
+  active: boolean;
+  originX: number;
+  originY: number;
+  anchorRowId: string;
+  rowRects: TableRowMarqueeItem[];
+  tableRect: DOMRect;
+};
+
 const tableUndoJournalStore = new Map<string, TableUndoJournalState>();
+const tableRowGutterWidth = 42;
+const defaultTableColumnWidth = 150;
 
 const tableUndoJournalForKey = (key: string): TableUndoJournalState =>
   tableUndoJournalStore.get(key) ?? { undo: [], redo: [] };
@@ -152,6 +203,195 @@ export type TableCellProp = {
 
 export type TableCellMultiProp = TableCellProp & {
   multi: boolean;
+};
+
+const rectFromPoints = (
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number
+): TableMarqueeRect => ({
+  left: Math.min(startX, endX),
+  top: Math.min(startY, endY),
+  width: Math.max(1, Math.abs(endX - startX)),
+  height: Math.max(1, Math.abs(endY - startY)),
+});
+
+const rectsIntersect = (
+  a: Pick<TableMarqueeRect, "left" | "top" | "width" | "height">,
+  b: Pick<TableMarqueeRect, "left" | "top" | "width" | "height">
+): boolean =>
+  a.left < b.left + b.width &&
+  a.left + a.width > b.left &&
+  a.top < b.top + b.height &&
+  a.top + a.height > b.top;
+
+const rectRelativeTo = (
+  rect: TableMarqueeRect,
+  container: DOMRect
+): TableMarqueeRect => ({
+  left: rect.left - container.left,
+  top: rect.top - container.top,
+  width: rect.width,
+  height: rect.height,
+});
+
+const rowDragPointFromEvent = (
+  event:
+    | React.MouseEvent<HTMLElement>
+    | React.TouchEvent<HTMLElement>
+    | MouseEvent
+    | TouchEvent
+): RowDragPoint | null => {
+  if ("clientX" in event && "clientY" in event) {
+    return { x: event.clientX, y: event.clientY };
+  }
+
+  const touch = event.touches?.[0] ?? event.changedTouches?.[0];
+  return touch ? { x: touch.clientX, y: touch.clientY } : null;
+};
+
+const TableRowDragHandle = (props: {
+  rowId: string;
+  rowNumber: number;
+  selected: boolean;
+  disabled: boolean;
+  frozen: boolean;
+  onReorderStart: (
+    event:
+      | React.MouseEvent<HTMLButtonElement>
+      | React.TouchEvent<HTMLButtonElement>,
+    rowId: string
+  ) => void;
+  onSelectStart: (
+    event: React.MouseEvent<HTMLTableCellElement>,
+    rowId: string
+  ) => void;
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    isDragging,
+  } = useDraggable({
+    id: rowDndId(props.rowId),
+    disabled: props.disabled,
+    data: { type: "row", rowId: props.rowId },
+  });
+  const listenerProps = props.disabled ? undefined : listeners;
+
+  return (
+    <td
+      className={classNames(
+        "mk-row-gutter",
+        props.selected && "mk-row-gutter-selected",
+        props.frozen && "mk-frozen-row-gutter"
+      )}
+      onMouseDown={(e) => props.onSelectStart(e, props.rowId)}
+    >
+      <div className="mk-row-gutter-inner">
+        <div
+          className={classNames(
+            "mk-row-selector",
+            props.selected && "mk-row-selector-selected"
+          )}
+          role="button"
+          aria-label={`Select row ${props.rowNumber}`}
+          aria-pressed={props.selected}
+        >
+          <span className="mk-row-number">{props.rowNumber}</span>
+        </div>
+        <button
+          ref={setNodeRef}
+          type="button"
+          className={classNames(
+            "mk-row-drag-handle",
+            props.selected && "mk-row-drag-handle-selected",
+            isDragging && "mk-row-drag-handle-dragging"
+          )}
+          aria-label={`Select and drag row ${props.rowNumber}`}
+          aria-pressed={props.selected}
+          disabled={props.disabled}
+          {...attributes}
+          {...(listenerProps ?? {})}
+          onMouseDown={(e) => {
+            props.onReorderStart(e, props.rowId);
+            listenerProps?.onMouseDown?.(e);
+          }}
+          onTouchStart={(e) => {
+            props.onReorderStart(e, props.rowId);
+            listenerProps?.onTouchStart?.(e);
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <span className="mk-row-grip" aria-hidden="true"></span>
+        </button>
+      </div>
+    </td>
+  );
+};
+
+const TableBodyRow = (props: {
+  rowId: string;
+  className?: string;
+  draggingOver: boolean;
+  onContextMenu: (e: React.MouseEvent<HTMLTableRowElement>) => void;
+  children: React.ReactNode;
+}) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: rowDndId(props.rowId ?? ""),
+    disabled: !props.rowId,
+    data: { type: "row", rowId: props.rowId },
+  });
+
+  return (
+    <tr
+      ref={setNodeRef}
+      data-row-id={props.rowId}
+      className={classNames(
+        props.className,
+        (props.draggingOver || isOver) && "mk-row-drag-over"
+      )}
+      onContextMenu={props.onContextMenu}
+    >
+      {props.children}
+    </tr>
+  );
+};
+
+const TableRowDragOverlay = (props: {
+  rows: DBRow[];
+  columns: SpaceTableColumn[];
+}) => {
+  const previewColumns = rowDragOverlayColumns(props.columns);
+  const rows = props.rows.slice(0, 5);
+
+  if (rows.length == 0 || previewColumns.length == 0) return null;
+
+  return (
+    <div className="mk-row-drag-overlay">
+      {rows.map((row, rowIndex) => (
+        <div className="mk-row-drag-overlay-row" key={rowIndex}>
+          {previewColumns.map((column) => (
+            <span
+              className="mk-row-drag-overlay-cell"
+              key={column.name + (column.table ?? "")}
+            >
+              {rowDragOverlayLabel(row, column)}
+            </span>
+          ))}
+        </div>
+      ))}
+      {props.rows.length > rows.length ? (
+        <div className="mk-row-drag-overlay-more">
+          +{props.rows.length - rows.length} more
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 export const TableView = (props: { superstate: Superstate }) => {
@@ -189,6 +429,10 @@ export const TableView = (props: { superstate: Superstate }) => {
     pageSize: pageSize,
   });
   const [activeId, setActiveId] = useState(null);
+  const [activeDragType, setActiveDragType] = useState<
+    "column" | "row" | null
+  >(null);
+  const [activeRowDragIds, setActiveRowDragIds] = useState<string[]>([]);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<string>(null);
   const [selectedColumn, setSelectedColumn] = useState<string>(null);
   const [currentEdit, setCurrentEdit] = useState<[string, string]>(null);
@@ -201,11 +445,43 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [tableRedoStack, setTableRedoStack] = useState<TableUndoEntry[]>([]);
   const tableUndoStackRef = useRef<TableUndoEntry[]>([]);
   const tableRedoStackRef = useRef<TableUndoEntry[]>([]);
+  const selectedRowsRef = useRef<string[]>([]);
+  const rowMarqueeRef = useRef<TableRowMarqueeState>(null);
+  const activeDragTypeRef = useRef<"column" | "row" | null>(null);
+  const rowDragPointerRef = useRef<RowDragPoint | null>(null);
+  const [rowMarqueeRect, setRowMarqueeRect] =
+    useState<TableMarqueeRect>(null);
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
   const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
+  const visibleRowOrder = useMemo(() => data.map((f) => f._index), [data]);
+  const visibleColumnOrder = useMemo(
+    () => cols.map((f) => f.name + f.table),
+    [cols]
+  );
+  const loadedRowCount = tableLoadedRowCount({
+    currentPageSize: pagination.pageSize,
+    totalRows: data.length,
+  });
+  const frozenColumnCount = clampFrozenColumnCount({
+    columns: cols,
+    hiddenColumnIds: predicate?.colsHidden ?? [],
+    frozenColumnCount: predicate?.frozenColumnCount ?? 0,
+  });
+  const frozenColumnOffsets = useMemo(
+    () =>
+      stickyOffsetsForFrozenColumns({
+        columns: cols,
+        hiddenColumnIds: predicate?.colsHidden ?? [],
+        frozenColumnCount,
+        columnSizes: colsSize,
+        rowGutterWidth: tableRowGutterWidth,
+        defaultColumnWidth: defaultTableColumnWidth,
+      }),
+    [cols, predicate?.colsHidden, frozenColumnCount, colsSize]
+  );
   const tableUndoJournalKey = `${source ?? spaceCache?.path ?? ""}::${
     dbSchema?.id ?? ""
   }`;
@@ -235,6 +511,14 @@ export const TableView = (props: { superstate: Superstate }) => {
   useEffect(() => {
     setCurrentEdit(null);
   }, [selectedColumn, lastSelectedIndex]);
+
+  useEffect(() => {
+    selectedRowsRef.current = selectedRows;
+  }, [selectedRows]);
+
+  useEffect(() => {
+    activeDragTypeRef.current = activeDragType;
+  }, [activeDragType]);
 
   // useEffect(() => {
   //   if (currentEdit == null) {
@@ -410,8 +694,6 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const visibleRowOrder = data.map((f) => f._index);
-    const visibleColumnOrder = cols.map((f) => f.name + f.table);
     const pasteColumns = cols.map((f) => ({
       id: f.name + f.table,
       name: f.name,
@@ -914,13 +1196,47 @@ export const TableView = (props: { superstate: Superstate }) => {
       strategy: MeasuringStrategy.Always,
     },
   };
+  const tableCollisionDetection = useCallback<CollisionDetection>((args) => {
+    if (!isRowDndId(args.active?.id?.toString())) return closestCenter(args);
+
+    const rowDroppables = args.droppableContainers.filter((container) =>
+      isRowDndId(container.id?.toString())
+    );
+    if (rowDroppables.length == 0) return [];
+
+    const rowArgs = {
+      ...args,
+      droppableContainers: rowDroppables,
+    };
+    const pointerCollisions = pointerWithin(rowArgs);
+    return pointerCollisions.length > 0
+      ? pointerCollisions
+      : closestCenter(rowArgs);
+  }, []);
 
   function handleDragStart(event: DragStartEvent) {
     const {
       active: { id: activeId },
     } = event;
+    const activeIdString = activeId?.toString();
     setActiveId(activeId);
-    setOverId(overId);
+
+    if (isRowDndId(activeIdString)) {
+      const rowId = rowIdFromDndId(activeIdString);
+      const dragSelection = selectedRowsRef.current;
+      const dragRows = rowDragSet(visibleRowOrder, rowId, dragSelection);
+      activeDragTypeRef.current = "row";
+      setActiveDragType("row");
+      setActiveRowDragIds(dragRows);
+      if (!dragSelection.includes(rowId)) {
+        selectWholeRows(rowId, [rowId]);
+      }
+    } else {
+      activeDragTypeRef.current = "column";
+      setActiveDragType("column");
+      setActiveRowDragIds([]);
+    }
+    setOverId(null);
 
     document.body.style.setProperty("cursor", "grabbing");
   }
@@ -976,6 +1292,225 @@ export const TableView = (props: { superstate: Superstate }) => {
     return result;
   }, [cols, data, predicate.colsCalc]);
 
+  const selectWholeRows = useCallback((activeRowId: string, rowIds: string[]) => {
+    const nextActiveRowId = rowIds.length > 0 ? activeRowId : null;
+    selectedRowsRef.current = rowIds;
+    selectRows(nextActiveRowId, rowIds);
+    setLastSelectedIndex(nextActiveRowId);
+    setSelectedColumn(null);
+    setCurrentEdit(null);
+    setCellSelection(null);
+  }, [selectRows]);
+
+  useEffect(() => {
+    const updateRowMarqueeSelection = (event: MouseEvent) => {
+      const marquee = rowMarqueeRef.current;
+      if (!marquee?.active) return;
+
+      const viewportRect = rectFromPoints(
+        marquee.originX,
+        marquee.originY,
+        event.clientX,
+        event.clientY
+      );
+      setRowMarqueeRect(rectRelativeTo(viewportRect, marquee.tableRect));
+
+      const selected = marquee.rowRects
+        .filter((row) => rectsIntersect(viewportRect, row.rect))
+        .map((row) => row.rowId);
+      selectWholeRows(
+        selected[selected.length - 1] ?? marquee.anchorRowId,
+        selected.length > 0 ? selected : [marquee.anchorRowId]
+      );
+    };
+
+    const endRowMarqueeSelection = () => {
+      rowMarqueeRef.current = null;
+      setRowMarqueeRect(null);
+    };
+
+    document.addEventListener("mousemove", updateRowMarqueeSelection);
+    document.addEventListener("mouseup", endRowMarqueeSelection);
+    return () => {
+      document.removeEventListener("mousemove", updateRowMarqueeSelection);
+      document.removeEventListener("mouseup", endRowMarqueeSelection);
+    };
+  }, [selectWholeRows]);
+
+  useEffect(() => {
+    const updateRowDragPointer = (event: MouseEvent | TouchEvent) => {
+      if (!rowDragPointerRef.current) return;
+      const point = rowDragPointFromEvent(event);
+      if (point) rowDragPointerRef.current = point;
+    };
+    const clearInactivePointer = () => {
+      if (activeDragTypeRef.current != "row") {
+        rowDragPointerRef.current = null;
+      }
+    };
+
+    document.addEventListener("mousemove", updateRowDragPointer);
+    document.addEventListener("touchmove", updateRowDragPointer, {
+      passive: true,
+    });
+    document.addEventListener("mouseup", clearInactivePointer);
+    document.addEventListener("touchend", clearInactivePointer);
+    document.addEventListener("touchcancel", clearInactivePointer);
+    return () => {
+      document.removeEventListener("mousemove", updateRowDragPointer);
+      document.removeEventListener("touchmove", updateRowDragPointer);
+      document.removeEventListener("mouseup", clearInactivePointer);
+      document.removeEventListener("touchend", clearInactivePointer);
+      document.removeEventListener("touchcancel", clearInactivePointer);
+    };
+  }, []);
+
+  const selectMovedWholeRows = (
+    activeRowId: string,
+    rowIds: string[],
+    nextRows: DBRow[]
+  ) => {
+    selectedRowsRef.current = rowIds;
+    selectRows(null, rowIds);
+    setLastSelectedIndex(activeRowId);
+    setSelectedColumn(null);
+    setCurrentEdit(null);
+    setCellSelection(null);
+
+    if (dbSchema?.primary == "true") {
+      const activePath = nextRows[parseInt(activeRowId)]?.[PathPropertyName];
+      if (activePath) props.superstate.ui.setActivePath(activePath);
+    }
+  };
+
+  const rowIdsForSelectionDrag = (anchorRowId: string, rowId: string) => {
+    if (!anchorRowId) return [rowId];
+    return uniq([
+      anchorRowId,
+      ...selectRange(anchorRowId, rowId, visibleRowOrder),
+    ]);
+  };
+
+  const rowMarqueeItems = (): TableRowMarqueeItem[] => {
+    const tableEl = ref.current as HTMLElement;
+    if (!tableEl) return [];
+
+    return Array.from(
+      tableEl.querySelectorAll<HTMLTableRowElement>("tbody tr[data-row-id]")
+    )
+      .flatMap((row) => {
+        const rowId = row.dataset.rowId;
+        return rowId
+          ? [
+              {
+                rowId,
+                rect: row.getBoundingClientRect(),
+              },
+            ]
+          : [];
+      });
+  };
+
+  const startRowSelectionDrag = (
+    e: React.MouseEvent<HTMLTableCellElement>,
+    rowId: string
+  ) => {
+    if (e.button != 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const tableEl = ref.current as HTMLElement;
+    tableEl?.focus();
+    const tableRect = tableEl?.getBoundingClientRect();
+    if (!tableRect) return;
+
+    if (e.shiftKey && lastSelectedIndex) {
+      const rowIds = rowIdsForSelectionDrag(lastSelectedIndex, rowId);
+      rowMarqueeRef.current = {
+        active: true,
+        originX: e.clientX,
+        originY: e.clientY,
+        anchorRowId: lastSelectedIndex,
+        rowRects: rowMarqueeItems(),
+        tableRect,
+      };
+      setRowMarqueeRect({
+        left: e.clientX - tableRect.left,
+        top: e.clientY - tableRect.top,
+        width: 0,
+        height: 0,
+      });
+      selectWholeRows(rowId, rowIds);
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      rowMarqueeRef.current = null;
+      setRowMarqueeRect(null);
+      const rowIds = selectedRows.some((selectedRow) => selectedRow == rowId)
+        ? selectedRows.filter((selectedRow) => selectedRow != rowId)
+        : uniq([...selectedRows, rowId]);
+      selectWholeRows(rowId, rowIds);
+      return;
+    }
+
+    rowMarqueeRef.current = {
+      active: true,
+      originX: e.clientX,
+      originY: e.clientY,
+      anchorRowId: rowId,
+      rowRects: rowMarqueeItems(),
+      tableRect,
+    };
+    setRowMarqueeRect({
+      left: e.clientX - tableRect.left,
+      top: e.clientY - tableRect.top,
+      width: 0,
+      height: 0,
+    });
+    selectWholeRows(rowId, [rowId]);
+  };
+
+  const prepareRowDrag = (
+    e:
+      | React.MouseEvent<HTMLButtonElement>
+      | React.TouchEvent<HTMLButtonElement>,
+    rowId: string
+  ) => {
+    e.stopPropagation();
+    const tableEl = ref.current as HTMLElement;
+    tableEl?.focus();
+    rowDragPointerRef.current = rowDragPointFromEvent(e);
+    const shiftKey = "shiftKey" in e ? e.shiftKey : false;
+    const ctrlKey = "ctrlKey" in e ? e.ctrlKey : false;
+    const metaKey = "metaKey" in e ? e.metaKey : false;
+
+    if (shiftKey) {
+      const rowIds = uniq([
+        ...selectedRows,
+        ...selectRange(lastSelectedIndex, rowId, visibleRowOrder),
+      ]);
+      selectWholeRows(rowId, rowIds);
+      return;
+    }
+
+    if (ctrlKey || metaKey) {
+      const rowIds = selectedRows.some((selectedRow) => selectedRow == rowId)
+        ? selectedRows.filter((selectedRow) => selectedRow != rowId)
+        : uniq([...selectedRows, rowId]);
+      selectWholeRows(rowId, rowIds);
+      return;
+    }
+
+    if (!selectedRows.some((selectedRow) => selectedRow == rowId)) {
+      selectWholeRows(rowId, [rowId]);
+      return;
+    }
+
+    setLastSelectedIndex(rowId);
+    setCurrentEdit(null);
+  };
+
   const selectCell = (e: React.MouseEvent, index: number, column: string) => {
     if (isTouchScreen(props.superstate.ui) || column == "+") return;
     const rowId = (data[index] as DBRow)["_index"];
@@ -1015,16 +1550,83 @@ export const TableView = (props: { superstate: Superstate }) => {
     setLastSelectedIndex(rowId);
   };
 
+  const rowIdAtPoint = (point: RowDragPoint): string | null => {
+    const tableEl = ref.current as HTMLElement;
+    if (!tableEl) return null;
+
+    const target = tableEl.ownerDocument.elementFromPoint(point.x, point.y);
+    const row = target?.closest?.(
+      "tbody tr[data-row-id]"
+    ) as HTMLTableRowElement;
+    if (!row || !tableEl.contains(row)) return null;
+
+    return row.dataset.rowId ?? null;
+  };
+
   function handleDragEnd({ active, over }: DragEndEvent) {
+    const activeDndId = active?.id?.toString();
+    const overDndId = over?.id?.toString();
+
+    if (isRowDndId(activeDndId)) {
+      const activeRowId = rowIdFromDndId(activeDndId);
+      const overRowId = resolveRowDropTargetId({
+        activeId: activeDndId,
+        overId: overDndId,
+        pointer: rowDragPointerRef.current,
+        rowIdAtPoint,
+      });
+      if (activeRowId && overRowId && tableData?.rows) {
+        const moveResult = moveVisibleRows({
+          rows: tableData.rows,
+          visibleRowOrder,
+          activeRowId,
+          overRowId,
+          selectedRowIds: selectedRowsRef.current,
+        });
+
+        if (moveResult.changed) {
+          saveDB({
+            ...tableData,
+            rows: moveResult.rows,
+          });
+          const nextActiveRowId =
+            moveResult.selectedRowIds[
+              Math.min(
+                moveResult.selectedRowIds.length - 1,
+                Math.max(0, moveResult.movedRowIds.indexOf(activeRowId))
+              )
+            ] ?? moveResult.selectedRowIds[0];
+          selectMovedWholeRows(
+            nextActiveRowId,
+            moveResult.selectedRowIds,
+            moveResult.rows
+          );
+
+          if ((predicate?.sort?.length ?? 0) > 0 || groupBy.length > 0) {
+            savePredicate({
+              sort: [],
+              groupBy: [],
+            });
+            props.superstate.ui.notify("Manual row order enabled.");
+          }
+        }
+      }
+      resetState();
+      return;
+    }
+
+    if (activeDndId && overDndId) {
+      const currentCols = predicate?.colsOrder ?? [];
+      const activeIndex = currentCols.findIndex((f) => f == activeDndId);
+      const overIndex = currentCols.findIndex((f) => f == overDndId);
+      if (activeIndex >= 0 && overIndex >= 0 && activeIndex != overIndex) {
+        savePredicate({
+          colsOrder: arrayMove(currentCols, activeIndex, overIndex),
+        });
+      }
+    }
+
     resetState();
-    const currentCols = predicate?.colsOrder ?? [];
-    savePredicate({
-      colsOrder: arrayMove(
-        currentCols,
-        currentCols.findIndex((f) => f == activeId),
-        currentCols.findIndex((f) => f == overId)
-      ),
-    });
   }
 
   function handleDragCancel() {
@@ -1033,13 +1635,21 @@ export const TableView = (props: { superstate: Superstate }) => {
   function resetState() {
     setOverId(null);
     setActiveId(null);
+    activeDragTypeRef.current = null;
+    rowDragPointerRef.current = null;
+    setActiveDragType(null);
+    setActiveRowDragIds([]);
     // setDropPlaceholderItem(null);
     document.body.style.setProperty("cursor", "");
   }
+  const activeRowDragRows = activeRowDragIds
+    .map((rowId) => data.find((row) => row._index == rowId) as DBRow)
+    .filter(Boolean);
+
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={tableCollisionDetection}
       measuring={measuring}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
@@ -1065,259 +1675,331 @@ export const TableView = (props: { superstate: Superstate }) => {
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
-                <th></th>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    className="mk-th"
-                    key={header.id}
-                    style={{
-                      minWidth: header.column.getIsGrouped()
-                        ? "0px"
-                        : // @ts-ignore
-                          colsSize[header.column.columnDef.accessorKey] ??
-                          "150px",
-                      maxWidth: header.column.getIsGrouped()
-                        ? "0px"
-                        : // @ts-ignore
-                          colsSize[header.column.columnDef.accessorKey] ??
-                          "150px",
-                    }}
-                  >
-                    {header.isPlaceholder ? null : header.column.columnDef
-                        .header != "+" ? (
-                      header.column.getIsGrouped() ? (
-                        <></>
+                <th
+                  className={classNames(
+                    "mk-row-gutter-header",
+                    frozenColumnCount > 0 && "mk-frozen-row-gutter"
+                  )}
+                ></th>
+                {headerGroup.headers.map((header) => {
+                  const accessorKey = (header.column.columnDef as any)
+                    .accessorKey;
+                  const frozenOffset = frozenColumnOffsets[accessorKey];
+                  const columnWidth =
+                    frozenOffset?.width ??
+                    colsSize[accessorKey] ??
+                    defaultTableColumnWidth;
+
+                  return (
+                    <th
+                      className={classNames(
+                        "mk-th",
+                        frozenOffset && "mk-frozen-column",
+                        frozenOffset?.isLast && "mk-frozen-column-last"
+                      )}
+                      key={header.id}
+                      style={{
+                        minWidth: header.column.getIsGrouped()
+                          ? "0px"
+                          : columnWidth,
+                        maxWidth: header.column.getIsGrouped()
+                          ? "0px"
+                          : columnWidth,
+                        ...(frozenOffset
+                          ? {
+                              left: frozenOffset.left,
+                            }
+                          : {}),
+                      }}
+                    >
+                      {header.isPlaceholder ? null : header.column.columnDef
+                          .header != "+" ? (
+                        header.column.getIsGrouped() ? (
+                          <></>
+                        ) : (
+                          <ColumnHeader
+                            superstate={props.superstate}
+                            editable={
+                              !readMode &&
+                              header.column.columnDef.meta.editable
+                            }
+                            column={cols.find(
+                              (f) =>
+                                f.name == header.column.columnDef.header &&
+                                f.table == header.column.columnDef.meta.table
+                            )}
+                          ></ColumnHeader>
+                        )
                       ) : (
                         <ColumnHeader
                           superstate={props.superstate}
-                          editable={
-                            !readMode && header.column.columnDef.meta.editable
-                          }
-                          column={cols.find(
-                            (f) =>
-                              f.name == header.column.columnDef.header &&
-                              f.table == header.column.columnDef.meta.table
-                          )}
+                          isNew={true}
+                          editable={true}
+                          column={{
+                            name: "",
+                            schemaId: header.column.columnDef.meta.schemaId,
+                            type: "text",
+                            table: "",
+                          }}
                         ></ColumnHeader>
-                      )
-                    ) : (
-                      <ColumnHeader
-                        superstate={props.superstate}
-                        isNew={true}
-                        editable={true}
-                        column={{
-                          name: "",
-                          schemaId: header.column.columnDef.meta.schemaId,
-                          type: "text",
-                          table: "",
+                      )}
+                      <div
+                        {...{
+                          onMouseDown: header.getResizeHandler(),
+                          onTouchStart: header.getResizeHandler(),
+                          className: `mk-resizer ${
+                            header.column.getIsResizing() ? "isResizing" : ""
+                          }`,
                         }}
-                      ></ColumnHeader>
-                    )}
-                    <div
-                      {...{
-                        onMouseDown: header.getResizeHandler(),
-                        onTouchStart: header.getResizeHandler(),
-                        className: `mk-resizer ${
-                          header.column.getIsResizing() ? "isResizing" : ""
-                        }`,
-                      }}
-                    />
-                  </th>
-                ))}
+                      />
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => {
+            {table.getRowModel().rows.map((row, visibleIndex) => {
               // Use row.original for reliable access to the row data
               // row.original is the actual data object from the data array
               const rowData = row.original as DBRow;
               const rowOriginalIndex = rowData?.["_index"];
+              const rowSelected = !!selectedRows?.some(
+                (f) => f == rowOriginalIndex
+              );
 
               return (
-              <tr
-                className={
-                  selectedRows?.some(
-                    (f) => f == rowOriginalIndex
-                  )
-                    ? "mk-active"
-                    : undefined
-                }
-                onContextMenu={(e) => {
-                  // Skip context menu for group header rows (they don't have _index)
-                  if (rowOriginalIndex === undefined) {
-                    return;
-                  }
-                  const rowIndex = parseInt(rowOriginalIndex);
-                  if (isNaN(rowIndex)) {
-                    console.warn("Invalid row index:", rowOriginalIndex);
-                    return;
-                  }
-                  showRowContextMenu(
-                    e,
-                    props.superstate,
-                    spaceCache.path,
-                    dbSchema.id,
-                    rowIndex
-                  );
-                }}
-                key={row.id}
-              >
-                <td></td>
-                {row.getVisibleCells().map((cell, i) =>
-                  cell.getIsGrouped() ? (
-                    // If it's a grouped cell, add an expander and row count
+                <TableBodyRow
+                  rowId={rowOriginalIndex}
+                  className={classNames(rowSelected && "mk-active")}
+                  draggingOver={overId == rowDndId(rowOriginalIndex)}
+                  onContextMenu={(e) => {
+                    // Skip context menu for group header rows (they don't have _index)
+                    if (rowOriginalIndex === undefined) {
+                      return;
+                    }
+                    const rowIndex = parseInt(rowOriginalIndex);
+                    if (isNaN(rowIndex)) {
+                      console.warn("Invalid row index:", rowOriginalIndex);
+                      return;
+                    }
+                    showRowContextMenu(
+                      e,
+                      props.superstate,
+                      spaceCache.path,
+                      dbSchema.id,
+                      rowIndex
+                    );
+                  }}
+                  key={row.id}
+                >
+                  {rowOriginalIndex !== undefined && !readMode ? (
+                    <TableRowDragHandle
+                      rowId={rowOriginalIndex}
+                      rowNumber={visibleIndex + 1}
+                      selected={rowSelected}
+                      disabled={readMode}
+                      frozen={frozenColumnCount > 0}
+                      onReorderStart={prepareRowDrag}
+                      onSelectStart={startRowSelectionDrag}
+                    />
+                  ) : (
                     <td
-                      key={i}
-                      className="mk-td-group"
-                      colSpan={cols.length + (readMode ? 0 : 1)}
-                    >
-                      <div
-                        {...{
-                          onClick: row.getToggleExpandedHandler(),
-                          style: {
-                            display: "flex",
-                            alignItems: "center",
-                            cursor: "normal",
-                          },
-                        }}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}{" "}
-                        ({row.subRows.length})
-                      </div>
-                    </td>
-                  ) : cell.getIsAggregated() ? (
-                    // If the cell is aggregated, use the Aggregated
-                    // renderer for cell
-                    <React.Fragment key={i}>
-                      {flexRender(
-                        cell.column.columnDef.aggregatedCell ??
-                          cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </React.Fragment>
-                  ) : (() => {
-                    const accessorKey = (cell.column.columnDef as any)
-                      .accessorKey;
-                    const feedback =
-                      rowOriginalIndex !== undefined
-                        ? cellEditFeedback[
-                            tableCellFeedbackKey(rowOriginalIndex, accessorKey)
-                          ]
-                        : undefined;
-
-                    return (
-                    <td
-                      onMouseDown={(e) =>
-                        selectCell(
-                          e,
-                          cell.row.index,
-                          accessorKey
-                        )
-                      }
-                      onMouseEnter={(e) => {
-                        if (e.buttons != 1) return;
-                        extendSelectionToCell(
-                          cell.row.index,
-                          accessorKey
-                        );
-                      }}
-                      title={titleForTableEditFeedback(feedback)}
                       className={classNames(
-                        "mk-td",
-                        cell.getIsPlaceholder() && "mk-td-empty",
-                        cellSelection &&
-                          selectionContainsCell(
-                            cellSelection,
-                            data.map((f) => f._index),
-                            cols.map((f) => f.name + f.table),
-                            {
-                              rowId: rowOriginalIndex,
-                              columnId: accessorKey,
-                            }
-                          ) &&
-                          "mk-selected-cell",
-                        cellSelection?.active.rowId == rowOriginalIndex &&
-                          cellSelection?.active.columnId == accessorKey &&
-                          "mk-active-cell",
-                        feedback?.state == "pending" && "mk-cell-pending",
-                        feedback?.state == "failed" && "mk-cell-failed",
-                        feedback?.state == "skipped" && "mk-cell-skipped",
-                        feedback?.action == "frontmatter-conflict" &&
-                          "mk-cell-conflict"
+                        "mk-row-gutter",
+                        frozenColumnCount > 0 && "mk-frozen-row-gutter"
                       )}
-                      key={cell.id}
-                      style={{
-                        minWidth: cell.getIsPlaceholder()
-                          ? "0px"
-                          : // @ts-ignore
-                            colsSize[cell.column.columnDef.accessorKey] ??
-                            "50px",
-                        maxWidth: cell.getIsPlaceholder()
-                          ? "0px"
-                          : // @ts-ignore
-                            colsSize[cell.column.columnDef.accessorKey] ??
-                            "unset",
-                      }}
-                    >
-                      {cell.getIsPlaceholder() ? null : (
-                        <>
+                    ></td>
+                  )}
+                  {row.getVisibleCells().map((cell, i) =>
+                    cell.getIsGrouped() ? (
+                      // If it's a grouped cell, add an expander and row count
+                      <td
+                        key={i}
+                        className="mk-td-group"
+                        colSpan={cols.length + (readMode ? 0 : 1)}
+                      >
+                        <div
+                          {...{
+                            onClick: row.getToggleExpandedHandler(),
+                            style: {
+                              display: "flex",
+                              alignItems: "center",
+                              cursor: "normal",
+                            },
+                          }}
+                        >
                           {flexRender(
                             cell.column.columnDef.cell,
                             cell.getContext()
+                          )}{" "}
+                          ({row.subRows.length})
+                        </div>
+                      </td>
+                    ) : cell.getIsAggregated() ? (
+                      // If the cell is aggregated, use the Aggregated
+                      // renderer for cell
+                      <React.Fragment key={i}>
+                        {flexRender(
+                          cell.column.columnDef.aggregatedCell ??
+                            cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </React.Fragment>
+                    ) : (() => {
+                      const accessorKey = (cell.column.columnDef as any)
+                        .accessorKey;
+                      const frozenOffset = frozenColumnOffsets[accessorKey];
+                      const feedback =
+                        rowOriginalIndex !== undefined
+                          ? cellEditFeedback[
+                              tableCellFeedbackKey(
+                                rowOriginalIndex,
+                                accessorKey
+                              )
+                            ]
+                          : undefined;
+
+                      return (
+                        <td
+                          onMouseDown={(e) =>
+                            selectCell(e, cell.row.index, accessorKey)
+                          }
+                          onMouseEnter={(e) => {
+                            if (e.buttons != 1) return;
+                            extendSelectionToCell(
+                              cell.row.index,
+                              accessorKey
+                            );
+                          }}
+                          title={titleForTableEditFeedback(feedback)}
+                          className={classNames(
+                            "mk-td",
+                            cell.getIsPlaceholder() && "mk-td-empty",
+                            cellSelection &&
+                              selectionContainsCell(
+                                cellSelection,
+                                visibleRowOrder,
+                                visibleColumnOrder,
+                                {
+                                  rowId: rowOriginalIndex,
+                                  columnId: accessorKey,
+                                }
+                              ) &&
+                              "mk-selected-cell",
+                            cellSelection?.active.rowId == rowOriginalIndex &&
+                              cellSelection?.active.columnId == accessorKey &&
+                              "mk-active-cell",
+                            feedback?.state == "pending" &&
+                              "mk-cell-pending",
+                            feedback?.state == "failed" && "mk-cell-failed",
+                            feedback?.state == "skipped" && "mk-cell-skipped",
+                            feedback?.action == "frontmatter-conflict" &&
+                              "mk-cell-conflict",
+                            frozenOffset && "mk-frozen-column",
+                            frozenOffset?.isLast && "mk-frozen-column-last"
                           )}
-                          {feedback?.action == "frontmatter-conflict" &&
-                          feedback.write ? (
-                            <div
-                              className="mk-cell-conflict-actions"
-                              onMouseDown={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                className="mk-cell-conflict-action"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  reloadConflictData();
-                                }}
-                                title="Reload current file value"
-                              >
-                                Reload
-                              </button>
-                              <button
-                                className="mk-cell-conflict-action"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  applyConflictWrite(feedback.write);
-                                }}
-                                title="Apply this value to the file"
-                              >
-                                Apply anyway
-                              </button>
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </td>
-                    );
-                  })()
-                )}
-              </tr>
-            );
+                          key={cell.id}
+                          style={{
+                            minWidth: cell.getIsPlaceholder()
+                              ? "0px"
+                              : frozenOffset?.width ??
+                                colsSize[accessorKey] ??
+                                "50px",
+                            maxWidth: cell.getIsPlaceholder()
+                              ? "0px"
+                              : frozenOffset?.width ??
+                                colsSize[accessorKey] ??
+                                "unset",
+                            ...(frozenOffset
+                              ? {
+                                  left: frozenOffset.left,
+                                }
+                              : {}),
+                          }}
+                        >
+                          {cell.getIsPlaceholder() ? null : (
+                            <>
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext()
+                              )}
+                              {feedback?.action == "frontmatter-conflict" &&
+                              feedback.write ? (
+                                <div
+                                  className="mk-cell-conflict-actions"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    className="mk-cell-conflict-action"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      reloadConflictData();
+                                    }}
+                                    title="Reload current file value"
+                                  >
+                                    Reload
+                                  </button>
+                                  <button
+                                    className="mk-cell-conflict-action"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      applyConflictWrite(feedback.write);
+                                    }}
+                                    title="Apply this value to the file"
+                                  >
+                                    Apply anyway
+                                  </button>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
+                        </td>
+                      );
+                    })()
+                  )}
+                </TableBodyRow>
+              );
             })}
           </tbody>
           <tfoot>
             {table.getCanNextPage() && (
               <tr>
                 <th
-                  className="mk-row-new"
+                  className="mk-row-new mk-row-pagination"
                   colSpan={cols.length + (readMode ? 1 : 2)}
-                  onClick={() =>
-                    table.setPageSize(pagination.pageSize + pageSize)
-                  }
                 >
-                  {i18n.buttons.loadMore}
+                  <div className="mk-table-pagination-actions">
+                    <span className="mk-table-pagination-count">
+                      {i18n.labels.tableRowsLoaded
+                        .replace("${1}", loadedRowCount.toString())
+                        .replace("${2}", data.length.toString())}
+                    </span>
+                    <button
+                      className="mk-table-pagination-action"
+                      type="button"
+                      onClick={() =>
+                        table.setPageSize(
+                          nextTableLoadMorePageSize({
+                            currentPageSize: pagination.pageSize,
+                            increment: pageSize,
+                            totalRows: data.length,
+                          })
+                        )
+                      }
+                    >
+                      {i18n.buttons.loadMore}
+                    </button>
+                    <button
+                      className="mk-table-pagination-action"
+                      type="button"
+                      onClick={() =>
+                        table.setPageSize(tableLoadAllPageSize(data.length))
+                      }
+                    >
+                      {i18n.buttons.loadAll}
+                    </button>
+                  </div>
                 </th>
               </tr>
             )}
@@ -1345,78 +2027,117 @@ export const TableView = (props: { superstate: Superstate }) => {
               <></>
             )}
             <tr>
-              <td></td>
+              <td
+                className={classNames(
+                  "mk-row-gutter",
+                  frozenColumnCount > 0 && "mk-frozen-row-gutter"
+                )}
+              ></td>
               {groupBy.map((f, i) => (
                 <td key={i}></td>
               ))}
               {(groupBy.length > 0
                 ? cols.filter((f) => !groupBy.includes(f.name))
                 : cols
-              ).map((col, i) => (
-                <td
-                  key={i}
-                  className={classNames(
-                    "mk-td-aggregate",
-                    !predicate.colsCalc[col.name] && "mk-empty"
-                  )}
-                  onClick={(e) => {
-                    const options: SelectOption[] = [];
-                    options.push({
-                      name: i18n.labels.none,
-                      value: "",
-                      onClick: () => {
-                        saveAggregate(col.name, null);
-                      },
-                    });
-                    Object.keys(aggregateFnTypes).forEach((f) => {
-                      if (
-                        aggregateFnTypes[f].type == fieldTypeForField(col) ||
-                        aggregateFnTypes[f].type == "any" ||
-                        col.type == "flex"
-                      )
-                        options.push({
-                          name: i18n.aggregates[f],
-                          value: f,
-                          onClick: () => {
-                            saveAggregate(col.name, f);
-                          },
-                        });
-                    });
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    props.superstate.ui.openMenu(
-                      rect,
-                      defaultMenu(props.superstate.ui, options),
-                      windowFromDocument(e.view.document)
-                    );
-                  }}
-                >
-                  {predicate.colsCalc[col.name]?.length > 0 ? (
-                    <div>
-                      <span>
-                        {i18n.aggregates[predicate.colsCalc[col.name]]}
-                      </span>
-                      {valueForAggregate(
-                        aggregateValues[col.name],
-                        aggregateFnTypes[predicate.colsCalc[col.name]]
-                          .valueType,
-                        col
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <span>{i18n.labels.calculate}</span>
-                    </div>
-                  )}
-                </td>
-              ))}
+              ).map((col, i) => {
+                const columnId = col.name + col.table;
+                const frozenOffset = frozenColumnOffsets[columnId];
+
+                return (
+                  <td
+                    key={i}
+                    className={classNames(
+                      "mk-td-aggregate",
+                      !predicate.colsCalc[col.name] && "mk-empty",
+                      frozenOffset && "mk-frozen-column",
+                      frozenOffset?.isLast && "mk-frozen-column-last"
+                    )}
+                    style={
+                      frozenOffset
+                        ? {
+                            left: frozenOffset.left,
+                            minWidth: frozenOffset.width,
+                            maxWidth: frozenOffset.width,
+                          }
+                        : undefined
+                    }
+                    onClick={(e) => {
+                      const options: SelectOption[] = [];
+                      options.push({
+                        name: i18n.labels.none,
+                        value: "",
+                        onClick: () => {
+                          saveAggregate(col.name, null);
+                        },
+                      });
+                      Object.keys(aggregateFnTypes).forEach((f) => {
+                        if (
+                          aggregateFnTypes[f].type ==
+                            fieldTypeForField(col) ||
+                          aggregateFnTypes[f].type == "any" ||
+                          col.type == "flex"
+                        )
+                          options.push({
+                            name: i18n.aggregates[f],
+                            value: f,
+                            onClick: () => {
+                              saveAggregate(col.name, f);
+                            },
+                          });
+                      });
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      props.superstate.ui.openMenu(
+                        rect,
+                        defaultMenu(props.superstate.ui, options),
+                        windowFromDocument(e.view.document)
+                      );
+                    }}
+                  >
+                    {predicate.colsCalc[col.name]?.length > 0 ? (
+                      <div>
+                        <span>
+                          {i18n.aggregates[predicate.colsCalc[col.name]]}
+                        </span>
+                        {valueForAggregate(
+                          aggregateValues[col.name],
+                          aggregateFnTypes[predicate.colsCalc[col.name]]
+                            .valueType,
+                          col
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <span>{i18n.labels.calculate}</span>
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
               <td></td>
             </tr>
           </tfoot>
         </table>
 
+        {rowMarqueeRect ? (
+          <div
+            className="mk-row-marquee"
+            style={{
+              left: rowMarqueeRect.left,
+              top: rowMarqueeRect.top,
+              width: rowMarqueeRect.width,
+              height: rowMarqueeRect.height,
+            }}
+          ></div>
+        ) : null}
+
         {createPortal(
           <DragOverlay dropAnimation={null} zIndex={1600}>
-            {activeId ? (
+            {activeDragType == "row" ? (
+              <TableRowDragOverlay
+                rows={activeRowDragRows}
+                columns={cols}
+              ></TableRowDragOverlay>
+            ) : activeDragType == "column" && activeId ? (
               <ColumnHeader
                 superstate={props.superstate}
                 editable={false}

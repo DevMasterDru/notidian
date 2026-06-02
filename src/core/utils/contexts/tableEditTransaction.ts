@@ -209,6 +209,7 @@ export const executeTableValueWrites = async ({
   const skipped: TableEditIssue[] = [];
   const failed: TableEditIssue[] = [];
   const acceptedWrites: TableCellWrite[] = [];
+  const fieldConfigWrites: TableCellWrite[] = [];
   const frontmatterChangesByPath = new Map<string, FrontmatterGroup>();
 
   for (const write of writes) {
@@ -235,6 +236,9 @@ export const executeTableValueWrites = async ({
         column,
         saveAllContextToFrontmatter
       );
+    if (column && write.fieldValue !== undefined) {
+      fieldConfigWrites.push(write);
+    }
 
     if (writesFrontmatter) {
       if (!targetPath) {
@@ -303,13 +307,24 @@ export const executeTableValueWrites = async ({
   }
 
   const rootWrites = acceptedWrites.filter((write) => write.table == "");
-  if (rootWrites.length > 0) {
-    await saveDB(applyRootWrites(tableData, rootWrites));
+  const rootFieldConfigWrites = fieldConfigWrites.filter(
+    (write) => write.table == ""
+  );
+  if (rootWrites.length > 0 || rootFieldConfigWrites.length > 0) {
+    const tableWithRootWrites =
+      rootWrites.length > 0 ? applyRootWrites(tableData, rootWrites) : tableData;
+    await saveDB({
+      ...tableWithRootWrites,
+      cols: applyColumnFieldValues(
+        tableWithRootWrites.cols,
+        rootFieldConfigWrites
+      ),
+    });
   }
 
   let appliedContextWrites = 0;
   const contextTables = new Set(
-    acceptedWrites
+    [...acceptedWrites, ...fieldConfigWrites]
       .filter((write) => write.table != "")
       .map((write) => write.table)
   );
@@ -346,13 +361,28 @@ export const executeTableValueWrites = async ({
       return [{ write, path }];
     });
 
-    if (writesWithPaths.length == 0) continue;
-
     appliedContextWrites += writesWithPaths.length;
-    await saveContextDB(
-      applyContextWrites(sourceTable, writesWithPaths),
-      contextKey
+    const tableWithRowWrites =
+      writesWithPaths.length > 0
+        ? applyContextWrites(sourceTable, writesWithPaths)
+        : sourceTable;
+    const fieldValueWrites = fieldConfigWrites.filter(
+      (write) => write.table == table
     );
+    const tableWithFieldValues =
+      fieldValueWrites.length > 0
+        ? {
+            ...tableWithRowWrites,
+            cols: applyColumnFieldValues(
+              tableWithRowWrites.cols,
+              fieldValueWrites
+            ),
+          }
+        : tableWithRowWrites;
+
+    if (writesWithPaths.length == 0 && fieldValueWrites.length == 0) continue;
+
+    await saveContextDB(tableWithFieldValues, contextKey);
   }
 
   return {

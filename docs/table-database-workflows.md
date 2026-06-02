@@ -10,7 +10,7 @@ For architectural reasoning, read the ADRs. This page is the practical behavior 
 | --- | --- | --- |
 | Page title | Markdown file path/name | The `File` cell displays the basename without extension. Editing it renames the file. |
 | Ordinary metadata | Markdown frontmatter | Existing YAML properties appear as table columns and edits write back to the note. |
-| View layout | Notidian view model, stored in context MDB today | Column order, hidden columns, sort/group/filter state, and row order stay in Notidian view state. |
+| View layout | Notidian view model, stored in context MDB today | Column order, hidden columns, frozen columns, sort/group/filter state, and row order stay in Notidian view state. |
 | Notidian-owned fields | Notidian context MDB | Values stay in the context only when the field is explicitly context-owned. |
 | Formulas and projections | Computed from current inputs | Displayed in the table, but skipped by paste and normal value writes. |
 
@@ -30,25 +30,35 @@ That marker is important because it prevents the context MDB row from becoming a
 
 If a file has a property that another file does not have, the table can still show the property as a column. Missing values are just empty cells for those rows.
 
+Large folders are paginated for faster initial rendering. The footer shows how many rows are currently loaded out of the current visible/filtered row count. Use Load More to append one more configured chunk, or Load All to show every row in the current filtered table view at once.
+
+## Freeze Columns
+
+Use a column header menu to choose `Freeze up to column`. The row-number gutter and every visible column from the start of the table through that column stay pinned while you scroll horizontally.
+
+Use `Unfreeze columns` from any column header menu to return the table to normal horizontal scrolling.
+
+Freezing is table view state only. It does not write frontmatter, change row values, or create a hidden data owner. If you hide, delete, resize, or reorder columns later, Notidian recomputes the frozen area from the current visible column order and clamps it to valid columns.
+
 ## Edit Properties
 
 To edit an ordinary metadata value, edit the cell directly.
 
-Option properties behave like Notion-style selects. A single-option chip opens
-the option menu when you click the chip or its dropdown control. Typing a new
-option in that menu creates the option, selects it for the cell, and writes the
-selected value to frontmatter before Notidian accepts the table update.
+Select properties behave like Notion-style single selects. Clicking the visible chip or dropdown opens the option menu. Typing a new option creates the option, selects it for the cell, and writes the selected value to frontmatter before Notidian accepts the table update.
+
+Multi-select properties use the same option configuration but store a list of selected values. The menu stays in multi-select mode, so selecting additional values appends them instead of replacing the existing set.
+
+Option configuration is saved with the table schema/view state, while the selected value is saved to Markdown frontmatter. Notidian persists the configuration part even when a linked context row is still settling, so a successful value edit does not lose newly created Select or Multi-select choices.
 
 Frontmatter-backed columns can use the reliable file-backed table types: Text,
-Number, Yes/No, Date, Option, Link, and Image. Notidian keeps the raw Markdown
-property canonical, while the selected column type controls how the table
-projects and edits that value. Context-only Make.md types such as Formula,
+Number, Yes/No, Date, Select, Multi-select, Link, and Image. Notidian keeps the
+raw Markdown property canonical, while the selected column type controls how the
+table projects and edits that value. Context-only Make.md types such as Formula,
 Context, Flex, Aggregate, and Object are intentionally not offered for ordinary
 frontmatter columns.
 
 `Tags` is special. It represents Obsidian file tags, not an arbitrary YAML key.
-For non-`tags` properties, use Option or multi-option behavior for tag-like
-labels.
+For non-`tags` properties, use Select or Multi-select behavior for tag-like labels.
 
 For frontmatter-backed columns, Notidian:
 
@@ -139,6 +149,20 @@ Pasting follows these rules:
 
 Skipped cells are reported through cell feedback and an Obsidian notice. A skipped cell means the requested edit was not accepted.
 
+## Select And Move Rows
+
+The left row gutter selects whole rows. Dragging from the row-number lane draws a marquee rectangle and selects every visible row the rectangle intersects. Dragging the grip in the row gutter moves rows in the table order.
+
+- Drag an unselected row to move only that row.
+- Select multiple rows, then drag one selected row to move the selected rows together.
+- Drag from the row-number lane to marquee-select multiple rows.
+- Shift-select rows in the gutter to select a contiguous row block.
+- Cmd/Ctrl-select rows in the gutter to toggle individual rows.
+
+The drag preview is display-only and shows only the page/title name for each dragged row. It cannot open cell editors or option menus while a row is being moved.
+
+Manual row movement updates Notidian row order, not frontmatter values. If the current table has an explicit sort or group active, a successful row drag clears that sort/group and switches the view to manual row order. This matches the spreadsheet/Notion behavior: once the user manually places rows, the visible order is governed by the manual order instead of by a computed sort.
+
 ## Undo Table Operations
 
 Press `Cmd/Ctrl+Z` while the table is focused to undo the last table operation.
@@ -146,7 +170,7 @@ Press `Cmd/Ctrl+Z` while the table is focused to undo the last table operation.
 Undo is currently supported for:
 
 - Direct single-cell property edits.
-- Direct option edits that update option configuration and the selected value.
+- Direct Select and Multi-select edits that update option configuration and the selected value.
 - Direct page-title/file rename edits.
 - Paste.
 - Cut.

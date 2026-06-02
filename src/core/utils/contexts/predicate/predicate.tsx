@@ -69,7 +69,15 @@ export const validatePredicate = (
       : [],
     colsSize: prevPredicate.colsSize ?? {},
     colsCalc: prevPredicate.colsCalc ?? {},
-    limit: typeof prevPredicate.limit === 'number' && prevPredicate.limit >= 0 ? prevPredicate.limit : 0,
+    frozenColumnCount:
+      typeof prevPredicate.frozenColumnCount === "number" &&
+      prevPredicate.frozenColumnCount >= 0
+        ? Math.floor(prevPredicate.frozenColumnCount)
+        : defaultPredicate.frozenColumnCount,
+    limit:
+      typeof prevPredicate.limit === "number" && prevPredicate.limit >= 0
+        ? prevPredicate.limit
+        : 0,
   };
 };
 

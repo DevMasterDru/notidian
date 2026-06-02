@@ -210,6 +210,9 @@ describe("notidian real vault harness", () => {
       "=> paste-active",
       "=> 7",
       "=> option-review",
+      "=> todo",
+      "=> option-review",
+      '=> ["multi-alpha","multi-beta"]',
       "=> conflict-applied",
       "=> active",
     ];
@@ -264,7 +267,8 @@ describe("notidian real vault harness", () => {
             ok: true,
             results: [
               { ok: true, label: "Text", type: "text" },
-              { ok: true, label: "Option", type: "option" },
+              { ok: true, label: "Select", type: "option" },
+              { ok: true, label: "Multi-select", type: "option-multi" },
             ],
           });
         }
@@ -273,6 +277,25 @@ describe("notidian real vault harness", () => {
             ok: true,
             editedValue: "option-review",
             optionSaved: true,
+          });
+        }
+        if (code.includes("notidianTableUiSelectExistingOption")) {
+          return JSON.stringify({
+            ok: true,
+            editedValue: "todo",
+          });
+        }
+        if (code.includes("notidianTableUiSelectEmptyExistingOption")) {
+          return JSON.stringify({
+            ok: true,
+            editedValue: "option-review",
+          });
+        }
+        if (code.includes("notidianTableUiMultiSelect")) {
+          return JSON.stringify({
+            ok: true,
+            editedValues: ["multi-alpha", "multi-beta"],
+            type: "option-multi",
           });
         }
         if (code.includes("notidianTableUiRename")) {
@@ -313,7 +336,7 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(28);
+      .toHaveLength(34);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
@@ -321,6 +344,9 @@ describe("notidian real vault harness", () => {
       "notidianTableUiRedo",
       "notidianTableUiTypeMatrix",
       "notidianTableUiOption",
+      "notidianTableUiSelectExistingOption",
+      "notidianTableUiSelectEmptyExistingOption",
+      "notidianTableUiMultiSelect",
       "notidianTableUiRename",
       "notidianTableUiConflict",
     ].forEach((marker) => {

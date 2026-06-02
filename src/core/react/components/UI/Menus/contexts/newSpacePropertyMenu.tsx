@@ -1,8 +1,16 @@
 import i18n from "shared/i18n";
 
+import {
+  propertyTypeLabelForField,
+  propertyTypeOptionsForField,
+  shouldShowMultiToggleForPropertyType,
+} from "core/utils/contexts/propertyTypeMenu";
 import { RepeatTemplate } from "core/utils/contexts/fields/presets";
 import { nameForField } from "core/utils/frames/frames";
-import { discoverFrontmatterPropertiesFromPathStates } from "core/utils/properties/allProperties";
+import {
+  discoverFrontmatterPropertiesFromPathStates,
+  frontmatterPropertySource,
+} from "core/utils/properties/allProperties";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fieldTypeForType, fieldTypes, stickerForField } from "schemas/mdb";
@@ -87,6 +95,10 @@ const NewPropertyMenuComponent = (
     );
     setFieldType(field.type == fieldType ? field.multiType : field.type);
   };
+  const typeMenuSource = () =>
+    fieldSource == "$fm" && !props.isSpace
+      ? frontmatterPropertySource
+      : fieldSource;
 
   const selectType = (e: React.MouseEvent) => {
     const specialMenu = (rect: Rect, onHide: () => void) => {
@@ -119,20 +131,19 @@ const NewPropertyMenuComponent = (
     };
     props.onSubmenu((rect: Rect, onHide: () => void) => {
       const options: SelectOption[] = [];
-      fieldTypes
-        .filter((f) =>
-          fieldSource == "$fm" && !props.isSpace ? f.metadata : !f.restricted
-        )
-        .forEach((f, i) => {
-          options.push({
-            id: i + 1,
-            name: f.label,
-            value: f.type,
-            icon: f.icon,
-            description: f.description,
-            onClick: () => setFieldType(f.type),
-          });
+      propertyTypeOptionsForField({
+        name: fieldName,
+        source: typeMenuSource(),
+      }).forEach((f, i) => {
+        options.push({
+          id: i + 1,
+          name: f.label,
+          value: f.type,
+          icon: f.icon,
+          description: f.description,
+          onClick: () => setFieldType(f.type),
         });
+      });
       options.push({
         name: i18n.menu.special,
         value: "special",
@@ -317,9 +328,15 @@ const NewPropertyMenuComponent = (
           <div className="mk-menu-options-inner">
             {i18n.labels.propertyType}
           </div>
-          <span>{type.label}</span>
+          <span>
+            {propertyTypeLabelForField({
+              name: fieldName,
+              source: typeMenuSource(),
+              type: fieldType,
+            })}
+          </span>
         </div>
-        {type.multi ? (
+        {shouldShowMultiToggleForPropertyType(type) ? (
           <div className="mk-menu-option">
             <span>{i18n.labels.multiple}</span>
             <input

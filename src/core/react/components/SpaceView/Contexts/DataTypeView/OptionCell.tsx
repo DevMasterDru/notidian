@@ -6,6 +6,11 @@ import {
 import { parseSourceOptions } from "core/schemas/fieldValueUtils";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { getColorPaletteById, getColors } from "core/utils/colorPalette";
+import {
+  normalizeOptionCellSelection,
+  optionCellMenuSavePayload,
+  serializeOptionCellSelection,
+} from "core/utils/contexts/optionCellModel";
 import { serializeOptionValue } from "core/utils/serializer";
 import { uniq } from "lodash";
 import { SelectMenuProps, SelectOption, Superstate } from "makemd-core";
@@ -20,10 +25,7 @@ import i18n from "shared/i18n";
 import { onlyUniqueProp } from "shared/utils/array";
 import { windowFromDocument } from "shared/utils/dom";
 import { parseMultiString } from "utils/parsers";
-import {
-  serializeMultiDisplayString,
-  serializeMultiString,
-} from "utils/serializers";
+import { serializeMultiString } from "utils/serializers";
 import { CellEditMode, TableCellMultiProp } from "../TableView/TableView";
 
 export const OptionCell = (
@@ -32,6 +34,9 @@ export const OptionCell = (
     saveOptions: (options: string, value: string) => void;
   }
 ) => {
+  const optionValueString = (value: unknown): string =>
+    value == null ? "" : String(value);
+
   const parsedValue = useMemo(
     () => parseFieldValue(props.propertyValue, "option"),
     [props.propertyValue, props.source]
@@ -43,16 +48,17 @@ export const OptionCell = (
     editMode: CellEditMode,
     editable: boolean
   ): SelectOption[] => {
-    if (parsedValue.source?.length > 0) {
-      parseSourceOptions(
-        props.superstate,
-        parsedValue.source,
-        props.source,
-        props.path,
-        props.property.schemaId,
-        parsedValue.sourceProps
-      );
-    }
+    const configuredOptions =
+      parsedValue.source?.length > 0
+        ? parseSourceOptions(
+            props.superstate,
+            parsedValue.source,
+            props.source,
+            props.path,
+            props.property.schemaId,
+            parsedValue.sourceProps
+          )
+        : _options;
 
     // Get colors from the color scheme if available
     const palette = parsedValue.colorScheme
@@ -61,8 +67,16 @@ export const OptionCell = (
     const schemeColors = palette ? palette.colors : null;
 
     const existingOptions =
-      ((_options as SelectOption[]) ?? [])
-        .filter((f) => f.value)
+      ((configuredOptions as SelectOption[]) ?? [])
+        .map((t) => {
+          const value = optionValueString(t.value);
+          return {
+            ...t,
+            name: optionValueString(t.name || value),
+            value,
+          };
+        })
+        .filter((f) => f.value.length > 0)
         .map((t, index) => ({
           ...t,
           color: editable
@@ -97,10 +111,14 @@ export const OptionCell = (
       .filter((f) => f.value.length > 0);
   };
 
-  const parseValues = (value: string, multi: boolean) => {
-    return (multi ? parseMultiString(value) ?? [] : [value]).filter(
-      (f) => f && f.length > 0
-    );
+  const parseValues = (value: unknown, multi: boolean) => {
+    const values =
+      multi && Array.isArray(value)
+        ? value.map(optionValueString)
+        : multi
+        ? parseMultiString(optionValueString(value)) ?? []
+        : [optionValueString(value)];
+    return values.filter((f) => f.length > 0);
   };
 
   const [options, setOptions] = useState<SelectOption[]>(
@@ -155,22 +173,15 @@ export const OptionCell = (
     } else {
       props.saveOptions(
         serializeOptionValue(newOptions, parsedValue),
-        serializeMultiDisplayString(newValues)
+        serializeOptionCellSelection(newValues, false)
       );
     }
   };
   const savePropValue = (options: SelectOption[], value: string[]) => {
-    if (props.multi) {
-      props.saveOptions(
-        serializeOptionValue(options, parsedValue),
-        serializeMultiString(value)
-      );
-    } else {
-      props.saveOptions(
-        serializeOptionValue(options, parsedValue),
-        serializeMultiDisplayString(value)
-      );
-    }
+    props.saveOptions(
+      serializeOptionValue(options, parsedValue),
+      serializeOptionCellSelection(value, props.multi)
+    );
   };
   const saveOptions = (_options: string[], _value: string[]) => {
     // Get colors from the color scheme if available
@@ -179,7 +190,12 @@ export const OptionCell = (
       : null;
     const schemeColors = palette ? palette.colors : null;
 
-    const newOptions = uniq([..._options, ..._value])
+    const newValues = normalizeOptionCellSelection({
+      currentValues: value,
+      incomingValues: _value,
+      multi: props.multi,
+    });
+    const newOptions = uniq([..._options, ...newValues])
       .filter((f) => f.length > 0)
       .map((t, index) => {
         const existingOption = options.find((f) => f.value == t);
@@ -197,18 +213,11 @@ export const OptionCell = (
             : "var(--mk-color-none)",
         };
       });
-    if (!props.multi) {
-      if (props.editMode >= CellEditMode.EditModeView) {
-        setOptions(newOptions);
-      }
-      setValue(_value);
-      savePropValue(newOptions, _value);
-    } else {
-      const newValues = uniq([...value, _value[0]]);
-      if (props.editMode >= CellEditMode.EditModeView) setOptions(newOptions);
-      setValue(newValues);
-      savePropValue(newOptions, newValues);
+    if (props.editMode >= CellEditMode.EditModeView) {
+      setOptions(newOptions);
     }
+    setValue(newValues);
+    savePropValue(newOptions, newValues);
   };
   const saveOption = (option: string, newValue: SelectOption) => {
     const newOptions = options.map((t) => (t.value == option ? newValue : t));
@@ -265,16 +274,28 @@ export const OptionCell = (
 
   const menuProps = (): SelectMenuProps => {
     const _options: SelectOption[] = [];
+    const saveDirectSelectOption = (incomingValues: string[]) => {
+      const payload = optionCellMenuSavePayload({
+        optionValues: options.map((option) => option.value),
+        incomingValues,
+        multi: false,
+      });
+      saveOptions(payload.optionValues, payload.selectedValues);
+    };
     if (!props.multi) {
       _options.push({
         name: i18n.menu.none,
         value: "",
+        onClick: () => saveDirectSelectOption([]),
       });
     }
     if (props.editMode >= CellEditMode.EditModeView) {
       _options.push(
         ...options.map((f) => ({
           ...f,
+          onClick: props.multi
+            ? f.onClick
+            : () => saveDirectSelectOption([f.value]),
           onRemove: () => removeOption(f.value),
           onMoreOptions: (e: React.MouseEvent) => showOptionMenu(e, f.value),
         }))
@@ -282,7 +303,7 @@ export const OptionCell = (
     }
 
     return {
-      multi: false,
+      multi: props.multi,
       editable: props.editMode >= CellEditMode.EditModeView,
       ui: props.superstate.ui,
       value: value,

@@ -5,6 +5,10 @@ import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { useCombinedRefs } from "core/react/hooks/useCombinedRef";
 import { optionValuesForColumn } from "core/utils/contexts/optionValuesForColumn";
+import {
+  frozenColumnCountForColumn,
+  tableColumnId,
+} from "core/utils/contexts/tableFreeze";
 import { nameForField } from "core/utils/frames/frames";
 import { tagSpacePathFromTag } from "core/utils/strings";
 import { Superstate } from "makemd-core";
@@ -74,6 +78,7 @@ export const ColumnHeader = (props: {
     cols,
     newColumn,
     saveColumn,
+    savePredicate,
     hideColumn,
     sortColumn,
     delColumn,
@@ -144,6 +149,7 @@ export const ColumnHeader = (props: {
           ? tableData
           : contextTable[tagSpacePathFromTag(field.table)]
       );
+      const columnId = tableColumnId(field);
 
       showPropertyMenu({
         superstate: props.superstate,
@@ -158,6 +164,19 @@ export const ColumnHeader = (props: {
         hide: hideColumn,
         deleteColumn: delColumn,
         sortColumn,
+        freezeColumn: () =>
+          savePredicate({
+            frozenColumnCount: frozenColumnCountForColumn({
+              columns: cols,
+              hiddenColumnIds: predicate?.colsHidden ?? [],
+              columnId,
+            }),
+          }),
+        unfreezeColumns: () =>
+          savePredicate({
+            frozenColumnCount: 0,
+          }),
+        frozenColumnCount: predicate?.frozenColumnCount ?? 0,
         hidden: predicate?.colsHidden.includes(field.name + field.table),
       });
     }

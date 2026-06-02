@@ -18,7 +18,7 @@ The strategic direction is Notidian-only personal database architecture. Notidia
 | --- | --- | --- |
 | Page identity | Markdown file path/name | Displayed as the `File`/page-title cell and changed through rename transactions. |
 | Ordinary note metadata | Markdown frontmatter / Obsidian metadata cache | Discovered as table columns and edited through frontmatter writes. |
-| View layout | Notidian view model, stored in context MDB today | Stores column order, hidden columns, filters, grouping, sorting, and view state. |
+| View layout | Notidian view model, stored in context MDB today | Stores column order, hidden columns, frozen columns, filters, grouping, sorting, and view state. |
 | Context-native fields | Notidian context MDB | Stores values only when a field is explicitly Notidian-owned. |
 | Formulas, aggregates, file projections | Computed from current inputs | Displayed as projections, not durable user-entered values. |
 | Relations | Notidian context model | Preserved from Make.md semantics unless later mapped to frontmatter links. |
@@ -66,7 +66,7 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Frontmatter-backed and computed values are stripped before context MDB persistence so MDB rows do not become the durable data source.
 - Mixed observed frontmatter types resolve conservatively to `text`.
 - User-selected column types are preserved as schema/view metadata for frontmatter-backed properties and are used when projecting row values from Obsidian metadata.
-- Frontmatter-backed type menus expose only the reliable file-backed table types: Text, Number, Yes/No, Date, Option, Link, and Image. Make.md context-only types such as Formula, Context, Flex, Aggregate, and Object stay available for Notidian-owned columns, not ordinary frontmatter columns.
+- Frontmatter-backed type menus expose only the reliable file-backed table types: Text, Number, Yes/No, Date, Select, Multi-select, Link, and Image. Make.md context-only types such as Formula, Context, Flex, Aggregate, and Object stay available for Notidian-owned columns, not ordinary frontmatter columns.
 - `Tags` is reserved for the real Obsidian tags property. A non-`tags` property that already has `tags-multi` type is rendered as a multi-option property so it does not accidentally display unrelated file tags.
 
 ### Editable Page Titles
@@ -88,13 +88,37 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Multi-cell paste expands down/right from the active cell.
 - Read-only computed/file projection targets are skipped by the paste planner.
 
+### Table Loading
+
+- Large tables initially render in configured page-size chunks.
+- The loading footer shows the current loaded row count against the current visible/filtered row count.
+- `Load More` appends one more configured chunk without exceeding the current filtered row count.
+- `Load All` expands the current table view to every currently visible/filtered row.
+
+### Frozen Columns
+
+- Column header menus include `Freeze up to column` and, when freezing is active, `Unfreeze columns`.
+- Freezing is stored as Notidian view state, not frontmatter or ordinary row data.
+- The row-number gutter and every visible column up to the selected column stay sticky during horizontal scrolling.
+- Frozen offsets are computed from the current visible column order and column widths, so hidden columns, reordered columns, and resized columns remain aligned.
+- If a frozen column is later hidden or removed, Notidian clamps the frozen count to the remaining visible columns instead of creating stale hidden governance.
+
+### Manual Row Ordering
+
+- The table row gutter selects whole rows.
+- Dragging from the row-number lane draws a marquee selection rectangle and selects intersecting visible rows.
+- Dragging the row gutter grip reorders rows in Notidian's context table order.
+- If multiple selected rows include the dragged row, Notidian moves those rows together as one block and preserves their relative order.
+- The drag overlay is read-only preview UI that shows only the page/title name, not the full row's metadata.
+- A successful row drag clears active sort/group state so the view becomes manual order. Filters can remain active; hidden rows keep their relative order while visible rows move.
+- Row movement is view/order governance only. It does not write frontmatter values and does not create a second owner for ordinary metadata.
+
 ### Unified Table Edit Transactions
 
 Normal value edits, field-option value edits, and paste value writes go through `executeTableValueWrites`.
-Single-option cells now open the option menu from the whole visible option chip,
-not only from the small dropdown glyph. Creating a new option from that menu
-saves the option configuration and the selected frontmatter value through the
-same transaction.
+Select and Multi-select are separate user-facing property types. Internally they keep the existing `option` and `option-multi` type IDs, so existing tables and frontmatter-backed view schemas do not require migration.
+
+Select cells now open the option menu from the whole visible option chip, not only from the small dropdown glyph. Creating a new option from that menu saves the option configuration and the selected frontmatter value through the same transaction. Multi-select cells use the same option configuration path but keep the menu in multi mode and save the complete selected value set.
 
 That transaction helper:
 
@@ -106,6 +130,7 @@ That transaction helper:
 - Writes frontmatter before accepting table/context row changes.
 - Applies root-table writes to one accumulated table snapshot.
 - Applies linked context-table writes to one accumulated table snapshot per context.
+- Persists field configuration updates even if a linked context row is temporarily missing, so option lists do not get lost while frontmatter value writes succeed.
 - Returns `TableEditTransactionResult` with applied, skipped, and failed writes.
 
 File/page-title edits remain outside this helper because they require rename preflight, temporary paths, metadata settling, and row reconciliation.
@@ -231,7 +256,7 @@ Notidian currently guarantees the following for implemented edit paths:
 The following work remains before Notidian should be considered final:
 
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
-- The real-vault smoke harness includes live table direct edit undo/redo, paste, paste undo/redo, frontmatter-backed type changes, option creation, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
+- The real-vault smoke harness includes live table direct edit undo/redo, paste, paste undo/redo, frontmatter-backed type changes, Select option creation, existing Select selection from filled and empty cells, Multi-select persistence, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
 - Property schema planning exists, but table UI/apply flows for create, rename, delete, default backfill, and schema conflict resolution are still needed.
 - Moving files between folders from table cells is not implemented.

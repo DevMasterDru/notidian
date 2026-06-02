@@ -415,4 +415,71 @@ describe("executeTableValueWrites", () => {
     );
     expect(savedTables[0].rows[1]).toMatchObject({ local: "manual" });
   });
+
+  it("persists context field config updates when the context row is temporarily missing", async () => {
+    const contexts = contextTables();
+    contexts["contexts/projects"] = {
+      ...contexts["contexts/projects"],
+      cols: contexts["contexts/projects"].cols.map((col) =>
+        col.name == "phase" ? { ...col, source: "frontmatter" } : col
+      ),
+      rows: [contexts["contexts/projects"].rows[0]],
+    };
+
+    const { result, savedContexts, savedFrontmatter } = await execute({
+      contexts,
+      writes: [
+        {
+          rowId: "1",
+          columnName: "phase",
+          table: "projects",
+          value: "build",
+          fieldValue: '{"options":[{"name":"build","value":"build"}]}',
+        },
+      ],
+    });
+
+    expect(savedFrontmatter).toHaveLength(1);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ reason: "missing-context-row" }),
+    ]);
+    expect(savedContexts).toHaveLength(1);
+    expect(
+      savedContexts[0].table.cols.find((col) => col.name == "phase")
+    ).toMatchObject({
+      value: '{"options":[{"name":"build","value":"build"}]}',
+    });
+  });
+
+  it("persists field config updates when the value write is skipped for a frontmatter conflict", async () => {
+    const { result, savedTables, savedFrontmatter } = await execute({
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/B.md": {
+          status: "external",
+        },
+      },
+      writes: [
+        {
+          rowId: "1",
+          columnName: "status",
+          table: "",
+          value: "review",
+          fieldValue: '{"options":[{"name":"review","value":"review"}]}',
+        },
+      ],
+    });
+
+    expect(savedFrontmatter).toEqual([]);
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ reason: "frontmatter-conflict" }),
+    ]);
+    expect(savedTables).toHaveLength(1);
+    expect(
+      savedTables[0].cols.find((col) => col.name == "status")
+    ).toMatchObject({
+      value: '{"options":[{"name":"review","value":"review"}]}',
+    });
+    expect(savedTables[0].rows[1]).toMatchObject({ status: "old" });
+  });
 });

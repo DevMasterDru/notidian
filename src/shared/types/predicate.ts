@@ -24,6 +24,7 @@ export type Filter = {
     colsHidden: string[];
     colsSize: Record<string, number>;
     colsCalc: Record<string, string>;
+    frozenColumnCount: number;
     limit: number;
   };
 

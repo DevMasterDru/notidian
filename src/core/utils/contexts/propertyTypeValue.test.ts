@@ -48,6 +48,21 @@ describe("valueForPropertyTypeChange", () => {
     ).toBe(existingValue);
   });
 
+  it("preserves option configuration when switching from Select to Multi-select", () => {
+    const existingValue = JSON.stringify({
+      options: [{ name: "active", value: "active", color: "green" }],
+      colorScheme: "notidian-status",
+    });
+
+    expect(
+      valueForPropertyTypeChange({
+        field: { name: "status", type: "option", value: existingValue },
+        nextType: "option-multi",
+        observedOptions: ["paused"],
+      })
+    ).toBe(existingValue);
+  });
+
   it("clears stale configuration when changing to an unrelated type", () => {
     expect(
       valueForPropertyTypeChange({

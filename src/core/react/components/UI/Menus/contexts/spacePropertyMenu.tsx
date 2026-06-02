@@ -3,7 +3,11 @@ import i18n from "shared/i18n";
 import { normalizedSortForType } from "core/utils/contexts/predicate/sort";
 import { canDeletePropertyColumn } from "core/utils/contexts/propertyColumnActions";
 import { fieldForPropertyNameInput } from "core/utils/contexts/propertyNameValue";
-import { propertyTypeOptionsForField } from "core/utils/contexts/propertyTypeMenu";
+import {
+  propertyTypeLabelForField,
+  propertyTypeOptionsForField,
+  shouldShowMultiToggleForPropertyType,
+} from "core/utils/contexts/propertyTypeMenu";
 import { valueForPropertyTypeChange } from "core/utils/contexts/propertyTypeValue";
 import { nameForField } from "core/utils/frames/frames";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
@@ -107,11 +111,11 @@ export const PropertyMenuComponent = (props: {
           }
         >
           <span>{i18n.labels.propertyType}</span>
-          <span>{fieldType.label}</span>
+          <span>{propertyTypeLabelForField(field)}</span>
         </div>
       </li>
 
-      {fieldType.multi ? (
+      {shouldShowMultiToggleForPropertyType(fieldType) ? (
         <div className="mk-menu-option">
           <span>{i18n.labels.multiple}</span>
           <input
@@ -153,6 +157,9 @@ type PropertyMenuProps = {
   hide?: (column: SpaceTableColumn, hidden: boolean) => void;
   deleteColumn?: (property: SpaceTableColumn) => void;
   sortColumn?: (sort: Sort) => void;
+  freezeColumn?: () => void;
+  unfreezeColumns?: () => void;
+  frozenColumnCount?: number;
   hidden?: boolean;
   editCode?: () => void;
   anchor?: Anchors;
@@ -180,6 +187,9 @@ export const showPropertyMenu = (
     hide,
     deleteColumn,
     sortColumn,
+    freezeColumn,
+    unfreezeColumns,
+    frozenColumnCount,
     editCode,
     hidden,
   } = props;
@@ -261,6 +271,26 @@ export const showPropertyMenu = (
           field: field.name + field.table,
           fn: normalizedSortForType(field.type, true),
         });
+      },
+    });
+  }
+
+  menuOptions.push(menuSeparator);
+  if (freezeColumn) {
+    menuOptions.push({
+      name: i18n.menu.freezeUpToColumn,
+      icon: "ui//pin",
+      onClick: () => {
+        freezeColumn();
+      },
+    });
+  }
+  if ((frozenColumnCount ?? 0) > 0 && unfreezeColumns) {
+    menuOptions.push({
+      name: i18n.menu.unfreezeColumns,
+      icon: "ui//pin-off",
+      onClick: () => {
+        unfreezeColumns();
       },
     });
   }
