@@ -2,14 +2,16 @@ const manifest = require("../../manifest.json");
 const packageJson = require("../../package.json");
 const fs = require("fs");
 const path = require("path");
-import {
-  legacyMakeMdKitUrlPrefix,
-  legacyMakeMdWebHost,
-  pluginRepositoryUrl,
-} from "shared/pluginIdentity";
+import { pluginRepositoryUrl } from "shared/pluginIdentity";
 
 const readRepoFile = (relativePath: string) =>
   fs.readFileSync(path.join(__dirname, "..", "..", relativePath), "utf8");
+
+const readRepoFileIfExists = (relativePath: string) => {
+  const filePath = path.join(__dirname, "..", "..", relativePath);
+  if (!fs.existsSync(filePath)) return "";
+  return fs.readFileSync(filePath, "utf8");
+};
 
 describe("Notidian identity", () => {
   it("uses Notidian package and Obsidian plugin metadata", () => {
@@ -33,11 +35,29 @@ describe("Notidian identity", () => {
     expect(pluginRepositoryUrl).toBe("https://github.com/DevMasterDru/notidian");
   });
 
-  it("keeps legacy Make.md web assets explicit", () => {
-    expect(legacyMakeMdWebHost).toBe("https://www.make.md");
-    expect(legacyMakeMdKitUrlPrefix).toBe(
-      "https://www.make.md/static/kits/"
-    );
+  it("does not expose legacy Make.md remote kit or web space entry points", () => {
+    const activeRuntimeFiles = [
+      "src/shared/pluginIdentity.ts",
+      "src/main.ts",
+      "src/adapters/obsidian/ui/kit/InstallKitModal.tsx",
+      "src/core/spaceManager/webAdapter/webAdapter.ts",
+      "src/core/spaceManager/webAdapter/webCache.ts",
+    ];
+    const blockedRuntimeText = [
+      "legacyMakeMdWebHost",
+      "legacyMakeMdKitUrlPrefix",
+      "https://www.make.md",
+      "static/kits",
+      "new WebSpaceAdapter",
+      "addSpaceAdapter(webSpaceAdapter",
+    ];
+
+    for (const runtimeFile of activeRuntimeFiles) {
+      const source = readRepoFileIfExists(runtimeFile);
+      for (const blocked of blockedRuntimeText) {
+        expect(source).not.toContain(blocked);
+      }
+    }
   });
 
   it("does not write runtime caches into legacy Make.md vault paths", () => {
@@ -80,5 +100,14 @@ describe("Notidian identity", () => {
     expect(identity).not.toContain("legacyPluginDataDir");
     expect(identity).not.toContain("legacyPluginDataPath");
     expect(readme).not.toContain(".obsidian/plugins/make-md");
+  });
+
+  it("does not depend on Make.md GitHub forks", () => {
+    const lockfile = readRepoFileIfExists("package-lock.json");
+    const dependencyText = `${JSON.stringify(packageJson.dependencies ?? {})}\n${JSON.stringify(packageJson.devDependencies ?? {})}\n${lockfile}`;
+
+    expect(dependencyText).not.toContain("github:make-md");
+    expect(dependencyText).not.toContain("github.com/make-md");
+    expect(dependencyText).not.toContain("git@github.com:make-md");
   });
 });

@@ -1,5 +1,14 @@
 # Notidian Rebrand Design
 
+## Current Status
+
+Historical implementation note. The current source of truth is
+`docs/current-state.md` plus ADR 0014. The initial legacy-data fallback and
+Make-md-hosted dependency choices described below have both been superseded:
+Notidian does not automatically read `.obsidian/plugins/make-md`, and the drawer
+dependency now uses the npm-maintained `vaul` package rather than
+`github:make-md/vaul`.
+
 ## Goal
 
 Rename this fork from Make.md to Notidian so it can stand as an independent Obsidian plugin while preserving a migration path from existing Make.md plugin data.
@@ -15,7 +24,7 @@ Use **notidian** as the Obsidian plugin id, package name, repository name target
 - Keep MIT attribution to the original Make.md project.
 - Do not rename broad internal TypeScript symbols such as `MakeMDPlugin`, `MakeMDSettings`, or `makemd-core` in this phase. Those names are implementation lineage and changing them now would create high-risk churn without improving the user-facing product.
 - Do not change `spaces://` internal URIs in this phase. They are data model identifiers, not brand identity.
-- Keep the upstream `github:make-md/vaul` dependency untouched until the dependency is replaced or vendored deliberately.
+- Superseded: the old upstream `github:make-md/vaul` dependency was replaced by the maintained npm `vaul` package.
 - Do not read or modify any path whose name contains `archive` or `ignore`, following the repo instructions.
 
 ## Identity Surface
@@ -39,7 +48,7 @@ The rebrand must update:
 
 Changing the Obsidian plugin id means Obsidian will load Notidian from `.obsidian/plugins/notidian`. Existing Make.md installations may still have data in `.obsidian/plugins/make-md`.
 
-For the first rebrand phase, Notidian should:
+For the first rebrand phase, Notidian originally planned to:
 
 1. Prefer the new Notidian data path.
 2. Read legacy Make.md data paths when the new data path does not exist.
@@ -48,13 +57,17 @@ For the first rebrand phase, Notidian should:
 
 This avoids silently losing access to existing `Spaces.mdb` and settings data while still letting Notidian become independent.
 
+This behavior is no longer current. Notidian now requires explicit read-only
+audit and user-approved migration planning before legacy Make.md plugin data is
+used.
+
 ## Out Of Scope
 
 - Full Bases-compatible view engine.
 - Complete internal type/module rename.
 - Repository rename through GitHub settings.
 - Trademark filing or legal clearance.
-- Dependency replacement for `github:make-md/vaul`.
+- Superseded: dependency replacement for `github:make-md/vaul` is complete.
 
 ## Verification
 
@@ -62,4 +75,3 @@ This avoids silently losing access to existing `Spaces.mdb` and settings data wh
 - Run the existing Jest suite.
 - Run TypeScript checking.
 - Run production build and confirm the generated tracked bundle is clean.
-

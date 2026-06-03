@@ -63,6 +63,15 @@ const readJson = async (filePath) =>
 
 const readText = async (filePath) => fs.readFile(filePath, "utf8");
 
+const readTextIfExists = async (filePath) => {
+  try {
+    return await readText(filePath);
+  } catch (error) {
+    if (error?.code == "ENOENT") return "";
+    throw error;
+  }
+};
+
 const defaultRunner = (command, args) =>
   execFileSync(command, args, {
     encoding: "utf8",
@@ -141,6 +150,58 @@ const runHealthAudit = async (config) => {
         !main.includes("legacyPluginDataPath") &&
         !identity.includes("legacyPluginDataDir") &&
         !identity.includes("legacyPluginDataPath")
+      );
+    }
+  );
+  await addCheck(
+    results,
+    "source has no active Make.md web kit or remote space entry points",
+    async () => {
+      const activeRuntimeFiles = [
+        "src/shared/pluginIdentity.ts",
+        "src/main.ts",
+        "src/adapters/obsidian/ui/kit/InstallKitModal.tsx",
+        "src/core/spaceManager/webAdapter/webAdapter.ts",
+        "src/core/spaceManager/webAdapter/webCache.ts",
+      ];
+      const blockedRuntimeText = [
+        "legacyMakeMdWebHost",
+        "legacyMakeMdKitUrlPrefix",
+        "https://www.make.md",
+        "static/kits",
+        "new WebSpaceAdapter",
+        "addSpaceAdapter(webSpaceAdapter",
+      ];
+      for (const relativePath of activeRuntimeFiles) {
+        const text = await readTextIfExists(path.join(sourceDir, relativePath));
+        if (blockedRuntimeText.some((blocked) => text.includes(blocked))) {
+          return false;
+        }
+      }
+      return true;
+    }
+  );
+  await addCheck(
+    results,
+    "package dependencies do not use Make.md GitHub forks",
+    async () => {
+      const packageLock = await readTextIfExists(
+        path.join(sourceDir, "package-lock.json")
+      );
+      const dependencyText = [
+        JSON.stringify(pkg.dependencies ?? {}),
+        JSON.stringify(pkg.devDependencies ?? {}),
+        JSON.stringify(pkg.optionalDependencies ?? {}),
+        packageLock,
+      ].join("\n");
+      const blockedDependencyText = [
+        "github:make-md",
+        "github.com/make-md",
+        "git@github.com:make-md",
+        "git+ssh://git@github.com/make-md",
+      ];
+      return !blockedDependencyText.some((blocked) =>
+        dependencyText.includes(blocked)
       );
     }
   );

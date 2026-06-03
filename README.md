@@ -110,6 +110,3 @@ Original project: https://github.com/Make-md/makemd
 
 Parts of the Flow Editor are based on Hover Editor:
 https://github.com/nothingislost/obsidian-hover-editor
-
-Dataview syncing was adapted with help from Metadata Menu:
-https://github.com/mdelobelle/metadatamenu

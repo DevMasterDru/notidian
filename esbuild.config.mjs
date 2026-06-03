@@ -140,7 +140,7 @@ const configuredOutputDir = prev
   ? process.env.demoDir
   : process.env.devDir;
 const outputDir = configuredOutputDir || '.';
-esbuild.build({
+const buildOptions = {
 	banner: {
 		js: banner,
 	},
@@ -162,7 +162,6 @@ esbuild.build({
   loader: {
     '.ttf': 'base64', 
   },
-	watch: !buildv,
 	target: 'es2020',
 	logLevel: "info",
 	sourcemap: buildv ? false : 'inline',
@@ -182,4 +181,16 @@ esbuild.build({
 			},
 		  })] : []),
 	],
-}).catch(() => process.exit(1));
+};
+
+const runBuild = async () => {
+  if (buildv) {
+    await esbuild.build(buildOptions);
+    return;
+  }
+
+  const context = await esbuild.context(buildOptions);
+  await context.watch();
+};
+
+runBuild().catch(() => process.exit(1));

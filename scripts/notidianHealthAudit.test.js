@@ -277,4 +277,74 @@ describe("notidian health audit", () => {
       );
     });
   });
+
+  it("fails when active source exposes Make.md web kit or remote space paths", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+      await fs.mkdir(
+        path.join(sourceDir, "src", "core", "spaceManager", "webAdapter"),
+        { recursive: true }
+      );
+      await fs.writeFile(
+        path.join(
+          sourceDir,
+          "src",
+          "core",
+          "spaceManager",
+          "webAdapter",
+          "webAdapter.ts"
+        ),
+        "const legacyMakeMdWebHost = 'https://www.make.md';"
+      );
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "source has no active Make.md web kit or remote space entry points",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails when package dependencies point to Make.md GitHub forks", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+      const packageJson = JSON.parse(
+        await fs.readFile(path.join(sourceDir, "package.json"), "utf8")
+      );
+      packageJson.dependencies = { vaul: "github:make-md/vaul" };
+      await writeJson(path.join(sourceDir, "package.json"), packageJson);
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "package dependencies do not use Make.md GitHub forks",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
 });

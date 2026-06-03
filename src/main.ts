@@ -94,7 +94,6 @@ import { SPACE_FRAGMENT_VIEW_TYPE, SpaceFragmentView } from "adapters/obsidian/u
 import { EVER_VIEW_TYPE, EverLeafView } from "adapters/obsidian/ui/navigator/EverLeafView";
 import MakeBasicsPlugin from "basics/basics";
 import { attachCommands } from "commands";
-import { WebSpaceAdapter } from "core/spaceManager/webAdapter/webAdapter";
 import { Superstate } from "core/superstate/superstate";
 import { defaultSpace, newPathInSpace } from "core/superstate/utils/spaces";
 import { isTouchScreen } from "core/utils/ui/screen";
@@ -592,7 +591,6 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     this.files.initiateFiletypeAdapter(new IconFileTypeAdapter(this));
     
     const filesystemCosmoform = new FilesystemSpaceAdapter(this.files, settings.spaceSubFolder)
-    const webSpaceAdapter = new WebSpaceAdapter();
     this.ui = new ObsidianUI(this);
     const uiManager = UIManager.create(this.ui);
     const commandsManager = CLIManager.create(new ObsidianCommands(this));
@@ -610,7 +608,6 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
 
 
     this.superstate.spaceManager.addSpaceAdapter(filesystemCosmoform, true);
-    this.superstate.spaceManager.addSpaceAdapter(webSpaceAdapter);
 
     // Load language customizations from .space/lang.json
     try {
