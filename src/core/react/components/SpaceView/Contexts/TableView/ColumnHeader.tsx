@@ -9,6 +9,7 @@ import {
   frozenColumnCountForColumn,
   tableColumnId,
 } from "core/utils/contexts/tableFreeze";
+import { isFrontmatterBackedProperty } from "core/utils/properties/allProperties";
 import { nameForField } from "core/utils/frames/frames";
 import { tagSpacePathFromTag } from "core/utils/strings";
 import { Superstate } from "makemd-core";
@@ -78,6 +79,7 @@ export const ColumnHeader = (props: {
     cols,
     newColumn,
     saveColumn,
+    renameFrontmatterPropertyKey,
     savePredicate,
     hideColumn,
     sortColumn,
@@ -176,6 +178,20 @@ export const ColumnHeader = (props: {
           savePredicate({
             frozenColumnCount: 0,
           }),
+        renamePropertyKey:
+          isFrontmatterBackedProperty(field) && field.table == ""
+            ? (event) => {
+                const win = windowFromDocument(event.view.document);
+                const nextKey = win.prompt(
+                  "Rename frontmatter property key",
+                  field.name
+                );
+                if (nextKey == null) return;
+                renameFrontmatterPropertyKey(field, nextKey, (message) =>
+                  win.confirm(message)
+                );
+              }
+            : undefined,
         frozenColumnCount: predicate?.frozenColumnCount ?? 0,
         hidden: predicate?.colsHidden.includes(field.name + field.table),
       });

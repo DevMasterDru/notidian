@@ -92,9 +92,9 @@ The current implementation includes a non-destructive planner for property schem
 - deleting a property distinguishes hiding the column from deleting the key in Markdown frontmatter;
 - destructive deletion is represented as an explicit affected-file preview.
 
-The final table UI commands for applying these plans are still pending. Until those commands exist, schema changes should be understood as planned behavior rather than a finished user-facing workflow.
+For frontmatter-backed columns, use `Rename Frontmatter Key` from the column header menu to rename the canonical YAML key. The command asks for the new key, shows a confirmation summary, revalidates the plan after confirmation, writes the new key before deleting the old key, updates the table/view references, and reloads from canonical Obsidian metadata. It refuses to run if any file already has both keys with different values or if the frontmatter preview changed before the write starts.
 
-Editing the visible header text of an existing frontmatter-backed column is currently a display-label change only. The underlying YAML key remains unchanged, so existing file metadata is not hidden or moved without a migration preview.
+Editing the visible header text of an existing frontmatter-backed column is a display-label change only. The underlying YAML key remains unchanged, so existing file metadata is not hidden or moved by a casual label edit.
 
 For the same reason, frontmatter-backed columns can be hidden from the current view but not destructively deleted from the table menu yet. Deleting the actual YAML key from files requires the future migration preview and confirmation flow.
 
@@ -236,7 +236,7 @@ These are known gaps, not accidental omissions:
 - A table command for moving files between folders.
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
-- Table UI/apply commands for the existing property schema planner.
+- Remaining table UI/apply commands for property create, default backfill, destructive delete, and rename conflict resolution.
 
 ## Related Records
 

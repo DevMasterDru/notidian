@@ -174,11 +174,11 @@ The planner can:
 - classify rename rows as `old-only`, `new-only`, `both-same`, `both-conflict`, or `neither`;
 - block automatic rename application when a file contains conflicting old and new property values;
 - distinguish hiding a property from the view from deleting its frontmatter key from files;
-- produce explicit frontmatter write previews for future confirmed apply flows.
+- produce explicit frontmatter write previews for confirmed apply flows.
 
-This planner is intentionally not a destructive UI command yet. It is the safety foundation for property create, rename, delete, default backfill, and conflict-resolution UI.
+The table header menu now includes `Rename Frontmatter Key` for frontmatter-backed columns. This command prompts for the new canonical key, previews affected file-state counts in a confirmation dialog, revalidates the plan after confirmation, writes replacement frontmatter values before removing the old key, updates table/view references, and reloads canonical data. It refuses to run when the planner finds duplicate target columns, files with conflicting old and new key values, or metadata that changed after the confirmation preview.
 
-Until that planner-backed schema UI exists, editing the visible header text of a frontmatter-backed column is treated as a display alias. Notidian keeps the canonical YAML/frontmatter key unchanged so a context column rename cannot silently hide or orphan existing file metadata.
+Editing the visible header text of a frontmatter-backed column is still treated as a display alias. Notidian keeps inline header edits non-destructive so a casual label edit cannot silently move YAML/frontmatter keys across files. Canonical key changes must use the explicit `Rename Frontmatter Key` command.
 
 Deleting a frontmatter-backed column from the table menu is also intentionally blocked until destructive schema UI exists. Users can hide the column from the current view; Notidian keeps the schema column and canonical YAML data intact.
 
@@ -247,7 +247,7 @@ Notidian currently guarantees the following for implemented edit paths:
 - Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
 - Legacy context CLI reports are read-only, and partial frontmatter scans are never marked migration-ready.
 - Property create, rename, and delete planning can now preview canonical frontmatter consequences before destructive schema UI/apply work is added.
-- Frontmatter-backed header label edits do not rename canonical YAML keys; they store a display alias until planner-backed property rename UI exists.
+- Frontmatter-backed header label edits do not rename canonical YAML keys; they store a display alias. Use `Rename Frontmatter Key` for explicit canonical key migration.
 - Frontmatter-backed delete actions are hide-only until planner-backed destructive property deletion UI exists.
 - Frontmatter-backed type changes stay inside the supported file-backed type surface and do not expose context-only Make.md field types as ordinary property types.
 
@@ -258,7 +258,7 @@ The following work remains before Notidian should be considered final:
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
 - The real-vault smoke harness includes live table direct edit undo/redo, paste, paste undo/redo, frontmatter-backed type changes, Select option creation, existing Select selection from filled and empty cells, Multi-select persistence, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
-- Property schema planning exists, but table UI/apply flows for create, rename, delete, default backfill, and schema conflict resolution are still needed.
+- Property schema planning exists, and safe automatic frontmatter key rename is available from the header menu. Create-property, destructive delete, default backfill, and rename conflict-resolution flows are still needed.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
@@ -291,7 +291,7 @@ The following work remains before Notidian should be considered final:
 | Transient cell feedback | [tableEditFeedback.ts](../src/core/utils/contexts/tableEditFeedback.ts) and [tableEditFeedback.test.ts](../src/core/utils/contexts/tableEditFeedback.test.ts) |
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
-| Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
+| Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |

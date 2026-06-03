@@ -4,7 +4,10 @@ import {
   createSpace,
   pinPathToSpaceAtIndex,
 } from "core/superstate/utils/spaces";
-import { shouldWriteContextPropertyToFrontmatter } from "core/utils/properties/allProperties";
+import {
+  isFrontmatterBackedProperty,
+  shouldWriteContextPropertyToFrontmatter,
+} from "core/utils/properties/allProperties";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
 import {
@@ -12,6 +15,11 @@ import {
   renamePageTitleForRow,
 } from "core/utils/contexts/pageTitleRename";
 import { planPropertyColumnDelete } from "core/utils/contexts/propertyColumnActions";
+import { applyFrontmatterSchemaWritePlans } from "core/utils/contexts/notidianSchemaApply";
+import {
+  NotidianSchemaIssue,
+  planRenameFrontmatterProperty,
+} from "core/utils/contexts/notidianSchema";
 import {
   applyTableEditPathOverrides,
   combineTableEditTransactionResults,
@@ -88,6 +96,11 @@ type ContextEditorContextProps = {
     column: SpaceTableColumn,
     oldColumn?: SpaceTableColumn
   ) => boolean;
+  renameFrontmatterPropertyKey: (
+    column: SpaceTableColumn,
+    newKey: string,
+    confirmRename?: (message: string) => boolean
+  ) => Promise<boolean>;
   newColumn: (column: SpaceTableColumn) => boolean;
   delColumn: (column: SpaceTableColumn) => void;
   searchString: string;
@@ -139,6 +152,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   saveDB: () => null,
   hideColumn: () => null,
   saveColumn: () => false,
+  renameFrontmatterPropertyKey: async () => false,
   newColumn: () => false,
   sortColumn: () => null,
   delColumn: () => null,
@@ -155,6 +169,67 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   tableData: null,
   cols: [],
 });
+
+const frontmatterRenameIssueMessage = ({
+  issue,
+  oldKey,
+  newKey,
+  conflictCount,
+}: {
+  issue: NotidianSchemaIssue;
+  oldKey: string;
+  newKey: string;
+  conflictCount: number;
+}): string => {
+  switch (issue.reason) {
+    case "empty-key":
+      return "Property key cannot be empty.";
+    case "same-key":
+      return "The new property key must be different from the current key.";
+    case "missing-source-column":
+      return `Could not find the frontmatter-backed column "${oldKey}".`;
+    case "duplicate-column":
+      return `A column named "${issue.existingKey}" already exists.`;
+    case "frontmatter-conflict":
+      return `Cannot rename "${oldKey}" to "${newKey}" because ${conflictCount} file${
+        conflictCount == 1 ? "" : "s"
+      } already contain both keys with different values. First conflict: ${
+        issue.path
+      }.`;
+  }
+};
+
+const frontmatterRenameConfirmationMessage = ({
+  oldKey,
+  newKey,
+  totalFiles,
+  moveCount,
+  duplicateRemovalCount,
+  existingTargetCount,
+  untouchedCount,
+}: {
+  oldKey: string;
+  newKey: string;
+  totalFiles: number;
+  moveCount: number;
+  duplicateRemovalCount: number;
+  existingTargetCount: number;
+  untouchedCount: number;
+}): string =>
+  [
+    `Rename frontmatter property "${oldKey}" to "${newKey}"?`,
+    "",
+    `${moveCount} file${moveCount == 1 ? "" : "s"} will copy the old value to the new key, then remove the old key.`,
+    `${duplicateRemovalCount} file${
+      duplicateRemovalCount == 1 ? "" : "s"
+    } already have equal values and will only remove the old duplicate key.`,
+    `${existingTargetCount} file${
+      existingTargetCount == 1 ? "" : "s"
+    } already use the new key and will not be changed.`,
+    `${untouchedCount} of ${totalFiles} file${
+      totalFiles == 1 ? "" : "s"
+    } do not contain either key.`,
+  ].join("\n");
 
 export const ContextEditorProvider: React.FC<
   React.PropsWithChildren<{
@@ -942,6 +1017,196 @@ export const ContextEditorProvider: React.FC<
     });
   };
 
+  const renameFrontmatterPropertyKey = async (
+    column: SpaceTableColumn,
+    newKey: string,
+    confirmRename?: (message: string) => boolean
+  ): Promise<boolean> => {
+    if (spaceInfo?.readOnly) return false;
+    if (!tableData || !isFrontmatterBackedProperty(column) || column.table) {
+      return false;
+    }
+
+    const normalizedNewKey = sanitizeColumnName(newKey.trim());
+    const paths = uniq(
+      (tableData.rows ?? [])
+        .map((row) => row?.[PathPropertyName])
+        .filter(Boolean)
+        .map(
+          (path) =>
+            props.superstate.spaceManager.resolvePath(path, pathState?.path) ??
+            path
+        )
+    );
+    const buildRenamePlan = () =>
+      planRenameFrontmatterProperty({
+        table: tableData,
+        oldKey: column.name,
+        newKey: normalizedNewKey,
+        paths,
+        frontmatterByPath: new Map(
+          paths.map((path) => [
+            path,
+            props.superstate.pathsIndex.get(path)?.metadata?.property ?? {},
+          ])
+        ),
+      });
+    let plan = buildRenamePlan();
+
+    if (!plan.canApplyAutomatically) {
+      const conflicts = plan.issues.filter(
+        (issue) => issue.reason == "frontmatter-conflict"
+      );
+      const issue = plan.issues[0];
+      if (issue) {
+        props.superstate.ui.notify(
+          frontmatterRenameIssueMessage({
+            issue,
+            oldKey: column.name,
+            newKey: normalizedNewKey,
+            conflictCount: conflicts.length,
+          })
+        );
+      }
+      return false;
+    }
+
+    if (!confirmRename) {
+      props.superstate.ui.notify(
+        "Renaming a frontmatter key requires confirmation."
+      );
+      return false;
+    }
+
+    const stateCounts = plan.fileStates.reduce(
+      (counts, fileState) => ({
+        ...counts,
+        [fileState.state]: counts[fileState.state] + 1,
+      }),
+      {
+        "old-only": 0,
+        "both-same": 0,
+        "new-only": 0,
+        neither: 0,
+        "both-conflict": 0,
+      }
+    );
+
+    const confirmed = confirmRename(
+      frontmatterRenameConfirmationMessage({
+        oldKey: column.name,
+        newKey: normalizedNewKey,
+        totalFiles: paths.length,
+        moveCount: stateCounts["old-only"],
+        duplicateRemovalCount: stateCounts["both-same"],
+        existingTargetCount: stateCounts["new-only"],
+        untouchedCount: stateCounts.neither,
+      })
+    );
+    if (!confirmed) return false;
+
+    const latestPlan = buildRenamePlan();
+    if (
+      !latestPlan.canApplyAutomatically ||
+      !isEqual(latestPlan.fileStates, plan.fileStates) ||
+      !isEqual(latestPlan.automaticWrites, plan.automaticWrites)
+    ) {
+      props.superstate.ui.notify(
+        "Frontmatter changed while preparing the rename. Review and run the rename again."
+      );
+      await reloadContextData();
+      return false;
+    }
+    plan = latestPlan;
+
+    const applyResult = await applyFrontmatterSchemaWritePlans({
+      writes: plan.automaticWrites,
+      saveProperties: (path, properties) =>
+        saveFrontmatterProperties({
+          superstate: props.superstate,
+          path,
+          properties,
+          failureMessage: "Could not rename frontmatter property.",
+        }),
+      deleteProperty: async (path, key) => {
+        try {
+          await props.superstate.spaceManager.deleteProperty(path, key);
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error };
+        }
+      },
+    });
+
+    if (!applyResult.ok) {
+      const failed = applyResult.failed[0];
+      props.superstate.ui.notify(
+        `Could not rename frontmatter property at ${failed.path}.`
+      );
+      await reloadContextData();
+      return false;
+    }
+
+    const tablePreview = {
+      ...plan.tablePreview,
+      rows: plan.tablePreview.rows.map((row) => {
+        const { [column.name]: oldValue, ...rest } = row;
+        return oldValue === undefined
+          ? rest
+          : { ...rest, [normalizedNewKey]: oldValue };
+      }),
+    };
+
+    savePredicate({
+      filters: (predicate?.filters ?? []).map((filter) =>
+        filter.field == column.name + column.table
+          ? { ...filter, field: normalizedNewKey + column.table }
+          : filter
+      ),
+      sort: (predicate?.sort ?? []).map((sort) =>
+        sort.field == column.name + column.table
+          ? { ...sort, field: normalizedNewKey + column.table }
+          : sort
+      ),
+      groupBy: (predicate?.groupBy ?? []).map((field) =>
+        field == column.name + column.table
+          ? normalizedNewKey + column.table
+          : field
+      ),
+      colsHidden: (predicate?.colsHidden ?? []).map((field) =>
+        field == column.name + column.table
+          ? normalizedNewKey + column.table
+          : field
+      ),
+      colsOrder: (predicate?.colsOrder ?? []).map((field) =>
+        field == column.name + column.table
+          ? normalizedNewKey + column.table
+          : field
+      ),
+      colsSize: {
+        ...(predicate?.colsSize ?? {}),
+        [normalizedNewKey + column.table]:
+          predicate?.colsSize?.[column.name + column.table],
+        [column.name + column.table]: undefined,
+      },
+      colsCalc: {
+        ...(predicate?.colsCalc ?? {}),
+        [normalizedNewKey + column.table]:
+          predicate?.colsCalc?.[column.name + column.table],
+        [column.name + column.table]: undefined,
+      },
+    });
+
+    await saveDB(tablePreview);
+    await reloadContextData();
+    props.superstate.ui.notify(
+      `Renamed "${column.name}" to "${normalizedNewKey}" in ${applyResult.applied} file${
+        applyResult.applied == 1 ? "" : "s"
+      }.`
+    );
+    return true;
+  };
+
   const delColumn = (column: SpaceTableColumn) => {
     let mdbtable: SpaceTable;
     const table = column.table;
@@ -1106,6 +1371,7 @@ export const ContextEditorProvider: React.FC<
         predicate,
         savePredicate,
         saveColumn,
+        renameFrontmatterPropertyKey,
         hideColumn,
         sortColumn,
         delColumn,

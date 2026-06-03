@@ -24,7 +24,7 @@ Make.md avoided direct file-name and property mutation because a context databas
 
 ## Decision
 
-Add a pure Notidian schema planner before adding destructive schema UI/apply flows.
+Add a pure Notidian schema planner before adding destructive schema UI/apply flows, then wire apply commands only where the planner can prove the operation is automatically safe.
 
 The planner is responsible for:
 
@@ -35,12 +35,16 @@ The planner is responsible for:
 - classifying rename states as `old-only`, `new-only`, `both-same`, `both-conflict`, or `neither`;
 - blocking automatic rename application when a file contains conflicting old and new values;
 - planning property deletion as either hide-from-view or explicit frontmatter deletion;
-- returning frontmatter write previews that later UI/apply code can execute only after confirmation or conflict resolution.
+- returning frontmatter write previews that UI/apply code can execute only after confirmation or conflict resolution.
+
+The first implemented apply flow is automatic frontmatter key rename for non-conflicting plans. It is exposed as `Rename Frontmatter Key` in the column header menu. Inline header text edits remain display aliases.
 
 The implemented foundation lives in:
 
 - `src/core/utils/contexts/notidianSchema.ts`
 - `src/core/utils/contexts/notidianSchema.test.ts`
+- `src/core/utils/contexts/notidianSchemaApply.ts`
+- `src/core/utils/contexts/notidianSchemaApply.test.ts`
 
 ## Why This Is The Right Foundation
 
@@ -52,7 +56,8 @@ This also keeps schema work composable with the existing authority-aware write a
 
 - normal property edits still write frontmatter through value transactions;
 - page-title edits still use file rename transactions;
-- schema rename/delete can later call frontmatter write helpers using the planner output;
+- schema rename uses planner output, revalidates the preview after confirmation, writes replacement frontmatter before removing the old key, and stops on the first failed file operation;
+- schema delete can later call frontmatter write helpers using the planner output;
 - context MDB remains view/schema state, not hidden ordinary row data.
 
 ## Consequences
@@ -62,21 +67,24 @@ Positive consequences:
 - schema behavior is testable without Obsidian runtime state;
 - destructive operations have an explicit preview model;
 - property rename conflicts are visible before data is changed;
+- non-conflicting property renames can be applied from the table without returning to hidden context-only governance;
 - create-property defaults to no file writes, avoiding noisy empty frontmatter;
 - delete-property distinguishes view cleanup from canonical data deletion.
 
 Tradeoffs:
 
-- this ADR does not yet add the final UI for property creation, rename, delete, default backfill, or conflict resolution;
+- this ADR does not yet add the final UI for property creation, destructive delete, default backfill, or conflict resolution;
 - until that UI exists, direct header text edits for frontmatter-backed columns are display aliases rather than canonical YAML key renames;
 - until destructive delete UI exists, frontmatter-backed table delete actions are hide-only and must not remove schema metadata or YAML keys;
-- the planner must be wired into UI commands and transaction helpers before users can safely run destructive schema migrations from the table;
-- formulas and view predicates that reference renamed properties still need update planning.
+- only non-conflicting renames are applied automatically; conflict rows still require a future resolution UI;
+- formulas and richer view definitions that reference renamed properties still need broader update planning.
 
 ## Invariants
 
 - A schema operation must not silently write or delete frontmatter.
 - A rename with `both-conflict` files must require explicit resolution.
+- A rename apply path must write the new key before deleting the old key, so a failed set does not remove the user's existing value.
+- A rename apply path must re-plan after confirmation and abort if file states or planned writes changed.
 - A create-property operation must not backfill frontmatter unless the user explicitly requests it.
 - A delete-property operation must distinguish hiding a column from deleting the frontmatter key.
 - Mixed observed types must resolve conservatively, currently to `text`.
@@ -84,10 +92,10 @@ Tradeoffs:
 
 ## Future Work
 
-Next schema work should wire this planner into Notidian table UI commands:
+Next schema work should continue wiring this planner into Notidian table UI commands:
 
 1. create property as a visible frontmatter-backed column;
 2. optional default backfill through authority-aware frontmatter writes;
-3. rename property preview with conflict resolution;
+3. rename conflict resolution for files that contain different old and new values;
 4. delete property preview with hide-only and destructive modes;
-5. update formulas, filters, sorts, and saved view definitions that reference renamed or deleted properties.
+5. update formulas and richer saved view definitions that reference renamed or deleted properties.

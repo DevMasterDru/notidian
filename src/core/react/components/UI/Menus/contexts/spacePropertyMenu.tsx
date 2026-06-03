@@ -159,6 +159,7 @@ type PropertyMenuProps = {
   sortColumn?: (sort: Sort) => void;
   freezeColumn?: () => void;
   unfreezeColumns?: () => void;
+  renamePropertyKey?: (event: React.MouseEvent) => void;
   frozenColumnCount?: number;
   hidden?: boolean;
   editCode?: () => void;
@@ -189,6 +190,7 @@ export const showPropertyMenu = (
     sortColumn,
     freezeColumn,
     unfreezeColumns,
+    renamePropertyKey,
     frozenColumnCount,
     editCode,
     hidden,
@@ -316,6 +318,15 @@ export const showPropertyMenu = (
     }
   }
   if (editable) {
+    if (renamePropertyKey) {
+      menuOptions.push({
+        name: i18n.menu.renamePropertyKey,
+        icon: "ui//pencil",
+        onClick: (e: React.MouseEvent) => {
+          renamePropertyKey(e);
+        },
+      });
+    }
     if (editCode) {
       menuOptions.push({
         name: i18n.menu.editCode,

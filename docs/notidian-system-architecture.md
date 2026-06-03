@@ -214,7 +214,7 @@ The target architecture adds richer diff/merge for multi-cell operations so user
 
 Schema operations are file/frontmatter operations, not context-only display changes.
 
-Notidian has a pure schema planner for this layer. The planner does not call Obsidian APIs and does not mutate files. It produces a table preview, per-file classifications, and frontmatter write previews that later UI/apply commands can use after confirmation.
+Notidian has a pure schema planner for this layer. The planner does not call Obsidian APIs and does not mutate files. It produces a table preview, per-file classifications, and frontmatter write previews that UI/apply commands can use after confirmation.
 
 ### Create Property
 
@@ -241,6 +241,8 @@ The current planner classifies every affected file as:
 - `neither`: no write needed.
 
 The planner may preview safe writes even when conflicts exist, but automatic application must remain blocked until conflicts are resolved.
+
+The table header menu exposes `Rename Frontmatter Key` for non-conflicting automatic rename plans. The apply path revalidates the plan after confirmation, writes the new key before deleting the old key, stops on the first file-operation failure, updates table/view references, and reloads canonical Obsidian metadata. Inline header text edits remain display aliases and do not rename YAML keys.
 
 ### Delete Property
 

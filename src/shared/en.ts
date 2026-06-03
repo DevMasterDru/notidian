@@ -279,6 +279,7 @@ export const en = {
     "editProperties": "Edit Properties",
     "properties": "Properties",
     "deleteProperty": "Delete Property",
+    "renamePropertyKey": "Rename Frontmatter Key",
     "hideProperty": "Hide Property",
     "unhideProperty": "Unhide Property",
     "sortAscending": "Sort Ascending",
