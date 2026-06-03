@@ -119,13 +119,21 @@ async function buildWorker(workerPath, extraConfig) {
 let renamePlugin = {
     name: 'rename-styles',
     setup(build) {
-        build.onEnd(() => {
+        build.onEnd((result) => {
+            if (result.errors.length > 0) return;
             const { outfile } = build.initialOptions;
             const outcss = outfile.replace(/\.js$/, '.css');
             const fixcss = outfile.replace(/main\.js$/, 'styles.css');
             if (fs.existsSync(outcss)) {
                 console.log('Renaming', outcss, 'to', fixcss);
                 fs.renameSync(outcss, fixcss);
+            }
+            if (fs.existsSync(outfile)) {
+                const output = fs.readFileSync(outfile, 'utf8');
+                const normalizedOutput = output.replace(/[ \t]+$/gm, '');
+                if (normalizedOutput !== output) {
+                    fs.writeFileSync(outfile, normalizedOutput);
+                }
             }
         });
     },

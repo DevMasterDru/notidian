@@ -43,9 +43,11 @@ import { ContextExplorerLeafView, FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidi
 
 import i18n, { i18nLoader } from "shared/i18n";
 import {
+  isLegacyStorageRoot,
   pluginDataPath,
   pluginDisplayName,
   pluginRepositoryUrl,
+  pluginStorageRoot,
 } from "shared/pluginIdentity";
 
 import {
@@ -70,6 +72,7 @@ import { modifyFlowDom } from "./adapters/obsidian/inlineContextLoader";
 import { MDBFileTypeAdapter } from "adapters/mdb/mdbAdapter";
 import { ObsidianAssetManager } from "adapters/obsidian/assets/ObsidianAssetManager";
 import { ObsidianFileSystem } from "adapters/obsidian/filesystem/filesystem";
+import { installLegacyStorageRootGuard } from "adapters/obsidian/legacyStorageGuard";
 
 import { ObsidianCanvasFiletypeAdapter } from "adapters/obsidian/filetypes/canvasAdapter";
 import { ObsidianMarkdownFiletypeAdapter } from "adapters/obsidian/filetypes/markdownAdapter";
@@ -171,6 +174,9 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
     ) as Record<string, unknown>;
     delete settings.saveAllContextToFrontmatter;
     delete settings.syncFormulaToFrontmatter;
+    if (isLegacyStorageRoot(settings.spaceSubFolder)) {
+      settings.spaceSubFolder = pluginStorageRoot;
+    }
     return settings as unknown as typeof DEFAULT_SETTINGS;
   }
   
@@ -574,6 +580,7 @@ public basics: MakeBasicsPlugin;
   async onload() {
 const start = Date.now();
 const settings = this.sanitizedSettings(await this.loadData());
+    installLegacyStorageRootGuard(this);
     this.mdbFileAdapter = new MDBFileTypeAdapter(this);   
 
     this.files = FilesystemMiddleware.create();
@@ -609,9 +616,9 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
 
     this.superstate.spaceManager.addSpaceAdapter(filesystemCosmoform, true);
 
-    // Load language customizations from .space/lang.json
+    // Load language customizations from the Notidian storage root.
     try {
-      const langPath = ".space/lang.json";
+      const langPath = normalizePath(`${pluginStorageRoot}/lang.json`);
       const content = await (this.obsidianAdapter).readTextFromFile(langPath);
       if (content) {
         const langData = JSON.parse(content);

@@ -2,6 +2,7 @@ import { InputModal } from "core/react/components/UI/Modals/InputModal";
 import { NoteView } from "core/react/components/PathView/NoteView";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
+import { pluginStorageRoot } from "shared/pluginIdentity";
 import React, { useCallback, useEffect, useState } from "react";
 
 interface GlobalTemplateEditorProps {
@@ -13,12 +14,15 @@ interface Template {
   path: string;
 }
 
+const storagePath = (...segments: string[]) =>
+  [pluginStorageRoot, ...segments].filter(Boolean).join("/");
+
 export const GlobalTemplateEditor = (props: GlobalTemplateEditorProps) => {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const templatesPath = ".space/templates";
+  const templatesPath = storagePath("templates");
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -39,7 +43,7 @@ export const GlobalTemplateEditor = (props: GlobalTemplateEditorProps) => {
         setTemplates(templateFiles);
       } else {
         // Create templates folder if it doesn't exist
-        props.superstate.spaceManager.createSpace("templates", ".space", {});
+        props.superstate.spaceManager.createSpace("templates", pluginStorageRoot, {});
         setTemplates([]);
       }
     } catch (error) {

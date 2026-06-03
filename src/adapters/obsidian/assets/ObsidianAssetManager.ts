@@ -3,6 +3,7 @@ import i18n from "shared/i18n";
 import MakeMDPlugin from 'main';
 import { normalizePath } from 'obsidian';
 import { emojis } from 'shared/assets/emoji';
+import { normalizePluginStoragePath, pluginStorageRoot } from 'shared/pluginIdentity';
 import {
   Asset,
   AssetCacheStats,
@@ -62,6 +63,10 @@ export class ObsidianAssetManager implements IAssetManager {
 
   private readonly ASSETS_SPACE_PATH = ASSETS_SPACE_CONFIG.ASSETS_SPACE_PATH;
 
+  private storagePath(...segments: string[]): string {
+    return normalizePath([pluginStorageRoot, ...segments].filter(Boolean).join('/'));
+  }
+
   constructor(
     private spaceManager: SpaceManagerInterface,
     protected ui: IUIManager,
@@ -75,14 +80,14 @@ export class ObsidianAssetManager implements IAssetManager {
   public async initialize(): Promise<void> {
     try {
       
-      // Ensure .space directory exists
-      if (!await this.pathExists('.space')) {
-        await this.createDirectory('.space');
+      // Ensure Notidian's root storage directory exists.
+      if (!await this.pathExists(pluginStorageRoot)) {
+        await this.createDirectory(pluginStorageRoot);
       }
       
       // Ensure iconsets directory exists
-      if (!await this.pathExists('.space/iconsets')) {
-        await this.createDirectory('.space/iconsets');
+      if (!await this.pathExists(this.storagePath('iconsets'))) {
+        await this.createDirectory(this.storagePath('iconsets'));
       }
       
       await this.initializeAssets();
@@ -176,7 +181,7 @@ export class ObsidianAssetManager implements IAssetManager {
     try {
       const normalPath = normalizePath(path);
       
-      // Use the adapter directly to read from hidden folders like .space
+      // Use the adapter directly to read from hidden folders.
       if (await this.plugin.app.vault.adapter.exists(normalPath)) {
         return await this.plugin.app.vault.adapter.read(normalPath);
       }
@@ -292,10 +297,10 @@ export class ObsidianAssetManager implements IAssetManager {
     }
   }
 
-  // Load iconsets from .space/iconsets directories and iconsets.json mapping
+  // Load iconsets from Notidian storage directories and iconsets.json mapping
   private async loadIconsetsFromDirectories(): Promise<void> {
     try {
-      const iconsetsDir = '.space/iconsets';
+      const iconsetsDir = this.storagePath('iconsets');
       
       // Check if the iconsets directory exists
       const dirExists = await this.pathExists(iconsetsDir);
@@ -363,7 +368,7 @@ export class ObsidianAssetManager implements IAssetManager {
         }
       } else {
         // Create the directory if it doesn't exist
-        await this.createDirectory('.space/iconsets');
+        await this.createDirectory(iconsetsDir);
       }
     } catch (error) {
       console.error('Failed to load iconsets from directories:', error);
@@ -373,7 +378,7 @@ export class ObsidianAssetManager implements IAssetManager {
   // Load iconsets from iconsets.json mapping file
   private async loadIconsetsFromMapping(): Promise<void> {
     try {
-      const iconsetJsonPath = '.space/iconsets/iconsets.json';
+      const iconsetJsonPath = this.storagePath('iconsets', 'iconsets.json');
       
       if (await this.pathExists(iconsetJsonPath)) {
         const mappingContent = await this.readPath(iconsetJsonPath);
@@ -385,12 +390,13 @@ export class ObsidianAssetManager implements IAssetManager {
               const mapping = mappingData as any;
               
               // Scan the folder for actual icon files
-              const iconFiles = await this.scanIconDirectory(mapping.path);
+              const mappingPath = normalizePluginStoragePath(mapping.path);
+              const iconFiles = await this.scanIconDirectory(mappingPath);
               
               const iconsetAsset: IconsetAsset = {
                 id: iconsetId,
                 name: mapping.name || iconsetId,
-                path: mapping.path,
+                path: mappingPath,
                 type: 'iconset',
                 icons: iconFiles,
                 theme: 'auto',
@@ -466,10 +472,10 @@ export class ObsidianAssetManager implements IAssetManager {
     }
   }
 
-  // Load color palettes from .space/palettes.json file
+  // Load color palettes from Notidian storage.
   private async loadColorPalettesFromTable(): Promise<void> {
     try {
-      const palettesPath = '.space/palettes.json';
+      const palettesPath = this.storagePath('palettes.json');
       
       // Check if the palettes file exists
       const exists = await this.pathExists(palettesPath);
@@ -1071,15 +1077,15 @@ export class ObsidianAssetManager implements IAssetManager {
         !['default-palette', 'monochrome-palette', 'default-gradient-palette', 'pastel-palette'].includes(p.id)
       );
       
-      const palettesPath = '.space/palettes.json';
+      const palettesPath = this.storagePath('palettes.json');
       const palettesData: Record<string, ColorPaletteAsset> = {};
       
       customPalettes.forEach(palette => {
         palettesData[palette.id] = palette;
       });
       
-      // Ensure .space directory exists
-      await this.createDirectory('.space');
+      // Ensure Notidian's root storage directory exists.
+      await this.createDirectory(pluginStorageRoot);
       
       // Write palettes to disk
       await this.writePath(palettesPath, JSON.stringify(palettesData, null, 2));
@@ -1119,7 +1125,7 @@ export class ObsidianAssetManager implements IAssetManager {
       // Only persist custom iconsets (not built-in ones)
       if (iconset.tags?.includes('custom') || iconset.tags?.includes('user')) {
         // Read existing iconsets mapping
-        const iconsetJsonPath = '.space/iconsets/iconsets.json';
+        const iconsetJsonPath = this.storagePath('iconsets', 'iconsets.json');
         let iconsetMapping: Record<string, any> = {};
         
         try {
@@ -1142,8 +1148,9 @@ export class ObsidianAssetManager implements IAssetManager {
         };
         
         // Ensure directory exists
-        if (!await this.pathExists('.space/iconsets')) {
-          await this.createDirectory('.space/iconsets');
+        const iconsetsDir = this.storagePath('iconsets');
+        if (!await this.pathExists(iconsetsDir)) {
+          await this.createDirectory(iconsetsDir);
         }
         
         // Write updated mapping
@@ -1173,7 +1180,7 @@ export class ObsidianAssetManager implements IAssetManager {
       
       // Remove from iconsets.json if it's a custom iconset
       if (iconset && (iconset.tags?.includes('custom') || iconset.tags?.includes('user'))) {
-        const iconsetJsonPath = '.space/iconsets/iconsets.json';
+        const iconsetJsonPath = this.storagePath('iconsets', 'iconsets.json');
         
         try {
           const existingContent = await this.readPath(iconsetJsonPath);
@@ -1192,7 +1199,7 @@ export class ObsidianAssetManager implements IAssetManager {
         }
         
         // Delete the iconset folder and all its assets
-        const iconsetFolderPath = `.space/iconsets/${id}`;
+        const iconsetFolderPath = this.storagePath('iconsets', id);
         try {
           const folderExists = await this.pathExists(iconsetFolderPath);
           if (folderExists) {
@@ -1405,12 +1412,12 @@ export class ObsidianAssetManager implements IAssetManager {
 
   public async saveCoverImages(): Promise<void> {
     try {
-      const coverImagesPath = '.space/coverImages.json';
+      const coverImagesPath = this.storagePath('coverImages.json');
       const coverImagesData: CoverImage[] = Array.from(this.coverImages.values());
       
-      // Ensure .space directory exists
-      if (!await this.pathExists('.space')) {
-        await this.createDirectory('.space');
+      // Ensure Notidian's root storage directory exists.
+      if (!await this.pathExists(pluginStorageRoot)) {
+        await this.createDirectory(pluginStorageRoot);
       }
       
       await this.writeJSONFile(coverImagesPath, { images: coverImagesData });
@@ -1422,7 +1429,7 @@ export class ObsidianAssetManager implements IAssetManager {
 
   public async loadCoverImages(): Promise<void> {
     try {
-      const coverImagesPath = '.space/coverImages.json';
+      const coverImagesPath = this.storagePath('coverImages.json');
       
       if (await this.pathExists(coverImagesPath)) {
         const content = await this.readJSONFile(coverImagesPath);

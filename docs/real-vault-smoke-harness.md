@@ -41,7 +41,9 @@ Notidian Integration Fixtures/notidian-smoke-<timestamp>-Beta.md
 
 By default, it deletes the fixture notes before exiting. Pass `--keep-fixture` to leave them in the vault for inspection.
 
-The harness intentionally avoids creating a per-run folder. Notidian may create `.space/context.mdb` inside observed folders, and deleting such a folder while the plugin is active can race with context reads. Timestamped file names provide isolation without deleting plugin-owned folder metadata.
+The harness intentionally avoids creating a per-run folder. Notidian may create `.notidian/context.mdb` inside observed folders, and deleting such a folder while the plugin is active can race with context reads. Timestamped file names provide isolation without deleting plugin-owned folder metadata.
+
+Run `npm run health:audit -- --vault-path="<vault>" --live` after the harness. The rename step exercises the runtime guard that redirects stale `.makemd` and `.space` storage writes into `.notidian`, so the post-harness audit is the proof that retired roots were not recreated.
 
 When `--ui` is passed, the harness also writes the fixture root's default frame view predicate to table view. Use a dedicated fixture root for this command; the default `Notidian Integration Fixtures` folder is intended for that purpose.
 

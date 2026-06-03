@@ -20,6 +20,7 @@
     "test": "jest",
     "install:vault": "node scripts/notidianInstallToVault.js",
     "audit:legacy-context": "node scripts/notidianLegacyContextAudit.js",
+    "migrate:space-store": "node scripts/notidianSpaceStoreMigration.js",
     "health:audit": "node scripts/notidianHealthAudit.js",
     "test:real-vault": "node scripts/notidianRealVaultHarness.js",
     "test:watch": "jest --watch",

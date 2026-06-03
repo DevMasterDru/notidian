@@ -121,6 +121,8 @@ Canonical ordinary data lives in:
 
 Context MDB remains a Notidian implementation store, not a general data authority.
 
+Active context MDB files and root runtime assets live under `.notidian`. Legacy `.space` folders are retired compatibility/migration input and must not be treated as active storage unless an explicit recovery task targets a pre-migration vault or backup. Runtime vault adapter operations normalize exact `.space` and `.makemd` path segments to `.notidian` so stale in-memory listeners cannot recreate retired roots after a plugin update.
+
 Allowed context categories:
 
 - view layout: visible columns, widths, order, sort, grouping, filters, saved views;

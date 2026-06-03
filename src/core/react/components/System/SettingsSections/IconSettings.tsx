@@ -2,7 +2,7 @@ import { showSpacesMenu } from "core/react/components/UI/Menus/properties/select
 import JSZip from "jszip";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
-import { pluginRepositoryUrl } from "shared/pluginIdentity";
+import { pluginRepositoryUrl, pluginStorageRoot } from "shared/pluginIdentity";
 import React, { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { IconMetadata, IconsetAsset } from "shared/types/assets";
@@ -13,6 +13,9 @@ import { SettingsProps } from "./types";
 interface IconSet extends Omit<IconsetAsset, "icons"> {
   icons?: IconMetadata[];
 }
+
+const storagePath = (...segments: string[]) =>
+  [pluginStorageRoot, ...segments].filter(Boolean).join("/");
 
 const IconSetManager = ({ superstate }: { superstate: Superstate }) => {
   const [iconSets, setIconSets] = useState<IconSet[]>([]);
@@ -292,7 +295,7 @@ const IconSetManager = ({ superstate }: { superstate: Superstate }) => {
         const iconsetAsset: IconsetAsset = {
           id: iconsetId,
           name: iconsetName,
-          path: `.space/assets/icons/${iconsetId}`,
+          path: storagePath("assets", "icons", iconsetId),
           type: "iconset",
           description: files.some((f) => f.name.endsWith(".zip"))
             ? `Sticker pack extracted from ${
@@ -312,7 +315,7 @@ const IconSetManager = ({ superstate }: { superstate: Superstate }) => {
         };
 
         // Create the icon folder path
-        const iconFolderPath = `.space/assets/icons/${iconsetId}`;
+        const iconFolderPath = storagePath("assets", "icons", iconsetId);
 
         // Ensure the icon folder exists by creating the folder structure
         const folderParts = iconFolderPath.split("/");
@@ -843,7 +846,7 @@ export const IconSettings = ({ superstate }: SettingsProps) => {
         const iconsetAsset: IconsetAsset = {
           id: iconsetId,
           name: iconsetName,
-          path: `.space/assets/icons/${iconsetId}`,
+          path: storagePath("assets", "icons", iconsetId),
           type: "iconset",
           description: files.some((f) => f.name.endsWith(".zip"))
             ? `Sticker pack extracted from ${
@@ -863,7 +866,7 @@ export const IconSettings = ({ superstate }: SettingsProps) => {
         };
 
         // Create the icon folder path
-        const iconFolderPath = `.space/assets/icons/${iconsetId}`;
+        const iconFolderPath = storagePath("assets", "icons", iconsetId);
 
         // Ensure the icon folder exists by creating the folder structure
         const folderParts = iconFolderPath.split("/");

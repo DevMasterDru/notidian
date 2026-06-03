@@ -77,6 +77,12 @@ const writeVault = async (vaultDir, version = "1.3.4") => {
   });
 };
 
+const writeContextStore = async (vaultDir, relativeStorePath) => {
+  const storePath = path.join(vaultDir, relativeStorePath);
+  await fs.mkdir(storePath, { recursive: true });
+  await fs.writeFile(path.join(storePath, "context.mdb"), "context");
+};
+
 describe("notidian health audit", () => {
   it("parses CLI options and environment fallbacks", () => {
     expect(
@@ -164,7 +170,7 @@ describe("notidian health audit", () => {
       const runner = (command, args) => {
         commands.push([command, args]);
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceSubFolder":".notidian","legacyStorageRootGuardInstalled":true,"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -222,7 +228,7 @@ describe("notidian health audit", () => {
 
       const runner = (command, args) => {
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":["syncFormulaToFrontmatter"],"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":["syncFormulaToFrontmatter"],"spaceSubFolder":".notidian","legacyStorageRootGuardInstalled":true,"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -348,6 +354,34 @@ describe("notidian health audit", () => {
     });
   });
 
+  it("fails when the vault still has active .space compatibility stores", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      const vaultPath = path.join(dir, "vault");
+      await writeSource(sourceDir);
+      await writeVault(vaultPath);
+      await writeContextStore(vaultPath, path.join("Devices", ".space"));
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath,
+        pluginId: "notidian",
+        skipVault: false,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "vault has no active .space compatibility stores",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
   it("fails live health when Notidian registers non-local space adapters", async () => {
     await withTempDir(async (dir) => {
       const sourceDir = path.join(dir, "source");
@@ -355,7 +389,7 @@ describe("notidian health audit", () => {
 
       const runner = (command, args) => {
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceAdapterSchemes":[["spaces","vault"],["web"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceSubFolder":".notidian","legacyStorageRootGuardInstalled":true,"spaceAdapterSchemes":[["spaces","vault"],["web"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -391,7 +425,7 @@ describe("notidian health audit", () => {
 
       const runner = (command, args) => {
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".makemd/fileCache.mdc"]}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceSubFolder":".notidian","legacyStorageRootGuardInstalled":true,"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".makemd/fileCache.mdc"]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -413,6 +447,78 @@ describe("notidian health audit", () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: "live Notidian root cache persisters use .notidian",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails live health when Notidian still uses .space as the storage root", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+
+      const runner = (command, args) => {
+        if (args[0] == "eval") {
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceSubFolder":".space","legacyStorageRootGuardInstalled":true,"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
+        }
+        if (args[0] == "dev:errors") {
+          return "No errors captured.";
+        }
+        throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+      };
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: true,
+        runner,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "live Notidian storage root is .notidian",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails live health when the legacy storage root guard is absent", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+
+      const runner = (command, args) => {
+        if (args[0] == "eval") {
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceSubFolder":".notidian","legacyStorageRootGuardInstalled":false,"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
+        }
+        if (args[0] == "dev:errors") {
+          return "No errors captured.";
+        }
+        throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+      };
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: true,
+        runner,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "live legacy storage root guard is installed",
             passed: false,
           }),
         ])

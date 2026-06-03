@@ -82,6 +82,53 @@ const pathExists = async (filePath) => {
   }
 };
 
+const normalizeRelative = (value) =>
+  String(value || "")
+    .split(path.sep)
+    .join("/");
+
+const pathParts = (value) =>
+  normalizeRelative(value)
+    .split("/")
+    .filter(Boolean);
+
+const containsBlockedPathName = (value) =>
+  pathParts(value).some((part) => {
+    const lower = part.toLowerCase();
+    return lower.includes("archive") || lower.includes("ignore");
+  });
+
+const findActiveSpaceStores = async (vaultPath) => {
+  const stores = [];
+  const visit = async (currentPath) => {
+    let entries = [];
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code == "ENOENT") return;
+      throw error;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name == ".trash" || containsBlockedPathName(entry.name)) {
+        continue;
+      }
+
+      const fullPath = path.join(currentPath, entry.name);
+      if (entry.name == ".space") {
+        stores.push(normalizeRelative(path.relative(vaultPath, fullPath)));
+        continue;
+      }
+
+      await visit(fullPath);
+    }
+  };
+
+  await visit(vaultPath);
+  return stores.sort();
+};
+
 const defaultRunner = (command, args) =>
   execFileSync(command, args, {
     encoding: "utf8",
@@ -261,6 +308,27 @@ const runHealthAudit = async (config) => {
   );
   await addCheck(
     results,
+    "source has no hardcoded active .space storage root",
+    async () => {
+      const activeRuntimeFiles = [
+        "src/main.ts",
+        "src/adapters/obsidian/assets/ObsidianAssetManager.ts",
+        "src/core/react/components/System/SettingsSections/LanguageSettings.tsx",
+        "src/core/react/components/System/SettingsSections/IconSettings.tsx",
+        "src/core/react/components/System/GlobalTemplateEditor.tsx",
+      ];
+      const blockedStorageText = ['".space', "'.space", "`.space"];
+      for (const relativePath of activeRuntimeFiles) {
+        const text = await readTextIfExists(path.join(sourceDir, relativePath));
+        if (blockedStorageText.some((blocked) => text.includes(blocked))) {
+          return false;
+        }
+      }
+      return true;
+    }
+  );
+  await addCheck(
+    results,
     "source has no orphaned native Bases view styling",
     async () => {
       const css = await readTextIfExists(
@@ -316,6 +384,13 @@ const runHealthAudit = async (config) => {
         return !(await pathExists(legacyPluginDir)) && !(await pathExists(legacyCacheDir));
       }
     );
+    const activeSpaceStores = await findActiveSpaceStores(config.vaultPath);
+    await addCheck(
+      results,
+      "vault has no active .space compatibility stores",
+      () => activeSpaceStores.length == 0,
+      activeSpaceStores.length == 0 ? "none" : activeSpaceStores.join(", ")
+    );
   }
 
   if (config.live) {
@@ -323,7 +398,7 @@ const runHealthAudit = async (config) => {
       stripEvalPrefix(
         runner("obsidian", [
           "eval",
-          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key)), spaceAdapterSchemes: app.plugins.plugins.notidian?.superstate?.spaceManager?.spaceAdapters?.map((adapter) => adapter.schemes) ?? [], rootCachePersisters: [app.plugins.plugins.notidian?.superstate?.persister?.storageDBPath, app.plugins.plugins.notidian?.obsidianAdapter?.persister?.storageDBPath].filter(Boolean)})",
+          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key)), spaceSubFolder: app.plugins.plugins.notidian?.superstate?.settings?.spaceSubFolder, legacyStorageRootGuardInstalled: Boolean(app.plugins.plugins.notidian?.legacyStorageRootGuardInstalled), spaceAdapterSchemes: app.plugins.plugins.notidian?.superstate?.spaceManager?.spaceAdapters?.map((adapter) => adapter.schemes) ?? [], rootCachePersisters: [app.plugins.plugins.notidian?.superstate?.persister?.storageDBPath, app.plugins.plugins.notidian?.obsidianAdapter?.persister?.storageDBPath].filter(Boolean)})",
         ])
       )
     );
@@ -351,6 +426,18 @@ const runHealthAudit = async (config) => {
       results,
       "live Notidian settings have no retired context-to-frontmatter sync keys",
       () => Array.isArray(state.retiredSyncSettingsPresent) && state.retiredSyncSettingsPresent.length === 0,
+      JSON.stringify(state)
+    );
+    await addCheck(
+      results,
+      "live Notidian storage root is .notidian",
+      () => state.spaceSubFolder === ".notidian",
+      JSON.stringify(state)
+    );
+    await addCheck(
+      results,
+      "live legacy storage root guard is installed",
+      () => state.legacyStorageRootGuardInstalled === true,
       JSON.stringify(state)
     );
     await addCheck(
@@ -429,6 +516,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  findActiveSpaceStores,
   parseHealthArgs,
   runHealthAudit,
 };

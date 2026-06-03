@@ -3,7 +3,7 @@ const path = require("path");
 const sharedAuditCore = require("../src/core/utils/contexts/legacyContextMigrationCore");
 
 const DEFAULT_SCHEMA = "files";
-const DEFAULT_SPACE_SUBFOLDER = ".space";
+const DEFAULT_SPACE_SUBFOLDER = ".notidian";
 const DEFAULT_FORMAT = "markdown";
 const PATH_PROPERTY_NAME = sharedAuditCore.PathPropertyName;
 const DEFAULT_EXCLUDED_FRONTMATTER_KEYS = new Set([

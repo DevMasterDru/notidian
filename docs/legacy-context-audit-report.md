@@ -24,7 +24,7 @@ Options:
 | `--vault=<path>` | Absolute vault path. Can also be set through `NOTIDIAN_AUDIT_VAULT`. |
 | `--folder=<path>` | Required vault-relative folder/context path. |
 | `--schema=<id>` | MDB schema id. Defaults to `files`. |
-| `--space-subfolder=<path>` | Context metadata folder. Defaults to `.space`. |
+| `--space-subfolder=<path>` | Context metadata folder. Defaults to `.notidian`; pass `.space` only when auditing a pre-migration vault or backup. |
 | `--format=markdown` | Human-readable report. This is the default. |
 | `--json` or `--format=json` | Machine-readable report for future tooling. |
 | `--max-files=<n>` | Read only the first `n` row files. `0` means read all row files. |

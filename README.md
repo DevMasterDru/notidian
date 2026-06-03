@@ -37,6 +37,8 @@ Notidian currently implements the core Obsidian-native database foundation:
 
 This is intentionally not a hidden Make.md-style parallel database and not a native Bases wrapper. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer.
 
+Active Notidian vault storage lives under `.notidian`. Retired `.space` folders are legacy migration input only; use `npm run migrate:space-store -- --vault-path="<vault>"` for a dry-run inventory before any approved write migration. Runtime vault adapter calls also normalize exact legacy storage path segments (`.space` and `.makemd`) to `.notidian` so stale listeners cannot recreate retired roots after an update.
+
 ## Documentation
 
 The documentation entry point is [docs/README.md](docs/README.md). For practical table behavior, use [Table Database Workflows](docs/table-database-workflows.md). For live Obsidian smoke verification, use [Real Vault Smoke Harness](docs/real-vault-smoke-harness.md). The current implementation reference is [docs/current-state.md](docs/current-state.md). Durable architectural decisions live in [docs/adr](docs/adr/README.md); historical design and execution plans live under `docs/superpowers`.
@@ -67,7 +69,7 @@ On first load, Notidian prefers its own plugin data directory:
 .obsidian/plugins/notidian
 ```
 
-Notidian does not automatically read or migrate data from the original Make.md plugin directory. Legacy Make.md context data should be handled through the explicit read-only audit and migration-planning tools before any user-approved migration. New reads and writes target the Notidian plugin directory.
+Notidian does not automatically read or migrate data from the original Make.md plugin directory. Legacy Make.md context data should be handled through the explicit read-only audit and migration-planning tools before any user-approved migration. New plugin data reads and writes target the Notidian plugin directory, and active vault storage writes target `.notidian`.
 
 ## Status
 
@@ -76,7 +78,7 @@ This fork is in active development. The current foundation is implemented and do
 - Redo support for table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures.
-- Legacy Make.md context migration tooling.
+- Legacy Make.md context-value migration tooling.
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.
 - Broader reconciliation for external file moves/deletes.

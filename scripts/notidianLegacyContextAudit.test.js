@@ -68,6 +68,9 @@ describe("notidian legacy context audit CLI", () => {
         NOTIDIAN_AUDIT_VAULT: "/tmp/Vault",
       }).vaultRoot
     ).toBe("/tmp/Vault");
+    expect(parseAuditArgs([], {})).toMatchObject({
+      spaceSubFolder: ".notidian",
+    });
   });
 
   it("validates required inputs and blocked path names", () => {

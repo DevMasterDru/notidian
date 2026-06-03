@@ -18,9 +18,18 @@ Some internal identifiers still use Make.md-era names, including `MakeMDPlugin`,
 
 Do not use those names alone to infer that Notidian reads `.obsidian/plugins/make-md`, writes `.makemd`, fetches Make.md web kits, depends on the Make.md `vaul` fork, or targets native Bases. Active architecture is determined by the source-of-truth table below, the runtime adapter registration, package dependencies, and live-vault health checks.
 
-### Remaining Compatibility Store
+### Notidian Storage Root
 
-Notidian still uses `.space` as the per-folder compatibility store for context MDB view state in the current runtime. Root runtime caches must use `.notidian`, and `.makemd` is retired. Do not delete or migrate `.space` folders opportunistically; moving `.space` to `.notidian` needs a dedicated migration with inventory, preview, rollback, and live-vault verification so existing table views are not orphaned.
+Notidian uses `.notidian` as its active vault storage root for runtime caches, root assets, language overrides, templates, and per-folder context MDB view state. `.makemd` is retired root cache state. `.space` is retired Make.md compatibility storage and should appear only as migration input or external backup material. Runtime vault adapter operations normalize exact `.space` and `.makemd` path segments to `.notidian`, which prevents stale in-memory listeners from recreating retired roots after an update.
+
+The storage-root migration command is dry-run-first:
+
+```bash
+npm run migrate:space-store -- --vault-path="/Users/druker/Atlas Vault"
+npm run migrate:space-store -- --vault-path="/Users/druker/Atlas Vault" --allow-write
+```
+
+The write phase copies missing `.space` files into sibling `.notidian` folders, refuses content conflicts, rewrites migrated JSON string values that contain exact `.space` or `.makemd` path segments to `.notidian`, and moves original `.space` folders into an external `/tmp/notidian-space-store-backups` rollback tree instead of leaving stale backup folders inside the vault.
 
 ## Source Of Truth
 
@@ -28,7 +37,7 @@ Notidian still uses `.space` as the per-folder compatibility store for context M
 | --- | --- | --- |
 | Page identity | Markdown file path/name | Displayed as the `File`/page-title cell and changed through rename transactions. |
 | Ordinary note metadata | Markdown frontmatter / Obsidian metadata cache | Discovered as table columns and edited through frontmatter writes. |
-| View layout | Notidian view model, stored in context MDB today | Stores column order, hidden columns, frozen columns, filters, grouping, sorting, and view state. |
+| View layout | Notidian view model, stored in `.notidian` context MDB today | Stores column order, hidden columns, frozen columns, filters, grouping, sorting, and view state. |
 | Context-native fields | Notidian context MDB | Stores values only when a field is explicitly Notidian-owned. |
 | Formulas, aggregates, file projections | Computed from current inputs | Displayed as projections, not durable user-entered values. |
 | Relations | Notidian context model | Preserved from Make.md semantics unless later mapped to frontmatter links. |
@@ -43,7 +52,7 @@ The durable direction is:
 - Markdown files are rows;
 - file path and basename are page identity;
 - frontmatter owns ordinary editable properties;
-- context MDB stores view state, explicit Notidian-owned state, and legacy Make.md compatibility state;
+- `.notidian` context MDB stores view state, explicit Notidian-owned state, and legacy Make.md compatibility state;
 - native Bases and `.base` files are outside the active architecture.
 
 Bases alignment was useful research. It helped validate:
@@ -168,7 +177,7 @@ Notidian also includes a read-only CLI report:
 npm run audit:legacy-context -- --vault="/Users/druker/Atlas Vault" --folder="Relays & Devices"
 ```
 
-The report reads a single folder context, compares context rows with frontmatter, and emits Markdown or JSON. Partial reports created with `--max-files` are marked as incomplete and cannot be treated as automatically applicable. There is still no destructive legacy migration command.
+The report reads a single folder context, compares context rows with frontmatter, and emits Markdown or JSON. Partial reports created with `--max-files` are marked as incomplete and cannot be treated as automatically applicable. There is still no destructive legacy context-value migration command.
 
 ### Canonical Schema Planning
 
@@ -267,7 +276,7 @@ The following work remains before Notidian should be considered final:
 
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
 - The real-vault smoke harness includes live table direct edit undo/redo, paste, paste undo/redo, frontmatter-backed type changes, Select option creation, existing Select selection from filled and empty cells, Multi-select persistence, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
-- Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command is still needed.
+- Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command for context-owned values is still needed.
 - Property schema planning exists, and safe automatic frontmatter key rename is available from the header menu. Create-property, destructive delete, default backfill, and rename conflict-resolution flows are still needed.
 - Moving files between folders from table cells is not implemented.
 

@@ -47,7 +47,7 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   expandFolderOnClick: true,
   spacesFolder: i18n.settings.tags,
   suppressedWarnings: [],
-  spaceSubFolder: ".space",
+  spaceSubFolder: ".notidian",
   hiddenFiles: [],
   hiddenExtensions: [".mdb", '_assets', '_blocks'],
   newFileLocation: "root",

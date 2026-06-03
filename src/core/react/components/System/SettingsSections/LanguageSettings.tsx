@@ -1,9 +1,12 @@
 import { Superstate } from "makemd-core";
 import i18n, { i18nLoader } from "shared/i18n";
-import { pluginRepositoryUrl } from "shared/pluginIdentity";
+import { pluginRepositoryUrl, pluginStorageRoot } from "shared/pluginIdentity";
 import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { SettingsProps } from "./types";
+
+const storagePath = (...segments: string[]) =>
+  [pluginStorageRoot, ...segments].filter(Boolean).join("/");
 
 export const LanguageSettings = ({ superstate }: SettingsProps) => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -38,7 +41,7 @@ export const LanguageSettings = ({ superstate }: SettingsProps) => {
         setOriginalStrings(originals);
 
         // Then load any existing overrides
-        const langPath = ".space/lang.json";
+        const langPath = storagePath("lang.json");
         const content = await superstate.spaceManager.readPath(langPath);
         if (content) {
           const langData = JSON.parse(content);
@@ -146,11 +149,11 @@ export const LanguageSettings = ({ superstate }: SettingsProps) => {
     }
 
     try {
-      const langPath = ".space/lang.json";
+      const langPath = storagePath("lang.json");
 
-      // Ensure .space directory exists
+      // Ensure Notidian's root storage directory exists.
       try {
-        await superstate.spaceManager.createSpace(".space", "", {});
+        await superstate.spaceManager.createSpace(pluginStorageRoot, "", {});
       } catch (e) {
         // Directory might already exist
       }
@@ -170,11 +173,11 @@ export const LanguageSettings = ({ superstate }: SettingsProps) => {
 
   const saveChanges = async () => {
     try {
-      const langPath = ".space/lang.json";
+      const langPath = storagePath("lang.json");
 
-      // Ensure .space directory exists
+      // Ensure Notidian's root storage directory exists.
       try {
-        await superstate.spaceManager.createSpace(".space", "", {});
+        await superstate.spaceManager.createSpace(pluginStorageRoot, "", {});
       } catch (e) {
         // Directory might already exist
       }
@@ -197,7 +200,7 @@ export const LanguageSettings = ({ superstate }: SettingsProps) => {
 
   const resetAll = async () => {
     try {
-      const langPath = ".space/lang.json";
+      const langPath = storagePath("lang.json");
 
       // Delete the lang.json file
       try {
@@ -297,11 +300,11 @@ export const LanguageSettings = ({ superstate }: SettingsProps) => {
           superstate.ui.notify(`Imported language pack from ${file.name} successfully`);
 
           // Save the changes
-          const langPath = ".space/lang.json";
+          const langPath = storagePath("lang.json");
 
-          // Ensure .space directory exists
+          // Ensure Notidian's root storage directory exists.
           try {
-            await superstate.spaceManager.createSpace(".space", "", {});
+            await superstate.spaceManager.createSpace(pluginStorageRoot, "", {});
           } catch (e) {
             // Directory might already exist
           }

@@ -2,7 +2,10 @@ const manifest = require("../../manifest.json");
 const packageJson = require("../../package.json");
 const fs = require("fs");
 const path = require("path");
-import { pluginRepositoryUrl } from "shared/pluginIdentity";
+import {
+  normalizePluginStoragePath,
+  pluginRepositoryUrl,
+} from "shared/pluginIdentity";
 
 const readRepoFile = (relativePath: string) =>
   fs.readFileSync(path.join(__dirname, "..", "..", relativePath), "utf8");
@@ -14,6 +17,27 @@ const readRepoFileIfExists = (relativePath: string) => {
 };
 
 describe("Notidian identity", () => {
+  it("uses .notidian as the active storage root", () => {
+    const settings = readRepoFile("src/core/schemas/settings.ts");
+    expect(settings).toContain('spaceSubFolder: ".notidian"');
+    expect(settings).not.toContain('spaceSubFolder: ".space"');
+  });
+
+  it("normalizes retired storage roots in any vault path segment", () => {
+    expect(normalizePluginStoragePath(".space/context.mdb")).toBe(
+      ".notidian/context.mdb"
+    );
+    expect(normalizePluginStoragePath("Folder/.space/context.mdb")).toBe(
+      "Folder/.notidian/context.mdb"
+    );
+    expect(normalizePluginStoragePath(".makemd/fileCache.mdc")).toBe(
+      ".notidian/fileCache.mdc"
+    );
+    expect(normalizePluginStoragePath("notes/my.space/file.md")).toBe(
+      "notes/my.space/file.md"
+    );
+  });
+
   it("uses Notidian package and Obsidian plugin metadata", () => {
     expect(packageJson.name).toBe("notidian");
     expect(packageJson.description).toContain("Notidian");
@@ -71,6 +95,23 @@ describe("Notidian identity", () => {
     for (const runtimeFile of runtimeFiles) {
       const source = readRepoFile(runtimeFile);
       expect(source).not.toContain(".makemd/");
+    }
+  });
+
+  it("does not hardcode active .space storage paths in runtime files", () => {
+    const runtimeFiles = [
+      "src/main.ts",
+      "src/adapters/obsidian/assets/ObsidianAssetManager.ts",
+      "src/core/react/components/System/SettingsSections/LanguageSettings.tsx",
+      "src/core/react/components/System/SettingsSections/IconSettings.tsx",
+      "src/core/react/components/System/GlobalTemplateEditor.tsx",
+    ];
+
+    for (const runtimeFile of runtimeFiles) {
+      const source = readRepoFile(runtimeFile);
+      expect(source).not.toContain('".space');
+      expect(source).not.toContain("'.space");
+      expect(source).not.toContain("`.space");
     }
   });
 
