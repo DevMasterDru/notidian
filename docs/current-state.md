@@ -12,6 +12,16 @@ The key rule is:
 
 The strategic direction is Notidian-only personal database architecture. Notidian is the only intended database engine and interface for Atlas Vault. Native Obsidian Bases is not a runtime dependency, compatibility pillar, or roadmap target.
 
+## Internal Lineage Names
+
+Some internal identifiers still use Make.md-era names, including `MakeMDPlugin`, `MakeMDSettings`, `makemd-core`, `mk-*` CSS classes, `spaces://`, and `.mkit`. These are implementation-lineage or compatibility names, not active Make.md runtime paths.
+
+Do not use those names alone to infer that Notidian reads `.obsidian/plugins/make-md`, writes `.makemd`, fetches Make.md web kits, depends on the Make.md `vaul` fork, or targets native Bases. Active architecture is determined by the source-of-truth table below, the runtime adapter registration, package dependencies, and live-vault health checks.
+
+### Remaining Compatibility Store
+
+Notidian still uses `.space` as the per-folder compatibility store for context MDB view state in the current runtime. Root runtime caches must use `.notidian`, and `.makemd` is retired. Do not delete or migrate `.space` folders opportunistically; moving `.space` to `.notidian` needs a dedicated migration with inventory, preview, rollback, and live-vault verification so existing table views are not orphaned.
+
 ## Source Of Truth
 
 | Data kind | Canonical owner | Current Notidian behavior |

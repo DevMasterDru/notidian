@@ -14,7 +14,7 @@ import {
   normalizePath
 } from "obsidian";
 import {
-  MakeMDPluginSettingsTab
+  NotidianPluginSettingsTab
 } from "./adapters/obsidian/settings";
 import {
   FILE_TREE_VIEW_TYPE,
@@ -143,7 +143,7 @@ import { windowFromDocument } from "shared/utils/dom";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { getParentPathFromString } from "utils/path";
 
-const makeMDVersion = 0.999;
+const releaseNotesVersion = 0.999;
 
 export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
   app: App;
@@ -209,9 +209,9 @@ loadSuperState() {
 
     this.app.metadataCache.on("changed", this.metadataChange);
 
-    if (makeMDVersion > this.superstate.settings.releaseNotesPrompt) {
+    if (releaseNotesVersion > this.superstate.settings.releaseNotesPrompt) {
       this.releaseTheNotes();
-      this.superstate.settings.releaseNotesPrompt = makeMDVersion;
+      this.superstate.settings.releaseNotesPrompt = releaseNotesVersion;
       this.saveSettings();
     }
     if (!this.superstate.settings.firstLaunch) {
@@ -649,7 +649,7 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     // Don't initialize here as it will be called during superstate.initialize()
     
     this.loadSuperState();
-    this.addSettingTab(new MakeMDPluginSettingsTab(this.app, this));
+    this.addSettingTab(new NotidianPluginSettingsTab(this.app, this));
     await this.loadSpaces();
     this.loadContext();
     

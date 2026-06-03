@@ -18,7 +18,7 @@ type SettingObject = {
   dep?: string;
 }
 
-export class MakeMDPluginSettingsTab extends PluginSettingTab {
+export class NotidianPluginSettingsTab extends PluginSettingTab {
   plugin: MakeMDPlugin;
 
   constructor(app: App, plugin: MakeMDPlugin) {

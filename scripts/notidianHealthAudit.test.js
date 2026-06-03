@@ -50,6 +50,7 @@ const writeSource = async (sourceDir, version = "1.3.4") => {
   );
   await fs.mkdir(path.join(sourceDir, "src", "core", "superstate"), { recursive: true });
   await fs.mkdir(path.join(sourceDir, "src", "core", "utils", "properties"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "src", "css", "SpaceViewer"), { recursive: true });
   await Promise.all(
     [
       "src/core/schemas/settings.ts",
@@ -58,6 +59,7 @@ const writeSource = async (sourceDir, version = "1.3.4") => {
       "src/core/react/components/System/SettingsSections/SpaceSettings.tsx",
       "src/core/superstate/superstate.ts",
       "src/core/utils/properties/propertyAuthority.ts",
+      "src/css/SpaceViewer/TableView.css",
     ].map((relativePath) => fs.writeFile(path.join(sourceDir, relativePath), ""))
   );
 };
@@ -162,7 +164,7 @@ describe("notidian health audit", () => {
       const runner = (command, args) => {
         commands.push([command, args]);
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[]}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -220,7 +222,7 @@ describe("notidian health audit", () => {
 
       const runner = (command, args) => {
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":["syncFormulaToFrontmatter"]}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":["syncFormulaToFrontmatter"],"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -242,6 +244,175 @@ describe("notidian health audit", () => {
         expect.arrayContaining([
           expect.objectContaining({
             name: "live Notidian settings have no retired context-to-frontmatter sync keys",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails when active source writes runtime caches into .makemd", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+      await fs.mkdir(
+        path.join(sourceDir, "src", "adapters", "obsidian", "filesystem"),
+        { recursive: true }
+      );
+      await fs.writeFile(
+        path.join(
+          sourceDir,
+          "src",
+          "adapters",
+          "obsidian",
+          "filesystem",
+          "filesystem.ts"
+        ),
+        "const cachePath = '.makemd/fileCache.mdc';"
+      );
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "source has no active .makemd runtime cache path",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails when active source keeps orphaned native Bases view styling", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+      await fs.writeFile(
+        path.join(sourceDir, "src", "css", "SpaceViewer", "TableView.css"),
+        ".notidian-bases-table-view { display: flex; }"
+      );
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "source has no orphaned native Bases view styling",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails when the vault still has active legacy Make.md plugin data paths", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      const vaultPath = path.join(dir, "vault");
+      await writeSource(sourceDir);
+      await writeVault(vaultPath);
+      await fs.mkdir(path.join(vaultPath, ".makemd"), { recursive: true });
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath,
+        pluginId: "notidian",
+        skipVault: false,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "vault has no active legacy Make.md plugin or root cache",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails live health when Notidian registers non-local space adapters", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+
+      const runner = (command, args) => {
+        if (args[0] == "eval") {
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceAdapterSchemes":[["spaces","vault"],["web"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
+        }
+        if (args[0] == "dev:errors") {
+          return "No errors captured.";
+        }
+        throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+      };
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: true,
+        runner,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "live Notidian space adapters are local vault only",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails live health when root cache persisters point outside .notidian", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+
+      const runner = (command, args) => {
+        if (args[0] == "eval") {
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".makemd/fileCache.mdc"]}';
+        }
+        if (args[0] == "dev:errors") {
+          return "No errors captured.";
+        }
+        throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+      };
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: true,
+        runner,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "live Notidian root cache persisters use .notidian",
             passed: false,
           }),
         ])

@@ -1,5 +1,3 @@
-//https://github.com/blacksmithgu/obsidian-dataview
-
 export class IndexMap {
     /** Maps key -> values for that key. */
     map: Map<string, Set<string>>;
@@ -38,7 +36,7 @@ export class IndexMap {
         if (oldValues) {
             for (const value of oldValues) {
                 // Only delete the ones we're not adding back
-                if (!values.has(key)) this.invMap.get(value)?.delete(key);
+                if (!values.has(value)) this.invMap.get(value)?.delete(key);
             }
         }
         this.map.set(key, values);
@@ -60,7 +58,7 @@ export class IndexMap {
         if (oldValues) {
             for (const value of oldValues) {
                 // Only delete the ones we're not adding back
-                if (!values.has(key)) this.map.get(value)?.delete(key);
+                if (!values.has(value)) this.map.get(value)?.delete(key);
             }
         }
         this.invMap.set(key, values);
@@ -124,4 +122,3 @@ export class IndexMap {
 
     static EMPTY_SET: Readonly<Set<string>> = Object.freeze(new Set<string>());
 }
-

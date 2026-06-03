@@ -72,6 +72,16 @@ const readTextIfExists = async (filePath) => {
   }
 };
 
+const pathExists = async (filePath) => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (error) {
+    if (error?.code == "ENOENT") return false;
+    throw error;
+  }
+};
+
 const defaultRunner = (command, args) =>
   execFileSync(command, args, {
     encoding: "utf8",
@@ -230,6 +240,35 @@ const runHealthAudit = async (config) => {
       return true;
     }
   );
+  await addCheck(
+    results,
+    "source has no active .makemd runtime cache path",
+    async () => {
+      const activeRuntimeFiles = [
+        "src/main.ts",
+        "src/adapters/obsidian/filesystem/filesystem.ts",
+        "src/adapters/obsidian/filetypes/markdownAdapter.ts",
+        "src/adapters/image/imageAdapter.ts",
+      ];
+      for (const relativePath of activeRuntimeFiles) {
+        const text = await readTextIfExists(path.join(sourceDir, relativePath));
+        if (text.includes("\".makemd") || text.includes("'.makemd")) {
+          return false;
+        }
+      }
+      return true;
+    }
+  );
+  await addCheck(
+    results,
+    "source has no orphaned native Bases view styling",
+    async () => {
+      const css = await readTextIfExists(
+        path.join(sourceDir, "src", "css", "SpaceViewer", "TableView.css")
+      );
+      return !css.includes("notidian-bases-table-view");
+    }
+  );
 
   if (!config.skipVault) {
     const pluginDir = path.join(
@@ -263,6 +302,20 @@ const runHealthAudit = async (config) => {
       "Notidian is enabled in the vault",
       () => enabledPlugins.includes(config.pluginId)
     );
+    await addCheck(
+      results,
+      "vault has no active legacy Make.md plugin or root cache",
+      async () => {
+        const legacyPluginDir = path.join(
+          config.vaultPath,
+          ".obsidian",
+          "plugins",
+          "make-md"
+        );
+        const legacyCacheDir = path.join(config.vaultPath, ".makemd");
+        return !(await pathExists(legacyPluginDir)) && !(await pathExists(legacyCacheDir));
+      }
+    );
   }
 
   if (config.live) {
@@ -270,7 +323,7 @@ const runHealthAudit = async (config) => {
       stripEvalPrefix(
         runner("obsidian", [
           "eval",
-          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key))})",
+          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key)), spaceAdapterSchemes: app.plugins.plugins.notidian?.superstate?.spaceManager?.spaceAdapters?.map((adapter) => adapter.schemes) ?? [], rootCachePersisters: [app.plugins.plugins.notidian?.superstate?.persister?.storageDBPath, app.plugins.plugins.notidian?.obsidianAdapter?.persister?.storageDBPath].filter(Boolean)})",
         ])
       )
     );
@@ -298,6 +351,25 @@ const runHealthAudit = async (config) => {
       results,
       "live Notidian settings have no retired context-to-frontmatter sync keys",
       () => Array.isArray(state.retiredSyncSettingsPresent) && state.retiredSyncSettingsPresent.length === 0,
+      JSON.stringify(state)
+    );
+    await addCheck(
+      results,
+      "live Notidian space adapters are local vault only",
+      () =>
+        Array.isArray(state.spaceAdapterSchemes) &&
+        JSON.stringify(state.spaceAdapterSchemes) == JSON.stringify([["spaces", "vault"]]),
+      JSON.stringify(state)
+    );
+    await addCheck(
+      results,
+      "live Notidian root cache persisters use .notidian",
+      () =>
+        Array.isArray(state.rootCachePersisters) &&
+        state.rootCachePersisters.length > 0 &&
+        state.rootCachePersisters.every((cachePath) =>
+          String(cachePath).startsWith(".notidian/")
+        ),
       JSON.stringify(state)
     );
     await addCheck(
