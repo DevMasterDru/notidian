@@ -21,14 +21,10 @@ export const propertyAuthorityForColumn = (
 };
 
 export const shouldWriteAuthorityValueToFrontmatter = (
-  property: Partial<Pick<SpaceProperty, "name" | "source" | "type">>,
-  saveAllContextToFrontmatter: boolean
+  property: Partial<Pick<SpaceProperty, "name" | "source" | "type">>
 ): boolean => {
   const authority = propertyAuthorityForColumn(property);
-  return (
-    authority === "frontmatter" ||
-    (authority === "notidian" && saveAllContextToFrontmatter)
-  );
+  return authority === "frontmatter";
 };
 
 export const shouldPersistAuthorityValueToContext = (

@@ -43,8 +43,6 @@ import { ContextExplorerLeafView, FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidi
 
 import i18n, { i18nLoader } from "shared/i18n";
 import {
-  legacyPluginDataPath,
-  pluginDataDir,
   pluginDataPath,
   pluginDisplayName,
   pluginRepositoryUrl,
@@ -166,72 +164,15 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
     return normalizePath(pluginDataPath(this.app.vault.configDir, fileName));
   }
 
-  private legacyPluginDataFilePath(fileName: string) {
-    return normalizePath(
-      legacyPluginDataPath(this.app.vault.configDir, fileName)
-    );
-  }
-
-  private async ensurePluginDataDir() {
-    const dir = normalizePath(pluginDataDir(this.app.vault.configDir));
-    if (!(await this.app.vault.adapter.exists(dir))) {
-      await this.app.vault.adapter.mkdir(dir);
-    }
-  }
-
-  private async migrateLegacyPluginDataFile(fileName: string) {
-    const currentPath = this.pluginDataFilePath(fileName);
-    const legacyPath = this.legacyPluginDataFilePath(fileName);
-
-    if (
-      (await this.app.vault.adapter.exists(currentPath)) ||
-      !(await this.app.vault.adapter.exists(legacyPath))
-    ) {
-      return currentPath;
-    }
-
-    await this.ensurePluginDataDir();
-    await this.app.vault.adapter.writeBinary(
-      currentPath,
-      await this.app.vault.adapter.readBinary(legacyPath)
-    );
-    return currentPath;
-  }
-
-  private async pluginDataFilePathWithLegacyFallback(fileName: string) {
-    const currentPath = this.pluginDataFilePath(fileName);
-    if (await this.app.vault.adapter.exists(currentPath)) return currentPath;
-
-    const legacyPath = this.legacyPluginDataFilePath(fileName);
-    if (await this.app.vault.adapter.exists(legacyPath)) {
-      try {
-        return await this.migrateLegacyPluginDataFile(fileName);
-      } catch {
-        return legacyPath;
-      }
-    }
-
-    return currentPath;
-  }
-
-  private async loadDataWithLegacyFallback() {
-    const data = await this.loadData();
-    if (
-      data &&
-      typeof data === "object" &&
-      Object.keys(data as Record<string, unknown>).length > 0
-    ) {
-      return data;
-    }
-
-    const legacyDataPath = this.legacyPluginDataFilePath("data.json");
-    if (!(await this.app.vault.adapter.exists(legacyDataPath))) {
-      return data;
-    }
-
-    return (
-      safelyParseJSON(await this.app.vault.adapter.read(legacyDataPath)) ?? data
-    );
+  private sanitizedSettings(data: unknown): typeof DEFAULT_SETTINGS {
+    const settings = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      data && typeof data === "object" ? data : {}
+    ) as Record<string, unknown>;
+    delete settings.saveAllContextToFrontmatter;
+    delete settings.syncFormulaToFrontmatter;
+    return settings as unknown as typeof DEFAULT_SETTINGS;
   }
   
   
@@ -633,12 +574,12 @@ public basics: MakeBasicsPlugin;
 
   async onload() {
 const start = Date.now();
-const settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadDataWithLegacyFallback());
+const settings = this.sanitizedSettings(await this.loadData());
     this.mdbFileAdapter = new MDBFileTypeAdapter(this);   
 
     this.files = FilesystemMiddleware.create();
     this.obsidianAdapter = new ObsidianFileSystem(this, this.files, normalizePath(
-      await this.pluginDataFilePathWithLegacyFallback("Spaces.mdb")
+      this.pluginDataFilePath("Spaces.mdb")
     ))
     this.files.initiateFileSystemAdapter(this.obsidianAdapter, true);
 this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
@@ -834,7 +775,7 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   
 
   async loadSettings() {
-    this.superstate.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadDataWithLegacyFallback());
+    this.superstate.settings = this.sanitizedSettings(await this.loadData());
     if (this.superstate.settings.hiddenExtensions.length == 1 && this.superstate.settings.hiddenExtensions[0] == ".mdb") {
       this.superstate.settings.hiddenExtensions = DEFAULT_SETTINGS.hiddenExtensions;
     }
@@ -846,6 +787,7 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
 
   async saveSettings(refresh = true) {
 
+    this.superstate.settings = this.sanitizedSettings(this.superstate.settings);
     await this.saveData(this.superstate.settings);
     this.obsidianAdapter.pathLastUpdated.set(this.pluginDataFilePath("data.json"), Date.now());
     if (refresh)

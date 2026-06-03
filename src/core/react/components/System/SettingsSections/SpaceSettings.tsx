@@ -107,49 +107,6 @@ export const SpaceSettings = ({ superstate }: SettingsProps) => {
         <div className="mk-setting-item">
           <div className="mk-setting-item-info">
             <div className="mk-setting-item-name">
-              {i18n.settings.saveAllContextToFrontmatter.name}
-            </div>
-            <div className="mk-setting-item-description">
-              {i18n.settings.saveAllContextToFrontmatter.desc}
-            </div>
-          </div>
-          <div className="mk-setting-item-control">
-            <input
-              type="checkbox"
-              checked={superstate.settings.saveAllContextToFrontmatter}
-              onChange={(e) => {
-                superstate.settings.saveAllContextToFrontmatter =
-                  e.target.checked;
-                immediateSave();
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="mk-setting-item">
-          <div className="mk-setting-item-info">
-            <div className="mk-setting-item-name">
-              {i18n.settings.syncFormulaToFrontmatter.name}
-            </div>
-            <div className="mk-setting-item-description">
-              {i18n.settings.syncFormulaToFrontmatter.desc}
-            </div>
-          </div>
-          <div className="mk-setting-item-control">
-            <input
-              type="checkbox"
-              checked={superstate.settings.syncFormulaToFrontmatter}
-              onChange={(e) => {
-                superstate.settings.syncFormulaToFrontmatter = e.target.checked;
-                immediateSave();
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="mk-setting-item">
-          <div className="mk-setting-item-info">
-            <div className="mk-setting-item-name">
               {i18n.settings.hideFrontmatter.name}
             </div>
             <div className="mk-setting-item-description">

@@ -1194,14 +1194,6 @@ export const en = {
       "name": "Show Stickers on Links",
       "desc": "Turn on to toggle stickers shown directly by beside internal links"
     },
-    "saveAllContextToFrontmatter": {
-      "name": "Sync Context Fields to Frontmatter",
-      "desc": "Turn on to automatically save all context fields to Frontmatter fields, not just existing Frontmatter fields."
-    },
-    "syncFormulaToFrontmatter": {
-      "name": "Sync Formula Fields to Frontmatter",
-      "desc": "Turn on to save calculated formula values to Frontmatter fields."
-    },
     "spaceSubFolder": {
       "name": "Space Folder Name",
       "desc": "Name of the folder for spaces"

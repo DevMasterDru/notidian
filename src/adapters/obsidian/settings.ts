@@ -311,18 +311,6 @@ export class MakeMDPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
-        name: 'saveAllContextToFrontmatter',
-        category: 'space',
-        subCategory: 'context',
-        type: 'boolean',
-      },
-      {
-        name: 'syncFormulaToFrontmatter',
-        category: 'space',
-        subCategory: 'context',
-        type: 'boolean',
-      },
-      {
         name: 'blinkEnabled',
         category: 'navigator',
         subCategory: 'interaction',

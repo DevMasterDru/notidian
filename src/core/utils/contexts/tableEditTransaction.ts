@@ -68,12 +68,8 @@ export type ExecuteTableValueWritesParams = {
   contextTable: SpaceTables;
   dbSchemaId?: string;
   contextPath?: string;
-  saveAllContextToFrontmatter: boolean;
   resolvePath: (path: string, contextPath?: string) => string;
-  shouldWritePropertyToFrontmatter: (
-    column: SpaceProperty,
-    saveAllContextToFrontmatter: boolean
-  ) => boolean;
+  shouldWritePropertyToFrontmatter: (column: SpaceProperty) => boolean;
   parseValue: (column: SpaceProperty, value: string) => unknown;
   currentFrontmatterValue?: (params: {
     path: string;
@@ -196,7 +192,6 @@ export const executeTableValueWrites = async ({
   contextTable,
   dbSchemaId,
   contextPath,
-  saveAllContextToFrontmatter,
   resolvePath,
   shouldWritePropertyToFrontmatter,
   parseValue,
@@ -232,10 +227,7 @@ export const executeTableValueWrites = async ({
     const writesFrontmatter =
       dbSchemaId == defaultContextSchemaID &&
       column &&
-      shouldWritePropertyToFrontmatter(
-        column,
-        saveAllContextToFrontmatter
-      );
+      shouldWritePropertyToFrontmatter(column);
     if (column && write.fieldValue !== undefined) {
       fieldConfigWrites.push(write);
     }

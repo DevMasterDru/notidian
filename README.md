@@ -67,13 +67,7 @@ On first load, Notidian prefers its own plugin data directory:
 .obsidian/plugins/notidian
 ```
 
-If Notidian data does not exist yet, it can read legacy Make.md data from:
-
-```text
-.obsidian/plugins/make-md
-```
-
-New writes target the Notidian plugin directory. Keep a backup of your vault before switching plugins.
+Notidian does not automatically read or migrate data from the original Make.md plugin directory. Legacy Make.md context data should be handled through the explicit read-only audit and migration-planning tools before any user-approved migration. New reads and writes target the Notidian plugin directory.
 
 ## Status
 

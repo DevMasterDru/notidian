@@ -26,7 +26,6 @@ export interface MakeMDSettings {
   expandFolderOnClick: boolean;
   expandedSpaces: string[];
   contextEnabled: boolean;
-  saveAllContextToFrontmatter: boolean;
   autoImportObsidianPropertiesToContexts: boolean;
   activeView: string;
   currentWaypoint: number;
@@ -69,7 +68,6 @@ export interface MakeMDSettings {
   spacesRightSplit: boolean;
   indexSVG: boolean;
   readableLineWidth: boolean;
-  syncFormulaToFrontmatter: boolean;
   releaseNotesPrompt: number;
   firstLaunch: boolean;
   enableDefaultSpaces: boolean;

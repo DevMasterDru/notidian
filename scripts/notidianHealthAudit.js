@@ -126,6 +126,49 @@ const runHealthAudit = async (config) => {
       currentState.includes("Native Obsidian Bases is not")
     );
   });
+  await addCheck(
+    results,
+    "source has no automatic legacy Make.md plugin data fallback",
+    async () => {
+      const main = await readText(path.join(sourceDir, "src", "main.ts"));
+      const identity = await readText(
+        path.join(sourceDir, "src", "shared", "pluginIdentity.ts")
+      );
+      return (
+        !main.includes("loadDataWithLegacyFallback") &&
+        !main.includes("pluginDataFilePathWithLegacyFallback") &&
+        !main.includes("migrateLegacyPluginDataFile") &&
+        !main.includes("legacyPluginDataPath") &&
+        !identity.includes("legacyPluginDataDir") &&
+        !identity.includes("legacyPluginDataPath")
+      );
+    }
+  );
+  await addCheck(
+    results,
+    "source has no active context-to-frontmatter bulk sync settings",
+    async () => {
+      const retiredSettings = [
+        "saveAllContextToFrontmatter",
+        "syncFormulaToFrontmatter",
+      ];
+      const activeRuntimeFiles = [
+        "src/core/schemas/settings.ts",
+        "src/shared/types/settings.ts",
+        "src/adapters/obsidian/settings.ts",
+        "src/core/react/components/System/SettingsSections/SpaceSettings.tsx",
+        "src/core/superstate/superstate.ts",
+        "src/core/utils/properties/propertyAuthority.ts",
+      ];
+      for (const relativePath of activeRuntimeFiles) {
+        const text = await readText(path.join(sourceDir, relativePath));
+        if (retiredSettings.some((setting) => text.includes(setting))) {
+          return false;
+        }
+      }
+      return true;
+    }
+  );
 
   if (!config.skipVault) {
     const pluginDir = path.join(
@@ -166,7 +209,7 @@ const runHealthAudit = async (config) => {
       stripEvalPrefix(
         runner("obsidian", [
           "eval",
-          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null})",
+          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key))})",
         ])
       )
     );
@@ -188,6 +231,12 @@ const runHealthAudit = async (config) => {
       results,
       "native Bases core plugin is disabled",
       () => state.basesCore === false,
+      JSON.stringify(state)
+    );
+    await addCheck(
+      results,
+      "live Notidian settings have no retired context-to-frontmatter sync keys",
+      () => Array.isArray(state.retiredSyncSettingsPresent) && state.retiredSyncSettingsPresent.length === 0,
       JSON.stringify(state)
     );
     await addCheck(

@@ -26,29 +26,21 @@ describe("propertyAuthorityForColumn", () => {
     );
   });
 
-  it("only frontmatter authority writes through to frontmatter without the legacy bulk setting", () => {
+  it("only frontmatter authority writes through to frontmatter", () => {
     expect(
       shouldWriteAuthorityValueToFrontmatter(
         {
           name: "status",
           type: "text",
           source: frontmatterPropertySource,
-        },
-        false
+        }
       )
     ).toBe(true);
     expect(
       shouldWriteAuthorityValueToFrontmatter(
-        { name: "manual", type: "text" },
-        false
+        { name: "manual", type: "text" }
       )
     ).toBe(false);
-    expect(
-      shouldWriteAuthorityValueToFrontmatter(
-        { name: "manual", type: "text" },
-        true
-      )
-    ).toBe(true);
   });
 
   it("does not persist frontmatter or computed values as durable context values", () => {

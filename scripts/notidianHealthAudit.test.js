@@ -35,6 +35,31 @@ const writeSource = async (sourceDir, version = "1.3.4") => {
     path.join(sourceDir, "docs", "current-state.md"),
     "Notidian-only personal database architecture. Native Obsidian Bases is not a runtime dependency."
   );
+  await fs.mkdir(path.join(sourceDir, "src", "shared"), { recursive: true });
+  await fs.writeFile(path.join(sourceDir, "src", "main.ts"), "");
+  await fs.writeFile(
+    path.join(sourceDir, "src", "shared", "pluginIdentity.ts"),
+    ""
+  );
+  await fs.mkdir(path.join(sourceDir, "src", "core", "schemas"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "src", "shared", "types"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "src", "adapters", "obsidian"), { recursive: true });
+  await fs.mkdir(
+    path.join(sourceDir, "src", "core", "react", "components", "System", "SettingsSections"),
+    { recursive: true }
+  );
+  await fs.mkdir(path.join(sourceDir, "src", "core", "superstate"), { recursive: true });
+  await fs.mkdir(path.join(sourceDir, "src", "core", "utils", "properties"), { recursive: true });
+  await Promise.all(
+    [
+      "src/core/schemas/settings.ts",
+      "src/shared/types/settings.ts",
+      "src/adapters/obsidian/settings.ts",
+      "src/core/react/components/System/SettingsSections/SpaceSettings.tsx",
+      "src/core/superstate/superstate.ts",
+      "src/core/utils/properties/propertyAuthority.ts",
+    ].map((relativePath) => fs.writeFile(path.join(sourceDir, relativePath), ""))
+  );
 };
 
 const writeVault = async (vaultDir, version = "1.3.4") => {
@@ -137,7 +162,7 @@ describe("notidian health audit", () => {
       const runner = (command, args) => {
         commands.push([command, args]);
         if (args[0] == "eval") {
-          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false}';
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[]}';
         }
         if (args[0] == "dev:errors") {
           return "No errors captured.";
@@ -156,6 +181,100 @@ describe("notidian health audit", () => {
 
       expect(result.ok).toBe(true);
       expect(commands.map(([command]) => command)).toEqual(["obsidian", "obsidian"]);
+    });
+  });
+
+  it("fails when active source exposes retired context-to-frontmatter sync settings", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+      await fs.writeFile(
+        path.join(sourceDir, "src", "core", "schemas", "settings.ts"),
+        "export const DEFAULT_SETTINGS = { saveAllContextToFrontmatter: true };"
+      );
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "source has no active context-to-frontmatter bulk sync settings",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails live health when retired sync settings remain loaded", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+
+      const runner = (command, args) => {
+        if (args[0] == "eval") {
+          return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":["syncFormulaToFrontmatter"]}';
+        }
+        if (args[0] == "dev:errors") {
+          return "No errors captured.";
+        }
+        throw new Error(`unexpected command ${command} ${args.join(" ")}`);
+      };
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: true,
+        runner,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "live Notidian settings have no retired context-to-frontmatter sync keys",
+            passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails when source can automatically read legacy Make.md plugin data", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      await writeSource(sourceDir);
+      await fs.writeFile(
+        path.join(sourceDir, "src", "main.ts"),
+        "async function loadDataWithLegacyFallback() { return legacyPluginDataPath; }"
+      );
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath: "",
+        pluginId: "notidian",
+        skipVault: true,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "source has no automatic legacy Make.md plugin data fallback",
+            passed: false,
+          }),
+        ])
+      );
     });
   });
 });

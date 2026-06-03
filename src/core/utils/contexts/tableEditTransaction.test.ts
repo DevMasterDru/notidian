@@ -61,7 +61,6 @@ const execute = async ({
     contextTable: contexts,
     dbSchemaId: defaultContextSchemaID,
     contextPath: "Relays & Devices",
-    saveAllContextToFrontmatter: false,
     resolvePath: (path, contextPath) => `${contextPath}/${path}`,
     shouldWritePropertyToFrontmatter: (column) =>
       column.source == "frontmatter",

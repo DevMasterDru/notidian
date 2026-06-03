@@ -625,10 +625,7 @@ export const ContextEditorProvider: React.FC<
             const col = cols.find((f) => f.name == c);
             if (
               !col ||
-              !shouldWriteContextPropertyToFrontmatter(
-                col,
-                props.superstate.settings.saveAllContextToFrontmatter
-              )
+              !shouldWriteContextPropertyToFrontmatter(col)
             ) {
               return p;
             }
@@ -668,10 +665,7 @@ export const ContextEditorProvider: React.FC<
       const col = cols.find((f) => f.name == c);
       if (
         !col ||
-        !shouldWriteContextPropertyToFrontmatter(
-          col,
-          props.superstate.settings.saveAllContextToFrontmatter
-        )
+        !shouldWriteContextPropertyToFrontmatter(col)
       ) {
         return p;
       }
@@ -711,8 +705,6 @@ export const ContextEditorProvider: React.FC<
       contextTable,
       dbSchemaId: dbSchema?.id,
       contextPath,
-      saveAllContextToFrontmatter:
-        props.superstate.settings.saveAllContextToFrontmatter,
       resolvePath: (path, source) =>
         props.superstate.spaceManager.resolvePath(path, source),
       shouldWritePropertyToFrontmatter:

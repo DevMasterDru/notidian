@@ -339,25 +339,17 @@ describe("shouldWriteContextPropertyToFrontmatter", () => {
           name: "status",
           type: "text",
           source: frontmatterPropertySource,
-        },
-        false
+        }
       )
     ).toBe(true);
   });
 
-  it("uses the legacy bulk setting for context-only columns", () => {
+  it("keeps context-only columns out of frontmatter", () => {
     expect(
       shouldWriteContextPropertyToFrontmatter(
-        { name: "manual", type: "text" },
-        false
+        { name: "manual", type: "text" }
       )
     ).toBe(false);
-    expect(
-      shouldWriteContextPropertyToFrontmatter(
-        { name: "manual", type: "text" },
-        true
-      )
-    ).toBe(true);
   });
 
   it("never writes the file identity column as frontmatter", () => {
@@ -367,8 +359,7 @@ describe("shouldWriteContextPropertyToFrontmatter", () => {
           name: PathPropertyName,
           type: "file",
           source: frontmatterPropertySource,
-        },
-        true
+        }
       )
     ).toBe(false);
   });

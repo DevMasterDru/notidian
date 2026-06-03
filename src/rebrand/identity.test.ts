@@ -67,4 +67,18 @@ describe("Notidian identity", () => {
     expect(readme).not.toContain("--base-export");
     expect(readme).not.toContain("--base-view");
   });
+
+  it("does not automatically read legacy Make.md plugin data", () => {
+    const main = readRepoFile("src/main.ts");
+    const identity = readRepoFile("src/shared/pluginIdentity.ts");
+    const readme = readRepoFile("README.md");
+
+    expect(main).not.toContain("loadDataWithLegacyFallback");
+    expect(main).not.toContain("pluginDataFilePathWithLegacyFallback");
+    expect(main).not.toContain("migrateLegacyPluginDataFile");
+    expect(main).not.toContain("legacyPluginDataPath");
+    expect(identity).not.toContain("legacyPluginDataDir");
+    expect(identity).not.toContain("legacyPluginDataPath");
+    expect(readme).not.toContain(".obsidian/plugins/make-md");
+  });
 });

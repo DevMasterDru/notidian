@@ -5,7 +5,7 @@ import { CLIManager } from "core/middleware/commands";
 import { UIManager } from "core/middleware/ui";
 import { fileSystemSpaceInfoFromTag } from "core/spaceManager/filesystemAdapter/spaceInfo";
 import { SpaceManager } from "core/spaceManager/spaceManager";
-import { defaultSpaceSort, saveProperties, saveSpaceCache, saveSpaceMetadataValue } from "core/superstate/utils/spaces";
+import { defaultSpaceSort, saveSpaceCache, saveSpaceMetadataValue } from "core/superstate/utils/spaces";
 import { builtinSpaces } from "core/types/space";
 import { formulas } from "core/utils/formula/formulas";
 import { buildRootFromMDBFrame } from "core/utils/frames/ast";
@@ -22,7 +22,7 @@ import { dataNode } from "schemas/kits/base";
 import { calendarView, dateGroup, eventItem } from "schemas/kits/calendar";
 import { cardListItem, cardsListItem, columnGroup, columnView, coverListItem, detailItem, fieldsView, flowListItem, gridGroup, imageListItem, listGroup, listItem, listView, masonryGroup, newItemButton, newItemNode, overviewItem, rowGroup, taskListItem } from "schemas/kits/list";
 import { buttonNode, callout, circularProgressNode, dividerNode, linkNode, previewNode, progressNode, ratingNode, tabsNode, toggleNode } from "schemas/kits/ui";
-import { fieldTypeForField, mainFrameID } from "schemas/mdb";
+import { mainFrameID } from "schemas/mdb";
 import { tagsSpacePath } from "shared/schemas/builtin";
 import { Command } from "shared/types/commands";
 import { PathPropertyName } from "shared/types/context";
@@ -57,7 +57,6 @@ import Fuse, { FuseIndex } from "fuse.js";
 import { SuperstateEvent } from "shared/types/PathState";
 import { ISuperstate, PathStateWithRank } from "shared/types/superstate";
 import { getParentPathFromString } from "utils/path";
-import { parseMDBStringValue } from "utils/properties";
 import { fastSearch, searchPath } from "./workers/search/impl";
 export type SuperProperty = {
     id: string,
@@ -793,38 +792,6 @@ public api: API;
         if (!changed && !force) { return false }
             
             this.contextsIndex.set(path, cache);
-            const pathState = this.pathsIndex.get(path);
-            if (pathState && cache.dbExists && !pathState.readOnly) {
-                if (this.settings.syncFormulaToFrontmatter) {
-                    const allRows = cache.contextTable?.rows ?? [];
-                    const allColumns = cache.contextTable?.cols ?? [];
-                    const updatedValues = allRows.filter(f => {
-                        const path = f[PathPropertyName];
-                        const pathCache = this.pathsIndex.get(path);
-                        
-                        if (!pathCache) {
-                            return false;
-                        }
-                        if (pathCache.type == 'file' && pathCache.subtype != 'md') return false
-                        return allColumns.reduce((acc, col, i) => {
-                                if (acc) return acc;
-                                if (col.type  != 'fileprop' || col.primary == 'true') return acc;
-                                if (f[col.name]?.length > 0 && pathCache.metadata?.property?.[col.name] != f[col.name]) return true;
-                                return acc;
-                            }, false)
-                        })
-                    if (updatedValues.length > 0) {
-
-                        updatedValues.forEach(f => saveProperties(this, f[PathPropertyName], allColumns.reduce((acc, col, i) => {
-                            if (col.type  == 'fileprop' && col.primary != 'true') {
-                                return {...acc, [col.name]: parseMDBStringValue(fieldTypeForField(col), f[col.name], true)};
-                            }
-                            return acc;
-                        }, {})));
-                    }    
-                }
-
-            }
             if (cache.dbExists && changed)
                 {
                     await this.spaceManager.saveTable(path, cache.contextTable);
