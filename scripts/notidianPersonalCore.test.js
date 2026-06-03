@@ -74,4 +74,21 @@ describe("Notidian personal core", () => {
     expect(tableView).toContain('e.key.toLowerCase() == "y"');
     expect(tableView).toContain("redoWrites");
   });
+
+  it("exposes source and live pristine verification scripts", () => {
+    const pkg = JSON.parse(read("package.json"));
+
+    expect(pkg.scripts["verify:source"]).toBe(
+      "node scripts/notidianVerify.js source"
+    );
+    expect(pkg.scripts["verify:source:pristine"]).toBe(
+      "node scripts/notidianVerify.js source --require-clean"
+    );
+    expect(pkg.scripts["verify:live"]).toBe(
+      "node scripts/notidianVerify.js live"
+    );
+    expect(pkg.scripts["verify:live:ui"]).toBe(
+      "node scripts/notidianVerify.js live --ui"
+    );
+  });
 });

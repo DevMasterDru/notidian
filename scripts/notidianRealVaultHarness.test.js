@@ -21,6 +21,11 @@ const baseConfig = {
   obsidianBin: "obsidian",
 };
 
+const cleanLegacyArtifactSnapshot = JSON.stringify({
+  ok: true,
+  stalePaths: [],
+});
+
 describe("notidian real vault harness", () => {
   it("parses explicit CLI options and environment fallbacks", () => {
     expect(
@@ -138,6 +143,9 @@ describe("notidian real vault harness", () => {
             missing: [],
           });
         }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
+        }
         return evalResponses.shift() ?? "deleted";
       }
       if (command == "read") return "---\nstatus: active\n---\n# Alpha";
@@ -174,7 +182,9 @@ describe("notidian real vault harness", () => {
       "eval",
       "dev:errors",
       "eval",
+      "eval",
       "dev:errors",
+      "eval",
     ]);
     expect(calls.every((args) => args[0] == "vault=Atlas Vault")).toBe(true);
     expect(calls.map((args) => args[1])).not.toContain("rename");
@@ -232,6 +242,9 @@ describe("notidian real vault harness", () => {
             deleted: [uiRenamedPath],
             missing: [],
           });
+        }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
         }
         if (code.includes("notidianTableUiSetup")) {
           return JSON.stringify({ ok: true });
@@ -336,7 +349,7 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(34);
+      .toHaveLength(36);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
@@ -372,9 +385,10 @@ describe("notidian real vault harness", () => {
     expect(calls.some((args) => args.includes(`path=${uiRenamedPath}`))).toBe(
       true
     );
-    expect(calls.map((args) => args[1]).slice(-2)).toEqual([
+    expect(calls.map((args) => args[1]).slice(-3)).toEqual([
       "eval",
       "dev:errors",
+      "eval",
     ]);
     expect(
       calls.some(
@@ -406,6 +420,9 @@ describe("notidian real vault harness", () => {
             ],
           });
         }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
+        }
         return evalResponses.shift() ?? "active";
       }
       if (args[1] == "read") return "---\nstatus: active\n---\n# Alpha";
@@ -422,6 +439,54 @@ describe("notidian real vault harness", () => {
       }, runner)
     ).rejects.toThrow(
       "Fixture cleanup failed: delete-failed path=Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md message=locked"
+    );
+  });
+
+  it("fails loudly when the smoke scenario leaves active legacy storage artifacts", async () => {
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      if (args[1] == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return JSON.stringify({
+            ok: false,
+            stalePaths: [
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z/.makemd",
+            ],
+          });
+        }
+        if (code.includes("notidianCleanupFixtures")) {
+          return JSON.stringify({
+            ok: true,
+            deleted: [
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
+            ],
+            missing: [],
+          });
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (args[1] == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (args[1] == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    await expect(
+      runRealVaultSmokeHarness(
+        {
+          ...baseConfig,
+          now: () => new Date("2026-05-25T10:20:30.456Z"),
+        },
+        runner
+      )
+    ).rejects.toThrow(
+      "Notidian legacy artifact guard failed after smoke scenario: Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z/.makemd"
     );
   });
 
@@ -442,6 +507,9 @@ describe("notidian real vault harness", () => {
             ok: false,
             reason: "missing-table",
           });
+        }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
         }
         return evalResponses.shift() ?? "active";
       }
@@ -509,6 +577,9 @@ describe("notidian real vault harness", () => {
             reason: "missing-cell",
           });
         }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
+        }
         return evalResponses.shift() ?? "ui-active";
       }
       if (command == "read") return "---\nstatus: active\n---\n# Alpha";
@@ -537,6 +608,9 @@ describe("notidian real vault harness", () => {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
         }
         return evalResponses.shift() ?? "active";
       }

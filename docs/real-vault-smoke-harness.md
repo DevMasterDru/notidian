@@ -43,7 +43,7 @@ By default, it deletes the fixture notes before exiting. Pass `--keep-fixture` t
 
 The harness intentionally avoids creating a per-run folder. Notidian may create `.notidian/context.mdb` inside observed folders, and deleting such a folder while the plugin is active can race with context reads. Timestamped file names provide isolation without deleting plugin-owned folder metadata.
 
-Run `npm run health:audit -- --vault-path="<vault>" --live` after the harness. The rename step exercises the runtime guard that redirects stale `.makemd` and `.space` storage writes into `.notidian`, so the post-harness audit is the proof that retired roots were not recreated.
+The rename step exercises the runtime guard that redirects stale `.makemd` and `.space` storage writes into `.notidian`. The harness now checks the live vault's loaded files after the smoke scenario and after fixture cleanup, failing if any active `.makemd`, `.space`, or `*.base` artifact appears outside archive, ignore, or `.trash` paths. Run `npm run verify:live` when you want this smoke check wrapped with pre/post health audits and a migration dry-run.
 
 When `--ui` is passed, the harness also writes the fixture root's default frame view predicate to table view. Use a dedicated fixture root for this command; the default `Notidian Integration Fixtures` folder is intended for that purpose.
 
@@ -85,6 +85,12 @@ Run the live table UI smoke:
 npm run test:real-vault -- vault="Atlas Vault" --allow-write --ui
 ```
 
+Run the full live-vault gate:
+
+```bash
+npm run verify:live
+```
+
 ## What The Harness Checks
 
 The source-of-truth smoke scenario performs these steps:
@@ -100,7 +106,9 @@ The source-of-truth smoke scenario performs these steps:
 9. Verifies the renamed file can be read.
 10. Waits until metadata cache reports the updated frontmatter on the renamed path.
 11. Checks captured developer errors.
-12. Deletes fixture notes through Obsidian's vault API unless `--keep-fixture` was passed.
+12. Verifies the live vault has no active `.makemd`, `.space`, or `*.base` artifacts outside archive, ignore, or `.trash` paths.
+13. Deletes fixture notes through Obsidian's vault API unless `--keep-fixture` was passed.
+14. Rechecks captured developer errors and the live legacy-artifact snapshot after cleanup.
 
 This proves the live vault supports the primitive operations Notidian's table transactions depend on.
 

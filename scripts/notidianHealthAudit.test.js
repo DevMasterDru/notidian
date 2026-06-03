@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 
 const {
+  findActiveLegacyArtifacts,
   parseHealthArgs,
   runHealthAudit,
 } = require("./notidianHealthAudit");
@@ -376,6 +377,58 @@ describe("notidian health audit", () => {
           expect.objectContaining({
             name: "vault has no active .space compatibility stores",
             passed: false,
+          }),
+        ])
+      );
+    });
+  });
+
+  it("fails when active vault legacy storage or .base artifacts remain outside pruned paths", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      const vaultPath = path.join(dir, "vault");
+      await writeSource(sourceDir);
+      await writeVault(vaultPath);
+      await fs.mkdir(path.join(vaultPath, "Devices", ".makemd"), {
+        recursive: true,
+      });
+      await fs.mkdir(path.join(vaultPath, "Dashboards"), {
+        recursive: true,
+      });
+      await fs.writeFile(path.join(vaultPath, "Dashboards", "active.base"), "");
+      await fs.mkdir(path.join(vaultPath, "Archive", "Old", ".makemd"), {
+        recursive: true,
+      });
+      await fs.mkdir(path.join(vaultPath, "Devices", ".trash", ".space"), {
+        recursive: true,
+      });
+      await fs.mkdir(path.join(vaultPath, "temp_ignore"), {
+        recursive: true,
+      });
+      await fs.writeFile(
+        path.join(vaultPath, "temp_ignore", "ignored.base"),
+        ""
+      );
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath,
+        pluginId: "notidian",
+        skipVault: false,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(await findActiveLegacyArtifacts(vaultPath)).toEqual([
+        "Dashboards/active.base",
+        "Devices/.makemd",
+      ]);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "vault has no active legacy storage or Bases artifacts",
+            passed: false,
+            detail: "Dashboards/active.base, Devices/.makemd",
           }),
         ])
       );

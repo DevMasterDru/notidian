@@ -129,6 +129,44 @@ const findActiveSpaceStores = async (vaultPath) => {
   return stores.sort();
 };
 
+const findActiveLegacyArtifacts = async (vaultPath) => {
+  const artifacts = [];
+  const visit = async (currentPath) => {
+    let entries = [];
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code == "ENOENT") return;
+      throw error;
+    }
+
+    for (const entry of entries) {
+      if (entry.name == ".trash" || containsBlockedPathName(entry.name)) {
+        continue;
+      }
+
+      const fullPath = path.join(currentPath, entry.name);
+      const relativePath = normalizeRelative(path.relative(vaultPath, fullPath));
+
+      if (entry.isDirectory()) {
+        if (entry.name == ".space" || entry.name == ".makemd") {
+          artifacts.push(relativePath);
+          continue;
+        }
+        await visit(fullPath);
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith(".base")) {
+        artifacts.push(relativePath);
+      }
+    }
+  };
+
+  await visit(vaultPath);
+  return artifacts.sort();
+};
+
 const defaultRunner = (command, args) =>
   execFileSync(command, args, {
     encoding: "utf8",
@@ -391,6 +429,15 @@ const runHealthAudit = async (config) => {
       () => activeSpaceStores.length == 0,
       activeSpaceStores.length == 0 ? "none" : activeSpaceStores.join(", ")
     );
+    const activeLegacyArtifacts = await findActiveLegacyArtifacts(config.vaultPath);
+    await addCheck(
+      results,
+      "vault has no active legacy storage or Bases artifacts",
+      () => activeLegacyArtifacts.length == 0,
+      activeLegacyArtifacts.length == 0
+        ? "none"
+        : activeLegacyArtifacts.join(", ")
+    );
   }
 
   if (config.live) {
@@ -516,6 +563,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  findActiveLegacyArtifacts,
   findActiveSpaceStores,
   parseHealthArgs,
   runHealthAudit,

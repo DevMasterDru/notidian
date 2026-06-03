@@ -322,10 +322,11 @@ The following work remains before Notidian should be considered final:
 Run these before claiming the current implementation is healthy:
 
 ```bash
-npm test -- --runInBand
-npx tsc -noEmit -skipLibCheck
-npm run build
+npm run verify:source
 ```
+
+Use `npm run verify:source:pristine` when the working tree must be clean before
+and after verification.
 
 For local Obsidian validation after copying the built plugin into a vault:
 
@@ -340,6 +341,17 @@ For the opt-in real-vault smoke harness:
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write
 ```
+
+For the full live-vault gate, including health audit, migration dry-run,
+real-vault smoke, post-smoke settle, second health audit, and Obsidian
+developer-error capture:
+
+```bash
+npm run verify:live
+```
+
+Use `npm run verify:live:ui` when the live table DOM workflows should also be
+exercised.
 
 For a read-only legacy context report:
 

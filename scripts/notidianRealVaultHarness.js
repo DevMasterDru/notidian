@@ -392,6 +392,34 @@ const cleanupFixturesEvalCode = ({ paths }) =>
     });
   })()`.replace(/\s+/g, " ");
 
+const legacyArtifactSnapshotEvalCode = () =>
+  `(() => {
+    const marker = "notidianLegacyArtifactSnapshot";
+    const blocked = (path) => path
+      .split("/")
+      .filter(Boolean)
+      .some((part) => {
+        const lower = part.toLowerCase();
+        return part === ".trash" || lower.includes("archive") || lower.includes("ignore");
+      });
+    const stalePaths = Array.from(
+      new Set(
+        app.vault.getAllLoadedFiles()
+          .map((file) => file.path)
+          .filter((path) => {
+            if (!path || blocked(path)) return false;
+            const parts = path.split("/").filter(Boolean);
+            return parts.includes(".makemd") || parts.includes(".space") || path.endsWith(".base");
+          })
+      )
+    ).sort();
+    return JSON.stringify({
+      marker,
+      ok: stalePaths.length == 0,
+      stalePaths,
+    });
+  })()`.replace(/\s+/g, " ");
+
 const tableUiEditEvalCode = ({
   folder,
   rowTitle,
@@ -2358,6 +2386,23 @@ const cleanDevErrors = (output) => {
   return text.length == 0 || /no errors captured/i.test(text);
 };
 
+const assertNoLegacyArtifacts = async ({ config, runner, label }) => {
+  const result = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: legacyArtifactSnapshotEvalCode(),
+    })
+  );
+
+  if (result?.ok) return result;
+
+  const stalePaths = Array.isArray(result?.stalePaths)
+    ? result.stalePaths.join(", ")
+    : formatUiFailure(result);
+  throw new Error(
+    `Notidian legacy artifact guard failed after ${label}: ${stalePaths}`
+  );
+};
+
 const alphaContent = "---\nstatus: old\nrating: 1\nstage: todo\n---\n# Alpha\n";
 const betaContent = "---\nstatus: queued\nrating: 2\nstage: todo\n---\n# Beta\n";
 
@@ -2857,6 +2902,11 @@ const runRealVaultSmokeHarness = async (config, runner) => {
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
     }
+    await assertNoLegacyArtifacts({
+      config,
+      runner: execute,
+      label: "smoke scenario",
+    });
   } catch (error) {
     scenarioError = error;
   }
@@ -2892,6 +2942,11 @@ const runRealVaultSmokeHarness = async (config, runner) => {
         `Obsidian captured developer errors after fixture cleanup:\n${cleanupDevErrors}`
       );
     }
+    await assertNoLegacyArtifacts({
+      config,
+      runner: execute,
+      label: "fixture cleanup",
+    });
   }
 
   return {
