@@ -14,7 +14,7 @@ import { runFormulaWithContext } from "core/utils/formula/parser";
 import { executeCode } from "core/utils/frames/runner";
 import { stripFrontmatterBackedRowValues } from "core/utils/properties/allProperties";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
-import { defaultContextTable, defaultFramesTable, defaultTablesForContext } from "schemas/mdb";
+import { defaultContextTable, defaultFolderMDBTable, defaultFramesTable, defaultTablesForContext } from "schemas/mdb";
 import { builtinSpacePathPrefix } from "shared/schemas/builtin";
 import { defaultContextDBSchema, defaultContextSchemaID } from "shared/schemas/context";
 import { defaultFieldsForContext, fieldSchema } from "shared/schemas/fields";
@@ -399,6 +399,15 @@ export class FilesystemSpaceAdapter implements SpaceAdapter {
   
   public async readTable (path: string, schema: string) {
     const spaceInfo = this.spaceInfoForPath(path);
+    if (!spaceInfo) {
+      return {
+        ...defaultFolderMDBTable,
+        schema: schema == defaultContextDBSchema.id
+          ? defaultContextDBSchema
+          : { id: schema, name: schema, type: "db" },
+        rows: [],
+      };
+    }
     const mdbFile = await this.fileSystem.getFile(spaceInfo.dbPath)
     let table : SpaceTable;
     if (!mdbFile && schema == defaultContextDBSchema.id) {

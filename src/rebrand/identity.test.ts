@@ -1,10 +1,15 @@
 const manifest = require("../../manifest.json");
 const packageJson = require("../../package.json");
+const fs = require("fs");
+const path = require("path");
 import {
   legacyMakeMdKitUrlPrefix,
   legacyMakeMdWebHost,
   pluginRepositoryUrl,
 } from "shared/pluginIdentity";
+
+const readRepoFile = (relativePath: string) =>
+  fs.readFileSync(path.join(__dirname, "..", "..", relativePath), "utf8");
 
 describe("Notidian identity", () => {
   it("uses Notidian package and Obsidian plugin metadata", () => {
@@ -33,5 +38,33 @@ describe("Notidian identity", () => {
     expect(legacyMakeMdKitUrlPrefix).toBe(
       "https://www.make.md/static/kits/"
     );
+  });
+
+  it("does not write runtime caches into legacy Make.md vault paths", () => {
+    const runtimeFiles = [
+      "src/main.ts",
+      "src/adapters/obsidian/filesystem/filesystem.ts",
+      "src/adapters/obsidian/filetypes/markdownAdapter.ts",
+      "src/adapters/image/imageAdapter.ts",
+    ];
+
+    for (const runtimeFile of runtimeFiles) {
+      const source = readRepoFile(runtimeFile);
+      expect(source).not.toContain(".makemd/");
+    }
+  });
+
+  it("keeps the root README aligned with the Notidian-only architecture", () => {
+    const readme = readRepoFile("README.md");
+
+    expect(readme).toContain(
+      "Notidian is the only intended database engine and interface"
+    );
+    expect(readme).toContain(
+      "Native Obsidian Bases and `.base` files are not active runtime targets"
+    );
+    expect(readme).not.toContain("Bases-first convergence");
+    expect(readme).not.toContain("--base-export");
+    expect(readme).not.toContain("--base-view");
   });
 });

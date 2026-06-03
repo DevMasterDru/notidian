@@ -10,9 +10,10 @@ Notidian uses an authority-partitioned database model:
 - The page title is the file name/path.
 - Ordinary editable properties are frontmatter.
 - Folder and table views are projections over files and properties.
-- Obsidian Bases semantics are the preferred long-term model for ordinary database views.
-- Notidian context MDB files store view state, ordering, formulas, relations, compatibility cache state, and explicitly Notidian-owned fields.
-- Existing Obsidian tools such as Properties, Bases, Dataview, scripts, and direct YAML edits should see the same data.
+- Notidian is the only intended database engine and interface for this fork.
+- Notidian context MDB files store view state, ordering, formulas, relations, legacy compatibility state, and explicitly Notidian-owned fields.
+- Native Obsidian Bases and `.base` files are not active runtime targets, compatibility pillars, or roadmap assumptions.
+- Existing Obsidian tools such as Properties, Dataview, scripts, and direct YAML edits should see the same ordinary file data.
 
 The main rule is that file-backed data must not silently become governed by a hidden context database.
 
@@ -33,10 +34,8 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Paste operations show pending, failed, and skipped cell feedback derived from transaction results.
 - Direct value edits, field-option edits, and page-title rename edits show pending/failed/skipped cell feedback and reset failed optimistic editor state back to canonical data.
 - Bulk paste, cut, delete/clear, fill-from-single-cell paste, and page-title paste can be undone with `Cmd/Ctrl+Z` through the same authority-aware write paths.
-- Simple folder table views can be previewed and exported through a `.base` command that reports unsupported Notidian-only semantics instead of silently dropping them.
-- A minimal `notidian-table` custom Bases view is registered when the running Obsidian host supports custom Bases views, as the first proof that `.base` files can host Notidian's future table surface.
 
-This is intentionally not a wholesale replacement of Make.md contexts with `.base` files yet. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer. The long-term direction is Bases-first convergence: simple database views should become `.base`-compatible where semantics match, while Notidian keeps the enhanced editor, conflict handling, rename transactions, and migration tools.
+This is intentionally not a hidden Make.md-style parallel database and not a native Bases wrapper. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer.
 
 ## Documentation
 
@@ -47,17 +46,16 @@ The most important records are:
 - [ADR 0001: Authority-partitioned database model](docs/adr/0001-authority-partitioned-database-model.md)
 - [ADR 0002: Frontmatter-backed context columns](docs/adr/0002-frontmatter-backed-context-columns.md)
 - [ADR 0003: Editable page titles through file renames](docs/adr/0003-editable-page-titles-through-file-renames.md)
-- [ADR 0004: Authority hardening transactions and reconciliation](docs/adr/0004-authority-hardening-transactions-and-reconciliation.md)
-- [ADR 0005: Obsidian Bases alignment without replacing contexts](docs/adr/0005-obsidian-bases-alignment-without-replacing-contexts.md)
 - [ADR 0006: Unified table edit transactions](docs/adr/0006-unified-table-edit-transactions.md)
 - [ADR 0007: Table edit feedback](docs/adr/0007-table-edit-feedback.md)
 - [ADR 0008: Table undo journal](docs/adr/0008-table-undo-journal.md)
 - [ADR 0009: Frontmatter conflict detection](docs/adr/0009-frontmatter-conflict-detection.md)
 - [ADR 0010: Legacy context audit and migration](docs/adr/0010-legacy-context-audit-and-migration.md)
-- [ADR 0011: Bases-first convergence](docs/adr/0011-bases-first-convergence.md)
-- [ADR 0012: Custom Bases view feasibility gate](docs/adr/0012-custom-bases-view-feasibility-gate.md)
+- [ADR 0014: Notidian-only personal database engine](docs/adr/0014-notidian-only-personal-database-engine.md)
+- [ADR 0015: Canonical schema planning](docs/adr/0015-canonical-schema-planning.md)
 
 ADR 0003 is the canonical full record for why direct file-name editing was problematic, what solution was chosen, and how the implemented rename transaction handles the risks.
+Historical ADRs and `docs/superpowers` records are preserved for context, but they do not override the current Notidian-only architecture.
 
 ## Compatibility
 
@@ -83,12 +81,11 @@ This fork is in active development. The current foundation is implemented and do
 
 - Redo support for table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
-- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, deeper native Bases renderer validation, and metadata timing fixtures.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures.
 - Legacy Make.md context migration tooling.
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.
 - Broader reconciliation for external file moves/deletes.
-- `.base` import, mirroring, and full custom Bases view table editing where semantics match.
 
 ## Development
 
@@ -109,18 +106,6 @@ Opt-in live vault smoke test:
 
 ```bash
 npm run test:real-vault -- vault="Atlas Vault" --allow-write
-```
-
-Opt-in live `.base` export command smoke test:
-
-```bash
-npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-export
-```
-
-Opt-in live custom Bases view smoke test:
-
-```bash
-npm run test:real-vault -- vault="Atlas Vault" --allow-write --base-view
 ```
 
 ## Credits

@@ -123,7 +123,7 @@ public app: App;
         this.parseCache(tFileToAFile(file), true);
         
     }
-    public cacheDirectory = ".makemd/thumbnails";
+    public cacheDirectory = ".notidian/thumbnails";
 
     public loadFile = async (file: AFile) => {
         
