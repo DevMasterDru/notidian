@@ -15,7 +15,7 @@ private picaInstance;
         
 this.picaInstance = pica();
     }
-    public cacheDirectory = ".makemd/thumbnails";
+    public cacheDirectory = ".notidian/thumbnails";
     public supportedFileTypes = ["png", "jpg", "jpeg", "webp", "gif", "avif"];
     public id = 'images.notidian';
     public middleware: FilesystemMiddleware;

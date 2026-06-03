@@ -691,10 +691,10 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     
   let cachePersister : LocalCachePersister;
     if (Platform.isMobile) {
-      cachePersister = new MobileCachePersister('.makemd/superstate.mdc', this.mdbFileAdapter, ['path', 'space', 'frame', 'context', 'icon'])
+      cachePersister = new MobileCachePersister('.notidian/superstate.mdc', this.mdbFileAdapter, ['path', 'space', 'frame', 'context', 'icon'])
     } else {
-      // cachePersister = new MobileCachePersister('.makemd/superstate.mdc', this.mdbFileAdapter, ['path', 'space', 'frame', 'context', 'icon'])
-      cachePersister = new LocalStorageCache('.makemd/superstate.mdc', this.mdbFileAdapter, ['path', 'space', 'frame', 'context', 'icon'])
+      // cachePersister = new MobileCachePersister('.notidian/superstate.mdc', this.mdbFileAdapter, ['path', 'space', 'frame', 'context', 'icon'])
+      cachePersister = new LocalStorageCache('.notidian/superstate.mdc', this.mdbFileAdapter, ['path', 'space', 'frame', 'context', 'icon'])
     }
     if (this.superstate.settings.cacheIndex) {
     await cachePersister.initialize()

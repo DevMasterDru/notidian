@@ -6,6 +6,27 @@ import { SpaceTable } from "shared/types/mdb";
 import { FilesystemSpaceAdapter } from "./filesystemAdapter";
 
 describe("FilesystemSpaceAdapter.saveTable", () => {
+  it("returns an empty table for stale or unindexed context paths", async () => {
+    const fileSystem = {
+      eventDispatch: {
+        addListener: jest.fn(),
+      },
+      getFile: jest.fn(),
+    };
+    const adapter = new FilesystemSpaceAdapter(fileSystem as any, ".notidian");
+    jest.spyOn(adapter, "spaceInfoForPath").mockReturnValue(null);
+
+    const table = await adapter.readTable(
+      "Deleted Or Unindexed Space",
+      defaultContextDBSchema.id
+    );
+
+    expect(fileSystem.getFile).not.toHaveBeenCalled();
+    expect(table.schema).toEqual(defaultContextDBSchema);
+    expect(table.cols).toEqual(defaultContextFields.rows);
+    expect(table.rows).toEqual([]);
+  });
+
   it("strips frontmatter-backed row values before saving context tables", async () => {
     const savedTables: SpaceTable[] = [];
     const fileSystem = {

@@ -55,9 +55,9 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         this.middleware = middleware
         this.plugin = plugin;
     if (Platform.isMobile) {
-      this.persister = new MobileCachePersister(".makemd/fileCache.mdc", this.plugin.mdbFileAdapter, ['file']);
+      this.persister = new MobileCachePersister(".notidian/fileCache.mdc", this.plugin.mdbFileAdapter, ['file']);
     } else {
-        this.persister = new LocalStorageCache(".makemd/fileCache.mdc", this.plugin.mdbFileAdapter, ['file']);
+        this.persister = new LocalStorageCache(".notidian/fileCache.mdc", this.plugin.mdbFileAdapter, ['file']);
     }
         
     }
