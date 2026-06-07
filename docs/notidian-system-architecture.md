@@ -45,6 +45,20 @@ The table may feel like a spreadsheet. It may render cached projections. It may 
 | Notidian context MDB | View state, explicit Notidian-owned fields, legacy state, legacy compatibility state | Ordinary note metadata unless explicitly Notidian-owned. |
 | Real-vault harness | Runtime proof in Obsidian | Product behavior that bypasses source-of-truth rules. |
 
+### Database Embed Projection
+
+A Notidian database embed is a live projection descriptor:
+
+- `target` identifies the folder/database scope;
+- `kind` identifies whether the descriptor points at a table/schema or saved
+  view/frame;
+- `id` identifies that schema or view;
+- host fields such as height and title visibility affect presentation only.
+
+Markdown pages and Canvas files store this descriptor or a wrapper reference to
+it. They do not store row data. Rendering the descriptor uses the same Notidian
+table projection and authority-aware edit model as the main database surface.
+
 ## Database Model
 
 ### Database

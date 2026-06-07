@@ -206,6 +206,25 @@ Column headers also support per-view display modes stored in predicate view stat
 
 Deleting a frontmatter-backed column from the table menu is destructive only after confirmation. Users can still hide the column from the current view without deleting frontmatter; confirmed deletion removes the YAML key from affected files and hides the column.
 
+### Notidian Database Embeds
+
+Notidian supports live database embeds in Markdown pages through fenced
+`notidian` blocks. Embed blocks resolve to a Notidian target folder plus a
+table/schema id or saved view id, then render through the same table projection
+path as ordinary Notidian database views.
+
+Legacy `![![Folder/#^schema]]` and `![![Folder/#*view]]` references remain
+compatible and route through the shared embed renderer.
+
+Canvas insertion uses a wrapper Markdown note and a JSON Canvas file node. The
+wrapper note stores only the Notidian embed block; it does not store row data.
+Rows remain Markdown files, ordinary properties remain frontmatter, and
+Notidian view state remains Notidian-owned context state.
+
+Embedded views default to read-only. Editable embeds require an explicit
+descriptor flag and still use the existing authority-aware table transaction
+paths.
+
 ### Table Edit Feedback
 
 Paste operations and direct single-cell edits now surface transaction state in the table:
@@ -317,6 +336,8 @@ The following work remains before Notidian should be considered final:
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
+| Database embed descriptor and Canvas utilities | [notidianEmbed.ts](../src/core/utils/embeds/notidianEmbed.ts), [notidianEmbed.test.ts](../src/core/utils/embeds/notidianEmbed.test.ts), [notidianCanvasEmbed.ts](../src/core/utils/embeds/notidianCanvasEmbed.ts), and [notidianCanvasEmbed.test.ts](../src/core/utils/embeds/notidianCanvasEmbed.test.ts) |
+| Database embed renderer and Obsidian hosts | [NotidianEmbed.tsx](../src/core/react/components/NotidianEmbed/NotidianEmbed.tsx), [notidianMarkdownEmbed.tsx](../src/adapters/obsidian/utils/notidianMarkdownEmbed.tsx), and [notidianEmbedCommands.tsx](../src/adapters/obsidian/utils/notidianEmbedCommands.tsx) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |

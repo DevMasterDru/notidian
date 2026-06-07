@@ -122,6 +122,31 @@ The rename is rejected when:
 
 Folder moves are intentionally not performed through the title cell. A slash in the title is treated as a request to change folders, and Notidian rejects it with guidance to use a move command. A dedicated table move command is still a known gap.
 
+## Embed A Database In A Page Or Canvas
+
+Use `Copy Notidian database embed` from a table or saved view menu to copy a
+live embed block:
+
+````md
+```notidian
+target: Projects
+kind: view
+id: filesView
+title: true
+editable: false
+```
+````
+
+Paste that block into a Markdown page to render the live Notidian view.
+
+Use `Insert Notidian database into canvas` while a Canvas file is active to add
+the same live view as a Canvas file node. Notidian creates or updates a small
+wrapper note for the Canvas node. The wrapper stores only the embed block, not
+database rows or frontmatter values.
+
+Embeds are read-only by default. Open the source Notidian table when you want
+the full editing surface.
+
 ## Copy, Cut, Paste, And Clear Ranges
 
 Notidian tables support rectangular spreadsheet-style selection.
