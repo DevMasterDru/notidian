@@ -1,3 +1,7 @@
+import {
+  insertDescriptorIntoActiveCanvas,
+  insertDescriptorIntoActiveMarkdown,
+} from "adapters/obsidian/utils/notidianEmbedCommands";
 import { ContextTableCrumb } from "core/react/components/UI/Crumbs/ContextTableCrumb";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { InputModal } from "core/react/components/UI/Modals/InputModal";
@@ -27,6 +31,7 @@ export const SpaceListProperty = (props: {
   const { pathState } = useContext(PathContext);
   const { spaceState } = useContext(SpaceContext);
   const [collapsed, setCollapsed] = useState(true);
+  const embedTarget = spaceState.type == "vault" ? "/" : spaceState.path;
 
   const newTable = (e: React.MouseEvent) => {
     props.superstate.ui.openModal(
@@ -91,6 +96,34 @@ export const SpaceListProperty = (props: {
         navigator.clipboard.writeText(
           contextEmbedStringFromContext(spaceState, _schema.id)
         );
+      },
+    });
+
+    menuOptions.push({
+      name: "Insert Embed In Active Markdown",
+      icon: "ui//plus",
+      onClick: () => {
+        insertDescriptorIntoActiveMarkdown((props.superstate.ui as any).plugin, {
+          target: embedTarget,
+          kind: "table",
+          id: _schema.id,
+          title: true,
+          editable: false,
+        });
+      },
+    });
+
+    menuOptions.push({
+      name: "Insert Embed Into Active Canvas",
+      icon: "ui//canvas",
+      onClick: () => {
+        insertDescriptorIntoActiveCanvas((props.superstate.ui as any).plugin, {
+          target: embedTarget,
+          kind: "table",
+          id: _schema.id,
+          title: true,
+          editable: false,
+        });
       },
     });
 

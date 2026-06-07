@@ -1,3 +1,7 @@
+import {
+  insertDescriptorIntoActiveCanvas,
+  insertDescriptorIntoActiveMarkdown,
+} from "adapters/obsidian/utils/notidianEmbedCommands";
 import { ContextViewCrumb } from "core/react/components/UI/Crumbs/ContextViewCrumb";
 import {
   defaultMenu,
@@ -34,6 +38,7 @@ export const ListSelector = (props: {
     saveSchema,
     deleteSchema,
   } = useContext(FramesMDBContext);
+  const embedTarget = spaceState.type == "vault" ? "/" : spaceState.path;
   const viewContextMenu = (e: React.MouseEvent, _schema: FrameSchema) => {
     const menuOptions: SelectOption[] = [];
     menuOptions.push({
@@ -53,6 +58,34 @@ export const ListSelector = (props: {
         navigator.clipboard.writeText(
           contextViewEmbedStringFromContext(spaceState, _schema.id)
         );
+      },
+    });
+
+    menuOptions.push({
+      name: "Insert Embed In Active Markdown",
+      icon: "ui//plus",
+      onClick: () => {
+        insertDescriptorIntoActiveMarkdown((props.superstate.ui as any).plugin, {
+          target: embedTarget,
+          kind: "view",
+          id: _schema.id,
+          title: true,
+          editable: false,
+        });
+      },
+    });
+
+    menuOptions.push({
+      name: "Insert Embed Into Active Canvas",
+      icon: "ui//canvas",
+      onClick: () => {
+        insertDescriptorIntoActiveCanvas((props.superstate.ui as any).plugin, {
+          target: embedTarget,
+          kind: "view",
+          id: _schema.id,
+          title: true,
+          editable: false,
+        });
       },
     });
 

@@ -121,7 +121,10 @@ export const en = {
     "pinActiveFileToSpace": "Pin Active File to Space",
     "closeExtraFileTabs": "Close Extra File Tabs",
     "convertPathToSpace": "Convert Path to Space",
-    "openFileContext": "Open File Context"
+    "openFileContext": "Open File Context",
+    "insertNotidianDatabaseEmbed": "Insert Notidian Database Embed",
+    "copyNotidianDatabaseEmbed": "Copy Notidian Database Embed",
+    "insertNotidianDatabaseEmbedIntoCanvas": "Insert Notidian Database Embed Into Canvas"
   },
   "frames": {
     "label": {
@@ -731,6 +734,7 @@ export const en = {
     "formula": "Formula",
     "namePlaceholder": "Name",
     "insert": "Insert",
+    "copy": "Copy",
     "allDay": "all day",
     "templates": "Templates",
     "invalidMKitFile": "Invalid MKit File",
