@@ -11,7 +11,7 @@ Add per-column header display modes saved as Notidian view state:
 - `Adaptive`: default. Uses column width to compact from icon+text to text-only to icon-only.
 - `Icon + Text`: always renders both parts.
 - `Text Only`: hides the icon and renders the generated label.
-- `Icon Only`: hides text and auxiliary context marker text, renders only the configured or field-type icon, and allows the column to resize to the sticker-only footprint.
+- `Icon Only`: hides text and auxiliary context marker text, renders only the configured or field-type icon, and allows the column to resize to the sticker-only footprint. At collapsed widths, boolean/Yes-No body cells use compact checkbox padding so cell content does not force the column wider than the header.
 
 These modes are stored in predicate `colsHeaderDisplay`, keyed by the same column id used for width, hidden, and frozen-column state. They do not write Markdown frontmatter and do not create display aliases.
 
@@ -29,5 +29,6 @@ Focused tests cover:
 
 - display-mode parsing and adaptive width thresholds;
 - sticker-only minimum column width and persisted width clamping;
+- compact boolean body-cell padding at collapsed widths;
 - predicate validation for `colsHeaderDisplay`;
 - icon set/reset helper behavior.

@@ -106,6 +106,7 @@ import {
   propertyHeaderColumnWidthForSize,
   propertyHeaderDisplayModeForValue,
   propertyHeaderMinimumColumnWidth,
+  propertyHeaderUsesCompactCellLayout,
 } from "core/utils/contexts/propertyHeaderDisplayMode";
 import {
   isRowDndId,
@@ -148,6 +149,7 @@ declare module "@tanstack/table-core" {
     table: string;
     editable: boolean;
     schemaId: string;
+    fieldType?: string;
   }
 }
 
@@ -961,6 +963,7 @@ export const TableView = (props: { superstate: Superstate }) => {
             table: f.table,
             editable: f.name != PathPropertyName,
             schemaId: dbSchema?.id,
+            fieldType: fieldTypeForType(f.type, f.name)?.type,
           },
           cell: ({
             // @ts-ignore
@@ -1090,8 +1093,12 @@ export const TableView = (props: { superstate: Superstate }) => {
                 ? CellEditMode.EditModeActive
                 : CellEditMode.EditModeView
               : CellEditMode.EditModeReadOnly;
+            const cellWidth = propertyHeaderColumnWidthForSize(
+              colsSize[f.name + f.table],
+              defaultTableColumnWidth
+            );
             const cellProps: DataTypeViewProps = {
-              compactMode: false,
+              compactMode: propertyHeaderUsesCompactCellLayout(cellWidth),
               initialValue: initialValue as string,
               updateValue: saveValue,
               renameValue,
@@ -1148,6 +1155,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       dbSchema,
       contextTable,
       cellResetTokens,
+      colsSize,
     ]
   );
 
@@ -1885,6 +1893,15 @@ export const TableView = (props: { superstate: Superstate }) => {
                       const accessorKey = (cell.column.columnDef as any)
                         .accessorKey;
                       const frozenOffset = frozenColumnOffsets[accessorKey];
+                      const columnWidth =
+                        frozenOffset?.width ??
+                        propertyHeaderColumnWidthForSize(
+                          colsSize[accessorKey],
+                          defaultTableColumnWidth
+                        );
+                      const compactCell =
+                        propertyHeaderUsesCompactCellLayout(columnWidth);
+                      const fieldType = cell.column.columnDef.meta?.fieldType;
                       const feedback =
                         rowOriginalIndex !== undefined
                           ? cellEditFeedback[
@@ -1931,6 +1948,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                             feedback?.state == "skipped" && "mk-cell-skipped",
                             feedback?.action == "frontmatter-conflict" &&
                               "mk-cell-conflict",
+                            compactCell && "mk-td-compact",
+                            fieldType == "boolean" && "mk-td-boolean",
                             frozenOffset && "mk-frozen-column",
                             frozenOffset?.isLast && "mk-frozen-column-last"
                           )}
@@ -1938,14 +1957,10 @@ export const TableView = (props: { superstate: Superstate }) => {
                           style={{
                             minWidth: cell.getIsPlaceholder()
                               ? "0px"
-                              : frozenOffset?.width ??
-                                colsSize[accessorKey] ??
-                                "50px",
+                              : columnWidth,
                             maxWidth: cell.getIsPlaceholder()
                               ? "0px"
-                              : frozenOffset?.width ??
-                                colsSize[accessorKey] ??
-                                "unset",
+                              : columnWidth,
                             ...(frozenOffset
                               ? {
                                   left: frozenOffset.left,

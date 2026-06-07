@@ -5,6 +5,7 @@ import {
   propertyHeaderDisplayParts,
   propertyHeaderDisplayModeForValue,
   propertyHeaderMinimumColumnWidth,
+  propertyHeaderUsesCompactCellLayout,
 } from "./propertyHeaderDisplayMode";
 
 describe("propertyHeaderDisplayModeForValue", () => {
@@ -107,6 +108,15 @@ describe("propertyHeaderColumnWidthForSize", () => {
       status: 48,
       "+": 30,
     });
+  });
+});
+
+describe("propertyHeaderUsesCompactCellLayout", () => {
+  it("uses compact body cells only when a column is collapsed near icon-only width", () => {
+    expect(propertyHeaderUsesCompactCellLayout(26)).toBe(true);
+    expect(propertyHeaderUsesCompactCellLayout(47)).toBe(true);
+    expect(propertyHeaderUsesCompactCellLayout(48)).toBe(false);
+    expect(propertyHeaderUsesCompactCellLayout(120)).toBe(false);
   });
 });
 

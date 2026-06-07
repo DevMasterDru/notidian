@@ -1,6 +1,7 @@
 import type { ColumnHeaderDisplayMode } from "shared/types/predicate";
 
 export const propertyHeaderMinimumColumnWidth = 26;
+export const propertyHeaderCompactCellMaxWidth = 47;
 
 export const defaultPropertyHeaderDisplayMode: ColumnHeaderDisplayMode =
   "adaptive";
@@ -72,6 +73,12 @@ export const propertyHeaderColumnSizingWithMinimum = (
       propertyHeaderColumnWidthForSize(columnWidth),
     ])
   );
+
+export const propertyHeaderUsesCompactCellLayout = (
+  columnWidth?: number
+): boolean =>
+  propertyHeaderColumnWidthForSize(columnWidth) <=
+  propertyHeaderCompactCellMaxWidth;
 
 export const colsSizeWithPreservedPropertyHeaderWidth = ({
   colsSize,

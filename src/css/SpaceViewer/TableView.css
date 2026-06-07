@@ -228,6 +228,11 @@ body.mk-property-header-tooltip-visible > .tooltip {
   vertical-align: top;
 }
 
+.mk-td-compact.mk-td-boolean {
+  padding: 2px;
+  vertical-align: middle;
+}
+
 .mk-td > div {
   min-height: 28px;
 }
@@ -846,6 +851,17 @@ height: 60px;
   align-items: center;
   gap: 2px;
 }
+
+.mk-td-compact .mk-cell-boolean {
+  justify-content: center;
+  min-height: 18px;
+  padding: 0;
+}
+
+.mk-td-compact .mk-cell-boolean input[type="checkbox"] {
+  margin: 0;
+}
+
 .mk-td .mk-cell-option-item {
   max-width: 120px;
 }

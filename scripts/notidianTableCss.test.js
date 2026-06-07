@@ -29,4 +29,18 @@ describe("Notidian table CSS", () => {
       /\.mk-table thead \.mk-frozen-column-last\s*{[^}]*inset 0 -0\.5px 0 var\(--background-modifier-border\)/s
     );
   });
+
+  it("lets compact boolean table cells shrink to checkbox width", () => {
+    const css = read("src/css/SpaceViewer/TableView.css");
+
+    expect(css).toMatch(
+      /\.mk-td-compact\.mk-td-boolean\s*{[^}]*padding:\s*2px;/s
+    );
+    expect(css).toMatch(
+      /\.mk-td-compact \.mk-cell-boolean\s*{[^}]*justify-content:\s*center;[^}]*padding:\s*0;/s
+    );
+    expect(css).toMatch(
+      /\.mk-td-compact \.mk-cell-boolean input\[type="checkbox"\]\s*{[^}]*margin:\s*0;/s
+    );
+  });
 });
