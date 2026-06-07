@@ -101,7 +101,12 @@ import {
   clampFrozenColumnCount,
   stickyOffsetsForFrozenColumns,
 } from "core/utils/contexts/tableFreeze";
-import { propertyHeaderDisplayModeForValue } from "core/utils/contexts/propertyHeaderDisplayMode";
+import {
+  propertyHeaderColumnSizingWithMinimum,
+  propertyHeaderColumnWidthForSize,
+  propertyHeaderDisplayModeForValue,
+  propertyHeaderMinimumColumnWidth,
+} from "core/utils/contexts/propertyHeaderDisplayMode";
 import {
   isRowDndId,
   resolveRowDropTargetId,
@@ -498,7 +503,10 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   useEffect(() => {
-    setColsSize({ ...(predicate?.colsSize ?? {}), "+": 30 });
+    setColsSize({
+      ...propertyHeaderColumnSizingWithMinimum(predicate?.colsSize ?? {}),
+      "+": 30,
+    });
   }, [predicate]);
 
   useEffect(() => {
@@ -530,7 +538,9 @@ export const TableView = (props: { superstate: Superstate }) => {
   const saveColsSize: OnChangeFn<ColumnSizingState> = (
     colSize: (old: ColumnSizingState) => ColumnSizingState
   ) => {
-    const newColSize = colSize(colsSize);
+    const newColSize = propertyHeaderColumnSizingWithMinimum(
+      colSize(colsSize)
+    );
     setColsSize(newColSize);
     debouncedSavePredicate(newColSize);
   };
@@ -945,6 +955,7 @@ export const TableView = (props: { superstate: Superstate }) => {
           header: f.name,
           footer: () => "test",
           accessorKey: f.name + f.table,
+          minSize: propertyHeaderMinimumColumnWidth,
           // enableResizing: true,
           meta: {
             table: f.table,
@@ -1688,8 +1699,10 @@ export const TableView = (props: { superstate: Superstate }) => {
                   const frozenOffset = frozenColumnOffsets[accessorKey];
                   const columnWidth =
                     frozenOffset?.width ??
-                    colsSize[accessorKey] ??
-                    defaultTableColumnWidth;
+                    propertyHeaderColumnWidthForSize(
+                      colsSize[accessorKey],
+                      defaultTableColumnWidth
+                    );
                   const headerDisplayMode = propertyHeaderDisplayModeForValue(
                     predicate?.colsHeaderDisplay?.[accessorKey]
                   );

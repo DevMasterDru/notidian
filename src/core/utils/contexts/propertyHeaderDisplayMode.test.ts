@@ -1,7 +1,10 @@
 import {
+  propertyHeaderColumnSizingWithMinimum,
+  propertyHeaderColumnWidthForSize,
   colsSizeWithPreservedPropertyHeaderWidth,
   propertyHeaderDisplayParts,
   propertyHeaderDisplayModeForValue,
+  propertyHeaderMinimumColumnWidth,
 } from "./propertyHeaderDisplayMode";
 
 describe("propertyHeaderDisplayModeForValue", () => {
@@ -21,6 +24,7 @@ describe("propertyHeaderDisplayParts", () => {
     ).toEqual({
       showIcon: true,
       showText: true,
+      showContextMarker: true,
       effectiveMode: "full",
     });
   });
@@ -34,6 +38,7 @@ describe("propertyHeaderDisplayParts", () => {
     ).toEqual({
       showIcon: false,
       showText: true,
+      showContextMarker: true,
       effectiveMode: "text",
     });
 
@@ -45,6 +50,7 @@ describe("propertyHeaderDisplayParts", () => {
     ).toEqual({
       showIcon: true,
       showText: false,
+      showContextMarker: false,
       effectiveMode: "icon",
     });
   });
@@ -61,19 +67,46 @@ describe("propertyHeaderDisplayParts", () => {
       {
         showIcon: true,
         showText: true,
+        showContextMarker: true,
         effectiveMode: "full",
       },
       {
         showIcon: false,
         showText: true,
+        showContextMarker: true,
         effectiveMode: "text",
       },
       {
         showIcon: true,
         showText: false,
+        showContextMarker: false,
         effectiveMode: "icon",
       },
     ]);
+  });
+});
+
+describe("propertyHeaderColumnWidthForSize", () => {
+  it("allows property headers to collapse to the sticker-only footprint", () => {
+    expect(propertyHeaderMinimumColumnWidth).toBe(26);
+    expect(propertyHeaderColumnWidthForSize(8)).toBe(
+      propertyHeaderMinimumColumnWidth
+    );
+    expect(propertyHeaderColumnWidthForSize(34)).toBe(34);
+  });
+
+  it("clamps persisted column sizing to the sticker-only footprint", () => {
+    expect(
+      propertyHeaderColumnSizingWithMinimum({
+        sensor_id: 8,
+        status: 48,
+        "+": 30,
+      })
+    ).toEqual({
+      sensor_id: propertyHeaderMinimumColumnWidth,
+      status: 48,
+      "+": 30,
+    });
   });
 });
 

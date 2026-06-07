@@ -1,5 +1,7 @@
 import type { ColumnHeaderDisplayMode } from "shared/types/predicate";
 
+export const propertyHeaderMinimumColumnWidth = 26;
+
 export const defaultPropertyHeaderDisplayMode: ColumnHeaderDisplayMode =
   "adaptive";
 
@@ -20,6 +22,7 @@ export const propertyHeaderDisplayModeForValue = (
 export type PropertyHeaderDisplayParts = {
   showIcon: boolean;
   showText: boolean;
+  showContextMarker: boolean;
   effectiveMode: Exclude<ColumnHeaderDisplayMode, "adaptive">;
 };
 
@@ -46,9 +49,29 @@ export const propertyHeaderDisplayParts = ({
   return {
     showIcon: resolvedMode == "full" || resolvedMode == "icon",
     showText: resolvedMode == "full" || resolvedMode == "text",
+    showContextMarker: resolvedMode != "icon",
     effectiveMode: resolvedMode,
   };
 };
+
+export const propertyHeaderColumnWidthForSize = (
+  columnWidth?: number,
+  defaultColumnWidth = 150
+): number =>
+  Math.max(
+    columnWidth ?? defaultColumnWidth,
+    propertyHeaderMinimumColumnWidth
+  );
+
+export const propertyHeaderColumnSizingWithMinimum = (
+  colsSize: Record<string, number>
+): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries(colsSize ?? {}).map(([columnId, columnWidth]) => [
+      columnId,
+      propertyHeaderColumnWidthForSize(columnWidth),
+    ])
+  );
 
 export const colsSizeWithPreservedPropertyHeaderWidth = ({
   colsSize,

@@ -414,12 +414,16 @@ export const ColumnHeader = (props: {
         ) : (
           "+"
         )}
-        <span
-          className="mk-col-header-context"
-          aria-label={props.column.table.length > 0 ? props.column.table : ""}
-        >
-          {props.column.table.length > 0 ? "#" : ""}
-        </span>
+        {headerDisplayParts.showContextMarker ? (
+          <span
+            className="mk-col-header-context"
+            aria-label={
+              props.column.table.length > 0 ? props.column.table : ""
+            }
+          >
+            {props.column.table.length > 0 ? "#" : ""}
+          </span>
+        ) : null}
       </div>
       {propertyHeaderTooltip && propertyHeaderTooltipPortalTarget
         ? createPortal(
