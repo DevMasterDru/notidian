@@ -89,7 +89,7 @@ describe("propertyHeaderDisplayParts", () => {
 
 describe("propertyHeaderColumnWidthForSize", () => {
   it("allows property headers to collapse to the sticker-only footprint", () => {
-    expect(propertyHeaderMinimumColumnWidth).toBe(26);
+    expect(propertyHeaderMinimumColumnWidth).toBe(18);
     expect(propertyHeaderColumnWidthForSize(8)).toBe(
       propertyHeaderMinimumColumnWidth
     );

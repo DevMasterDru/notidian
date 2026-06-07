@@ -23,6 +23,7 @@ import {
 import { isFrontmatterBackedProperty } from "core/utils/properties/allProperties";
 import { tagSpacePathFromTag } from "core/utils/strings";
 import { Superstate } from "makemd-core";
+import classNames from "classnames";
 import React, {
   useCallback,
   useContext,
@@ -372,7 +373,10 @@ export const ColumnHeader = (props: {
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className="mk-col-header"
+      className={classNames(
+        "mk-col-header",
+        `mk-col-header--${headerDisplayParts.effectiveMode}`
+      )}
       onClick={(e) => {
         toggleMenu(e);
       }}

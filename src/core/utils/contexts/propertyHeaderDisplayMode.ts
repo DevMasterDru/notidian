@@ -1,6 +1,6 @@
 import type { ColumnHeaderDisplayMode } from "shared/types/predicate";
 
-export const propertyHeaderMinimumColumnWidth = 26;
+export const propertyHeaderMinimumColumnWidth = 18;
 export const propertyHeaderCompactCellMaxWidth = 47;
 
 export const defaultPropertyHeaderDisplayMode: ColumnHeaderDisplayMode =

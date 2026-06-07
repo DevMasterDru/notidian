@@ -30,11 +30,27 @@ describe("Notidian table CSS", () => {
     );
   });
 
+  it("removes icon-only header padding so the column fits the sticker footprint", () => {
+    const css = read("src/css/SpaceViewer/TableView.css");
+
+    expect(css).toMatch(
+      /\.mk-col-header\.mk-col-header--icon\s*{[^}]*padding:\s*0;/s
+    );
+  });
+
+  it("does not force the last data column to fill remaining table width", () => {
+    const css = read("src/css/SpaceViewer/TableView.css");
+
+    expect(css).not.toMatch(
+      /\.mk-table table th:last-child\s*{[^}]*width:\s*100%;/s
+    );
+  });
+
   it("lets compact boolean table cells shrink to checkbox width", () => {
     const css = read("src/css/SpaceViewer/TableView.css");
 
     expect(css).toMatch(
-      /\.mk-td-compact\.mk-td-boolean\s*{[^}]*padding:\s*2px;/s
+      /\.mk-td-compact\.mk-td-boolean\s*{[^}]*padding:\s*0;/s
     );
     expect(css).toMatch(
       /\.mk-td-compact \.mk-cell-boolean\s*{[^}]*justify-content:\s*center;[^}]*padding:\s*0;/s

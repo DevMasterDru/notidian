@@ -49,6 +49,10 @@
   text-transform: capitalize;
 }
 
+.mk-col-header.mk-col-header--icon {
+  padding: 0;
+}
+
 .mk-col-header > div {
   display: flex;
   gap: 4px;
@@ -229,7 +233,7 @@ body.mk-property-header-tooltip-visible > .tooltip {
 }
 
 .mk-td-compact.mk-td-boolean {
-  padding: 2px;
+  padding: 0;
   vertical-align: middle;
 }
 
@@ -275,10 +279,6 @@ body.mk-property-header-tooltip-visible > .tooltip {
 
 .mk-table table {
   border-spacing: 0;
-}
-
-.mk-table table th:last-child {
-  width: 100%;
 }
 
 .mk-table thead th:first-child {
