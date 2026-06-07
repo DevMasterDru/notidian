@@ -1,5 +1,7 @@
 
 
+export type ColumnHeaderDisplayMode = "adaptive" | "full" | "text" | "icon";
+
 export type Filter = {
     field: string;
     fn: string;
@@ -24,6 +26,7 @@ export type Filter = {
     colsHidden: string[];
     colsSize: Record<string, number>;
     colsCalc: Record<string, string>;
+    colsHeaderDisplay: Record<string, ColumnHeaderDisplayMode>;
     frozenColumnCount: number;
     limit: number;
   };

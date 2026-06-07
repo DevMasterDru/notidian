@@ -101,6 +101,7 @@ import {
   clampFrozenColumnCount,
   stickyOffsetsForFrozenColumns,
 } from "core/utils/contexts/tableFreeze";
+import { propertyHeaderDisplayModeForValue } from "core/utils/contexts/propertyHeaderDisplayMode";
 import {
   isRowDndId,
   resolveRowDropTargetId,
@@ -133,7 +134,7 @@ import { fieldTypeForField, fieldTypeForType } from "schemas/mdb";
 import i18n from "shared/i18n";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
-import { Filter } from "shared/types/predicate";
+import { ColumnHeaderDisplayMode, Filter } from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 import { DataTypeView, DataTypeViewProps } from "../DataTypeView/DataTypeView";
 
@@ -1689,6 +1690,24 @@ export const TableView = (props: { superstate: Superstate }) => {
                     frozenOffset?.width ??
                     colsSize[accessorKey] ??
                     defaultTableColumnWidth;
+                  const headerDisplayMode = propertyHeaderDisplayModeForValue(
+                    predicate?.colsHeaderDisplay?.[accessorKey]
+                  );
+                  const setHeaderDisplayMode = (
+                    mode: ColumnHeaderDisplayMode
+                  ) => {
+                    const nextHeaderDisplay = {
+                      ...(predicate?.colsHeaderDisplay ?? {}),
+                    };
+                    if (mode == "adaptive") {
+                      delete nextHeaderDisplay[accessorKey];
+                    } else {
+                      nextHeaderDisplay[accessorKey] = mode;
+                    }
+                    savePredicate({
+                      colsHeaderDisplay: nextHeaderDisplay,
+                    });
+                  };
 
                   return (
                     <th
@@ -1728,6 +1747,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                                 f.name == header.column.columnDef.header &&
                                 f.table == header.column.columnDef.meta.table
                             )}
+                            columnWidth={columnWidth}
+                            headerDisplayMode={headerDisplayMode}
+                            setHeaderDisplayMode={setHeaderDisplayMode}
                           ></ColumnHeader>
                         )
                       ) : (

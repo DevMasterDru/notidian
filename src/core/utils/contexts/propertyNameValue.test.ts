@@ -2,7 +2,7 @@ import { frontmatterPropertySource } from "core/utils/properties/allProperties";
 import { fieldForPropertyNameInput } from "./propertyNameValue";
 
 describe("fieldForPropertyNameInput", () => {
-  it("keeps frontmatter-backed property keys canonical and stores header edits as aliases", () => {
+  it("keeps frontmatter-backed property keys canonical and ignores display alias edits", () => {
     const result = fieldForPropertyNameInput({
       field: {
         name: "status",
@@ -21,7 +21,6 @@ describe("fieldForPropertyNameInput", () => {
       type: "option",
       value: JSON.stringify({
         options: [{ name: "active", value: "active" }],
-        alias: "State",
       }),
       source: frontmatterPropertySource,
     });

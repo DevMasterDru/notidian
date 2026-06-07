@@ -1,0 +1,64 @@
+import type { ColumnHeaderDisplayMode } from "shared/types/predicate";
+
+export const defaultPropertyHeaderDisplayMode: ColumnHeaderDisplayMode =
+  "adaptive";
+
+export const propertyHeaderDisplayModes: ColumnHeaderDisplayMode[] = [
+  "adaptive",
+  "full",
+  "text",
+  "icon",
+];
+
+export const propertyHeaderDisplayModeForValue = (
+  value?: unknown
+): ColumnHeaderDisplayMode =>
+  propertyHeaderDisplayModes.includes(value as ColumnHeaderDisplayMode)
+    ? (value as ColumnHeaderDisplayMode)
+    : defaultPropertyHeaderDisplayMode;
+
+export type PropertyHeaderDisplayParts = {
+  showIcon: boolean;
+  showText: boolean;
+  effectiveMode: Exclude<ColumnHeaderDisplayMode, "adaptive">;
+};
+
+export const propertyHeaderDisplayParts = ({
+  mode,
+  columnWidth,
+  textOnlyMaxWidth = 95,
+  iconOnlyMaxWidth = 47,
+}: {
+  mode: ColumnHeaderDisplayMode;
+  columnWidth?: number;
+  textOnlyMaxWidth?: number;
+  iconOnlyMaxWidth?: number;
+}): PropertyHeaderDisplayParts => {
+  const resolvedMode =
+    mode == "adaptive"
+      ? (columnWidth ?? textOnlyMaxWidth + 1) <= iconOnlyMaxWidth
+        ? "icon"
+        : (columnWidth ?? textOnlyMaxWidth + 1) <= textOnlyMaxWidth
+        ? "text"
+        : "full"
+      : mode;
+
+  return {
+    showIcon: resolvedMode == "full" || resolvedMode == "icon",
+    showText: resolvedMode == "full" || resolvedMode == "text",
+    effectiveMode: resolvedMode,
+  };
+};
+
+export const colsSizeWithPreservedPropertyHeaderWidth = ({
+  colsSize,
+  columnId,
+  columnWidth,
+}: {
+  colsSize: Record<string, number>;
+  columnId: string;
+  columnWidth: number;
+}): Record<string, number> => ({
+  ...(colsSize ?? {}),
+  [columnId]: columnWidth,
+});
