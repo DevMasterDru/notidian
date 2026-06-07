@@ -90,10 +90,11 @@ describe("propertyHeaderDisplayParts", () => {
 
 describe("propertyHeaderColumnWidthForSize", () => {
   it("allows property headers to collapse to the sticker-only footprint", () => {
-    expect(propertyHeaderMinimumColumnWidth).toBe(18);
+    expect(propertyHeaderMinimumColumnWidth).toBe(24);
     expect(propertyHeaderColumnWidthForSize(8)).toBe(
       propertyHeaderMinimumColumnWidth
     );
+    expect(propertyHeaderColumnWidthForSize(24)).toBe(24);
     expect(propertyHeaderColumnWidthForSize(34)).toBe(34);
   });
 
@@ -118,10 +119,10 @@ describe("propertyHeaderColumnWidthForSize", () => {
 
 describe("propertyHeaderColumnWidthStyle", () => {
   it("sets width as well as min and max width so HTML table layout cannot stretch compact columns", () => {
-    expect(propertyHeaderColumnWidthStyle(18)).toEqual({
-      width: 18,
-      minWidth: 18,
-      maxWidth: 18,
+    expect(propertyHeaderColumnWidthStyle(24)).toEqual({
+      width: 24,
+      minWidth: 24,
+      maxWidth: 24,
     });
   });
 });

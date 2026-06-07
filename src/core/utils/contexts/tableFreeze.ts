@@ -6,8 +6,20 @@ export type FrozenColumnOffset = {
   isLast: boolean;
 };
 
+export const rowGutterBaseWidth = 18;
+export const rowGutterDigitWidth = 6;
+
 export const tableColumnId = (column: Pick<SpaceTableColumn, "name" | "table">): string =>
   column.name + (column.table ?? "");
+
+export const rowGutterWidthForRowCount = (rowCount: number): number => {
+  const count = Number.isFinite(rowCount)
+    ? Math.max(0, Math.floor(rowCount))
+    : 0;
+  const digitCount = Math.max(1, count.toString().length);
+
+  return rowGutterBaseWidth + digitCount * rowGutterDigitWidth;
+};
 
 export const visibleTableColumnIds = ({
   columns,

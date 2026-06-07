@@ -11,9 +11,11 @@ Add per-column header display modes saved as Notidian view state:
 - `Adaptive`: default. Uses column width to compact from icon+text to text-only to icon-only.
 - `Icon + Text`: always renders both parts.
 - `Text Only`: hides the icon and renders the generated label.
-- `Icon Only`: hides text and auxiliary context marker text, removes header padding, renders only the configured or field-type icon, and allows the column to resize to the 18px sticker footprint. At collapsed widths, boolean/Yes-No body cells use compact checkbox padding so cell content does not force the column wider than the header.
+- `Icon Only`: hides text and auxiliary context marker text, renders only the configured or field-type icon, and allows the column to resize to the 24px sticker footprint: an 18px sticker plus 3px of side padding on each side. At collapsed widths, boolean/Yes-No body cells use compact checkbox padding so cell content does not force the column wider than the header.
 
-Header, body, and aggregate cells set `width`, `minWidth`, and `maxWidth`. This is required because browser table layout can stretch a cell that only has min/max constraints. Saved 26px widths from earlier collapsed-header builds are treated as the old minimum and normalized to 18px when loaded; other deliberate compact widths are preserved.
+Header, body, and aggregate cells set `width`, `minWidth`, and `maxWidth`. This is required because browser table layout can stretch a cell that only has min/max constraints. Saved 18px and 26px widths from earlier collapsed-header builds are treated as old compact minima and normalized to 24px when loaded; deliberate widths at or above the new minimum are preserved.
+
+The row-number gutter is not fixed-width CSS. It is computed from the largest visible row number: 24px for one digit, 30px for two digits, 36px for three digits, and so on. The row drag grip overlays the gutter so it does not force the row-number column wider while hidden.
 
 These modes are stored in predicate `colsHeaderDisplay`, keyed by the same column id used for width, hidden, and frozen-column state. They do not write Markdown frontmatter and do not create display aliases.
 
@@ -30,7 +32,8 @@ The custom tooltip remains available in every display mode, including icon-only.
 Focused tests cover:
 
 - display-mode parsing and adaptive width thresholds;
-- 18px sticker-only minimum column width, persisted width clamping, and exact legacy 26px normalization;
+- 24px sticker-only minimum column width, persisted width clamping, and legacy 18px/26px normalization;
+- row-number gutter width by visible row-number digit count;
 - compact boolean body-cell padding at collapsed widths;
 - predicate validation for `colsHeaderDisplay`;
 - icon set/reset helper behavior.

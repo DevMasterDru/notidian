@@ -30,11 +30,11 @@ describe("Notidian table CSS", () => {
     );
   });
 
-  it("removes icon-only header padding so the column fits the sticker footprint", () => {
+  it("gives icon-only headers three pixels of side padding", () => {
     const css = read("src/css/SpaceViewer/TableView.css");
 
     expect(css).toMatch(
-      /\.mk-col-header\.mk-col-header--icon\s*{[^}]*padding:\s*0;/s
+      /\.mk-col-header\.mk-col-header--icon\s*{[^}]*padding:\s*0 3px;/s
     );
   });
 
@@ -57,6 +57,20 @@ describe("Notidian table CSS", () => {
     );
     expect(css).toMatch(
       /\.mk-td-compact \.mk-cell-boolean input\[type="checkbox"\]\s*{[^}]*margin:\s*0;/s
+    );
+  });
+
+  it("lets the row-number gutter use runtime width instead of fixed CSS width", () => {
+    const css = read("src/css/SpaceViewer/TableView.css");
+
+    expect(css).not.toMatch(
+      /\.mk-row-gutter(?:-header)?\s*{[^}]*width:\s*42px;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-gutter-inner\s*{[^}]*width:\s*100%;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*position:\s*absolute;/s
     );
   });
 });

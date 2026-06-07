@@ -99,6 +99,7 @@ import {
 } from "core/utils/contexts/tableRowOrder";
 import {
   clampFrozenColumnCount,
+  rowGutterWidthForRowCount,
   stickyOffsetsForFrozenColumns,
 } from "core/utils/contexts/tableFreeze";
 import {
@@ -181,7 +182,6 @@ type TableRowMarqueeState = {
 };
 
 const tableUndoJournalStore = new Map<string, TableUndoJournalState>();
-const tableRowGutterWidth = 42;
 const defaultTableColumnWidth = 150;
 
 const tableUndoJournalForKey = (key: string): TableUndoJournalState =>
@@ -263,6 +263,7 @@ const rowDragPointFromEvent = (
 const TableRowDragHandle = (props: {
   rowId: string;
   rowNumber: number;
+  rowGutterWidth: number;
   selected: boolean;
   disabled: boolean;
   frozen: boolean;
@@ -297,6 +298,7 @@ const TableRowDragHandle = (props: {
         props.frozen && "mk-frozen-row-gutter"
       )}
       onMouseDown={(e) => props.onSelectStart(e, props.rowId)}
+      style={propertyHeaderColumnWidthStyle(props.rowGutterWidth)}
     >
       <div className="mk-row-gutter-inner">
         <div
@@ -474,6 +476,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     currentPageSize: pagination.pageSize,
     totalRows: data.length,
   });
+  const rowGutterWidth = rowGutterWidthForRowCount(loadedRowCount);
   const frozenColumnCount = clampFrozenColumnCount({
     columns: cols,
     hiddenColumnIds: predicate?.colsHidden ?? [],
@@ -486,10 +489,10 @@ export const TableView = (props: { superstate: Superstate }) => {
         hiddenColumnIds: predicate?.colsHidden ?? [],
         frozenColumnCount,
         columnSizes: colsSize,
-        rowGutterWidth: tableRowGutterWidth,
+        rowGutterWidth,
         defaultColumnWidth: defaultTableColumnWidth,
       }),
-    [cols, predicate?.colsHidden, frozenColumnCount, colsSize]
+    [cols, predicate?.colsHidden, frozenColumnCount, colsSize, rowGutterWidth]
   );
   const tableUndoJournalKey = `${source ?? spaceCache?.path ?? ""}::${
     dbSchema?.id ?? ""
@@ -1701,6 +1704,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                     "mk-row-gutter-header",
                     frozenColumnCount > 0 && "mk-frozen-row-gutter"
                   )}
+                  style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
                 ></th>
                 {headerGroup.headers.map((header) => {
                   const accessorKey = (header.column.columnDef as any)
@@ -1842,6 +1846,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                     <TableRowDragHandle
                       rowId={rowOriginalIndex}
                       rowNumber={visibleIndex + 1}
+                      rowGutterWidth={rowGutterWidth}
                       selected={rowSelected}
                       disabled={readMode}
                       frozen={frozenColumnCount > 0}
@@ -1854,6 +1859,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                         "mk-row-gutter",
                         frozenColumnCount > 0 && "mk-frozen-row-gutter"
                       )}
+                      style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
                     ></td>
                   )}
                   {row.getVisibleCells().map((cell, i) =>
@@ -2085,6 +2091,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                   "mk-row-gutter",
                   frozenColumnCount > 0 && "mk-frozen-row-gutter"
                 )}
+                style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
               ></td>
               {groupBy.map((f, i) => (
                 <td key={i}></td>
