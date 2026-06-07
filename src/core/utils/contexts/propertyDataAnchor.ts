@@ -2,6 +2,7 @@ import type {
   ColumnDataAnchor,
   ColumnDataAnchorMode,
   ColumnHeaderDisplayMode,
+  TableDirection,
 } from "shared/types/predicate";
 import { propertyHeaderDisplayParts } from "./propertyHeaderDisplayMode";
 
@@ -39,11 +40,13 @@ export const columnDataAnchorForCells = ({
   headerDisplayMode,
   columnWidth,
   values,
+  tableDirection = "ltr",
 }: {
   mode: ColumnDataAnchorMode;
   headerDisplayMode: ColumnHeaderDisplayMode;
   columnWidth?: number;
   values: unknown[];
+  tableDirection?: TableDirection;
 }): ColumnDataAnchor => {
   if (mode != "auto") return mode;
 
@@ -52,6 +55,8 @@ export const columnDataAnchorForCells = ({
     columnWidth,
   });
   if (displayParts.effectiveMode == "icon") return "center";
+
+  if (tableDirection == "rtl") return "right";
 
   return containsRTLText(values) ? "right" : "left";
 };

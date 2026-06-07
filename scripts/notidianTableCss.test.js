@@ -81,11 +81,41 @@ describe("Notidian table CSS", () => {
     expect(css).toMatch(
       /\.mk-row-drag-handle\s*{[^}]*transform:\s*translateX\(-50%\);/s
     );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*width:\s*16px;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*height:\s*16px;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*box-shadow:\s*inset 0 0 0 1px/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-grip\s*{[^}]*width:\s*10px;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-grip\s*{[^}]*background-size:\s*5px 4px;/s
+    );
     expect(css).not.toMatch(
       /\.mk-row-drag-handle\s*{[^}]*left:\s*-10px;/s
     );
     expect(css).not.toMatch(
       /\.mk-row-drag-handle\s*{[^}]*right:\s*-10px;/s
+    );
+  });
+
+  it("mirrors frozen table chrome in rtl table mode", () => {
+    const css = read("src/css/SpaceViewer/TableView.css");
+
+    expect(css).toMatch(/\.mk-table-rtl\s*{[^}]*direction:\s*rtl;/s);
+    expect(css).toMatch(
+      /\.mk-table-rtl \.mk-frozen-row-gutter\s*{[^}]*right:\s*0;[^}]*left:\s*auto;/s
+    );
+    expect(css).toMatch(
+      /\.mk-table-rtl \.mk-frozen-column\s*{[^}]*left:\s*auto;/s
+    );
+    expect(css).toMatch(
+      /\.mk-table-rtl \.mk-frozen-column-last\s*{[^}]*box-shadow:/s
     );
   });
 

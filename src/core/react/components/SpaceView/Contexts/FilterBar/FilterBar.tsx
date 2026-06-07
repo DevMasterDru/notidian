@@ -2,6 +2,7 @@ import classNames from "classnames";
 import { PathCrumb } from "core/react/components/UI/Crumbs/PathCrumb";
 import { showNewPropertyMenu } from "core/react/components/UI/Menus/contexts/newSpacePropertyMenu";
 import { showPropertyMenu } from "core/react/components/UI/Menus/contexts/spacePropertyMenu";
+import { TableDirectionMenuComponent } from "core/react/components/UI/Menus/contexts/TableDirectionMenu";
 import {
   defaultMenu,
   menuInput,
@@ -41,7 +42,12 @@ import { defaultContextSchemaID } from "shared/schemas/context";
 import { FrameEditorMode } from "shared/types/frameExec";
 import { SpaceProperty, SpaceTableColumn } from "shared/types/mdb";
 import { Rect } from "shared/types/Pos";
-import { Filter, Predicate, Sort } from "shared/types/predicate";
+import {
+  Filter,
+  Predicate,
+  Sort,
+  TableDirection,
+} from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 import { parseMultiString } from "utils/parsers";
 import { parseMDBStringValue } from "utils/properties";
@@ -605,6 +611,20 @@ export const FilterBar = (props: {
           windowFromDocument(e.view.document)
         );
       },
+    });
+
+    menuOptions.push({
+      name: "",
+      type: SelectOptionType.Custom,
+      fragment: (props: { hide: () => void }) => (
+        <TableDirectionMenuComponent
+          tableDirection={predicate?.tableDirection ?? "ltr"}
+          setTableDirection={(tableDirection: TableDirection) =>
+            savePredicate({ tableDirection })
+          }
+          hide={props.hide}
+        />
+      ),
     });
 
     menuOptions.push(menuSeparator);

@@ -275,6 +275,10 @@ body.mk-property-header-tooltip-visible > .tooltip {
   position: relative;
 }
 
+.mk-table-rtl {
+  direction: rtl;
+}
+
 
 
 
@@ -308,6 +312,16 @@ body.mk-property-header-tooltip-visible > .tooltip {
   background-clip: border-box;
 }
 
+.mk-table-rtl .mk-row-gutter {
+  border-right: 0 !important;
+  border-left: 0.5px solid var(--background-modifier-border) !important;
+}
+
+.mk-table-rtl .mk-frozen-row-gutter {
+  right: 0;
+  left: auto;
+}
+
 .mk-table thead .mk-frozen-row-gutter {
   z-index: 8;
 }
@@ -322,6 +336,10 @@ body.mk-property-header-tooltip-visible > .tooltip {
   isolation: isolate;
   background: var(--mk-ui-background) !important;
   background-clip: border-box;
+}
+
+.mk-table-rtl .mk-frozen-column {
+  left: auto;
 }
 
 .mk-frozen-row-gutter::before,
@@ -348,6 +366,12 @@ body.mk-property-header-tooltip-visible > .tooltip {
     10px 0 14px -14px rgba(0, 0, 0, 0.45);
 }
 
+.mk-table-rtl .mk-frozen-column-last {
+  box-shadow:
+    -1px 0 0 var(--background-modifier-border),
+    -10px 0 14px -14px rgba(0, 0, 0, 0.45);
+}
+
 .mk-table thead .mk-frozen-column,
 .mk-table thead .mk-frozen-row-gutter {
   box-shadow: inset 0 -0.5px 0 var(--background-modifier-border);
@@ -358,6 +382,13 @@ body.mk-property-header-tooltip-visible > .tooltip {
     inset 0 -0.5px 0 var(--background-modifier-border),
     1px 0 0 var(--background-modifier-border),
     10px 0 14px -14px rgba(0, 0, 0, 0.45);
+}
+
+.mk-table-rtl thead .mk-frozen-column-last {
+  box-shadow:
+    inset 0 -0.5px 0 var(--background-modifier-border),
+    -1px 0 0 var(--background-modifier-border),
+    -10px 0 14px -14px rgba(0, 0, 0, 0.45);
 }
 
 .mk-row-gutter-inner {
@@ -422,31 +453,62 @@ body.mk-property-header-tooltip-visible > .tooltip {
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
-  width: 14px;
-  height: 14px;
-  border-radius: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--mk-ui-text-tertiary);
+  background: color-mix(
+    in srgb,
+    var(--mk-ui-background-menu) 78%,
+    transparent
+  ) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(
+      in srgb,
+      var(--mk-ui-border) 72%,
+      transparent
+    ),
+    0 2px 6px rgba(0, 0, 0, 0.12) !important;
   cursor: grab;
   touch-action: none;
   opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .mk-row-gutter:hover .mk-row-drag-handle,
+.mk-row-gutter-selected .mk-row-drag-handle,
 .mk-row-drag-handle:focus-visible,
 .mk-row-drag-handle-dragging {
   opacity: 1;
 }
 
 .mk-row-drag-handle:hover {
-  background: var(--mk-ui-background-hover);
+  background: var(--mk-ui-background-hover) !important;
+  color: var(--mk-ui-text-secondary);
 }
 
 .mk-row-drag-handle-selected,
 .mk-row-drag-handle-dragging {
   color: var(--mk-ui-active);
+  background: color-mix(
+    in srgb,
+    var(--mk-ui-active) 12%,
+    var(--mk-ui-background-menu)
+  ) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(
+      in srgb,
+      var(--mk-ui-active) 44%,
+      transparent
+    ),
+    0 3px 8px rgba(0, 0, 0, 0.16) !important;
 }
 
 .mk-row-drag-handle:focus-visible {
@@ -461,16 +523,16 @@ body.mk-property-header-tooltip-visible > .tooltip {
 
 .mk-row-grip {
   display: block;
-  width: 12px;
-  height: 14px;
+  width: 10px;
+  height: 12px;
   background-image: radial-gradient(
     circle,
     currentColor 1px,
     transparent 1.2px
   );
-  background-size: 4px 4px;
+  background-size: 5px 4px;
   background-position: center;
-  opacity: 0.7;
+  opacity: 0.74;
 }
 
 .mk-row-number {

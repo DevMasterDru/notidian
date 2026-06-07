@@ -1,7 +1,9 @@
 import { SpaceTableColumn } from "shared/types/mdb";
+import { TableDirection } from "shared/types/predicate";
 
 export type FrozenColumnOffset = {
-  left: number;
+  side: "left" | "right";
+  offset: number;
   width: number;
   isLast: boolean;
 };
@@ -92,6 +94,7 @@ export const stickyOffsetsForFrozenColumns = ({
   columnSizes,
   rowGutterWidth,
   defaultColumnWidth = 150,
+  tableDirection = "ltr",
 }: {
   columns: SpaceTableColumn[];
   hiddenColumnIds: string[];
@@ -99,6 +102,7 @@ export const stickyOffsetsForFrozenColumns = ({
   columnSizes: Record<string, number>;
   rowGutterWidth: number;
   defaultColumnWidth?: number;
+  tableDirection?: TableDirection;
 }): Record<string, FrozenColumnOffset> => {
   const frozenColumnIds = frozenTableColumnIds({
     columns,
@@ -106,16 +110,18 @@ export const stickyOffsetsForFrozenColumns = ({
     frozenColumnCount,
   });
   const offsets: Record<string, FrozenColumnOffset> = {};
-  let left = rowGutterWidth;
+  const side = tableDirection == "rtl" ? "right" : "left";
+  let offset = rowGutterWidth;
 
   frozenColumnIds.forEach((columnId, index) => {
     const width = columnSizes[columnId] ?? defaultColumnWidth;
     offsets[columnId] = {
-      left,
+      side,
+      offset,
       width,
       isLast: index == frozenColumnIds.length - 1,
     };
-    left += width;
+    offset += width;
   });
 
   return offsets;

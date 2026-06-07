@@ -475,6 +475,8 @@ export const TableView = (props: { superstate: Superstate }) => {
   const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
+  const tableDirection = predicate?.tableDirection ?? "ltr";
+  const isRTLTable = tableDirection == "rtl";
   const visibleRowOrder = useMemo(() => data.map((f) => f._index), [data]);
   const visibleColumnOrder = useMemo(
     () => cols.map((f) => f.name + f.table),
@@ -499,8 +501,16 @@ export const TableView = (props: { superstate: Superstate }) => {
         columnSizes: colsSize,
         rowGutterWidth,
         defaultColumnWidth: defaultTableColumnWidth,
+        tableDirection,
       }),
-    [cols, predicate?.colsHidden, frozenColumnCount, colsSize, rowGutterWidth]
+    [
+      cols,
+      predicate?.colsHidden,
+      frozenColumnCount,
+      colsSize,
+      rowGutterWidth,
+      tableDirection,
+    ]
   );
   const tableUndoJournalKey = `${source ?? spaceCache?.path ?? ""}::${
     dbSchema?.id ?? ""
@@ -868,18 +878,26 @@ export const TableView = (props: { superstate: Superstate }) => {
     };
     const moveSelection = (direction: "up" | "down" | "left" | "right") => {
       if (!activeSelection) return;
+      const visualDirection =
+        tableDirection == "rtl"
+          ? direction == "left"
+            ? "right"
+            : direction == "right"
+            ? "left"
+            : direction
+          : direction;
       const nextSelection = e.shiftKey
         ? extendCellSelection(
             activeSelection,
             visibleRowOrder,
             visibleColumnOrder,
-            direction
+            visualDirection
           )
         : moveCellSelection(
             activeSelection,
             visibleRowOrder,
             visibleColumnOrder,
-            direction
+            visualDirection
           );
       setCellSelection(nextSelection);
       setSelectedColumn(nextSelection.active.columnId);
@@ -1689,7 +1707,8 @@ export const TableView = (props: { superstate: Superstate }) => {
       onDragCancel={handleDragCancel}
     >
       <div
-        className="mk-table"
+        className={classNames("mk-table", isRTLTable && "mk-table-rtl")}
+        dir={tableDirection}
         ref={ref}
         tabIndex={1}
         onKeyDown={onKeyDown}
@@ -1777,7 +1796,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                           : propertyHeaderColumnWidthStyle(columnWidth)),
                         ...(frozenOffset
                           ? {
-                              left: frozenOffset.left,
+                              [frozenOffset.side]: frozenOffset.offset,
                             }
                           : {}),
                       }}
@@ -1948,6 +1967,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                         values: table
                           .getRowModel()
                           .rows.map((row) => row.getValue(accessorKey)),
+                        tableDirection,
                       });
                       const feedback =
                         rowOriginalIndex !== undefined
@@ -2012,7 +2032,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                               : propertyHeaderColumnWidthStyle(columnWidth)),
                             ...(frozenOffset
                               ? {
-                                  left: frozenOffset.left,
+                                  [frozenOffset.side]: frozenOffset.offset,
                                 }
                               : {}),
                           }}
@@ -2163,7 +2183,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                         ...propertyHeaderColumnWidthStyle(columnWidth),
                         ...(frozenOffset
                           ? {
-                              left: frozenOffset.left,
+                              [frozenOffset.side]: frozenOffset.offset,
                             }
                           : {}),
                       }

@@ -68,4 +68,16 @@ describe("columnDataAnchorForCells", () => {
       })
     ).toBe("left");
   });
+
+  it("uses right alignment by default in rtl table mode", () => {
+    expect(
+      columnDataAnchorForCells({
+        mode: "auto",
+        headerDisplayMode: "full",
+        columnWidth: 150,
+        values: ["Controller"],
+        tableDirection: "rtl",
+      })
+    ).toBe("right");
+  });
 });

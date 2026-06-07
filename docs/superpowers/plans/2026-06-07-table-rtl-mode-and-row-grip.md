@@ -16,7 +16,7 @@
 - Modify: `src/shared/types/predicate.ts`
 - Modify: `src/shared/schemas/predicate.tsx`
 - Modify: `src/core/utils/contexts/predicate/predicate.tsx`
-- Test: `src/core/utils/contexts/predicate/predicate.test.tsx`
+- Test: `src/core/utils/contexts/predicate/predicate.test.ts`
 
 - [ ] **Step 1: Write failing predicate validation tests**
 
@@ -30,7 +30,7 @@ expect(validatePredicate({ ...defaultTablePredicate, tableDirection: undefined a
 
 - [ ] **Step 2: Run the predicate tests and verify RED**
 
-Run: `npm test -- src/core/utils/contexts/predicate/predicate.test.tsx --runInBand`
+Run: `npm test -- src/core/utils/contexts/predicate/predicate.test.ts --runInBand`
 
 Expected: Type/test failure because `tableDirection` is not defined or validated yet.
 
@@ -52,7 +52,7 @@ Include `tableDirection` in the validated return.
 
 - [ ] **Step 4: Run the predicate tests and verify GREEN**
 
-Run: `npm test -- src/core/utils/contexts/predicate/predicate.test.tsx --runInBand`
+Run: `npm test -- src/core/utils/contexts/predicate/predicate.test.ts --runInBand`
 
 Expected: PASS.
 

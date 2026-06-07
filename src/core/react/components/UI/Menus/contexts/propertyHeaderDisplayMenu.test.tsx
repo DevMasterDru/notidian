@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PropertyHeaderDisplayModeMenuComponent } from "./PropertyHeaderDisplayModeMenu";
 import { PropertyDataAnchorMenuComponent } from "./PropertyDataAnchorMenu";
+import { TableDirectionMenuComponent } from "./TableDirectionMenu";
 
 describe("PropertyHeaderDisplayModeMenuComponent", () => {
   test("renders header display modes as one compact segmented row", () => {
@@ -44,5 +45,25 @@ describe("PropertyDataAnchorMenuComponent", () => {
     expect(markup).toContain("Left");
     expect(markup).toContain("Center");
     expect(markup).toContain("Right");
+  });
+});
+
+describe("TableDirectionMenuComponent", () => {
+  test("renders table direction modes as one compact segmented row", () => {
+    const markup = renderToStaticMarkup(
+      <TableDirectionMenuComponent
+        tableDirection="rtl"
+        setTableDirection={() => undefined}
+        hide={() => undefined}
+      />
+    );
+
+    expect(markup).toContain("mk-table-direction-menu");
+    expect(markup).toContain("mk-property-header-display-options");
+    expect(markup.match(/<button/g) ?? []).toHaveLength(2);
+    expect(markup).toContain("mk-property-header-display-option--active");
+    expect(markup).toContain("Direction");
+    expect(markup).toContain("Left to Right");
+    expect(markup).toContain("Right to Left");
   });
 });

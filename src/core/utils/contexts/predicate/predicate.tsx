@@ -67,6 +67,10 @@ export const validatePredicate = (
       [columnId]: dataAnchorMode,
     };
   }, {} as Predicate["colsDataAnchor"]);
+  const tableDirection =
+    prevPredicate.tableDirection == "rtl"
+      ? "rtl"
+      : defaultPredicate.tableDirection;
 
   return {
     ...defaultPredicate,
@@ -94,6 +98,7 @@ export const validatePredicate = (
     colsCalc: prevPredicate.colsCalc ?? {},
     colsHeaderDisplay,
     colsDataAnchor,
+    tableDirection,
     frozenColumnCount:
       typeof prevPredicate.frozenColumnCount === "number" &&
       prevPredicate.frozenColumnCount >= 0

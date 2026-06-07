@@ -103,4 +103,36 @@ describe("validatePredicate", () => {
       ).frozenColumnCount
     ).toBe(0);
   });
+
+  it("preserves rtl table direction and defaults missing or invalid values to ltr", () => {
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          tableDirection: "rtl",
+        },
+        defaultPredicate
+      ).tableDirection
+    ).toBe("rtl");
+
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          tableDirection: "sideways",
+        } as any,
+        defaultPredicate
+      ).tableDirection
+    ).toBe("ltr");
+
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          tableDirection: undefined,
+        } as any,
+        defaultPredicate
+      ).tableDirection
+    ).toBe("ltr");
+  });
 });

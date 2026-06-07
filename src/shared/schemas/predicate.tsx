@@ -17,6 +17,7 @@ export const defaultPredicate: Predicate = {
   colsCalc: {},
   colsHeaderDisplay: {},
   colsDataAnchor: {},
+  tableDirection: "ltr",
   frozenColumnCount: 0,
   limit: 0,
 };
@@ -38,6 +39,7 @@ export const defaultTablePredicate: Predicate = {
   colsCalc: {},
   colsHeaderDisplay: {},
   colsDataAnchor: {},
+  tableDirection: "ltr",
   frozenColumnCount: 0,
   limit: 0,
 };
