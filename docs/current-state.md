@@ -125,7 +125,7 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 ### Manual Row Ordering
 
 - The table row gutter selects whole rows.
-- The row-number gutter width is derived from the visible row-number digit count: one-digit views are narrower than two- or three-digit views, and the drag grip overlays the left side of the gutter instead of reserving permanent width.
+- The row-number gutter width is derived from the visible row-number digit count: one-digit views are narrower than two- or three-digit views, and the drag grip overlays above the gutter number instead of reserving permanent width.
 - Dragging from the row-number lane draws a marquee selection rectangle and selects intersecting visible rows.
 - Dragging the row gutter grip reorders rows in Notidian's context table order.
 - If multiple selected rows include the dragged row, Notidian moves those rows together as one block and preserves their relative order.

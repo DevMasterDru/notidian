@@ -73,6 +73,15 @@ describe("Notidian table CSS", () => {
       /\.mk-row-drag-handle\s*{[^}]*position:\s*absolute;/s
     );
     expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*top:\s*-8px;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*left:\s*50%;/s
+    );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*transform:\s*translateX\(-50%\);/s
+    );
+    expect(css).not.toMatch(
       /\.mk-row-drag-handle\s*{[^}]*left:\s*-10px;/s
     );
     expect(css).not.toMatch(

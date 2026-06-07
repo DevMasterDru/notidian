@@ -153,7 +153,7 @@ Skipped cells are reported through cell feedback and an Obsidian notice. A skipp
 
 ## Select And Move Rows
 
-The left row gutter selects whole rows. Its width adapts to the largest visible row number, so one-digit views stay narrower than two- or three-digit views. Dragging from the row-number lane draws a marquee rectangle and selects every visible row the rectangle intersects. Dragging the overlay grip to the left of the row number moves rows in the table order.
+The left row gutter selects whole rows. Its width adapts to the largest visible row number, so one-digit views stay narrower than two- or three-digit views. Dragging from the row-number lane draws a marquee rectangle and selects every visible row the rectangle intersects. Dragging the overlay grip above the row number moves rows in the table order.
 
 - Drag an unselected row to move only that row.
 - Select multiple rows, then drag one selected row to move the selected rows together.
