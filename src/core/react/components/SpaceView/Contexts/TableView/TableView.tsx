@@ -111,6 +111,10 @@ import {
   propertyHeaderUsesCompactCellLayout,
 } from "core/utils/contexts/propertyHeaderDisplayMode";
 import {
+  columnDataAnchorForCells,
+  columnDataAnchorModeForValue,
+} from "core/utils/contexts/propertyDataAnchor";
+import {
   isRowDndId,
   resolveRowDropTargetId,
   rowDndId,
@@ -142,7 +146,11 @@ import { fieldTypeForField, fieldTypeForType } from "schemas/mdb";
 import i18n from "shared/i18n";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
-import { ColumnHeaderDisplayMode, Filter } from "shared/types/predicate";
+import {
+  ColumnDataAnchorMode,
+  ColumnHeaderDisplayMode,
+  Filter,
+} from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 import { DataTypeView, DataTypeViewProps } from "../DataTypeView/DataTypeView";
 
@@ -1719,6 +1727,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                   const headerDisplayMode = propertyHeaderDisplayModeForValue(
                     predicate?.colsHeaderDisplay?.[accessorKey]
                   );
+                  const dataAnchorMode = columnDataAnchorModeForValue(
+                    predicate?.colsDataAnchor?.[accessorKey]
+                  );
                   const setHeaderDisplayMode = (
                     mode: ColumnHeaderDisplayMode
                   ) => {
@@ -1732,6 +1743,19 @@ export const TableView = (props: { superstate: Superstate }) => {
                     }
                     savePredicate({
                       colsHeaderDisplay: nextHeaderDisplay,
+                    });
+                  };
+                  const setDataAnchorMode = (mode: ColumnDataAnchorMode) => {
+                    const nextDataAnchor = {
+                      ...(predicate?.colsDataAnchor ?? {}),
+                    };
+                    if (mode == "auto") {
+                      delete nextDataAnchor[accessorKey];
+                    } else {
+                      nextDataAnchor[accessorKey] = mode;
+                    }
+                    savePredicate({
+                      colsDataAnchor: nextDataAnchor,
                     });
                   };
 
@@ -1777,6 +1801,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                             columnWidth={columnWidth}
                             headerDisplayMode={headerDisplayMode}
                             setHeaderDisplayMode={setHeaderDisplayMode}
+                            dataAnchorMode={dataAnchorMode}
+                            setDataAnchorMode={setDataAnchorMode}
                           ></ColumnHeader>
                         )
                       ) : (
@@ -1910,6 +1936,19 @@ export const TableView = (props: { superstate: Superstate }) => {
                       const compactCell =
                         propertyHeaderUsesCompactCellLayout(columnWidth);
                       const fieldType = cell.column.columnDef.meta?.fieldType;
+                      const headerDisplayMode = propertyHeaderDisplayModeForValue(
+                        predicate?.colsHeaderDisplay?.[accessorKey]
+                      );
+                      const dataAnchor = columnDataAnchorForCells({
+                        mode: columnDataAnchorModeForValue(
+                          predicate?.colsDataAnchor?.[accessorKey]
+                        ),
+                        headerDisplayMode,
+                        columnWidth,
+                        values: table
+                          .getRowModel()
+                          .rows.map((row) => row.getValue(accessorKey)),
+                      });
                       const feedback =
                         rowOriginalIndex !== undefined
                           ? cellEditFeedback[
@@ -1957,6 +1996,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                             feedback?.action == "frontmatter-conflict" &&
                               "mk-cell-conflict",
                             compactCell && "mk-td-compact",
+                            `mk-td-anchor-${dataAnchor}`,
                             fieldType == "boolean" && "mk-td-boolean",
                             frozenOffset && "mk-frozen-column",
                             frozenOffset?.isLast && "mk-frozen-column-last"

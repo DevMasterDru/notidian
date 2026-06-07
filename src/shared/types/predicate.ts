@@ -1,6 +1,8 @@
 
 
 export type ColumnHeaderDisplayMode = "adaptive" | "full" | "text" | "icon";
+export type ColumnDataAnchor = "left" | "center" | "right";
+export type ColumnDataAnchorMode = "auto" | ColumnDataAnchor;
 
 export type Filter = {
     field: string;
@@ -27,6 +29,7 @@ export type Filter = {
     colsSize: Record<string, number>;
     colsCalc: Record<string, string>;
     colsHeaderDisplay: Record<string, ColumnHeaderDisplayMode>;
+    colsDataAnchor: Record<string, ColumnDataAnchor>;
     frozenColumnCount: number;
     limit: number;
   };

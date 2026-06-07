@@ -1,6 +1,7 @@
 import { SpaceTableSchema } from "shared/types/mdb";
 import { Filter, Predicate, Sort } from "shared/types/predicate";
 import { defaultPredicate } from "../../../../shared/schemas/predicate";
+import { columnDataAnchorModeForValue } from "../propertyDataAnchor";
 import { propertyHeaderDisplayModeForValue } from "../propertyHeaderDisplayMode";
 import { FilterFunctionType } from "./filter";
 import { filterFnTypes } from "./filterFns/filterFnTypes";
@@ -56,6 +57,16 @@ export const validatePredicate = (
       [columnId]: displayMode,
     };
   }, {} as Predicate["colsHeaderDisplay"]);
+  const colsDataAnchor = Object.entries(
+    prevPredicate.colsDataAnchor ?? {}
+  ).reduce((result, [columnId, mode]) => {
+    const dataAnchorMode = columnDataAnchorModeForValue(mode);
+    if (dataAnchorMode == "auto" || dataAnchorMode != mode) return result;
+    return {
+      ...result,
+      [columnId]: dataAnchorMode,
+    };
+  }, {} as Predicate["colsDataAnchor"]);
 
   return {
     ...defaultPredicate,
@@ -82,6 +93,7 @@ export const validatePredicate = (
     colsSize: prevPredicate.colsSize ?? {},
     colsCalc: prevPredicate.colsCalc ?? {},
     colsHeaderDisplay,
+    colsDataAnchor,
     frozenColumnCount:
       typeof prevPredicate.frozenColumnCount === "number" &&
       prevPredicate.frozenColumnCount >= 0

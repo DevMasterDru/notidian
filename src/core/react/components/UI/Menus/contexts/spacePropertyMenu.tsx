@@ -21,10 +21,15 @@ import { fieldTypeForType, fieldTypes, stickerForField } from "schemas/mdb";
 import { SpaceTableColumn } from "shared/types/mdb";
 import { MenuObject } from "shared/types/menu";
 import { Anchors, Rect } from "shared/types/Pos";
-import { ColumnHeaderDisplayMode, Sort } from "shared/types/predicate";
+import {
+  ColumnDataAnchorMode,
+  ColumnHeaderDisplayMode,
+  Sort,
+} from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 import StickerModal from "../../../../../../shared/components/StickerModal";
 import { defaultMenu, menuSeparator } from "../menu/SelectionMenu";
+import { PropertyDataAnchorMenuComponent } from "./PropertyDataAnchorMenu";
 import { PropertyHeaderDisplayModeMenuComponent } from "./PropertyHeaderDisplayModeMenu";
 import { PropertyValueComponent } from "./PropertyValue";
 
@@ -239,6 +244,8 @@ type PropertyMenuProps = {
   deleteFrontmatterProperty?: (event: React.MouseEvent) => void;
   headerDisplayMode?: ColumnHeaderDisplayMode;
   setHeaderDisplayMode?: (mode: ColumnHeaderDisplayMode) => void;
+  dataAnchorMode?: ColumnDataAnchorMode;
+  setDataAnchorMode?: (mode: ColumnDataAnchorMode) => void;
   preserveColumnWidth?: () => void;
   frozenColumnCount?: number;
   hidden?: boolean;
@@ -274,6 +281,8 @@ export const showPropertyMenu = (
     deleteFrontmatterProperty,
     headerDisplayMode = "adaptive",
     setHeaderDisplayMode,
+    dataAnchorMode = "auto",
+    setDataAnchorMode,
     preserveColumnWidth,
     frozenColumnCount,
     editCode,
@@ -343,6 +352,21 @@ export const showPropertyMenu = (
           />
         ),
       });
+    }
+    if (setDataAnchorMode) {
+      menuOptions.push({
+        name: "",
+        type: SelectOptionType.Custom,
+        fragment: (props: { hide: () => void }) => (
+          <PropertyDataAnchorMenuComponent
+            dataAnchorMode={dataAnchorMode}
+            setDataAnchorMode={setDataAnchorMode}
+            hide={props.hide}
+          />
+        ),
+      });
+    }
+    if (setHeaderDisplayMode || setDataAnchorMode) {
       menuOptions.push(menuSeparator);
     }
   }

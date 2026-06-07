@@ -116,6 +116,11 @@ export const predicateColumnReferenceUpdateForSavedColumn = ({
       oldColumnId,
       nextColumnId
     ),
+    colsDataAnchor: remapColumnRecord(
+      predicate?.colsDataAnchor,
+      oldColumnId,
+      nextColumnId
+    ),
   };
 };
 
@@ -148,5 +153,6 @@ export const predicateColumnReferenceDeleteForColumn = ({
       predicate?.colsHeaderDisplay,
       columnId
     ),
+    colsDataAnchor: removeColumnRecordEntry(predicate?.colsDataAnchor, columnId),
   };
 };

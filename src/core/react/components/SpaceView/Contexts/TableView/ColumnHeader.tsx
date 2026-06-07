@@ -37,7 +37,10 @@ import { stickerForField } from "schemas/mdb";
 import i18n from "shared/i18n";
 import { PathPropertyName } from "shared/types/context";
 import { SpaceTableColumn } from "shared/types/mdb";
-import { ColumnHeaderDisplayMode } from "shared/types/predicate";
+import {
+  ColumnDataAnchorMode,
+  ColumnHeaderDisplayMode,
+} from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 
 export const filePropTypes = [
@@ -111,6 +114,8 @@ export const ColumnHeader = (props: {
   columnWidth?: number;
   headerDisplayMode?: ColumnHeaderDisplayMode;
   setHeaderDisplayMode?: (mode: ColumnHeaderDisplayMode) => void;
+  dataAnchorMode?: ColumnDataAnchorMode;
+  setDataAnchorMode?: (mode: ColumnDataAnchorMode) => void;
 }) => {
   const [field, setField] = useState(props.column);
   const menuRef = useRef(null);
@@ -260,6 +265,8 @@ export const ColumnHeader = (props: {
         headerDisplayMode:
           props.headerDisplayMode ?? defaultPropertyHeaderDisplayMode,
         setHeaderDisplayMode: props.setHeaderDisplayMode,
+        dataAnchorMode: props.dataAnchorMode ?? "auto",
+        setDataAnchorMode: props.setDataAnchorMode,
         preserveColumnWidth,
         frozenColumnCount: predicate?.frozenColumnCount ?? 0,
         hidden: predicate?.colsHidden.includes(field.name + field.table),

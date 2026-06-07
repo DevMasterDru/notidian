@@ -72,5 +72,25 @@ describe("Notidian table CSS", () => {
     expect(css).toMatch(
       /\.mk-row-drag-handle\s*{[^}]*position:\s*absolute;/s
     );
+    expect(css).toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*left:\s*-10px;/s
+    );
+    expect(css).not.toMatch(
+      /\.mk-row-drag-handle\s*{[^}]*right:\s*-10px;/s
+    );
+  });
+
+  it("anchors table cell content left, center, or right", () => {
+    const css = read("src/css/SpaceViewer/TableView.css");
+
+    expect(css).toMatch(/\.mk-td-anchor-left\s*{[^}]*text-align:\s*left;/s);
+    expect(css).toMatch(/\.mk-td-anchor-center\s*{[^}]*text-align:\s*center;/s);
+    expect(css).toMatch(/\.mk-td-anchor-right\s*{[^}]*text-align:\s*right;/s);
+    expect(css).toMatch(
+      /\.mk-td-anchor-center :is\([^)]*\.mk-cell-text[^)]*\)\s*{[^}]*justify-content:\s*center;/s
+    );
+    expect(css).toMatch(
+      /\.mk-td-anchor-right :is\([^)]*\.mk-cell-text[^)]*\)\s*{[^}]*justify-content:\s*flex-end;/s
+    );
   });
 });

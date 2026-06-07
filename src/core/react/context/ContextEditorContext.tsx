@@ -1246,6 +1246,12 @@ export const ContextEditorProvider: React.FC<
           predicate?.colsHeaderDisplay?.[column.name + column.table],
         [column.name + column.table]: undefined,
       },
+      colsDataAnchor: {
+        ...(predicate?.colsDataAnchor ?? {}),
+        [normalizedNewKey + column.table]:
+          predicate?.colsDataAnchor?.[column.name + column.table],
+        [column.name + column.table]: undefined,
+      },
     });
 
     await saveDB(tablePreview);

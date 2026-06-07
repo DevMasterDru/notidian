@@ -42,6 +42,44 @@ describe("validatePredicate", () => {
     });
   });
 
+  it("preserves valid per-column data anchors", () => {
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          colsDataAnchor: {
+            status: "left",
+            priority: "center",
+            assignee: "right",
+          },
+        },
+        defaultPredicate
+      ).colsDataAnchor
+    ).toEqual({
+      status: "left",
+      priority: "center",
+      assignee: "right",
+    });
+  });
+
+  it("drops invalid per-column data anchors", () => {
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          colsDataAnchor: {
+            status: "wide",
+            priority: "center",
+            area: "auto",
+          } as any,
+        },
+        defaultPredicate
+      ).colsDataAnchor
+    ).toEqual({
+      priority: "center",
+    });
+  });
+
   it("preserves a valid frozen column count", () => {
     expect(
       validatePredicate(

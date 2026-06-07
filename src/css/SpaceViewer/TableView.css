@@ -419,7 +419,7 @@ body.mk-property-header-tooltip-visible > .tooltip {
   box-sizing: border-box;
   position: absolute;
   top: 3px;
-  right: -10px;
+  left: -10px;
   z-index: 2;
   width: 14px;
   height: 26px;
@@ -1244,6 +1244,87 @@ width: 24px;
 .mk-cell-context:hover .mk-cell-option-new,
 .mk-cell-option:hover .mk-cell-option-new {
   visibility: visible;
+}
+
+.mk-td-anchor-left {
+  text-align: left;
+}
+
+.mk-td-anchor-center {
+  text-align: center;
+}
+
+.mk-td-anchor-right {
+  text-align: right;
+}
+
+.mk-td-anchor-left :is(
+  .mk-cell-text,
+  .mk-cell-number,
+  .mk-cell-date,
+  .mk-cell-link,
+  .mk-cell-context,
+  .mk-cell-tags,
+  .mk-cell-option,
+  .mk-cell-boolean,
+  .mk-cell-space,
+  .mk-cell-file,
+  .mk-cell-file-item,
+  .mk-cell-clickable,
+  .mk-cell-formula
+) {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.mk-td-anchor-center :is(
+  .mk-cell-text,
+  .mk-cell-number,
+  .mk-cell-date,
+  .mk-cell-link,
+  .mk-cell-context,
+  .mk-cell-tags,
+  .mk-cell-option,
+  .mk-cell-boolean,
+  .mk-cell-space,
+  .mk-cell-file,
+  .mk-cell-file-item,
+  .mk-cell-clickable,
+  .mk-cell-formula
+) {
+  justify-content: center;
+  text-align: center;
+}
+
+.mk-td-anchor-right :is(
+  .mk-cell-text,
+  .mk-cell-number,
+  .mk-cell-date,
+  .mk-cell-link,
+  .mk-cell-context,
+  .mk-cell-tags,
+  .mk-cell-option,
+  .mk-cell-boolean,
+  .mk-cell-space,
+  .mk-cell-file,
+  .mk-cell-file-item,
+  .mk-cell-clickable,
+  .mk-cell-formula
+) {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.mk-td-anchor-left :is(input, textarea) {
+  text-align: left;
+}
+
+.mk-td-anchor-center :is(input, textarea) {
+  text-align: center;
+}
+
+.mk-td-anchor-right :is(input, textarea) {
+  text-align: right;
 }
 
 .mk-cell-link-unresolved {

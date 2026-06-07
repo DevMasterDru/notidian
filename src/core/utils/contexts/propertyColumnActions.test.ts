@@ -81,6 +81,7 @@ describe("property column actions", () => {
       colsSize: { sensor_id: 34 },
       colsCalc: { sensor_id: "count" },
       colsHeaderDisplay: { sensor_id: "icon" },
+      colsDataAnchor: { sensor_id: "center" },
     } as Partial<Predicate> as Predicate;
 
     expect(
@@ -107,6 +108,7 @@ describe("property column actions", () => {
       colsSize: { sensor_id: 34, status: 120 },
       colsCalc: { sensor_id: "count" },
       colsHeaderDisplay: { sensor_id: "icon", status: "text" },
+      colsDataAnchor: { sensor_id: "center", status: "right" },
     } as Partial<Predicate> as Predicate;
 
     expect(
@@ -124,6 +126,7 @@ describe("property column actions", () => {
       colsSize: { status: 120, sensor: 34 },
       colsCalc: { sensor: "count" },
       colsHeaderDisplay: { status: "text", sensor: "icon" },
+      colsDataAnchor: { status: "right", sensor: "center" },
     });
   });
 
@@ -143,6 +146,7 @@ describe("property column actions", () => {
       colsSize: { status: 120, manual: 80 },
       colsCalc: { status: "count", manual: "count" },
       colsHeaderDisplay: { status: "icon", manual: "text" },
+      colsDataAnchor: { status: "center", manual: "left" },
     } as Partial<Predicate> as Predicate;
 
     expect(
@@ -159,6 +163,7 @@ describe("property column actions", () => {
       colsSize: { manual: 80 },
       colsCalc: { manual: "count" },
       colsHeaderDisplay: { manual: "text" },
+      colsDataAnchor: { manual: "left" },
     });
   });
 });
