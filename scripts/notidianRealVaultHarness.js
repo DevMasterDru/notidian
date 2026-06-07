@@ -175,7 +175,7 @@ const createFixturePaths = (config, now = new Date()) => {
     alphaUiRenamedPath: `${prefix}-Alpha UI Renamed.md`,
     embedPagePath: `${prefix}-Embed Page.md`,
     embedCanvasPath: `${prefix}-Embed Canvas.canvas`,
-    embedWrapperPath: `.notidian/embeds/${runId}-filesView.md`,
+    embedWrapperPath: `Notidian Embeds/${runId}-filesView.md`,
   };
 };
 

@@ -54,7 +54,7 @@ export const safeNotidianEmbedFileStem = (
 
 export const wrapperPathForNotidianEmbed = (
   descriptor: Pick<NotidianEmbedDescriptor, "target" | "kind" | "id">,
-  root = ".notidian/embeds"
+  root = "Notidian Embeds"
 ): string => `${root}/${safeNotidianEmbedFileStem(descriptor)}.md`;
 
 export const buildNotidianWrapperNote = (

@@ -15,12 +15,12 @@ const descriptor = {
 };
 
 describe("Notidian Canvas embed utilities", () => {
-  it("builds a safe wrapper note path under the preferred storage root", () => {
+  it("builds a safe wrapper note path under the visible Canvas wrapper root", () => {
     expect(safeNotidianEmbedFileStem(descriptor)).toBe(
       "Projects-Launch-Work-view-active-tasks"
     );
     expect(wrapperPathForNotidianEmbed(descriptor)).toBe(
-      ".notidian/embeds/Projects-Launch-Work-view-active-tasks.md"
+      "Notidian Embeds/Projects-Launch-Work-view-active-tasks.md"
     );
   });
 
@@ -57,7 +57,7 @@ describe("Notidian Canvas embed utilities", () => {
 
     expect(
       insertNotidianCanvasFileNode(canvas, {
-        file: ".notidian/embeds/projects-view-active.md",
+        file: "Notidian Embeds/projects-view-active.md",
         idFactory: () => "cccccccccccccccc",
       })
     ).toEqual({
@@ -71,7 +71,7 @@ describe("Notidian Canvas embed utilities", () => {
             y: 0,
             width: 760,
             height: 480,
-            file: ".notidian/embeds/projects-view-active.md",
+            file: "Notidian Embeds/projects-view-active.md",
           },
         ],
         edges: canvas.edges,

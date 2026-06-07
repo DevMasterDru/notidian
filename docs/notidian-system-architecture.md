@@ -56,8 +56,10 @@ A Notidian database embed is a live projection descriptor:
 - host fields such as height and title visibility affect presentation only.
 
 Markdown pages and Canvas files store this descriptor or a wrapper reference to
-it. They do not store row data. Rendering the descriptor uses the same Notidian
-table projection and authority-aware edit model as the main database surface.
+it. Canvas wrapper notes live in `Notidian Embeds/` so Canvas file nodes can
+resolve ordinary vault-visible files. They do not store row data. Rendering the
+descriptor uses the same Notidian table projection and authority-aware edit
+model as the main database surface.
 
 ## Database Model
 

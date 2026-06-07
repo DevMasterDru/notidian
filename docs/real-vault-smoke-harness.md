@@ -149,7 +149,7 @@ The conflict scenario intentionally creates the stale authority state inside Not
 | `--allow-write` | Off | Required before fixture creation. |
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
 | `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, redo, frontmatter type changes, Select option creation and existing-option selection, Multi-select persistence, conflict apply, and file-title rename workflows. |
-| `--embeds` | Off | Also creates a Notidian Markdown embed page, wrapper note, and Canvas wrapper file-node fixture. |
+| `--embeds` | Off | Also creates a Notidian Markdown embed page, `Notidian Embeds/` wrapper note, and Canvas wrapper file-node fixture. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
 | `--fixture-root=<folder>` | `Notidian Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |

@@ -216,10 +216,12 @@ path as ordinary Notidian database views.
 Legacy `![![Folder/#^schema]]` and `![![Folder/#*view]]` references remain
 compatible and route through the shared embed renderer.
 
-Canvas insertion uses a wrapper Markdown note and a JSON Canvas file node. The
-wrapper note stores only the Notidian embed block; it does not store row data.
-Rows remain Markdown files, ordinary properties remain frontmatter, and
-Notidian view state remains Notidian-owned context state.
+Canvas insertion uses a wrapper Markdown note in `Notidian Embeds/` and a JSON
+Canvas file node. The visible wrapper folder is used because Obsidian Canvas
+file nodes need ordinary vault-visible files. The wrapper note stores only the
+Notidian embed block; it does not store row data. Rows remain Markdown files,
+ordinary properties remain frontmatter, and Notidian view state remains
+Notidian-owned context state.
 
 Embedded views default to read-only. Editable embeds require an explicit
 descriptor flag and still use the existing authority-aware table transaction

@@ -117,7 +117,7 @@ describe("notidian real vault harness", () => {
       embedCanvasPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas",
       embedWrapperPath:
-        ".notidian/embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
+        "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
     });
   });
 
@@ -431,7 +431,7 @@ describe("notidian real vault harness", () => {
           return JSON.stringify({
             ok: true,
             wrapperPath:
-              ".notidian/embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
+              "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
           });
         }
         if (code.includes("notidianCleanupFixtures")) {
@@ -442,7 +442,7 @@ describe("notidian real vault harness", () => {
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Page.md",
               "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas",
-              ".notidian/embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
+              "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
             ],
             missing: [],
           });
@@ -504,7 +504,7 @@ describe("notidian real vault harness", () => {
       "notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas"
     );
     expect(cleanupCall.join(" ")).toContain(
-      ".notidian/embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md"
+      "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md"
     );
   });
 

@@ -141,8 +141,8 @@ Paste that block into a Markdown page to render the live Notidian view.
 
 Use `Insert Notidian database into canvas` while a Canvas file is active to add
 the same live view as a Canvas file node. Notidian creates or updates a small
-wrapper note for the Canvas node. The wrapper stores only the embed block, not
-database rows or frontmatter values.
+wrapper note in `Notidian Embeds/` for the Canvas node. The wrapper stores only
+the embed block, not database rows or frontmatter values.
 
 Embeds are read-only by default. Open the source Notidian table when you want
 the full editing surface.
