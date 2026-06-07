@@ -14,6 +14,7 @@ import { windowFromDocument } from "shared/utils/dom";
 import {
   contextEmbedStringFromContext,
   contextPathForSpace,
+  notidianTableEmbedBlockFromContext,
 } from "shared/utils/makemd/embed";
 import { sanitizeTableName } from "shared/utils/sanitizers";
 import { showSpacesMenu } from "../UI/Menus/properties/selectSpaceMenu";
@@ -74,7 +75,17 @@ export const SpaceListProperty = (props: {
       },
     });
     menuOptions.push({
-      name: i18n.menu.copyEmbedLink,
+      name: "Copy Notidian Embed",
+      icon: "ui//link",
+      onClick: (e) => {
+        navigator.clipboard.writeText(
+          notidianTableEmbedBlockFromContext(spaceState, _schema.id)
+        );
+      },
+    });
+
+    menuOptions.push({
+      name: "Copy Legacy Embed Link",
       icon: "ui//link",
       onClick: (e) => {
         navigator.clipboard.writeText(

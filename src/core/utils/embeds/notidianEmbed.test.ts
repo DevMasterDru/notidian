@@ -5,6 +5,7 @@ import {
   parseNotidianEmbedBlock,
   serializeNotidianEmbedBlock,
 } from "./notidianEmbed";
+import { notidianEmbedBlockFromParts } from "shared/utils/makemd/embed";
 
 describe("parseNotidianEmbedBlock", () => {
   it("parses a canonical notidian block body", () => {
@@ -148,5 +149,27 @@ describe("descriptorToFragmentPath", () => {
         id: "active",
       })
     ).toBe("Projects/#*active");
+  });
+});
+
+describe("notidianEmbedBlockFromParts", () => {
+  it("builds a Notidian-native block from legacy embed helper inputs", () => {
+    expect(
+      notidianEmbedBlockFromParts({
+        target: "Projects",
+        kind: "view",
+        id: "active",
+      })
+    ).toBe(
+      [
+        "```notidian",
+        "target: Projects",
+        "kind: view",
+        "id: active",
+        "title: true",
+        "editable: false",
+        "```",
+      ].join("\n")
+    );
   });
 });
