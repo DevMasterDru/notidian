@@ -94,9 +94,11 @@ The current implementation includes a non-destructive planner for property schem
 
 For frontmatter-backed columns, use `Rename Frontmatter Key` from the column header menu to rename the canonical YAML key. The command asks for the new key, shows a confirmation summary, revalidates the plan after confirmation, writes the new key before deleting the old key, updates the table/view references, and reloads from canonical Obsidian metadata. It refuses to run if any file already has both keys with different values or if the frontmatter preview changed before the write starts.
 
-Editing the visible header text of an existing frontmatter-backed column is a display-label change only. The underlying YAML key remains unchanged, so existing file metadata is not hidden or moved by a casual label edit.
+Frontmatter-backed table headers display deterministic labels generated from the canonical YAML key, such as `sensor_id` -> `Sensor ID`. When the label differs from the raw key, the header text has a very faint hairline marker and the hover tooltip shows the full generated label. Casual header-name edits are ignored for frontmatter-backed columns, so existing file metadata is not hidden, moved, or visually renamed by view-only schema text.
 
-For the same reason, frontmatter-backed columns can be hidden from the current view but not destructively deleted from the table menu yet. Deleting the actual YAML key from files requires the future migration preview and confirmation flow.
+Use the column menu's compact `Header Display` segmented control to decide how compact a header should be in the current view: `Adaptive`, `Icon + Text`, `Text Only`, or `Icon Only`. The current header icon appears to the left of the header-name input at the top of the menu; click it to configure the icon, or use `Default` inside the icon picker to return to the field-type icon. These presentation settings are saved with the Notidian view and do not write frontmatter.
+
+For the same reason, frontmatter-backed columns distinguish view hiding from frontmatter deletion. Use `Hide Property` to hide a column from the current Notidian view without touching Markdown. Use `Delete Property` only when you want to remove the actual YAML key from affected files; Notidian shows a confirmation summary, revalidates the file preview after confirmation, removes the key from frontmatter, clears active view references for that column, hides it from the view, and reloads canonical metadata.
 
 ## Edit Page Titles
 

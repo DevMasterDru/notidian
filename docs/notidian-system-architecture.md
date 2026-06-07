@@ -244,7 +244,9 @@ The current planner classifies every affected file as:
 
 The planner may preview safe writes even when conflicts exist, but automatic application must remain blocked until conflicts are resolved.
 
-The table header menu exposes `Rename Frontmatter Key` for non-conflicting automatic rename plans. The apply path revalidates the plan after confirmation, writes the new key before deleting the old key, stops on the first file-operation failure, updates table/view references, and reloads canonical Obsidian metadata. Inline header text edits remain display aliases and do not rename YAML keys.
+The table header menu exposes `Rename Frontmatter Key` for non-conflicting automatic rename plans. The apply path revalidates the plan after confirmation, writes the new key before deleting the old key, stops on the first file-operation failure, updates table/view references, and reloads canonical Obsidian metadata. Frontmatter-backed table headers display deterministic labels generated from canonical YAML keys, use a very faint marker when labels differ from the raw key, show the full generated label on hover, and keep casual header-name edits from creating display aliases or renaming YAML keys.
+
+Header display modes are view state, not metadata. Each column can use `Adaptive`, `Icon + Text`, `Text Only`, or `Icon Only`; adaptive mode reads the saved column width to compact the header. The column menu exposes those modes as a compact segmented control. It keeps icon configuration next to the header-name input: the left icon opens the picker, and `Default` inside that picker clears the configured icon back to the field-type icon.
 
 ### Delete Property
 
@@ -255,7 +257,7 @@ Deleting a property must distinguish between:
 
 The destructive option requires preview and confirmation.
 
-The current planner represents hide-only deletion as a view/schema preview with no frontmatter writes. It represents destructive deletion as an explicit list of affected files and `removeKeys` operations.
+The current planner represents hide-only deletion as a view/schema preview with no frontmatter writes. It represents destructive deletion as an explicit list of affected files and `removeKeys` operations. The table header menu applies that destructive path only after confirmation, revalidates the preview before writing, removes YAML keys from affected files, clears active predicate references for the deleted column, hides the column from the current Notidian view, and reloads canonical metadata.
 
 ### Types
 

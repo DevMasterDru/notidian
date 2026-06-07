@@ -37,7 +37,7 @@ The planner is responsible for:
 - planning property deletion as either hide-from-view or explicit frontmatter deletion;
 - returning frontmatter write previews that UI/apply code can execute only after confirmation or conflict resolution.
 
-The first implemented apply flow is automatic frontmatter key rename for non-conflicting plans. It is exposed as `Rename Frontmatter Key` in the column header menu. Inline header text edits remain display aliases.
+The first implemented apply flow is automatic frontmatter key rename for non-conflicting plans. It is exposed as `Rename Frontmatter Key` in the column header menu. Confirmed destructive deletion is also implemented for frontmatter-backed columns: the header menu's `Delete Property` action previews affected files, requires confirmation when frontmatter will be removed, revalidates before writing, removes YAML keys from affected files, clears active view references for that column, and hides the column from the current view. Frontmatter-backed table headers display deterministic labels generated from canonical YAML keys, use a very faint marker when labels differ from the raw key, show the full generated label on hover, and keep casual header-name edits from creating display aliases.
 
 The implemented foundation lives in:
 
@@ -73,9 +73,9 @@ Positive consequences:
 
 Tradeoffs:
 
-- this ADR does not yet add the final UI for property creation, destructive delete, default backfill, or conflict resolution;
-- until that UI exists, direct header text edits for frontmatter-backed columns are display aliases rather than canonical YAML key renames;
-- until destructive delete UI exists, frontmatter-backed table delete actions are hide-only and must not remove schema metadata or YAML keys;
+- this ADR does not yet add the final UI for property creation, default backfill, or conflict resolution;
+- direct header text edits for frontmatter-backed columns do not rename canonical YAML keys and do not create display aliases; visible labels are generated from the key, and canonical key changes must use the explicit rename command;
+- destructive frontmatter-backed table delete actions require confirmation and must not run as casual hide-only view operations;
 - only non-conflicting renames are applied automatically; conflict rows still require a future resolution UI;
 - formulas and richer view definitions that reference renamed properties still need broader update planning.
 

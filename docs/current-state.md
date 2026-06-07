@@ -197,9 +197,13 @@ The planner can:
 
 The table header menu now includes `Rename Frontmatter Key` for frontmatter-backed columns. This command prompts for the new canonical key, previews affected file-state counts in a confirmation dialog, revalidates the plan after confirmation, writes replacement frontmatter values before removing the old key, updates table/view references, and reloads canonical data. It refuses to run when the planner finds duplicate target columns, files with conflicting old and new key values, or metadata that changed after the confirmation preview.
 
-Editing the visible header text of a frontmatter-backed column is still treated as a display alias. Notidian keeps inline header edits non-destructive so a casual label edit cannot silently move YAML/frontmatter keys across files. Canonical key changes must use the explicit `Rename Frontmatter Key` command.
+The table header menu also exposes confirmed destructive deletion for frontmatter-backed columns. `Delete Property` previews the number of files whose YAML key will be removed, requires confirmation when any file is affected, revalidates the preview after confirmation, removes the key from Markdown frontmatter, clears active filter/sort/group/display references for that column, hides the column from the current Notidian view, and reloads canonical data.
 
-Deleting a frontmatter-backed column from the table menu is also intentionally blocked until destructive schema UI exists. Users can hide the column from the current view; Notidian keeps the schema column and canonical YAML data intact.
+Frontmatter-backed table headers render deterministic labels generated from the canonical YAML/frontmatter key, such as `sensor_id` -> `Sensor ID`. Stored view aliases are ignored for these ordinary metadata columns. When a generated label differs from the actual key, the header text gets a very faint hairline marker and its hover tooltip shows the full generated label. Header-name edits for frontmatter-backed columns are ignored rather than stored as display aliases, so a casual label edit cannot create hidden view/schema text that disagrees with Markdown. Canonical key changes must use the explicit `Rename Frontmatter Key` command.
+
+Column headers also support per-view display modes stored in predicate view state: `Adaptive`, `Icon + Text`, `Text Only`, and `Icon Only`. Adaptive uses the saved column width to compact from icon+text to text-only and then icon-only. The column menu's top header-name row shows the current header icon to the left of the name input; clicking it opens icon configuration. The picker contains a `Default` control that clears the configured icon back to the field-type default without touching frontmatter or changing the current column width.
+
+Deleting a frontmatter-backed column from the table menu is destructive only after confirmation. Users can still hide the column from the current view without deleting frontmatter; confirmed deletion removes the YAML key from affected files and hides the column.
 
 ### Table Edit Feedback
 
@@ -266,8 +270,9 @@ Notidian currently guarantees the following for implemented edit paths:
 - Legacy context migration planning does not strip a value that exists only in MDB or conflicts with frontmatter.
 - Legacy context CLI reports are read-only, and partial frontmatter scans are never marked migration-ready.
 - Property create, rename, and delete planning can now preview canonical frontmatter consequences before destructive schema UI/apply work is added.
-- Frontmatter-backed header label edits do not rename canonical YAML keys; they store a display alias. Use `Rename Frontmatter Key` for explicit canonical key migration.
-- Frontmatter-backed delete actions are hide-only until planner-backed destructive property deletion UI exists.
+- Frontmatter-backed table headers display generated labels from canonical YAML keys, use a very faint marker when labels differ from the raw key, and show the full generated label on hover; header-name edits do not create display aliases. Use `Rename Frontmatter Key` for explicit canonical key migration.
+- Per-column header display modes and configured header icons are view/schema presentation state; they do not change Markdown frontmatter values.
+- Frontmatter-backed delete actions either hide the column from the view or, after confirmation, remove the YAML key from affected files and hide the column.
 - Frontmatter-backed type changes stay inside the supported file-backed type surface and do not expose context-only Make.md field types as ordinary property types.
 
 ## Known Gaps
@@ -277,7 +282,7 @@ The following work remains before Notidian should be considered final:
 - Richer conflict diff/merge UI is not implemented beyond the current inline Reload and Apply anyway actions.
 - The real-vault smoke harness includes live table direct edit undo/redo, paste, paste undo/redo, frontmatter-backed type changes, Select option creation, existing Select selection from filled and empty cells, Multi-select persistence, conflict apply, and file-title rename paths, but broader multi-row paste/copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures are still needed.
 - Legacy Make.md context audit/planning and read-only reports exist, but an opt-in write migration command for context-owned values is still needed.
-- Property schema planning exists, and safe automatic frontmatter key rename is available from the header menu. Create-property, destructive delete, default backfill, and rename conflict-resolution flows are still needed.
+- Property schema planning exists, and safe automatic frontmatter key rename plus confirmed destructive frontmatter-key delete are available from the header menu. Create-property, default backfill, and rename conflict-resolution flows are still needed.
 - Moving files between folders from table cells is not implemented.
 
 ## Documentation Map
