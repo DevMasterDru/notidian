@@ -1,5 +1,6 @@
 import {
   propertyHeaderColumnSizingWithMinimum,
+  propertyHeaderColumnWidthStyle,
   propertyHeaderColumnWidthForSize,
   colsSizeWithPreservedPropertyHeaderWidth,
   propertyHeaderDisplayParts,
@@ -100,13 +101,27 @@ describe("propertyHeaderColumnWidthForSize", () => {
     expect(
       propertyHeaderColumnSizingWithMinimum({
         sensor_id: 8,
+        deliberate_compact_width: 24,
+        legacy_minimum: 26,
         status: 48,
         "+": 30,
       })
     ).toEqual({
       sensor_id: propertyHeaderMinimumColumnWidth,
+      deliberate_compact_width: 24,
+      legacy_minimum: propertyHeaderMinimumColumnWidth,
       status: 48,
       "+": 30,
+    });
+  });
+});
+
+describe("propertyHeaderColumnWidthStyle", () => {
+  it("sets width as well as min and max width so HTML table layout cannot stretch compact columns", () => {
+    expect(propertyHeaderColumnWidthStyle(18)).toEqual({
+      width: 18,
+      minWidth: 18,
+      maxWidth: 18,
     });
   });
 });

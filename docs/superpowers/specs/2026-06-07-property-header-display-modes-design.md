@@ -13,6 +13,8 @@ Add per-column header display modes saved as Notidian view state:
 - `Text Only`: hides the icon and renders the generated label.
 - `Icon Only`: hides text and auxiliary context marker text, removes header padding, renders only the configured or field-type icon, and allows the column to resize to the 18px sticker footprint. At collapsed widths, boolean/Yes-No body cells use compact checkbox padding so cell content does not force the column wider than the header.
 
+Header, body, and aggregate cells set `width`, `minWidth`, and `maxWidth`. This is required because browser table layout can stretch a cell that only has min/max constraints. Saved 26px widths from earlier collapsed-header builds are treated as the old minimum and normalized to 18px when loaded; other deliberate compact widths are preserved.
+
 These modes are stored in predicate `colsHeaderDisplay`, keyed by the same column id used for width, hidden, and frozen-column state. They do not write Markdown frontmatter and do not create display aliases.
 
 ## Icon Configuration
@@ -28,7 +30,7 @@ The custom tooltip remains available in every display mode, including icon-only.
 Focused tests cover:
 
 - display-mode parsing and adaptive width thresholds;
-- 18px sticker-only minimum column width and persisted width clamping;
+- 18px sticker-only minimum column width, persisted width clamping, and exact legacy 26px normalization;
 - compact boolean body-cell padding at collapsed widths;
 - predicate validation for `colsHeaderDisplay`;
 - icon set/reset helper behavior.

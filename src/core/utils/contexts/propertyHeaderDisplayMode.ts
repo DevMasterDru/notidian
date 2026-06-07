@@ -1,6 +1,7 @@
 import type { ColumnHeaderDisplayMode } from "shared/types/predicate";
 
 export const propertyHeaderMinimumColumnWidth = 18;
+export const legacyPropertyHeaderMinimumColumnWidth = 26;
 export const propertyHeaderCompactCellMaxWidth = 47;
 
 export const defaultPropertyHeaderDisplayMode: ColumnHeaderDisplayMode =
@@ -64,13 +65,27 @@ export const propertyHeaderColumnWidthForSize = (
     propertyHeaderMinimumColumnWidth
   );
 
+export const propertyHeaderColumnWidthStyle = (
+  columnWidth: number
+): {
+  width: number;
+  minWidth: number;
+  maxWidth: number;
+} => ({
+  width: columnWidth,
+  minWidth: columnWidth,
+  maxWidth: columnWidth,
+});
+
 export const propertyHeaderColumnSizingWithMinimum = (
   colsSize: Record<string, number>
 ): Record<string, number> =>
   Object.fromEntries(
     Object.entries(colsSize ?? {}).map(([columnId, columnWidth]) => [
       columnId,
-      propertyHeaderColumnWidthForSize(columnWidth),
+      columnWidth == legacyPropertyHeaderMinimumColumnWidth
+        ? propertyHeaderMinimumColumnWidth
+        : propertyHeaderColumnWidthForSize(columnWidth),
     ])
   );
 

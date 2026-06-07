@@ -103,6 +103,7 @@ import {
 } from "core/utils/contexts/tableFreeze";
 import {
   propertyHeaderColumnSizingWithMinimum,
+  propertyHeaderColumnWidthStyle,
   propertyHeaderColumnWidthForSize,
   propertyHeaderDisplayModeForValue,
   propertyHeaderMinimumColumnWidth,
@@ -1739,12 +1740,13 @@ export const TableView = (props: { superstate: Superstate }) => {
                       )}
                       key={header.id}
                       style={{
-                        minWidth: header.column.getIsGrouped()
-                          ? "0px"
-                          : columnWidth,
-                        maxWidth: header.column.getIsGrouped()
-                          ? "0px"
-                          : columnWidth,
+                        ...(header.column.getIsGrouped()
+                          ? {
+                              width: 0,
+                              minWidth: 0,
+                              maxWidth: 0,
+                            }
+                          : propertyHeaderColumnWidthStyle(columnWidth)),
                         ...(frozenOffset
                           ? {
                               left: frozenOffset.left,
@@ -1955,12 +1957,13 @@ export const TableView = (props: { superstate: Superstate }) => {
                           )}
                           key={cell.id}
                           style={{
-                            minWidth: cell.getIsPlaceholder()
-                              ? "0px"
-                              : columnWidth,
-                            maxWidth: cell.getIsPlaceholder()
-                              ? "0px"
-                              : columnWidth,
+                            ...(cell.getIsPlaceholder()
+                              ? {
+                                  width: 0,
+                                  minWidth: 0,
+                                  maxWidth: 0,
+                                }
+                              : propertyHeaderColumnWidthStyle(columnWidth)),
                             ...(frozenOffset
                               ? {
                                   left: frozenOffset.left,
@@ -2092,6 +2095,12 @@ export const TableView = (props: { superstate: Superstate }) => {
               ).map((col, i) => {
                 const columnId = col.name + col.table;
                 const frozenOffset = frozenColumnOffsets[columnId];
+                const columnWidth =
+                  frozenOffset?.width ??
+                  propertyHeaderColumnWidthForSize(
+                    colsSize[columnId],
+                    defaultTableColumnWidth
+                  );
 
                 return (
                   <td
@@ -2103,13 +2112,14 @@ export const TableView = (props: { superstate: Superstate }) => {
                       frozenOffset?.isLast && "mk-frozen-column-last"
                     )}
                     style={
-                      frozenOffset
-                        ? {
-                            left: frozenOffset.left,
-                            minWidth: frozenOffset.width,
-                            maxWidth: frozenOffset.width,
-                          }
-                        : undefined
+                      {
+                        ...propertyHeaderColumnWidthStyle(columnWidth),
+                        ...(frozenOffset
+                          ? {
+                              left: frozenOffset.left,
+                            }
+                          : {}),
+                      }
                     }
                     onClick={(e) => {
                       const options: SelectOption[] = [];
