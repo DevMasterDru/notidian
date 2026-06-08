@@ -1,6 +1,8 @@
 import { SpaceTableSchema } from "shared/types/mdb";
 import { Filter, Predicate, Sort } from "shared/types/predicate";
 import { defaultPredicate } from "../../../../shared/schemas/predicate";
+import { columnDataAnchorModeForValue } from "../propertyDataAnchor";
+import { propertyHeaderDisplayModeForValue } from "../propertyHeaderDisplayMode";
 import { FilterFunctionType } from "./filter";
 import { filterFnTypes } from "./filterFns/filterFnTypes";
 import { SortFunctionType, sortFnTypes } from "./sort";
@@ -45,6 +47,31 @@ export const validatePredicate = (
   if (!prevPredicate) {
     return defaultPredicate;
   }
+  const colsHeaderDisplay = Object.entries(
+    prevPredicate.colsHeaderDisplay ?? {}
+  ).reduce((result, [columnId, mode]) => {
+    const displayMode = propertyHeaderDisplayModeForValue(mode);
+    if (displayMode != mode) return result;
+    return {
+      ...result,
+      [columnId]: displayMode,
+    };
+  }, {} as Predicate["colsHeaderDisplay"]);
+  const colsDataAnchor = Object.entries(
+    prevPredicate.colsDataAnchor ?? {}
+  ).reduce((result, [columnId, mode]) => {
+    const dataAnchorMode = columnDataAnchorModeForValue(mode);
+    if (dataAnchorMode == "auto" || dataAnchorMode != mode) return result;
+    return {
+      ...result,
+      [columnId]: dataAnchorMode,
+    };
+  }, {} as Predicate["colsDataAnchor"]);
+  const tableDirection =
+    prevPredicate.tableDirection == "rtl"
+      ? "rtl"
+      : defaultPredicate.tableDirection;
+
   return {
     ...defaultPredicate,
     view: prevPredicate.view,
@@ -69,6 +96,9 @@ export const validatePredicate = (
       : [],
     colsSize: prevPredicate.colsSize ?? {},
     colsCalc: prevPredicate.colsCalc ?? {},
+    colsHeaderDisplay,
+    colsDataAnchor,
+    tableDirection,
     frozenColumnCount:
       typeof prevPredicate.frozenColumnCount === "number" &&
       prevPredicate.frozenColumnCount >= 0

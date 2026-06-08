@@ -1,5 +1,6 @@
 import { moveSpaceFiles } from "adapters/obsidian/filesystem/spaceFileOps";
 import { openPathFixer } from "adapters/obsidian/fileSystemPathFixer";
+import { registerNotidianEmbedCommands } from "adapters/obsidian/utils/notidianEmbedCommands";
 import { FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidian/ui/explorer/ContextExplorerLeafView";
 import { showWarningsModal } from "core/react/components/Navigator/SyncWarnings";
 import {
@@ -69,6 +70,7 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
       openPathFixer(plugin);
     },
   });
+  registerNotidianEmbedCommands(plugin);
   plugin.addCommand({
     id: "move-space-folder",
     name: i18n.commandPalette.moveSpaceDataFolder,

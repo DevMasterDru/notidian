@@ -79,6 +79,7 @@ import { ObsidianMarkdownFiletypeAdapter } from "adapters/obsidian/filetypes/mar
 import { ObsidianUI } from "adapters/obsidian/ui/ui";
 
 import { modifyTabSticker } from "adapters/obsidian/utils/modifyTabSticker";
+import { registerNotidianMarkdownEmbedProcessor } from "adapters/obsidian/utils/notidianMarkdownEmbed";
 
 
 import { IconFileTypeAdapter } from "adapters/icons/iconsAdapter";
@@ -442,6 +443,7 @@ loadViews () {
         }
         setTimeout(() => this.activeFileChange(), 2000);
       });
+      registerNotidianMarkdownEmbedProcessor(this);
       
     }
     if (this.superstate.settings.inlineContext) {

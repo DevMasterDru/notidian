@@ -1,6 +1,11 @@
 import i18n from "shared/i18n";
 
 import { normalizedSortForType } from "core/utils/contexts/predicate/sort";
+import {
+  fieldWithPropertyHeaderIcon,
+  fieldWithoutPropertyHeaderIcon,
+  hasPropertyHeaderIcon,
+} from "core/utils/contexts/propertyHeaderIcon";
 import { canDeletePropertyColumn } from "core/utils/contexts/propertyColumnActions";
 import { fieldForPropertyNameInput } from "core/utils/contexts/propertyNameValue";
 import {
@@ -12,14 +17,20 @@ import { valueForPropertyTypeChange } from "core/utils/contexts/propertyTypeValu
 import { nameForField } from "core/utils/frames/frames";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useState } from "react";
-import { fieldTypeForType, fieldTypes } from "schemas/mdb";
+import { fieldTypeForType, fieldTypes, stickerForField } from "schemas/mdb";
 import { SpaceTableColumn } from "shared/types/mdb";
 import { MenuObject } from "shared/types/menu";
 import { Anchors, Rect } from "shared/types/Pos";
-import { Sort } from "shared/types/predicate";
+import {
+  ColumnDataAnchorMode,
+  ColumnHeaderDisplayMode,
+  Sort,
+} from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 import StickerModal from "../../../../../../shared/components/StickerModal";
-import { defaultMenu, menuInput, menuSeparator } from "../menu/SelectionMenu";
+import { defaultMenu, menuSeparator } from "../menu/SelectionMenu";
+import { PropertyDataAnchorMenuComponent } from "./PropertyDataAnchorMenu";
+import { PropertyHeaderDisplayModeMenuComponent } from "./PropertyHeaderDisplayModeMenu";
 import { PropertyValueComponent } from "./PropertyValue";
 
 export const PropertyMenuComponent = (props: {
@@ -144,6 +155,76 @@ export const PropertyMenuComponent = (props: {
     </>
   );
 };
+
+const PropertyHeaderNameMenuComponent = (props: {
+  superstate: Superstate;
+  field: SpaceTableColumn;
+  name: string;
+  saveName: (value: string) => void;
+  saveField: (field: SpaceTableColumn) => void;
+  preserveColumnWidth?: () => void;
+  hide: () => void;
+}) => {
+  const [name, setName] = useState(props.name);
+  const hasConfiguredIcon = hasPropertyHeaderIcon(props.field);
+
+  const commitName = () => {
+    props.saveName(name);
+  };
+
+  const selectIcon = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    props.preserveColumnWidth?.();
+    props.superstate.ui.openPalette(
+      <StickerModal
+        ui={props.superstate.ui}
+        selectedSticker={(emoji) => {
+          props.preserveColumnWidth?.();
+          props.saveField(fieldWithPropertyHeaderIcon(props.field, emoji));
+        }}
+        resetSticker={() => {
+          props.preserveColumnWidth?.();
+          props.saveField(fieldWithoutPropertyHeaderIcon(props.field));
+        }}
+        canResetSticker={hasConfiguredIcon}
+      />,
+      windowFromDocument(e.view.document)
+    );
+    props.hide();
+  };
+
+  return (
+    <div className="mk-property-header-name-menu">
+      <button
+        type="button"
+        className="mk-property-header-name-icon-button"
+        aria-label={i18n.menu.setIcon}
+        onClick={selectIcon}
+      >
+        <span
+          className="mk-property-header-name-icon"
+          dangerouslySetInnerHTML={{
+            __html: props.superstate.ui.getSticker(stickerForField(props.field)),
+          }}
+        ></span>
+      </button>
+      <input
+        type="text"
+        value={name}
+        onKeyDown={(e) => {
+          if (e.key == "Enter") {
+            commitName();
+          }
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onFocus={(e) => e.stopPropagation()}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commitName}
+      />
+    </div>
+  );
+};
 type PropertyMenuProps = {
   superstate: Superstate;
   rect: Rect;
@@ -160,6 +241,12 @@ type PropertyMenuProps = {
   freezeColumn?: () => void;
   unfreezeColumns?: () => void;
   renamePropertyKey?: (event: React.MouseEvent) => void;
+  deleteFrontmatterProperty?: (event: React.MouseEvent) => void;
+  headerDisplayMode?: ColumnHeaderDisplayMode;
+  setHeaderDisplayMode?: (mode: ColumnHeaderDisplayMode) => void;
+  dataAnchorMode?: ColumnDataAnchorMode;
+  setDataAnchorMode?: (mode: ColumnDataAnchorMode) => void;
+  preserveColumnWidth?: () => void;
   frozenColumnCount?: number;
   hidden?: boolean;
   editCode?: () => void;
@@ -191,6 +278,12 @@ export const showPropertyMenu = (
     freezeColumn,
     unfreezeColumns,
     renamePropertyKey,
+    deleteFrontmatterProperty,
+    headerDisplayMode = "adaptive",
+    setHeaderDisplayMode,
+    dataAnchorMode = "auto",
+    setDataAnchorMode,
+    preserveColumnWidth,
     frozenColumnCount,
     editCode,
     hidden,
@@ -202,9 +295,21 @@ export const showPropertyMenu = (
   const menuOptions: SelectOption[] = [];
 
   if (!flex) {
-    menuOptions.push(
-      menuInput(nameForField(field) ?? "", (value) => saveName(value), "")
-    );
+    menuOptions.push({
+      name: "",
+      type: SelectOptionType.Custom,
+      fragment: (props: { hide: () => void }) => (
+        <PropertyHeaderNameMenuComponent
+          superstate={superstate}
+          field={field}
+          name={nameForField(field) ?? ""}
+          saveName={saveName}
+          saveField={saveField}
+          preserveColumnWidth={preserveColumnWidth}
+          hide={props.hide}
+        />
+      ),
+    });
   }
   menuOptions.push(menuSeparator);
   if (editable) {
@@ -235,22 +340,35 @@ export const showPropertyMenu = (
 
   if (!flex) {
     menuOptions.push(menuSeparator);
-    menuOptions.push({
-      name: i18n.menu.setIcon,
-      icon: "ui//gem",
-      onClick: (e: React.MouseEvent) => {
-        superstate.ui.openPalette(
-          <StickerModal
-            ui={superstate.ui}
-            selectedSticker={(emoji) =>
-              saveField({ ...field, attrs: JSON.stringify({ icon: emoji }) })
-            }
-          />,
-          windowFromDocument(e.view.document)
-        );
-      },
-    });
-    menuOptions.push(menuSeparator);
+    if (setHeaderDisplayMode) {
+      menuOptions.push({
+        name: "",
+        type: SelectOptionType.Custom,
+        fragment: (props: { hide: () => void }) => (
+          <PropertyHeaderDisplayModeMenuComponent
+            headerDisplayMode={headerDisplayMode}
+            setHeaderDisplayMode={setHeaderDisplayMode}
+            hide={props.hide}
+          />
+        ),
+      });
+    }
+    if (setDataAnchorMode) {
+      menuOptions.push({
+        name: "",
+        type: SelectOptionType.Custom,
+        fragment: (props: { hide: () => void }) => (
+          <PropertyDataAnchorMenuComponent
+            dataAnchorMode={dataAnchorMode}
+            setDataAnchorMode={setDataAnchorMode}
+            hide={props.hide}
+          />
+        ),
+      });
+    }
+    if (setHeaderDisplayMode || setDataAnchorMode) {
+      menuOptions.push(menuSeparator);
+    }
   }
   const sortableString = normalizedSortForType(field.type, false);
 
@@ -336,7 +454,15 @@ export const showPropertyMenu = (
         },
       });
     }
-    if (deleteColumn && canDeletePropertyColumn(field)) {
+    if (deleteFrontmatterProperty) {
+      menuOptions.push({
+        name: i18n.menu.deleteProperty,
+        icon: "ui//trash",
+        onClick: (e: React.MouseEvent) => {
+          deleteFrontmatterProperty(e);
+        },
+      });
+    } else if (deleteColumn && canDeletePropertyColumn(field)) {
       menuOptions.push({
         name: i18n.menu.deleteProperty,
         icon: "ui//trash",

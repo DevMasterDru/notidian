@@ -2,6 +2,8 @@ import { EditorView } from "@codemirror/view";
 import MakeBasicsPlugin from "basics/basics";
 import { FlowEditorHover } from "basics/flow/FlowEditorHover";
 import { UINote } from "basics/ui/UINote";
+import { NotidianEmbed } from "core/react/components/NotidianEmbed/NotidianEmbed";
+import { parseLegacyNotidianEmbedRef } from "core/utils/embeds/notidianEmbed";
 import { App, MarkdownPostProcessorContext } from "obsidian";
 import React from "react";
 
@@ -42,14 +44,26 @@ export const replaceAllTables = (
       element.style.display = "none";
       const reactEl = plugin.enactor.createRoot(element.parentElement);
       //   const flowType = cm.state.field(flowTypeStateField, false);
-      reactEl.render(
-        <UINote
-          load={true}
-          plugin={plugin}
-          path={link}
-          source={ctx.sourcePath}
-        ></UINote>
-      );
+      const parsed = parseLegacyNotidianEmbedRef(link);
+      if (parsed.ok) {
+        reactEl.render(
+          <NotidianEmbed
+            superstate={(plugin.enactor as any).makemd.superstate}
+            sourcePath={ctx.sourcePath}
+            host="legacy-transclusion"
+            descriptor={parsed.descriptor}
+          />
+        );
+      } else {
+        reactEl.render(
+          <UINote
+            load={true}
+            plugin={plugin}
+            path={link}
+            source={ctx.sourcePath}
+          ></UINote>
+        );
+      }
     }
   });
 };

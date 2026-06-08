@@ -353,6 +353,119 @@ max-height: var(--mk-menu-max-height)
   height: 16px;
 }
 
+.mk-property-header-name-menu {
+  box-sizing: border-box;
+  display: flex;
+  width: calc(100% - 12px);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 6px;
+  padding: 4px 8px;
+}
+
+.mk-property-header-name-icon-button {
+  appearance: none;
+  border: 1px solid var(--mk-ui-border);
+  box-shadow: none;
+  background: var(--mk-ui-background);
+  color: var(--mk-ui-text-secondary);
+  cursor: var(--cursor);
+  font: inherit;
+}
+
+.mk-property-header-name-icon-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--mk-ui-radius-small);
+}
+
+.mk-property-header-name-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.mk-property-header-name-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mk-property-header-name-menu input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: thin solid var(--mk-ui-border);
+  background: var(--mk-ui-background-contrast);
+}
+
+.mk-property-header-name-icon-button:not(:disabled):hover {
+  background: var(--mk-ui-background-hover);
+  color: var(--mk-ui-text-primary);
+}
+
+.mk-property-header-display-menu {
+  box-sizing: border-box;
+  display: flex;
+  width: calc(100% - 12px);
+  min-width: 0;
+  align-items: center;
+  margin: 0 6px;
+  padding: 4px 8px;
+}
+
+.mk-property-header-display-options {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--mk-ui-border);
+  border-radius: var(--mk-ui-radius-small);
+  background: var(--mk-ui-background-contrast);
+}
+
+.mk-property-header-display-option {
+  appearance: none;
+  box-sizing: border-box;
+  min-width: 0;
+  flex: 1 1 auto;
+  border: none;
+  border-radius: calc(var(--mk-ui-radius-small) - 1px);
+  background: transparent;
+  color: var(--mk-ui-text-secondary);
+  cursor: var(--cursor);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  overflow: hidden;
+  padding: 2px 4px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mk-property-header-display-option:not(
+    .mk-property-header-display-option--active
+  ):hover {
+  background: var(--mk-ui-background-hover);
+  color: var(--mk-ui-text-primary);
+}
+
+.mk-property-header-display-option--active {
+  background: var(--mk-ui-background-hover);
+  color: var(--mk-ui-text-primary);
+}
+
 .mk-emoji-icon-span {
   position: absolute;
   top: 50%;

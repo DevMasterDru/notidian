@@ -94,9 +94,11 @@ The current implementation includes a non-destructive planner for property schem
 
 For frontmatter-backed columns, use `Rename Frontmatter Key` from the column header menu to rename the canonical YAML key. The command asks for the new key, shows a confirmation summary, revalidates the plan after confirmation, writes the new key before deleting the old key, updates the table/view references, and reloads from canonical Obsidian metadata. It refuses to run if any file already has both keys with different values or if the frontmatter preview changed before the write starts.
 
-Editing the visible header text of an existing frontmatter-backed column is a display-label change only. The underlying YAML key remains unchanged, so existing file metadata is not hidden or moved by a casual label edit.
+Frontmatter-backed table headers display deterministic labels generated from the canonical YAML key, such as `sensor_id` -> `Sensor ID`. When the label differs from the raw key, the header text has a very faint hairline marker and the hover tooltip shows the full generated label. Casual header-name edits are ignored for frontmatter-backed columns, so existing file metadata is not hidden, moved, or visually renamed by view-only schema text.
 
-For the same reason, frontmatter-backed columns can be hidden from the current view but not destructively deleted from the table menu yet. Deleting the actual YAML key from files requires the future migration preview and confirmation flow.
+Use the column menu's compact `Header Display` segmented control to decide how compact a header should be in the current view: `Adaptive`, `Icon + Text`, `Text Only`, or `Icon Only`. Icon-only headers can be resized down to the 24px sticker footprint: the 18px sticker with 3px of side padding on each side. At that size, Notidian shows only the header sticker and keeps the full beautiful label available through the hover tooltip. Boolean/Yes-No columns use compact checkbox cell padding at that width, so the body cells do not force the column open again. Older 18px or 26px collapsed widths from previous builds are treated as 24px when loaded. The same menu includes `Data Anchor`: `Auto`, `Left`, `Center`, and `Right`. Auto centers icon-only columns, defaults to right in RTL table mode, right-aligns visible Hebrew/RTL data in LTR table mode, and otherwise left-aligns data. The view options menu includes `Direction`: `Left to Right` keeps the standard table layout, while `Right to Left` fully mirrors the table for Hebrew databases, including the row gutter and frozen columns. The current header icon appears to the left of the header-name input at the top of the menu; click it to configure the icon, or use `Default` inside the icon picker to return to the field-type icon. These presentation settings are saved with the Notidian view and do not write frontmatter.
+
+For the same reason, frontmatter-backed columns distinguish view hiding from frontmatter deletion. Use `Hide Property` to hide a column from the current Notidian view without touching Markdown. Use `Delete Property` only when you want to remove the actual YAML key from affected files; Notidian shows a confirmation summary, revalidates the file preview after confirmation, removes the key from frontmatter, clears active view references for that column, hides it from the view, and reloads canonical metadata.
 
 ## Edit Page Titles
 
@@ -119,6 +121,31 @@ The rename is rejected when:
 - Obsidian cannot complete the rename.
 
 Folder moves are intentionally not performed through the title cell. A slash in the title is treated as a request to change folders, and Notidian rejects it with guidance to use a move command. A dedicated table move command is still a known gap.
+
+## Embed A Database In A Page Or Canvas
+
+Use `Copy Notidian database embed` from a table or saved view menu to copy a
+live embed block:
+
+````md
+```notidian
+target: Projects
+kind: view
+id: filesView
+title: true
+editable: false
+```
+````
+
+Paste that block into a Markdown page to render the live Notidian view.
+
+Use `Insert Notidian database into canvas` while a Canvas file is active to add
+the same live view as a Canvas file node. Notidian creates or updates a small
+wrapper note in `Notidian Embeds/` for the Canvas node. The wrapper stores only
+the embed block, not database rows or frontmatter values.
+
+Embeds are read-only by default. Open the source Notidian table when you want
+the full editing surface.
 
 ## Copy, Cut, Paste, And Clear Ranges
 
@@ -151,7 +178,7 @@ Skipped cells are reported through cell feedback and an Obsidian notice. A skipp
 
 ## Select And Move Rows
 
-The left row gutter selects whole rows. Dragging from the row-number lane draws a marquee rectangle and selects every visible row the rectangle intersects. Dragging the grip in the row gutter moves rows in the table order.
+The left row gutter selects whole rows. Its width adapts to the largest visible row number, so one-digit views stay narrower than two- or three-digit views. Dragging from the row-number lane draws a marquee rectangle and selects every visible row the rectangle intersects. Dragging the overlay grip above the row number moves rows in the table order.
 
 - Drag an unselected row to move only that row.
 - Select multiple rows, then drag one selected row to move the selected rows together.

@@ -99,8 +99,21 @@ import {
 } from "core/utils/contexts/tableRowOrder";
 import {
   clampFrozenColumnCount,
+  rowGutterWidthForRowCount,
   stickyOffsetsForFrozenColumns,
 } from "core/utils/contexts/tableFreeze";
+import {
+  propertyHeaderColumnSizingWithMinimum,
+  propertyHeaderColumnWidthStyle,
+  propertyHeaderColumnWidthForSize,
+  propertyHeaderDisplayModeForValue,
+  propertyHeaderMinimumColumnWidth,
+  propertyHeaderUsesCompactCellLayout,
+} from "core/utils/contexts/propertyHeaderDisplayMode";
+import {
+  columnDataAnchorForCells,
+  columnDataAnchorModeForValue,
+} from "core/utils/contexts/propertyDataAnchor";
 import {
   isRowDndId,
   resolveRowDropTargetId,
@@ -133,7 +146,11 @@ import { fieldTypeForField, fieldTypeForType } from "schemas/mdb";
 import i18n from "shared/i18n";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
-import { Filter } from "shared/types/predicate";
+import {
+  ColumnDataAnchorMode,
+  ColumnHeaderDisplayMode,
+  Filter,
+} from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 import { DataTypeView, DataTypeViewProps } from "../DataTypeView/DataTypeView";
 
@@ -142,6 +159,7 @@ declare module "@tanstack/table-core" {
     table: string;
     editable: boolean;
     schemaId: string;
+    fieldType?: string;
   }
 }
 
@@ -172,7 +190,6 @@ type TableRowMarqueeState = {
 };
 
 const tableUndoJournalStore = new Map<string, TableUndoJournalState>();
-const tableRowGutterWidth = 42;
 const defaultTableColumnWidth = 150;
 
 const tableUndoJournalForKey = (key: string): TableUndoJournalState =>
@@ -254,6 +271,7 @@ const rowDragPointFromEvent = (
 const TableRowDragHandle = (props: {
   rowId: string;
   rowNumber: number;
+  rowGutterWidth: number;
   selected: boolean;
   disabled: boolean;
   frozen: boolean;
@@ -288,6 +306,7 @@ const TableRowDragHandle = (props: {
         props.frozen && "mk-frozen-row-gutter"
       )}
       onMouseDown={(e) => props.onSelectStart(e, props.rowId)}
+      style={propertyHeaderColumnWidthStyle(props.rowGutterWidth)}
     >
       <div className="mk-row-gutter-inner">
         <div
@@ -456,6 +475,8 @@ export const TableView = (props: { superstate: Superstate }) => {
   const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
+  const tableDirection = predicate?.tableDirection ?? "ltr";
+  const isRTLTable = tableDirection == "rtl";
   const visibleRowOrder = useMemo(() => data.map((f) => f._index), [data]);
   const visibleColumnOrder = useMemo(
     () => cols.map((f) => f.name + f.table),
@@ -465,6 +486,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     currentPageSize: pagination.pageSize,
     totalRows: data.length,
   });
+  const rowGutterWidth = rowGutterWidthForRowCount(loadedRowCount);
   const frozenColumnCount = clampFrozenColumnCount({
     columns: cols,
     hiddenColumnIds: predicate?.colsHidden ?? [],
@@ -477,10 +499,18 @@ export const TableView = (props: { superstate: Superstate }) => {
         hiddenColumnIds: predicate?.colsHidden ?? [],
         frozenColumnCount,
         columnSizes: colsSize,
-        rowGutterWidth: tableRowGutterWidth,
+        rowGutterWidth,
         defaultColumnWidth: defaultTableColumnWidth,
+        tableDirection,
       }),
-    [cols, predicate?.colsHidden, frozenColumnCount, colsSize]
+    [
+      cols,
+      predicate?.colsHidden,
+      frozenColumnCount,
+      colsSize,
+      rowGutterWidth,
+      tableDirection,
+    ]
   );
   const tableUndoJournalKey = `${source ?? spaceCache?.path ?? ""}::${
     dbSchema?.id ?? ""
@@ -497,7 +527,10 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   useEffect(() => {
-    setColsSize({ ...(predicate?.colsSize ?? {}), "+": 30 });
+    setColsSize({
+      ...propertyHeaderColumnSizingWithMinimum(predicate?.colsSize ?? {}),
+      "+": 30,
+    });
   }, [predicate]);
 
   useEffect(() => {
@@ -529,7 +562,9 @@ export const TableView = (props: { superstate: Superstate }) => {
   const saveColsSize: OnChangeFn<ColumnSizingState> = (
     colSize: (old: ColumnSizingState) => ColumnSizingState
   ) => {
-    const newColSize = colSize(colsSize);
+    const newColSize = propertyHeaderColumnSizingWithMinimum(
+      colSize(colsSize)
+    );
     setColsSize(newColSize);
     debouncedSavePredicate(newColSize);
   };
@@ -843,18 +878,26 @@ export const TableView = (props: { superstate: Superstate }) => {
     };
     const moveSelection = (direction: "up" | "down" | "left" | "right") => {
       if (!activeSelection) return;
+      const visualDirection =
+        tableDirection == "rtl"
+          ? direction == "left"
+            ? "right"
+            : direction == "right"
+            ? "left"
+            : direction
+          : direction;
       const nextSelection = e.shiftKey
         ? extendCellSelection(
             activeSelection,
             visibleRowOrder,
             visibleColumnOrder,
-            direction
+            visualDirection
           )
         : moveCellSelection(
             activeSelection,
             visibleRowOrder,
             visibleColumnOrder,
-            direction
+            visualDirection
           );
       setCellSelection(nextSelection);
       setSelectedColumn(nextSelection.active.columnId);
@@ -944,11 +987,13 @@ export const TableView = (props: { superstate: Superstate }) => {
           header: f.name,
           footer: () => "test",
           accessorKey: f.name + f.table,
+          minSize: propertyHeaderMinimumColumnWidth,
           // enableResizing: true,
           meta: {
             table: f.table,
             editable: f.name != PathPropertyName,
             schemaId: dbSchema?.id,
+            fieldType: fieldTypeForType(f.type, f.name)?.type,
           },
           cell: ({
             // @ts-ignore
@@ -1078,8 +1123,12 @@ export const TableView = (props: { superstate: Superstate }) => {
                 ? CellEditMode.EditModeActive
                 : CellEditMode.EditModeView
               : CellEditMode.EditModeReadOnly;
+            const cellWidth = propertyHeaderColumnWidthForSize(
+              colsSize[f.name + f.table],
+              defaultTableColumnWidth
+            );
             const cellProps: DataTypeViewProps = {
-              compactMode: false,
+              compactMode: propertyHeaderUsesCompactCellLayout(cellWidth),
               initialValue: initialValue as string,
               updateValue: saveValue,
               renameValue,
@@ -1136,6 +1185,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       dbSchema,
       contextTable,
       cellResetTokens,
+      colsSize,
     ]
   );
 
@@ -1657,7 +1707,8 @@ export const TableView = (props: { superstate: Superstate }) => {
       onDragCancel={handleDragCancel}
     >
       <div
-        className="mk-table"
+        className={classNames("mk-table", isRTLTable && "mk-table-rtl")}
+        dir={tableDirection}
         ref={ref}
         tabIndex={1}
         onKeyDown={onKeyDown}
@@ -1680,6 +1731,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                     "mk-row-gutter-header",
                     frozenColumnCount > 0 && "mk-frozen-row-gutter"
                   )}
+                  style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
                 ></th>
                 {headerGroup.headers.map((header) => {
                   const accessorKey = (header.column.columnDef as any)
@@ -1687,8 +1739,44 @@ export const TableView = (props: { superstate: Superstate }) => {
                   const frozenOffset = frozenColumnOffsets[accessorKey];
                   const columnWidth =
                     frozenOffset?.width ??
-                    colsSize[accessorKey] ??
-                    defaultTableColumnWidth;
+                    propertyHeaderColumnWidthForSize(
+                      colsSize[accessorKey],
+                      defaultTableColumnWidth
+                    );
+                  const headerDisplayMode = propertyHeaderDisplayModeForValue(
+                    predicate?.colsHeaderDisplay?.[accessorKey]
+                  );
+                  const dataAnchorMode = columnDataAnchorModeForValue(
+                    predicate?.colsDataAnchor?.[accessorKey]
+                  );
+                  const setHeaderDisplayMode = (
+                    mode: ColumnHeaderDisplayMode
+                  ) => {
+                    const nextHeaderDisplay = {
+                      ...(predicate?.colsHeaderDisplay ?? {}),
+                    };
+                    if (mode == "adaptive") {
+                      delete nextHeaderDisplay[accessorKey];
+                    } else {
+                      nextHeaderDisplay[accessorKey] = mode;
+                    }
+                    savePredicate({
+                      colsHeaderDisplay: nextHeaderDisplay,
+                    });
+                  };
+                  const setDataAnchorMode = (mode: ColumnDataAnchorMode) => {
+                    const nextDataAnchor = {
+                      ...(predicate?.colsDataAnchor ?? {}),
+                    };
+                    if (mode == "auto") {
+                      delete nextDataAnchor[accessorKey];
+                    } else {
+                      nextDataAnchor[accessorKey] = mode;
+                    }
+                    savePredicate({
+                      colsDataAnchor: nextDataAnchor,
+                    });
+                  };
 
                   return (
                     <th
@@ -1699,15 +1787,16 @@ export const TableView = (props: { superstate: Superstate }) => {
                       )}
                       key={header.id}
                       style={{
-                        minWidth: header.column.getIsGrouped()
-                          ? "0px"
-                          : columnWidth,
-                        maxWidth: header.column.getIsGrouped()
-                          ? "0px"
-                          : columnWidth,
+                        ...(header.column.getIsGrouped()
+                          ? {
+                              width: 0,
+                              minWidth: 0,
+                              maxWidth: 0,
+                            }
+                          : propertyHeaderColumnWidthStyle(columnWidth)),
                         ...(frozenOffset
                           ? {
-                              left: frozenOffset.left,
+                              [frozenOffset.side]: frozenOffset.offset,
                             }
                           : {}),
                       }}
@@ -1728,6 +1817,11 @@ export const TableView = (props: { superstate: Superstate }) => {
                                 f.name == header.column.columnDef.header &&
                                 f.table == header.column.columnDef.meta.table
                             )}
+                            columnWidth={columnWidth}
+                            headerDisplayMode={headerDisplayMode}
+                            setHeaderDisplayMode={setHeaderDisplayMode}
+                            dataAnchorMode={dataAnchorMode}
+                            setDataAnchorMode={setDataAnchorMode}
                           ></ColumnHeader>
                         )
                       ) : (
@@ -1797,6 +1891,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                     <TableRowDragHandle
                       rowId={rowOriginalIndex}
                       rowNumber={visibleIndex + 1}
+                      rowGutterWidth={rowGutterWidth}
                       selected={rowSelected}
                       disabled={readMode}
                       frozen={frozenColumnCount > 0}
@@ -1809,6 +1904,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                         "mk-row-gutter",
                         frozenColumnCount > 0 && "mk-frozen-row-gutter"
                       )}
+                      style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
                     ></td>
                   )}
                   {row.getVisibleCells().map((cell, i) =>
@@ -1850,6 +1946,29 @@ export const TableView = (props: { superstate: Superstate }) => {
                       const accessorKey = (cell.column.columnDef as any)
                         .accessorKey;
                       const frozenOffset = frozenColumnOffsets[accessorKey];
+                      const columnWidth =
+                        frozenOffset?.width ??
+                        propertyHeaderColumnWidthForSize(
+                          colsSize[accessorKey],
+                          defaultTableColumnWidth
+                        );
+                      const compactCell =
+                        propertyHeaderUsesCompactCellLayout(columnWidth);
+                      const fieldType = cell.column.columnDef.meta?.fieldType;
+                      const headerDisplayMode = propertyHeaderDisplayModeForValue(
+                        predicate?.colsHeaderDisplay?.[accessorKey]
+                      );
+                      const dataAnchor = columnDataAnchorForCells({
+                        mode: columnDataAnchorModeForValue(
+                          predicate?.colsDataAnchor?.[accessorKey]
+                        ),
+                        headerDisplayMode,
+                        columnWidth,
+                        values: table
+                          .getRowModel()
+                          .rows.map((row) => row.getValue(accessorKey)),
+                        tableDirection,
+                      });
                       const feedback =
                         rowOriginalIndex !== undefined
                           ? cellEditFeedback[
@@ -1896,24 +2015,24 @@ export const TableView = (props: { superstate: Superstate }) => {
                             feedback?.state == "skipped" && "mk-cell-skipped",
                             feedback?.action == "frontmatter-conflict" &&
                               "mk-cell-conflict",
+                            compactCell && "mk-td-compact",
+                            `mk-td-anchor-${dataAnchor}`,
+                            fieldType == "boolean" && "mk-td-boolean",
                             frozenOffset && "mk-frozen-column",
                             frozenOffset?.isLast && "mk-frozen-column-last"
                           )}
                           key={cell.id}
                           style={{
-                            minWidth: cell.getIsPlaceholder()
-                              ? "0px"
-                              : frozenOffset?.width ??
-                                colsSize[accessorKey] ??
-                                "50px",
-                            maxWidth: cell.getIsPlaceholder()
-                              ? "0px"
-                              : frozenOffset?.width ??
-                                colsSize[accessorKey] ??
-                                "unset",
+                            ...(cell.getIsPlaceholder()
+                              ? {
+                                  width: 0,
+                                  minWidth: 0,
+                                  maxWidth: 0,
+                                }
+                              : propertyHeaderColumnWidthStyle(columnWidth)),
                             ...(frozenOffset
                               ? {
-                                  left: frozenOffset.left,
+                                  [frozenOffset.side]: frozenOffset.offset,
                                 }
                               : {}),
                           }}
@@ -2032,6 +2151,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                   "mk-row-gutter",
                   frozenColumnCount > 0 && "mk-frozen-row-gutter"
                 )}
+                style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
               ></td>
               {groupBy.map((f, i) => (
                 <td key={i}></td>
@@ -2042,6 +2162,12 @@ export const TableView = (props: { superstate: Superstate }) => {
               ).map((col, i) => {
                 const columnId = col.name + col.table;
                 const frozenOffset = frozenColumnOffsets[columnId];
+                const columnWidth =
+                  frozenOffset?.width ??
+                  propertyHeaderColumnWidthForSize(
+                    colsSize[columnId],
+                    defaultTableColumnWidth
+                  );
 
                 return (
                   <td
@@ -2053,13 +2179,14 @@ export const TableView = (props: { superstate: Superstate }) => {
                       frozenOffset?.isLast && "mk-frozen-column-last"
                     )}
                     style={
-                      frozenOffset
-                        ? {
-                            left: frozenOffset.left,
-                            minWidth: frozenOffset.width,
-                            maxWidth: frozenOffset.width,
-                          }
-                        : undefined
+                      {
+                        ...propertyHeaderColumnWidthStyle(columnWidth),
+                        ...(frozenOffset
+                          ? {
+                              [frozenOffset.side]: frozenOffset.offset,
+                            }
+                          : {}),
+                      }
                     }
                     onClick={(e) => {
                       const options: SelectOption[] = [];

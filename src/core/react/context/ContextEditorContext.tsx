@@ -14,10 +14,15 @@ import {
   executeBulkPageTitleRename,
   renamePageTitleForRow,
 } from "core/utils/contexts/pageTitleRename";
-import { planPropertyColumnDelete } from "core/utils/contexts/propertyColumnActions";
+import {
+  planPropertyColumnDelete,
+  predicateColumnReferenceDeleteForColumn,
+  predicateColumnReferenceUpdateForSavedColumn,
+} from "core/utils/contexts/propertyColumnActions";
 import { applyFrontmatterSchemaWritePlans } from "core/utils/contexts/notidianSchemaApply";
 import {
   NotidianSchemaIssue,
+  planDeleteFrontmatterProperty,
   planRenameFrontmatterProperty,
 } from "core/utils/contexts/notidianSchema";
 import {
@@ -101,6 +106,10 @@ type ContextEditorContextProps = {
     newKey: string,
     confirmRename?: (message: string) => boolean
   ) => Promise<boolean>;
+  deleteFrontmatterPropertyKey: (
+    column: SpaceTableColumn,
+    confirmDelete?: (message: string) => boolean
+  ) => Promise<boolean>;
   newColumn: (column: SpaceTableColumn) => boolean;
   delColumn: (column: SpaceTableColumn) => void;
   searchString: string;
@@ -153,6 +162,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   hideColumn: () => null,
   saveColumn: () => false,
   renameFrontmatterPropertyKey: async () => false,
+  deleteFrontmatterPropertyKey: async () => false,
   newColumn: () => false,
   sortColumn: () => null,
   delColumn: () => null,
@@ -229,6 +239,49 @@ const frontmatterRenameConfirmationMessage = ({
     `${untouchedCount} of ${totalFiles} file${
       totalFiles == 1 ? "" : "s"
     } do not contain either key.`,
+  ].join("\n");
+
+const frontmatterDeleteIssueMessage = ({
+  issue,
+  key,
+}: {
+  issue: NotidianSchemaIssue;
+  key: string;
+}): string => {
+  switch (issue.reason) {
+    case "empty-key":
+      return "Property key cannot be empty.";
+    case "missing-source-column":
+      return `Could not find the frontmatter-backed column "${key}".`;
+    case "same-key":
+    case "duplicate-column":
+    case "frontmatter-conflict":
+      return `Could not delete frontmatter property "${key}".`;
+  }
+};
+
+const frontmatterDeleteConfirmationMessage = ({
+  key,
+  totalFiles,
+  affectedFiles,
+  untouchedFiles,
+}: {
+  key: string;
+  totalFiles: number;
+  affectedFiles: number;
+  untouchedFiles: number;
+}): string =>
+  [
+    `Delete frontmatter property "${key}"?`,
+    "",
+    `${affectedFiles} file${
+      affectedFiles == 1 ? "" : "s"
+    } will permanently remove this YAML key.`,
+    `${untouchedFiles} of ${totalFiles} file${
+      totalFiles == 1 ? "" : "s"
+    } do not contain this key.`,
+    "",
+    "The column will also be hidden from this Notidian view.",
   ].join("\n");
 
 export const ContextEditorProvider: React.FC<
@@ -1187,6 +1240,18 @@ export const ContextEditorProvider: React.FC<
           predicate?.colsCalc?.[column.name + column.table],
         [column.name + column.table]: undefined,
       },
+      colsHeaderDisplay: {
+        ...(predicate?.colsHeaderDisplay ?? {}),
+        [normalizedNewKey + column.table]:
+          predicate?.colsHeaderDisplay?.[column.name + column.table],
+        [column.name + column.table]: undefined,
+      },
+      colsDataAnchor: {
+        ...(predicate?.colsDataAnchor ?? {}),
+        [normalizedNewKey + column.table]:
+          predicate?.colsDataAnchor?.[column.name + column.table],
+        [column.name + column.table]: undefined,
+      },
     });
 
     await saveDB(tablePreview);
@@ -1195,6 +1260,138 @@ export const ContextEditorProvider: React.FC<
       `Renamed "${column.name}" to "${normalizedNewKey}" in ${applyResult.applied} file${
         applyResult.applied == 1 ? "" : "s"
       }.`
+    );
+    return true;
+  };
+
+  const deleteFrontmatterPropertyKey = async (
+    column: SpaceTableColumn,
+    confirmDelete?: (message: string) => boolean
+  ): Promise<boolean> => {
+    if (!isFrontmatterBackedProperty(column) || column.table != "") {
+      props.superstate.ui.notify(
+        "Only root frontmatter-backed columns can delete YAML keys."
+      );
+      return false;
+    }
+
+    const paths = uniq(
+      tableData.rows
+        .map((row) => row[PathPropertyName])
+        .filter((path): path is string => typeof path == "string")
+        .map(
+          (path) =>
+            props.superstate.spaceManager.resolvePath(path, pathState?.path) ??
+            path
+        )
+    );
+    const buildDeletePlan = () =>
+      planDeleteFrontmatterProperty({
+        table: tableData,
+        key: column.name,
+        mode: "delete-frontmatter",
+        paths,
+        frontmatterByPath: new Map(
+          paths.map((path) => [
+            path,
+            props.superstate.pathsIndex.get(path)?.metadata?.property ?? {},
+          ])
+        ),
+      });
+    let plan = buildDeletePlan();
+
+    if (plan.issues.length > 0) {
+      const issue = plan.issues[0];
+      props.superstate.ui.notify(
+        frontmatterDeleteIssueMessage({
+          issue,
+          key: column.name,
+        })
+      );
+      return false;
+    }
+
+    if (plan.requiresConfirmation) {
+      if (!confirmDelete) {
+        props.superstate.ui.notify(
+          "Deleting a frontmatter key requires confirmation."
+        );
+        return false;
+      }
+
+      const confirmed = confirmDelete(
+        frontmatterDeleteConfirmationMessage({
+          key: column.name,
+          totalFiles: paths.length,
+          affectedFiles: plan.affectedFiles.length,
+          untouchedFiles: paths.length - plan.affectedFiles.length,
+        })
+      );
+      if (!confirmed) return false;
+    }
+
+    const latestPlan = buildDeletePlan();
+    if (
+      latestPlan.issues.length > 0 ||
+      !isEqual(latestPlan.affectedFiles, plan.affectedFiles) ||
+      !isEqual(latestPlan.frontmatterWrites, plan.frontmatterWrites)
+    ) {
+      props.superstate.ui.notify(
+        "Frontmatter changed while preparing the delete. Review and run the delete again."
+      );
+      await reloadContextData();
+      return false;
+    }
+    plan = latestPlan;
+
+    const applyResult = await applyFrontmatterSchemaWritePlans({
+      writes: plan.frontmatterWrites,
+      saveProperties: (path, properties) =>
+        saveFrontmatterProperties({
+          superstate: props.superstate,
+          path,
+          properties,
+          failureMessage: "Could not delete frontmatter property.",
+        }),
+      deleteProperty: async (path, key) => {
+        try {
+          await props.superstate.spaceManager.deleteProperty(path, key);
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error };
+        }
+      },
+    });
+
+    if (!applyResult.ok) {
+      const failed = applyResult.failed[0];
+      props.superstate.ui.notify(
+        `Could not delete frontmatter property at ${failed.path}.`
+      );
+      await reloadContextData();
+      return false;
+    }
+
+    const tablePreview = {
+      ...plan.tablePreview,
+      rows: plan.tablePreview.rows.map((row) => {
+        const { [column.name]: _value, ...rest } = row;
+        return rest;
+      }),
+    };
+
+    savePredicate(
+      predicateColumnReferenceDeleteForColumn({
+        predicate,
+        column,
+      })
+    );
+    await saveDB(tablePreview);
+    await reloadContextData();
+    props.superstate.ui.notify(
+      `Deleted "${column.name}" from ${applyResult.applied} file${
+        applyResult.applied == 1 ? "" : "s"
+      } and hid the column.`
     );
     return true;
   };
@@ -1298,40 +1495,15 @@ export const ContextEditorProvider: React.FC<
       ),
     };
 
-    if (oldColumn)
-      savePredicate({
-        filters: (predicate?.filters ?? []).map((f) =>
-          f.field == oldColumn.name + oldColumn.table
-            ? { ...f, field: column.name + column.table }
-            : f
-        ),
-        sort: (predicate?.sort ?? []).map((f) =>
-          f.field == oldColumn.name + oldColumn.table
-            ? { ...f, field: column.name + column.table }
-            : f
-        ),
-        groupBy: (predicate?.groupBy ?? []).map((f) =>
-          f == oldColumn.name + oldColumn.table ? column.name + column.table : f
-        ),
-        colsHidden: (predicate?.colsHidden ?? []).map((f) =>
-          f == oldColumn.name + oldColumn.table ? column.name + column.table : f
-        ),
-        colsOrder: (predicate?.colsOrder ?? []).map((f) =>
-          f == oldColumn.name + oldColumn.table ? column.name + column.table : f
-        ),
-        colsSize: {
-          ...(predicate?.colsSize ?? {}),
-          [column.name + column.table]:
-            predicate?.colsSize?.[oldColumn.name + oldColumn.table],
-          [oldColumn.name + oldColumn.table]: undefined,
-        },
-        colsCalc: {
-          ...(predicate?.colsCalc ?? {}),
-          [column.name + column.table]:
-            predicate?.colsCalc?.[oldColumn.name + oldColumn.table],
-          [oldColumn.name + oldColumn.table]: undefined,
-        },
+    const predicateColumnReferenceUpdate =
+      predicateColumnReferenceUpdateForSavedColumn({
+        predicate,
+        oldColumn,
+        column,
       });
+    if (predicateColumnReferenceUpdate) {
+      savePredicate(predicateColumnReferenceUpdate);
+    }
     if (table == "") {
       if (dbSchema.id == defaultContextSchemaID) {
         syncAllProperties(newTable);
@@ -1375,6 +1547,7 @@ export const ContextEditorProvider: React.FC<
         applyValueEdits,
         reloadContextData,
         renameRowTitle,
+        deleteFrontmatterPropertyKey,
         updateFieldValue,
         editMode,
         setEditMode,

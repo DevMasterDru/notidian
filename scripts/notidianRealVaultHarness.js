@@ -42,6 +42,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     allowWrite: false,
     keepFixture: false,
     includeUi: false,
+    includeEmbeds: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -62,6 +63,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--ui") {
       config.includeUi = true;
+      continue;
+    }
+    if (arg == "--embeds") {
+      config.includeEmbeds = true;
       continue;
     }
     const separator = arg.indexOf("=");
@@ -168,6 +173,9 @@ const createFixturePaths = (config, now = new Date()) => {
     betaPath: `${prefix}-Beta.md`,
     alphaRenamedPath: `${prefix}-Alpha Renamed.md`,
     alphaUiRenamedPath: `${prefix}-Alpha UI Renamed.md`,
+    embedPagePath: `${prefix}-Embed Page.md`,
+    embedCanvasPath: `${prefix}-Embed Canvas.canvas`,
+    embedWrapperPath: `Notidian Embeds/${runId}-filesView.md`,
   };
 };
 
@@ -336,6 +344,101 @@ const tableViewSetupEvalCode = ({ pluginId, folder }) =>
       });
     }
   })()`.replace(/\s+/g, " ");
+
+const embedSmokeEvalCode = ({
+  pluginId,
+  folder,
+  pagePath,
+  canvasPath,
+  wrapperPath,
+}) => {
+  const block = [
+    "```notidian",
+    `target: ${folder}`,
+    "kind: view",
+    `id: ${DEFAULT_FRAME_LIST_VIEW_ID}`,
+    "height: 480",
+    "title: true",
+    "editable: false",
+    "```",
+    "",
+  ].join("\n");
+
+  return `(async () => {
+    const marker = "notidianEmbedSmoke";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const ensureFolder = async (path) => {
+      const parts = String(path || "").split("/").filter(Boolean);
+      let current = "";
+      for (const part of parts) {
+        current = current ? current + "/" + part : part;
+        if (!app.vault.getAbstractFileByPath(current)) {
+          await app.vault.createFolder(current);
+        }
+      }
+    };
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.superstate?.spaceManager) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      const folder = ${JSON.stringify(folder)};
+      await plugin.superstate.spaceManager.saveFrameSchema(
+        folder,
+        ${JSON.stringify(DEFAULT_FRAME_LIST_VIEW_ID)},
+        (prev) => ({
+          ...(prev || {}),
+          id: ${JSON.stringify(DEFAULT_FRAME_LIST_VIEW_ID)},
+          name: "All",
+          type: "view",
+          def: JSON.stringify({
+            db: ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)},
+            icon: "ui//table",
+          }),
+          predicate: JSON.stringify(${JSON.stringify(tablePredicate())}),
+        })
+      );
+      await plugin.superstate.reloadContextByPath(folder, {
+        force: true,
+        calculate: true,
+      });
+      const block = ${JSON.stringify(block)};
+      const page = app.vault.getAbstractFileByPath(${JSON.stringify(pagePath)});
+      if (!page) return finish({ ok: false, reason: "missing-page" });
+      await app.vault.modify(page, block);
+      const wrapperPath = ${JSON.stringify(wrapperPath)};
+      const wrapperParent = wrapperPath.split("/").slice(0, -1).join("/");
+      if (wrapperParent) await ensureFolder(wrapperParent);
+      const wrapper = app.vault.getAbstractFileByPath(wrapperPath);
+      if (wrapper) {
+        await app.vault.modify(wrapper, block);
+      } else {
+        await app.vault.create(wrapperPath, block);
+      }
+      const canvas = app.vault.getAbstractFileByPath(${JSON.stringify(canvasPath)});
+      if (!canvas) return finish({ ok: false, reason: "missing-canvas" });
+      await app.vault.modify(canvas, JSON.stringify({
+        nodes: [{
+          id: "notidianembed0001",
+          type: "file",
+          x: 0,
+          y: 0,
+          width: 760,
+          height: 480,
+          file: wrapperPath
+        }],
+        edges: []
+      }, null, 2));
+      return finish({ ok: true, wrapperPath });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+};
 
 const renameFileEvalCode = ({ fromPath, toPath }) =>
   `(async () => {
@@ -2816,6 +2919,37 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
   };
 };
 
+const runEmbedSmokeScenario = async ({ config, runner, paths }) => {
+  await runObsidian(config, runner, "create", {
+    path: paths.embedPagePath,
+    content: "",
+    overwrite: true,
+  });
+  await runObsidian(config, runner, "create", {
+    path: paths.embedCanvasPath,
+    content: JSON.stringify({ nodes: [], edges: [] }),
+    overwrite: true,
+  });
+
+  const embedResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: embedSmokeEvalCode({
+        pluginId: config.pluginId,
+        folder: paths.folder,
+        pagePath: paths.embedPagePath,
+        canvasPath: paths.embedCanvasPath,
+        wrapperPath: paths.embedWrapperPath,
+      }),
+    })
+  );
+
+  if (!embedResult?.ok) {
+    throw new Error(
+      `Embed smoke failed: ${JSON.stringify(embedResult ?? {})}`
+    );
+  }
+};
+
 const runRealVaultSmokeHarness = async (config, runner) => {
   const errors = validateHarnessConfig(config);
   if (errors.length > 0) {
@@ -2898,6 +3032,14 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       primaryPath = uiPaths.primaryPath ?? primaryPath;
     }
 
+    if (config.includeEmbeds) {
+      await runEmbedSmokeScenario({
+        config,
+        runner: execute,
+        paths,
+      });
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -2924,6 +3066,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       paths,
       primaryPath,
       betaPath,
+      extraPaths: config.includeEmbeds
+        ? [paths.embedPagePath, paths.embedCanvasPath, paths.embedWrapperPath]
+        : [],
     });
   } catch (error) {
     cleanupError = error;
@@ -2965,6 +3110,7 @@ const usage = () => [
   "  --allow-write            Required before creating fixtures.",
   "  --keep-fixture           Leave fixtures in the vault for inspection.",
   "  --ui                     Also exercise the live Notidian table DOM.",
+  "  --embeds                 Also create Notidian Markdown and Canvas embed fixtures.",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,

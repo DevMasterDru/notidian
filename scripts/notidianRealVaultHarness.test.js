@@ -12,6 +12,7 @@ const baseConfig = {
   allowWrite: true,
   keepFixture: false,
   includeUi: false,
+  includeEmbeds: false,
   pluginId: "notidian",
   fixtureRoot: "Notidian Integration Fixtures",
   timeoutMs: 10000,
@@ -47,6 +48,7 @@ describe("notidian real vault harness", () => {
       allowWrite: true,
       keepFixture: true,
       includeUi: false,
+      includeEmbeds: false,
       pluginId: "notidian-dev",
       fixtureRoot: "Notidian Smoke Fixtures",
       timeoutMs: 2500,
@@ -65,6 +67,14 @@ describe("notidian real vault harness", () => {
       vault: "Atlas Vault",
       allowWrite: true,
       includeUi: true,
+    });
+
+    expect(
+      parseHarnessArgs(["vault=Atlas Vault", "--allow-write", "--embeds"], {})
+    ).toMatchObject({
+      vault: "Atlas Vault",
+      allowWrite: true,
+      includeEmbeds: true,
     });
   });
 
@@ -102,6 +112,12 @@ describe("notidian real vault harness", () => {
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
       alphaUiRenamedPath:
         "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha UI Renamed.md",
+      embedPagePath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Page.md",
+      embedCanvasPath:
+        "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas",
+      embedWrapperPath:
+        "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
     });
   });
 
@@ -398,6 +414,98 @@ describe("notidian real vault harness", () => {
       )
     ).toBe(true);
     expect(calls.map((args) => args[1])).not.toContain("delete");
+  });
+
+  it("runs the optional embed smoke scenario and cleans up embed fixtures", async () => {
+    const calls = [];
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      calls.push(args);
+      const command = args[1];
+      if (command == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true });
+        }
+        if (code.includes("notidianEmbedSmoke")) {
+          return JSON.stringify({
+            ok: true,
+            wrapperPath:
+              "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
+          });
+        }
+        if (code.includes("notidianCleanupFixtures")) {
+          return JSON.stringify({
+            ok: true,
+            deleted: [
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha Renamed.md",
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Beta.md",
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Page.md",
+              "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas",
+              "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md",
+            ],
+            missing: [],
+          });
+        }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    const result = await runRealVaultSmokeHarness(
+      {
+        ...baseConfig,
+        includeEmbeds: true,
+        now: () => new Date("2026-05-25T10:20:30.456Z"),
+      },
+      runner
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      fixtureFolder: "Notidian Integration Fixtures",
+      cleanedUp: true,
+    });
+    expect(
+      calls.some((args) =>
+        args.includes(
+          "path=Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Page.md"
+        )
+      )
+    ).toBe(true);
+    expect(
+      calls.some((args) =>
+        args.includes(
+          "path=Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas"
+        )
+      )
+    ).toBe(true);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" && args.join(" ").includes("notidianEmbedSmoke")
+      )
+    ).toBe(true);
+    const cleanupCall = calls.find(
+      (args) =>
+        args[1] == "eval" && args.join(" ").includes("notidianCleanupFixtures")
+    );
+    expect(cleanupCall.join(" ")).toContain(
+      "notidian-smoke-2026-05-25T10-20-30-456Z-Embed Page.md"
+    );
+    expect(cleanupCall.join(" ")).toContain(
+      "notidian-smoke-2026-05-25T10-20-30-456Z-Embed Canvas.canvas"
+    );
+    expect(cleanupCall.join(" ")).toContain(
+      "Notidian Embeds/notidian-smoke-2026-05-25T10-20-30-456Z-filesView.md"
+    );
   });
 
   it("reports API cleanup failures with the affected paths", async () => {

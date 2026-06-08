@@ -1,3 +1,7 @@
+import {
+  insertDescriptorIntoActiveCanvas,
+  insertDescriptorIntoActiveMarkdown,
+} from "adapters/obsidian/utils/notidianEmbedCommands";
 import { ContextViewCrumb } from "core/react/components/UI/Crumbs/ContextViewCrumb";
 import {
   defaultMenu,
@@ -16,7 +20,10 @@ import React, { useContext, useRef } from "react";
 import { stickerForSchema } from "schemas/mdb";
 import { FrameSchema } from "shared/types/mframe";
 import { windowFromDocument } from "shared/utils/dom";
-import { contextViewEmbedStringFromContext } from "shared/utils/makemd/embed";
+import {
+  contextViewEmbedStringFromContext,
+  notidianViewEmbedBlockFromContext,
+} from "shared/utils/makemd/embed";
 export const ListSelector = (props: {
   superstate: Superstate;
   expanded: boolean;
@@ -31,15 +38,54 @@ export const ListSelector = (props: {
     saveSchema,
     deleteSchema,
   } = useContext(FramesMDBContext);
+  const embedTarget = spaceState.type == "vault" ? "/" : spaceState.path;
   const viewContextMenu = (e: React.MouseEvent, _schema: FrameSchema) => {
     const menuOptions: SelectOption[] = [];
     menuOptions.push({
-      name: i18n.menu.copyEmbedLink,
+      name: "Copy Notidian Embed",
+      icon: "ui//link",
+      onClick: (e) => {
+        navigator.clipboard.writeText(
+          notidianViewEmbedBlockFromContext(spaceState, _schema.id)
+        );
+      },
+    });
+
+    menuOptions.push({
+      name: "Copy Legacy Embed Link",
       icon: "ui//link",
       onClick: (e) => {
         navigator.clipboard.writeText(
           contextViewEmbedStringFromContext(spaceState, _schema.id)
         );
+      },
+    });
+
+    menuOptions.push({
+      name: "Insert Embed In Active Markdown",
+      icon: "ui//plus",
+      onClick: () => {
+        insertDescriptorIntoActiveMarkdown((props.superstate.ui as any).plugin, {
+          target: embedTarget,
+          kind: "view",
+          id: _schema.id,
+          title: true,
+          editable: false,
+        });
+      },
+    });
+
+    menuOptions.push({
+      name: "Insert Embed Into Active Canvas",
+      icon: "ui//canvas",
+      onClick: () => {
+        insertDescriptorIntoActiveCanvas((props.superstate.ui as any).plugin, {
+          target: embedTarget,
+          kind: "view",
+          id: _schema.id,
+          title: true,
+          editable: false,
+        });
       },
     });
 

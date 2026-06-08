@@ -45,6 +45,22 @@ The table may feel like a spreadsheet. It may render cached projections. It may 
 | Notidian context MDB | View state, explicit Notidian-owned fields, legacy state, legacy compatibility state | Ordinary note metadata unless explicitly Notidian-owned. |
 | Real-vault harness | Runtime proof in Obsidian | Product behavior that bypasses source-of-truth rules. |
 
+### Database Embed Projection
+
+A Notidian database embed is a live projection descriptor:
+
+- `target` identifies the folder/database scope;
+- `kind` identifies whether the descriptor points at a table/schema or saved
+  view/frame;
+- `id` identifies that schema or view;
+- host fields such as height and title visibility affect presentation only.
+
+Markdown pages and Canvas files store this descriptor or a wrapper reference to
+it. Canvas wrapper notes live in `Notidian Embeds/` so Canvas file nodes can
+resolve ordinary vault-visible files. They do not store row data. Rendering the
+descriptor uses the same Notidian table projection and authority-aware edit
+model as the main database surface.
+
 ## Database Model
 
 ### Database
@@ -244,7 +260,9 @@ The current planner classifies every affected file as:
 
 The planner may preview safe writes even when conflicts exist, but automatic application must remain blocked until conflicts are resolved.
 
-The table header menu exposes `Rename Frontmatter Key` for non-conflicting automatic rename plans. The apply path revalidates the plan after confirmation, writes the new key before deleting the old key, stops on the first file-operation failure, updates table/view references, and reloads canonical Obsidian metadata. Inline header text edits remain display aliases and do not rename YAML keys.
+The table header menu exposes `Rename Frontmatter Key` for non-conflicting automatic rename plans. The apply path revalidates the plan after confirmation, writes the new key before deleting the old key, stops on the first file-operation failure, updates table/view references, and reloads canonical Obsidian metadata. Frontmatter-backed table headers display deterministic labels generated from canonical YAML keys, use a very faint marker when labels differ from the raw key, show the full generated label on hover, and keep casual header-name edits from creating display aliases or renaming YAML keys.
+
+Header display modes are view state, not metadata. Each column can use `Adaptive`, `Icon + Text`, `Text Only`, or `Icon Only`; adaptive mode reads the saved column width to compact the header. Icon-only headers clamp column sizing to the 24px sticker footprint, which is an 18px sticker plus 3px of side padding on each side, and hide auxiliary context marker text so the collapsed header contains only the sticker. Compact boolean columns also remove body-cell checkbox padding at collapsed widths, because body layout can otherwise force the table column wider than the header state. Header, body, and aggregate cells all set explicit `width`, `minWidth`, and `maxWidth`; this is necessary because HTML table layout can stretch cells that only have min/max constraints. Older 18px or 26px collapsed widths are normalized to 24px on load. The row-number gutter is computed from the visible row-number digit count and the row drag grip overlays above the row number rather than reserving fixed width. The column menu exposes header display and data-anchor controls as compact segmented rows. Data anchoring is stored in predicate view state as an override; Auto centers icon-only columns, defaults to right in RTL table mode, right-aligns Hebrew/RTL data in LTR table mode, and otherwise left-aligns data. Table direction is also predicate view state; RTL mode mirrors the table wrapper, row gutter, visual column flow, and frozen-column sticky side without changing Markdown frontmatter or the saved canonical column order. Icon configuration stays next to the header-name input: the left icon opens the picker, and `Default` inside that picker clears the configured icon back to the field-type icon.
 
 ### Delete Property
 
@@ -255,7 +273,7 @@ Deleting a property must distinguish between:
 
 The destructive option requires preview and confirmation.
 
-The current planner represents hide-only deletion as a view/schema preview with no frontmatter writes. It represents destructive deletion as an explicit list of affected files and `removeKeys` operations.
+The current planner represents hide-only deletion as a view/schema preview with no frontmatter writes. It represents destructive deletion as an explicit list of affected files and `removeKeys` operations. The table header menu applies that destructive path only after confirmation, revalidates the preview before writing, removes YAML keys from affected files, clears active predicate references for the deleted column, hides the column from the current Notidian view, and reloads canonical metadata.
 
 ### Types
 
