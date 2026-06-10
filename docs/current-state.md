@@ -114,6 +114,14 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Typing in the property-name input narrows the suggestions. Keys that are already table columns are not suggested, and the section is absent when nothing is discovered.
 - The `$fm` property source (single-file frontmatter, object subfields, action parameters) shows no suggestions because it has no space row set to discover from; choosing a concrete space as the property source surfaces discovery scoped to that space.
 
+### Frontmatter Default Columns On Fresh Primary Contexts
+
+- Opening a view on a primary file context whose persisted table still has only the default `File`/`Created` columns imports the discovered frontmatter properties as persisted frontmatter-backed columns once, so a fresh table or list view starts with all row properties, like Notion.
+- The import gate (`shouldImportFrontmatterColumns`) requires a primary schema, a persisted table with only default columns, and at least one discovered frontmatter key. Read-only contexts, read mode, tag spaces, and non-primary schemas never import.
+- The import re-reads the persisted table and re-runs discovery against its current columns immediately before the save, so concurrent loads or user edits cannot duplicate columns. After the single save the persisted table no longer has only default columns, so the gate stays closed on every later load.
+- Accepted v1 consequence: a frontmatter-rich folder opened as a context gets a wide-by-default table. Column visibility is managed from there through the view's hidden-columns state.
+- Accepted v1 consequence: a user who deletes every non-default column and reopens the context gets the discovered frontmatter columns imported again.
+
 ### Range Clipboard Editing
 
 - Users can select rectangular table ranges.
@@ -330,6 +338,7 @@ The following work remains before Notidian should be considered final:
 | Per-view display property row labels | [rowDisplayLabel.ts](../src/core/utils/contexts/rowDisplayLabel.ts) and [rowDisplayLabel.test.ts](../src/core/utils/contexts/rowDisplayLabel.test.ts) |
 | Inline list row expansion | [rowExpansion.ts](../src/core/utils/contexts/rowExpansion.ts), [rowExpansion.test.ts](../src/core/utils/contexts/rowExpansion.test.ts), and [ContextListView.tsx](../src/core/react/components/SpaceView/Contexts/ContextBuilder/ContextListView.tsx) |
 | Add-property menu frontmatter discovery | [allProperties.ts](../src/core/utils/properties/allProperties.ts), [allProperties.test.ts](../src/core/utils/properties/allProperties.test.ts), and [newSpacePropertyMenu.tsx](../src/core/react/components/UI/Menus/contexts/newSpacePropertyMenu.tsx) |
+| Frontmatter default-column import on fresh primary contexts | [allProperties.ts](../src/core/utils/properties/allProperties.ts), [allProperties.test.ts](../src/core/utils/properties/allProperties.test.ts), and [ContextEditorContext.tsx](../src/core/react/context/ContextEditorContext.tsx) |
 | Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |

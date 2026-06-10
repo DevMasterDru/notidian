@@ -10,6 +10,7 @@ import {
   frontmatterPropertySource,
   materializeFrontmatterBackedContextTable,
   propertyMenuDiscoveryScope,
+  shouldImportFrontmatterColumns,
   shouldWriteContextPropertyToFrontmatter,
   stripFrontmatterBackedRowValues,
 } from "./allProperties";
@@ -489,6 +490,58 @@ describe("contextHasOnlyDefaultColumns", () => {
         ...(defaultContextFields.rows as any),
         { name: "status", type: "text", value: "", schemaId: "files" },
       ])
+    ).toBe(false);
+  });
+});
+
+describe("shouldImportFrontmatterColumns", () => {
+  const defaultCols = defaultContextFields.rows as any;
+
+  it("imports for a primary context with only default columns and discovered keys", () => {
+    expect(shouldImportFrontmatterColumns({ primary: "true" }, defaultCols, 3)).toBe(
+      true
+    );
+  });
+
+  it("treats an empty persisted column list as a fresh context", () => {
+    expect(shouldImportFrontmatterColumns({ primary: "true" }, [], 1)).toBe(true);
+  });
+
+  it("never imports for non-primary or missing schemas", () => {
+    expect(shouldImportFrontmatterColumns({ primary: "" }, defaultCols, 3)).toBe(
+      false
+    );
+    expect(shouldImportFrontmatterColumns({}, defaultCols, 3)).toBe(false);
+    expect(shouldImportFrontmatterColumns(null, defaultCols, 3)).toBe(false);
+    expect(shouldImportFrontmatterColumns(undefined, defaultCols, 3)).toBe(false);
+  });
+
+  it("never imports when discovery found nothing", () => {
+    expect(shouldImportFrontmatterColumns({ primary: "true" }, defaultCols, 0)).toBe(
+      false
+    );
+  });
+
+  it("stays closed after the import persists discovered columns (loop safety)", () => {
+    const persistedAfterImport = [
+      ...defaultCols,
+      {
+        name: "status",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+    ];
+
+    // Discovery excludes persisted columns, so it reports zero after the import.
+    expect(
+      shouldImportFrontmatterColumns({ primary: "true" }, persistedAfterImport, 0)
+    ).toBe(false);
+    // Even a stale discovery count cannot reopen the gate once a
+    // non-default column is persisted.
+    expect(
+      shouldImportFrontmatterColumns({ primary: "true" }, persistedAfterImport, 3)
     ).toBe(false);
   });
 });
