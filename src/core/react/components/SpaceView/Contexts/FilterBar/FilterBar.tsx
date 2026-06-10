@@ -30,6 +30,7 @@ import {
 } from "core/utils/contexts/predicate/predicate";
 import { sortFnTypes } from "core/utils/contexts/predicate/sort";
 import { displayPropertyForPredicate } from "core/utils/contexts/rowDisplayLabel";
+import { discoverFrontmatterPropertiesFromPathStates } from "core/utils/properties/allProperties";
 import { formatDate } from "core/utils/date";
 import { nameForField } from "core/utils/frames/frames";
 import { isPhone } from "core/utils/ui/screen";
@@ -648,9 +649,20 @@ export const FilterBar = (props: {
     };
     if (dbSchema?.primary == "true") {
       const displayProperty = displayPropertyForPredicate(predicate);
-      const displayPropertyOptions = filteredCols.filter(
+      const persistedDisplayOptions = filteredCols.filter(
         (f) => f.primary != "true" && !f.table
       );
+      // Frontmatter keys that were never persisted as columns are equally
+      // valid display properties (labels resolve from the frontmatter cache).
+      const displayPropertyOptions = [
+        ...persistedDisplayOptions,
+        ...discoverFrontmatterPropertiesFromPathStates(
+          props.superstate.pathsIndex,
+          [...(props.superstate.spacesMap.getInverse(spaceCache.path) ?? [])],
+          props.superstate.settings,
+          [...filteredCols, ...persistedDisplayOptions]
+        ),
+      ];
       menuOptions.push({
         name: i18n.menu.displayProperty,
         icon: "ui//type",

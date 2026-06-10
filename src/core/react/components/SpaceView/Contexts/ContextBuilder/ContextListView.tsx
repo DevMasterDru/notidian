@@ -13,7 +13,7 @@ import { SpaceContext } from "core/react/context/SpaceContext";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
 import {
   displayPropertyForPredicate,
-  rowDisplayLabelOverride,
+  resolveRowDisplayLabel,
 } from "core/utils/contexts/rowDisplayLabel";
 import {
   expandableRowNotePath,
@@ -240,8 +240,11 @@ export const ContextListView = (props: {
                 _keyValue: c[primaryKey],
                 _schema: dbSchema.id,
                 _name:
-                  rowDisplayLabelOverride(c, displayProperty) ??
-                  spaceManager.getPathState(c[primaryKey])?.name,
+                  resolveRowDisplayLabel(
+                    c,
+                    spaceManager.getPathState(c[primaryKey]),
+                    displayProperty
+                  ) ?? spaceManager.getPathState(c[primaryKey])?.name,
                 _values: c,
                 ...context,
               },
