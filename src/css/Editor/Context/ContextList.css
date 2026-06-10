@@ -75,3 +75,27 @@ flex-direction: column;
   display: flex;
   flex-wrap: wrap;
 }
+
+.mk-list-toggle-row {
+  display: flex;
+  flex-direction: column;
+}
+.mk-list-toggle-row-header {
+  display: flex;
+  align-items: center;
+}
+.mk-list-toggle-row-header > .mk-collapse,
+.mk-list-toggle-row-spacer {
+  flex-shrink: 0;
+}
+.mk-list-toggle-row-spacer {
+  width: 16px;
+  margin-right: 2px;
+}
+.mk-list-toggle-row-item {
+  flex: 1;
+  min-width: 0;
+}
+.mk-list-toggle-row-body {
+  padding: 0 0 8px 18px;
+}
