@@ -5,6 +5,8 @@ import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { Superstate } from "makemd-core";
 
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
+import { NoteView } from "core/react/components/PathView/NoteView";
+import { CollapseToggle } from "core/react/components/UI/Toggles/CollapseToggle";
 import { FrameInstanceContext } from "core/react/context/FrameInstanceContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
@@ -13,6 +15,11 @@ import {
   displayPropertyForPredicate,
   rowDisplayLabelOverride,
 } from "core/utils/contexts/rowDisplayLabel";
+import {
+  expandableRowNotePath,
+  listItemSupportsRowExpansion,
+  toggleRowExpansion,
+} from "core/utils/contexts/rowExpansion";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { SelectOption } from "makemd-core";
 import { parseMultiString } from "utils/parsers";
@@ -64,6 +71,8 @@ export const ContextListView = (props: {
 
   const [pageId, setPageId] = useState(1);
   const pageLength = 25;
+  // ADR 0016 v1: toggle-row open state is per-session React state, never persisted
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const { instance } = useContext(FrameInstanceContext);
 
   const groupBy =
@@ -212,6 +221,11 @@ export const ContextListView = (props: {
 
   const displayProperty = displayPropertyForPredicate(predicate);
 
+  const rowsExpandable =
+    listItemSupportsRowExpansion(itemURI) &&
+    dbSchema?.primary == "true" &&
+    (editSection != "listItem" || editMode == FrameEditorMode.Read);
+
   const contextMap: { [key: string]: FrameTreeProp } = useMemo(() => {
     if (!dbSchema) {
       return {};
@@ -350,7 +364,7 @@ export const ContextListView = (props: {
                       }
                       const id =
                         (spaceInfo?.path || "unknown") + "listGroup" + i + "_listItem" + j;
-                      return (
+                      const instance = (
                         <ContextListInstance
                           key={"listGroup" + i + "_listItem" + j}
                           id={id}
@@ -385,6 +399,51 @@ export const ContextListView = (props: {
                           }
                           contexts={contextMap[f["_index"]]}
                         ></ContextListInstance>
+                      );
+                      if (!rowsExpandable) {
+                        return instance;
+                      }
+                      const notePath = expandableRowNotePath(
+                        f,
+                        primaryKey,
+                        (p) => spaceManager.getPathState(p)
+                      );
+                      const rowExpanded = notePath
+                        ? expandedRows[notePath] == true
+                        : false;
+                      return (
+                        <div
+                          key={"listGroup" + i + "_listItem" + j}
+                          className="mk-list-toggle-row"
+                        >
+                          <div className="mk-list-toggle-row-header">
+                            {notePath ? (
+                              <CollapseToggle
+                                superstate={props.superstate}
+                                collapsed={!rowExpanded}
+                                onToggle={() =>
+                                  setExpandedRows((p) =>
+                                    toggleRowExpansion(p, notePath)
+                                  )
+                                }
+                              ></CollapseToggle>
+                            ) : (
+                              <div className="mk-list-toggle-row-spacer"></div>
+                            )}
+                            <div className="mk-list-toggle-row-item">
+                              {instance}
+                            </div>
+                          </div>
+                          {notePath && rowExpanded && (
+                            <NoteView
+                              superstate={props.superstate}
+                              path={notePath}
+                              load={true}
+                              classname="mk-list-toggle-row-body"
+                              readOnly={readMode}
+                            ></NoteView>
+                          )}
+                        </div>
                       );
                     })}
                 </SortableContext>
