@@ -99,6 +99,14 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Rename reconciliation preserves row order and removes duplicate renamed rows after metadata events.
 - Changing folders from the title cell is intentionally not implemented; that requires a separate move command.
 
+### Inline List Row Expansion
+
+- List-layout rows in file-backed contexts show a collapse chevron next to the row label ([ADR 0016](adr/0016-per-view-display-properties-and-inline-row-expansion.md)).
+- Expanding a row renders the note body inline below the row header through the existing inline-note flow editor; collapsing removes it.
+- Multiple rows can be open at once, and each row's open state toggles independently.
+- Open state is per-session React state only. It is not written to the view predicate or the context MDB; persisted open-state is an explicit deferred follow-up in ADR 0016.
+- Rows that do not resolve to a markdown note keep an alignment spacer and no affordance. Board, cards, gallery, catalog, flow, calendar, and table layouts are unchanged.
+
 ### Range Clipboard Editing
 
 - Users can select rectangular table ranges.
@@ -313,6 +321,7 @@ The following work remains before Notidian should be considered final:
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Per-view display property row labels | [rowDisplayLabel.ts](../src/core/utils/contexts/rowDisplayLabel.ts) and [rowDisplayLabel.test.ts](../src/core/utils/contexts/rowDisplayLabel.test.ts) |
+| Inline list row expansion | [rowExpansion.ts](../src/core/utils/contexts/rowExpansion.ts), [rowExpansion.test.ts](../src/core/utils/contexts/rowExpansion.test.ts), and [ContextListView.tsx](../src/core/react/components/SpaceView/Contexts/ContextBuilder/ContextListView.tsx) |
 | Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
