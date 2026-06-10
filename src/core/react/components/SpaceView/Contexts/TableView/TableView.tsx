@@ -55,6 +55,10 @@ import { PointerModifiers } from "core/types/ui";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import {
+  displayPropertyForPredicate,
+  rowDisplayLabelOverride,
+} from "core/utils/contexts/rowDisplayLabel";
+import {
   parseTableClipboardText,
   serializeTableClipboardGrid,
 } from "core/utils/contexts/tableClipboard";
@@ -456,6 +460,7 @@ export const TableView = (props: { superstate: Superstate }) => {
   const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
+  const displayProperty = displayPropertyForPredicate(predicate);
   const visibleRowOrder = useMemo(() => data.map((f) => f._index), [data]);
   const visibleColumnOrder = useMemo(
     () => cols.map((f) => f.name + f.table),
@@ -1097,6 +1102,13 @@ export const TableView = (props: { superstate: Superstate }) => {
                 data[index][PathPropertyName],
               columns: cols,
               contextPath: spaceCache?.path,
+              displayLabel:
+                f.name == PathPropertyName
+                  ? rowDisplayLabelOverride(
+                      data[index] as DBRow,
+                      displayProperty
+                    ) ?? undefined
+                  : undefined,
             };
 
             const fieldType = fieldTypeForType(f.type, f.name);

@@ -9,6 +9,10 @@ import { FrameInstanceContext } from "core/react/context/FrameInstanceContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
+import {
+  displayPropertyForPredicate,
+  rowDisplayLabelOverride,
+} from "core/utils/contexts/rowDisplayLabel";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { SelectOption } from "makemd-core";
 import { parseMultiString } from "utils/parsers";
@@ -206,6 +210,8 @@ export const ContextListView = (props: {
     },
   };
 
+  const displayProperty = displayPropertyForPredicate(predicate);
+
   const contextMap: { [key: string]: FrameTreeProp } = useMemo(() => {
     if (!dbSchema) {
       return {};
@@ -219,7 +225,9 @@ export const ContextListView = (props: {
                 _index: c["_index"],
                 _keyValue: c[primaryKey],
                 _schema: dbSchema.id,
-                _name: spaceManager.getPathState(c[primaryKey])?.name,
+                _name:
+                  rowDisplayLabelOverride(c, displayProperty) ??
+                  spaceManager.getPathState(c[primaryKey])?.name,
                 _values: c,
                 ...context,
               },
@@ -273,7 +281,7 @@ export const ContextListView = (props: {
         }, {});
   
   return contextMap;
-  }, [data, cols, source, contextTable, spaceState]);
+  }, [data, cols, source, contextTable, spaceState, displayProperty]);
 
   return (
     <FrameContainerView

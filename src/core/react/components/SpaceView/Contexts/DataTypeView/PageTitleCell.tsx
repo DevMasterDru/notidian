@@ -11,6 +11,7 @@ export const PageTitleCell = (
   props: TableCellProp & {
     renameValue?: (value: string) => Promise<string | null>;
     startEditing?: () => void;
+    displayLabel?: string;
   }
 ) => {
   const currentTitle = pageTitleFromPath(props.initialValue ?? "");
@@ -126,7 +127,9 @@ export const PageTitleCell = (
         hideName={true}
         onClick={onViewClick}
       >
-        <span className="mk-cell-file-name">{displayTitle}</span>
+        <span className="mk-cell-file-name">
+          {props.displayLabel ?? displayTitle}
+        </span>
       </PathCrumb>
     </div>
   );
