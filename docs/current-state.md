@@ -107,6 +107,13 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Open state is per-session React state only. It is not written to the view predicate or the context MDB; persisted open-state is an explicit deferred follow-up in ADR 0016.
 - Rows that do not resolve to a markdown note keep an alignment spacer and no affordance. Board, cards, gallery, catalog, flow, calendar, and table layouts are unchanged.
 
+### Add-Property Menu Frontmatter Discovery
+
+- The add-property menu discovers existing frontmatter keys across the context's rows when it opens and lists them as a visible `Existing Property` section with inferred-type icons ([ADR 0016](adr/0016-per-view-display-properties-and-inline-row-expansion.md)).
+- Selecting a suggestion adds the key as a frontmatter-backed column/property through the same save path as the previous import-button submenu; creating a new property is unchanged.
+- Typing in the property-name input narrows the suggestions. Keys that are already table columns are not suggested, and the section is absent when nothing is discovered.
+- The `$fm` property source (single-file frontmatter, object subfields, action parameters) shows no suggestions because it has no space row set to discover from; choosing a concrete space as the property source surfaces discovery scoped to that space.
+
 ### Range Clipboard Editing
 
 - Users can select rectangular table ranges.
@@ -322,6 +329,7 @@ The following work remains before Notidian should be considered final:
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
 | Per-view display property row labels | [rowDisplayLabel.ts](../src/core/utils/contexts/rowDisplayLabel.ts) and [rowDisplayLabel.test.ts](../src/core/utils/contexts/rowDisplayLabel.test.ts) |
 | Inline list row expansion | [rowExpansion.ts](../src/core/utils/contexts/rowExpansion.ts), [rowExpansion.test.ts](../src/core/utils/contexts/rowExpansion.test.ts), and [ContextListView.tsx](../src/core/react/components/SpaceView/Contexts/ContextBuilder/ContextListView.tsx) |
+| Add-property menu frontmatter discovery | [allProperties.ts](../src/core/utils/properties/allProperties.ts), [allProperties.test.ts](../src/core/utils/properties/allProperties.test.ts), and [newSpacePropertyMenu.tsx](../src/core/react/components/UI/Menus/contexts/newSpacePropertyMenu.tsx) |
 | Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
