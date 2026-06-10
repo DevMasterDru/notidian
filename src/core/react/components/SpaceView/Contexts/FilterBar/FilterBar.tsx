@@ -1,6 +1,7 @@
 import classNames from "classnames";
 import { PathCrumb } from "core/react/components/UI/Crumbs/PathCrumb";
 import { showNewPropertyMenu } from "core/react/components/UI/Menus/contexts/newSpacePropertyMenu";
+import { showPropertyVisibilityMenu } from "core/react/components/UI/Menus/contexts/propertyVisibilityMenu";
 import { showPropertyMenu } from "core/react/components/UI/Menus/contexts/spacePropertyMenu";
 import {
   defaultMenu,
@@ -276,12 +277,6 @@ export const FilterBar = (props: {
       sort: [],
     });
   };
-  const clearHiddenCols = () => {
-    savePredicate({
-      colsHidden: [],
-    });
-  };
-
   const removeFilter = (filter: Filter, index: number) => {
     const pred = predicate ?? defaultPredicateForSchema(dbSchema);
     const newFilters = [...pred.filters.filter((f, i) => i != index)];
@@ -1059,79 +1054,32 @@ export const FilterBar = (props: {
         true
       );
     };
-    const options: SelectOption[] = [];
-    options.push({
-      name: i18n.labels.newProperty,
-      icon: "ui//plus",
-      type: SelectOptionType.Submenu,
-      onSubmenu: (offset: Rect, onHide: () => void) => {
-        return showNewPropertyMenu(
-          props.superstate,
-          offset,
-          win,
-          {
-            spaces: [],
-            fields: [],
-            saveField: saveNewField,
-            schemaId: dbSchema.id,
-            contextPath: spaceCache.path,
-          },
-          onHide
-        );
-      },
-    });
-    options.push(menuSeparator);
-    options.push(
-      ...filteredCols
-        .filter(
-          (f) =>
-            predicate.colsHidden.some((h) => h == f.name + f.table) == false
-        )
-        .map((f) => ({
-          name: f.name + f.table,
-          icon: stickerForField(f),
-          value: f.name + f.table,
-          type: SelectOptionType.Submenu,
-          onSubmenu: (rect: Rect, onHide: () => void) =>
-            showPropertyEditorMenu(f, rect, onHide),
-        }))
-    );
-    options.push(menuSeparator);
-    options.push(
-      ...filteredCols
-        .filter((f) => predicate.colsHidden.some((h) => h == f.name + f.table))
-        .map((f) => ({
-          name: f.name + f.table,
-          icon: stickerForField(f),
-          value: f.name + f.table,
-          type: SelectOptionType.Submenu,
-          onSubmenu: (rect: Rect, onHide: () => void) =>
-            showPropertyEditorMenu(f, rect, onHide),
-        }))
-    );
-    options.push(menuSeparator);
-    options.push({
-      name: i18n.menu.unhideFields,
-      icon: "ui//eye",
-      onClick: (e) => {
-        clearHiddenCols();
-      },
-    });
-    return props.superstate.ui.openMenu(
+    return showPropertyVisibilityMenu(
+      props.superstate,
       offset,
-      {
-        ui: props.superstate.ui,
-        multi: false,
-        editable: false,
-        value: [],
-        options: options,
-
-        placeholder: i18n.labels.propertyItemSelectPlaceholder,
-        searchable: false,
-        showAll: true,
-      },
       win,
-      "right",
+      {
+        cols: filteredCols,
+        colsOrder: predicate?.colsOrder ?? [],
+        colsHidden: predicate?.colsHidden ?? [],
+        savePredicate,
+        editProperty: (col, rect) =>
+          showPropertyEditorMenu(col, rect, () => null),
+        newProperty: (rect) =>
+          showNewPropertyMenu(
+            props.superstate,
+            rect,
+            win,
+            {
+              spaces: [],
+              fields: [],
+              saveField: saveNewField,
+              schemaId: dbSchema.id,
+              contextPath: spaceCache.path,
+            },
+            () => null
+          ),
+      },
       onHide
     );
   };
