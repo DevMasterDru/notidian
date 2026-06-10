@@ -158,6 +158,30 @@ export const discoverFrontmatterPropertiesFromPathStates = (
   return discovered;
 };
 
+export const propertyMenuDiscoveryScope = (
+  fieldSource: string,
+  contextPath?: string
+): string | undefined => {
+  // "$fm" targets a single file's own frontmatter (or an object subfield /
+  // action parameter); there is no space row set to discover keys from.
+  const scope = fieldSource === "" ? contextPath : fieldSource;
+  if (!scope || scope === "$fm") return undefined;
+  return scope;
+};
+
+export const filterPropertiesForNameQuery = <
+  T extends Pick<SpaceProperty, "name">
+>(
+  properties: T[],
+  query: string
+): T[] => {
+  const trimmed = (query ?? "").trim().toLowerCase();
+  if (!trimmed) return properties;
+  return properties.filter((property) =>
+    property.name.toLowerCase().includes(trimmed)
+  );
+};
+
 export const materializeFrontmatterBackedContextTable = (
   table: SpaceTable,
   pathsIndex: Map<string, Pick<PathState, "metadata">>,

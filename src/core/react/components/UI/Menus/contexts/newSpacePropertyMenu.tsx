@@ -9,7 +9,9 @@ import { RepeatTemplate } from "core/utils/contexts/fields/presets";
 import { nameForField } from "core/utils/frames/frames";
 import {
   discoverFrontmatterPropertiesFromPathStates,
+  filterPropertiesForNameQuery,
   frontmatterPropertySource,
+  propertyMenuDiscoveryScope,
 } from "core/utils/properties/allProperties";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -215,6 +217,25 @@ const NewPropertyMenuComponent = (
     }, 50);
   }, []);
   const input = useRef(null);
+  const discoveredProperties = useMemo(() => {
+    const scope = propertyMenuDiscoveryScope(fieldSource, props.contextPath);
+    if (!scope) return [];
+    return discoverFrontmatterPropertiesFromPathStates(
+      props.superstate.pathsIndex,
+      [...(props.superstate.spacesMap.getInverse(scope) ?? [])],
+      props.superstate.settings,
+      props.superstate.contextsIndex.get(scope)?.contextTable?.cols ?? [],
+      props.schemaId
+    );
+  }, [fieldSource, props.contextPath, props.schemaId]);
+  const suggestedProperties = useMemo(
+    () => filterPropertiesForNameQuery(discoveredProperties, fieldName),
+    [discoveredProperties, fieldName]
+  );
+  const addDiscoveredProperty = (property: SpaceProperty) => {
+    const result = props.saveField(fieldSource, property);
+    if (result) props.hide();
+  };
   const addExistingProperty = (e: React.MouseEvent) => {
     const source = fieldSource == "" ? props.contextPath : fieldSource;
     e.stopPropagation();
@@ -307,6 +328,41 @@ const NewPropertyMenuComponent = (
             ></button>
           )}
         </div>
+
+        {suggestedProperties.length > 0 && (
+          <>
+            <div className="mk-menu-separator"></div>
+            <div className="mk-menu-option mk-disabled">
+              <div className="mk-menu-options-section">
+                {i18n.labels.existingFrontmatter}
+              </div>
+            </div>
+            {suggestedProperties.map((property) => (
+              <div
+                key={property.name}
+                className="mk-menu-option"
+                onClick={() => addDiscoveredProperty(property)}
+              >
+                <div
+                  className="mk-sticker"
+                  dangerouslySetInnerHTML={{
+                    __html: props.superstate.ui.getSticker(
+                      stickerForField(property)
+                    ),
+                  }}
+                ></div>
+                <div className="mk-menu-options-inner">{property.name}</div>
+                <span>
+                  {propertyTypeLabelForField({
+                    name: property.name,
+                    source: frontmatterPropertySource,
+                    type: property.type,
+                  })}
+                </span>
+              </div>
+            ))}
+          </>
+        )}
 
         <div className="mk-menu-separator"></div>
         {options.length > 1 && (
