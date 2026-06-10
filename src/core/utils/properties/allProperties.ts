@@ -3,7 +3,7 @@ import { Superstate } from "makemd-core";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { defaultContextFields } from "shared/schemas/fields";
 import { PathPropertyName } from "shared/types/context";
-import { SpaceProperty, SpaceTable } from "shared/types/mdb";
+import { SpaceProperty, SpaceTable, SpaceTableSchema } from "shared/types/mdb";
 import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
 import { detectPropertyType, yamlTypeToMDBType } from "utils/properties";
@@ -51,6 +51,15 @@ export const contextHasOnlyDefaultColumns = (
     )
   );
 };
+
+export const shouldImportFrontmatterColumns = (
+  dbSchema: Pick<SpaceTableSchema, "primary"> | null | undefined,
+  persistedCols: Pick<SpaceProperty, "name" | "type" | "value">[] = [],
+  discoveredCount: number
+): boolean =>
+  dbSchema?.primary == "true" &&
+  contextHasOnlyDefaultColumns(persistedCols) &&
+  discoveredCount > 0;
 
 export const contextHasOnlyDefaultOrFrontmatterColumns = (
   cols: Pick<SpaceProperty, "name" | "type" | "value">[] = [],
