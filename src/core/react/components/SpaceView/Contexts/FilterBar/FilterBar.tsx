@@ -29,6 +29,7 @@ import {
   predicateFnsForType,
 } from "core/utils/contexts/predicate/predicate";
 import { sortFnTypes } from "core/utils/contexts/predicate/sort";
+import { displayPropertyForPredicate } from "core/utils/contexts/rowDisplayLabel";
 import { formatDate } from "core/utils/date";
 import { nameForField } from "core/utils/frames/frames";
 import { isPhone } from "core/utils/ui/screen";
@@ -645,6 +646,53 @@ export const FilterBar = (props: {
         },
       });
     };
+    if (dbSchema?.primary == "true") {
+      const displayProperty = displayPropertyForPredicate(predicate);
+      const displayPropertyOptions = filteredCols.filter(
+        (f) => f.primary != "true" && !f.table
+      );
+      menuOptions.push({
+        name: i18n.menu.displayProperty,
+        icon: "ui//type",
+        type: SelectOptionType.Disclosure,
+        value: displayProperty ?? i18n.menu.none,
+        onClick: (e) => {
+          const offset = (e.target as HTMLElement).getBoundingClientRect();
+          props.superstate.ui.openMenu(
+            offset,
+            {
+              ui: props.superstate.ui,
+              multi: false,
+              editable: false,
+              value: [displayProperty ?? ""],
+              options: [
+                {
+                  name: i18n.menu.none,
+                  value: "",
+                  icon: "ui//file",
+                },
+                ...displayPropertyOptions.map((f) => ({
+                  name: f.name,
+                  value: f.name,
+                  icon: stickerForField(f),
+                })),
+              ],
+              saveOptions: (_: string[], value: string[]) => {
+                savePropValue(
+                  "listViewProps",
+                  "displayProperty",
+                  value[0] ?? ""
+                );
+              },
+              placeholder: i18n.labels.propertyItemSelectPlaceholder,
+              searchable: true,
+              showAll: true,
+            },
+            windowFromDocument(e.view.document)
+          );
+        },
+      });
+    }
     listViewOptions.forEach((f) => {
       menuOptions.push({
         name: nameForField(f),

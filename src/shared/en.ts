@@ -270,6 +270,7 @@ export const en = {
     "listView": "List View",
     "flowView": "Flow View",
     "sortBy": "Sort",
+    "displayProperty": "Display Property",
     "filters": "Filters",
     "clearFilters": "Clear Filters",
     "hide": "Hide",

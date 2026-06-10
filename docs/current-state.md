@@ -91,6 +91,8 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 ### Editable Page Titles
 
 - The visible page title is derived from the row's file path basename.
+- A view may designate one frontmatter property as its display property (`predicate.listViewProps.displayProperty`, set from the view-options Display Property picker). When set, list and table row labels render that property's value; empty or missing values fall back to the basename ([ADR 0016](adr/0016-per-view-display-properties-and-inline-row-expansion.md)).
+- The display property changes only the rendered label. Row identity, links, copy, and rename transactions stay basename-owned; editing the title cell still edits and renames the basename.
 - Editing the title performs a file rename, not a context value write.
 - Rename transactions reject empty names, slash-containing names, duplicates, and invalid target conflicts.
 - Bulk title paste uses the same rename transaction path.
@@ -310,6 +312,7 @@ The following work remains before Notidian should be considered final:
 | Transient cell feedback | [tableEditFeedback.ts](../src/core/utils/contexts/tableEditFeedback.ts) and [tableEditFeedback.test.ts](../src/core/utils/contexts/tableEditFeedback.test.ts) |
 | Table undo journal | [tableUndoJournal.ts](../src/core/utils/contexts/tableUndoJournal.ts) and [tableUndoJournal.test.ts](../src/core/utils/contexts/tableUndoJournal.test.ts) |
 | Page title parsing and rename transactions | [pageTitle.ts](../src/core/utils/contexts/pageTitle.ts) and [pageTitleRename.ts](../src/core/utils/contexts/pageTitleRename.ts) |
+| Per-view display property row labels | [rowDisplayLabel.ts](../src/core/utils/contexts/rowDisplayLabel.ts) and [rowDisplayLabel.test.ts](../src/core/utils/contexts/rowDisplayLabel.test.ts) |
 | Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
