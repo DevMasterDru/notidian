@@ -41,6 +41,7 @@ export type DataTypeViewProps = {
   startEditing?: () => void;
   setEditMode?: (mode: [string, string]) => void;
   contextPath?: string;
+  displayLabel?: string;
 };
 
 export const DataTypeView: React.FC<DataTypeViewProps> = (
@@ -80,7 +81,12 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
   }
   if (fieldType.type == "file") {
     if (column.name == PathPropertyName && props.renameValue) {
-      return <PageTitleCell {...viewProps}></PageTitleCell>;
+      return (
+        <PageTitleCell
+          {...viewProps}
+          displayLabel={props.displayLabel}
+        ></PageTitleCell>
+      );
     }
     return (
       <LinkCell
