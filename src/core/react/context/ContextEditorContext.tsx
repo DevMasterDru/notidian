@@ -5,7 +5,9 @@ import {
   pinPathToSpaceAtIndex,
 } from "core/superstate/utils/spaces";
 import {
+  discoverFrontmatterPropertiesFromPathStates,
   isFrontmatterBackedProperty,
+  shouldImportFrontmatterColumns,
   shouldWriteContextPropertyToFrontmatter,
 } from "core/utils/properties/allProperties";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
@@ -41,6 +43,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { defaultContextTable, fieldTypeForField } from "schemas/mdb";
@@ -410,6 +413,76 @@ export const ContextEditorProvider: React.FC<
   useEffect(() => {
     loadTables();
   }, [spaceInfo, frameSchema, props.source, spaceManager]);
+
+  // Notion-style default columns: a fresh PRIMARY file context whose persisted
+  // table still has only the default File/Created columns imports the
+  // discovered frontmatter keys as persisted columns once. After the save the
+  // persisted table no longer has only default columns, so the gate stays
+  // closed on every later load; the ref dedupes attempts while mounted.
+  const frontmatterImportAttempts = useRef(new Set<string>());
+  useEffect(() => {
+    if (!tableData || !dbSchema) return;
+    if (readMode || spaceInfo?.readOnly) return;
+    const spaceState = props.superstate.spacesIndex.get(contextPath);
+    if (!spaceState || spaceState.type == "tag") return;
+    const paths = [
+      ...(props.superstate.spacesMap.getInverse(contextPath) ?? []),
+    ];
+    const discovered = discoverFrontmatterPropertiesFromPathStates(
+      props.superstate.pathsIndex,
+      paths,
+      props.superstate.settings,
+      tableData.cols ?? [],
+      dbSchema.id
+    );
+    if (
+      !shouldImportFrontmatterColumns(
+        dbSchema,
+        tableData.cols ?? [],
+        discovered.length
+      )
+    )
+      return;
+    const attemptKey = `${contextPath}//${dbSchema.id}`;
+    if (frontmatterImportAttempts.current.has(attemptKey)) return;
+    frontmatterImportAttempts.current.add(attemptKey);
+    props.superstate.spaceManager
+      .readTable(contextPath, dbSchema.id)
+      .then((f) => {
+        if (!f) return;
+        // Re-discover against the freshly read persisted columns so a
+        // concurrent import or user edit cannot duplicate columns.
+        const freshDiscovered = discoverFrontmatterPropertiesFromPathStates(
+          props.superstate.pathsIndex,
+          paths,
+          props.superstate.settings,
+          f.cols ?? [],
+          dbSchema.id
+        );
+        if (
+          !shouldImportFrontmatterColumns(
+            dbSchema,
+            f.cols ?? [],
+            freshDiscovered.length
+          )
+        )
+          return;
+        return props.superstate.spaceManager
+          .saveTable(
+            contextPath,
+            { ...f, cols: [...(f.cols ?? []), ...freshDiscovered] },
+            true
+          )
+          .then(() =>
+            props.superstate.reloadContextByPath(contextPath, {
+              force: true,
+              calculate: true,
+            })
+          );
+      })
+      .catch(() => {});
+  }, [tableData, dbSchema]);
+
   const saveDB = async (newTable: SpaceTable) => {
     if (spaceInfo.readOnly) return;
     updateTable(newTable);
