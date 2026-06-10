@@ -122,6 +122,16 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Accepted v1 consequence: a frontmatter-rich folder opened as a context gets a wide-by-default table. Column visibility is managed from there through the view's hidden-columns state.
 - Accepted v1 consequence: a user who deletes every non-default column and reopens the context gets the discovered frontmatter columns imported again.
 
+### Properties Visibility Panel
+
+- The view-options `Properties` item opens a Notion-style panel with two groups: `Shown in view` (columns not in `predicate.colsHidden`, ordered by `predicate.colsOrder` like the live table) and `Hidden in view` (columns in `colsHidden`).
+- Each row shows a drag handle, the property's type sticker, its name, and an eye toggle (`ui//eye` shown / `ui//eye-off` hidden) that moves the property between groups immediately.
+- Dragging within `Shown in view` reorders `predicate.colsOrder` with the same move semantics as the table header drag; dragging a row across groups toggles `colsHidden`.
+- The primary `File` column is pinned at the top of `Shown in view`: it has no eye toggle, is not draggable, and bulk `Hide all` never hides it.
+- Group headers carry bulk actions: `Hide all` on the shown group and `Show all` on the hidden group. `Show all` only clears hidden keys belonging to the panel's columns, preserving unknown predicate entries.
+- A search input narrows both groups by property name. Clicking a row name still opens the existing per-property edit menu, and a `New Property` footer item keeps the previous create flow.
+- All visibility and order state stays in the view predicate (`colsHidden`, `colsOrder`, keyed `name + table`) through `savePredicate`; nothing is written to files or context MDB columns.
+
 ### Range Clipboard Editing
 
 - Users can select rectangular table ranges.
@@ -339,6 +349,7 @@ The following work remains before Notidian should be considered final:
 | Inline list row expansion | [rowExpansion.ts](../src/core/utils/contexts/rowExpansion.ts), [rowExpansion.test.ts](../src/core/utils/contexts/rowExpansion.test.ts), and [ContextListView.tsx](../src/core/react/components/SpaceView/Contexts/ContextBuilder/ContextListView.tsx) |
 | Add-property menu frontmatter discovery | [allProperties.ts](../src/core/utils/properties/allProperties.ts), [allProperties.test.ts](../src/core/utils/properties/allProperties.test.ts), and [newSpacePropertyMenu.tsx](../src/core/react/components/UI/Menus/contexts/newSpacePropertyMenu.tsx) |
 | Frontmatter default-column import on fresh primary contexts | [allProperties.ts](../src/core/utils/properties/allProperties.ts), [allProperties.test.ts](../src/core/utils/properties/allProperties.test.ts), and [ContextEditorContext.tsx](../src/core/react/context/ContextEditorContext.tsx) |
+| Properties visibility panel (shown/hidden groups, drag reorder, eye toggles) | [propertyVisibility.ts](../src/core/utils/contexts/propertyVisibility.ts), [propertyVisibility.test.ts](../src/core/utils/contexts/propertyVisibility.test.ts), [propertyVisibilityMenu.tsx](../src/core/react/components/UI/Menus/contexts/propertyVisibilityMenu.tsx), and [FilterBar.tsx](../src/core/react/components/SpaceView/Contexts/FilterBar/FilterBar.tsx) |
 | Frontmatter schema planning and safe column actions | [notidianSchema.ts](../src/core/utils/contexts/notidianSchema.ts), [notidianSchema.test.ts](../src/core/utils/contexts/notidianSchema.test.ts), [notidianSchemaApply.ts](../src/core/utils/contexts/notidianSchemaApply.ts), [notidianSchemaApply.test.ts](../src/core/utils/contexts/notidianSchemaApply.test.ts), [propertyColumnActions.ts](../src/core/utils/contexts/propertyColumnActions.ts), and [propertyColumnActions.test.ts](../src/core/utils/contexts/propertyColumnActions.test.ts) |
 | Legacy context audit and migration planning | [legacyContextMigrationCore.js](../src/core/utils/contexts/legacyContextMigrationCore.js), [legacyContextMigration.ts](../src/core/utils/contexts/legacyContextMigration.ts), and [legacyContextMigration.test.ts](../src/core/utils/contexts/legacyContextMigration.test.ts) |
 | Legacy context read-only report | [notidianLegacyContextAudit.js](../scripts/notidianLegacyContextAudit.js) and [notidianLegacyContextAudit.test.js](../scripts/notidianLegacyContextAudit.test.js) |
