@@ -6,8 +6,10 @@ import {
   contextHasOnlyDefaultColumns,
   contextHasOnlyDefaultOrFrontmatterColumns,
   discoverFrontmatterPropertiesFromPathStates,
+  filterPropertiesForNameQuery,
   frontmatterPropertySource,
   materializeFrontmatterBackedContextTable,
+  propertyMenuDiscoveryScope,
   shouldWriteContextPropertyToFrontmatter,
   stripFrontmatterBackedRowValues,
 } from "./allProperties";
@@ -110,6 +112,114 @@ describe("discoverFrontmatterPropertiesFromPathStates", () => {
     );
 
     expect(result).toEqual([]);
+  });
+
+  it("discovers title as a first-class suggestion with its inferred type", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "Beads Portfolio/Notidian-9pn.md",
+        pathState({
+          title: "Views: display properties (ADR 0016)",
+          repo: "Notidian",
+          status: "open",
+        }),
+      ],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["Beads Portfolio/Notidian-9pn.md"],
+      settings,
+      [],
+      defaultContextSchemaID
+    );
+
+    expect(result).toEqual([
+      {
+        name: "title",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "repo",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+      {
+        name: "status",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+    ]);
+  });
+
+  it("stops suggesting keys that are already table columns", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "Beads Portfolio/Notidian-9pn.md",
+        pathState({
+          title: "Views: display properties (ADR 0016)",
+          repo: "Notidian",
+        }),
+      ],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["Beads Portfolio/Notidian-9pn.md"],
+      settings,
+      [{ name: "title", type: "text" } as any],
+      defaultContextSchemaID
+    );
+
+    expect(result.map((property) => property.name)).toEqual(["repo"]);
+  });
+});
+
+describe("propertyMenuDiscoveryScope", () => {
+  it("uses the context path when the source is the current context", () => {
+    expect(propertyMenuDiscoveryScope("", "Beads Portfolio")).toBe(
+      "Beads Portfolio"
+    );
+  });
+
+  it("uses the selected space when an explicit source is chosen", () => {
+    expect(propertyMenuDiscoveryScope("Relays & Devices", "Beads Portfolio")).toBe(
+      "Relays & Devices"
+    );
+  });
+
+  it("has no scope for $fm because a single file has no row set to discover from", () => {
+    expect(propertyMenuDiscoveryScope("$fm", "Beads Portfolio")).toBeUndefined();
+  });
+
+  it("has no scope without a context path", () => {
+    expect(propertyMenuDiscoveryScope("", undefined)).toBeUndefined();
+  });
+});
+
+describe("filterPropertiesForNameQuery", () => {
+  const discovered = [
+    { name: "title" },
+    { name: "repo" },
+    { name: "status" },
+  ];
+
+  it("returns every suggestion for an empty query", () => {
+    expect(filterPropertiesForNameQuery(discovered, "")).toEqual(discovered);
+  });
+
+  it("filters suggestions case-insensitively as the user types", () => {
+    expect(filterPropertiesForNameQuery(discovered, "TIT")).toEqual([
+      { name: "title" },
+    ]);
+    expect(filterPropertiesForNameQuery(discovered, "missing")).toEqual([]);
   });
 });
 
