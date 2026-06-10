@@ -220,14 +220,17 @@ const NewPropertyMenuComponent = (
   const discoveredProperties = useMemo(() => {
     const scope = propertyMenuDiscoveryScope(fieldSource, props.contextPath);
     if (!scope) return [];
+    // Exclusions must be the PERSISTED columns the menu was opened with
+    // (props.fields) — the superstate contextsIndex materializes every
+    // frontmatter key as a virtual column, which would exclude everything.
     return discoverFrontmatterPropertiesFromPathStates(
       props.superstate.pathsIndex,
       [...(props.superstate.spacesMap.getInverse(scope) ?? [])],
       props.superstate.settings,
-      props.superstate.contextsIndex.get(scope)?.contextTable?.cols ?? [],
+      props.fields ?? [],
       props.schemaId
     );
-  }, [fieldSource, props.contextPath, props.schemaId]);
+  }, [fieldSource, props.contextPath, props.schemaId, props.fields]);
   const suggestedProperties = useMemo(
     () => filterPropertiesForNameQuery(discoveredProperties, fieldName),
     [discoveredProperties, fieldName]
@@ -239,8 +242,7 @@ const NewPropertyMenuComponent = (
   const addExistingProperty = (e: React.MouseEvent) => {
     const source = fieldSource == "" ? props.contextPath : fieldSource;
     e.stopPropagation();
-    const existingCols =
-      props.superstate.contextsIndex.get(source)?.contextTable?.cols ?? [];
+    const existingCols = props.fields ?? [];
     const existingProps: SpaceProperty[] =
       discoverFrontmatterPropertiesFromPathStates(
         props.superstate.pathsIndex,

@@ -56,7 +56,7 @@ import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import {
   displayPropertyForPredicate,
-  rowDisplayLabelOverride,
+  resolveRowDisplayLabel,
 } from "core/utils/contexts/rowDisplayLabel";
 import {
   parseTableClipboardText,
@@ -1104,8 +1104,11 @@ export const TableView = (props: { superstate: Superstate }) => {
               contextPath: spaceCache?.path,
               displayLabel:
                 f.name == PathPropertyName
-                  ? rowDisplayLabelOverride(
+                  ? resolveRowDisplayLabel(
                       data[index] as DBRow,
+                      props.superstate.pathsIndex.get(
+                        data[index]?.[PathPropertyName]
+                      ),
                       displayProperty
                     ) ?? undefined
                   : undefined,

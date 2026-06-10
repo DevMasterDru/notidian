@@ -5,6 +5,7 @@ import {
 } from "core/utils/contexts/predicate/predicate";
 import {
   displayPropertyForPredicate,
+  resolveRowDisplayLabel,
   rowDisplayLabelOverride,
 } from "./rowDisplayLabel";
 
@@ -90,5 +91,47 @@ describe("display property predicate persistence", () => {
       defaultPredicate
     );
     expect(displayPropertyForPredicate(validated)).toBeNull();
+  });
+});
+
+describe("resolveRowDisplayLabel", () => {
+  const pathState = {
+    metadata: {
+      property: {
+        title: "S6 - B6 overview layer",
+        priority_num: 1,
+        empty: "   ",
+      },
+    },
+  };
+
+  it("prefers the row value when the property is a persisted column", () => {
+    expect(
+      resolveRowDisplayLabel({ title: "Row Title" }, pathState, "title")
+    ).toBe("Row Title");
+  });
+
+  it("falls back to frontmatter when the row dict lacks the property", () => {
+    expect(resolveRowDisplayLabel({}, pathState, "title")).toBe(
+      "S6 - B6 overview layer"
+    );
+    expect(resolveRowDisplayLabel(null, pathState, "title")).toBe(
+      "S6 - B6 overview layer"
+    );
+  });
+
+  it("stringifies non-string frontmatter values", () => {
+    expect(resolveRowDisplayLabel({}, pathState, "priority_num")).toBe("1");
+  });
+
+  it("returns null for empty frontmatter values and missing keys", () => {
+    expect(resolveRowDisplayLabel({}, pathState, "empty")).toBeNull();
+    expect(resolveRowDisplayLabel({}, pathState, "missing")).toBeNull();
+    expect(resolveRowDisplayLabel({}, null, "title")).toBeNull();
+  });
+
+  it("returns null without a display property", () => {
+    expect(resolveRowDisplayLabel({ title: "x" }, pathState, null)).toBeNull();
+    expect(resolveRowDisplayLabel({ title: "x" }, pathState, "")).toBeNull();
   });
 });
