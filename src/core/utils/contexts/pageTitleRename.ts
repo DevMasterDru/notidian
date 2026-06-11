@@ -2,6 +2,7 @@ import { Superstate } from "makemd-core";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow } from "shared/types/mdb";
 import { buildPageTitleRename, validatePageTitle } from "./pageTitle";
+import type { PageTitleValidationReason } from "./pageTitle";
 
 export type RenamePageTitleParams = {
   row: DBRow;
@@ -13,8 +14,7 @@ export type RenamePageTitleParams = {
 
 export type RenamePageTitleFailureReason =
   | "missing-path"
-  | "empty"
-  | "slash"
+  | PageTitleValidationReason
   | "duplicate"
   | "rename-failed";
 
@@ -82,6 +82,14 @@ const renameFailureMessage = (reason: RenamePageTitleFailureReason): string => {
       return "Enter a file name.";
     case "slash":
       return "Use the move command to change folders. File names cannot contain '/'.";
+    case "illegal-characters":
+      return "File names cannot contain reserved filesystem characters.";
+    case "reserved-name":
+      return "Choose a file name that is not reserved by the filesystem.";
+    case "trailing-dot-space":
+      return "File names cannot end with a dot or space.";
+    case "too-long":
+      return "File names must be 255 characters or fewer.";
     case "duplicate":
       return "A file with that name already exists.";
     case "rename-failed":
@@ -158,7 +166,8 @@ const notifyBulkRenameFailure = (superstate: Superstate) => {
   superstate.ui?.notify?.("Could not rename all selected files.");
 };
 
-const normalizePathKey = (path: string): string => path.toLowerCase();
+const normalizePathKey = (path: string): string =>
+  path.normalize("NFC").toLowerCase();
 
 const bulkRenameApplied = (rename: {
   row: DBRow;
