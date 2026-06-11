@@ -12,6 +12,7 @@ Use the active docs first. Historical records explain how the architecture chang
 - [Real Vault Smoke Harness](real-vault-smoke-harness.md): opt-in live Obsidian verification.
 - [Legacy Context Audit Report](legacy-context-audit-report.md): read-only reports for older Make.md contexts.
 - [Architecture Decision Records](adr/README.md): active and historical decisions.
+- [Optimality Audit (2026-06-11)](audits/notidian-optimality-audit.md): point-in-time deep audit of authority, correctness, performance, security, and product gaps, with reproduction tests. Findings are tracked as `bd` issues, not as a change to the architecture.
 
 ## Current Contract
 

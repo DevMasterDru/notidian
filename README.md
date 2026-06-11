@@ -75,9 +75,8 @@ Notidian does not automatically read or migrate data from the original Make.md p
 
 This fork is in active development. The current foundation is implemented and documented. The next high-value work is:
 
-- Redo support for table operations.
 - Richer conflict diff/merge UI beyond the current inline Reload and Apply anyway actions.
-- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, redo, richer conflict merge flows, and metadata timing fixtures.
+- Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, richer conflict merge flows, and metadata timing fixtures.
 - Legacy Make.md context-value migration tooling.
 - Clear UI indicators for column authority.
 - A dedicated move command for changing folders from table rows.

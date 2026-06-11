@@ -42,7 +42,7 @@ The table may feel like a spreadsheet. It may render cached projections. It may 
 | Obsidian metadata cache | Current parsed view of files and frontmatter | Durable user values beyond what files contain. |
 | Notidian table UX | Selection, editing, copy/paste, fill, undo/redo, conflict UI, schema UI | Detached ordinary row data. |
 | Notidian transaction layer | Safe write planning and application | Silent overwrite or sync ambiguity. |
-| Notidian context MDB | View state, explicit Notidian-owned fields, legacy state, legacy compatibility state | Ordinary note metadata unless explicitly Notidian-owned. |
+| Notidian context MDB | View state, explicit Notidian-owned fields, source-less legacy/context fallback values, legacy compatibility state | Frontmatter-backed or computed values as durable row data. |
 | Real-vault harness | Runtime proof in Obsidian | Product behavior that bypasses source-of-truth rules. |
 
 ## Database Model
@@ -98,6 +98,8 @@ It can be stored as a view definition or Notidian formula definition, but displa
 
 A Notidian-owned field is allowed only when it is visibly and intentionally not ordinary frontmatter.
 
+Today, source-less non-computed columns are classified as Notidian-owned by `propertyAuthorityForColumn` for legacy/source-less compatibility. New ordinary properties should be frontmatter-backed with `source: "frontmatter"`.
+
 Examples:
 
 - legacy context-only values awaiting migration;
@@ -129,6 +131,7 @@ Allowed context categories:
 - UI preferences: density, collapsed groups, display options;
 - legacy compatibility: Make.md legacy state and adapter metadata;
 - explicit Notidian-owned fields;
+- source-less legacy/context columns currently classified as Notidian-owned by the authority fallback;
 - formulas and relations that are not yet represented canonically elsewhere.
 
 Disallowed context categories:
@@ -300,19 +303,18 @@ Agents must not create hidden context-only ordinary metadata or native Bases fil
 Repository verification:
 
 ```bash
-npm test -- --runInBand
-npx tsc -noEmit -skipLibCheck
-npm run build
-git diff --check
+npm run verify:source
 ```
+
+`npm run verify:source` owns the Jest, TypeScript, npm audit, production build, and commit-range whitespace checks. Use `npm run verify:source:pristine` when the working tree must be clean before and after verification.
 
 Live Obsidian verification after build/install:
 
 ```bash
-npm run install:vault -- --vault-path="/Users/druker/Atlas Vault" --allow-write
-npm run test:real-vault -- vault="Atlas Vault" --allow-write
-obsidian vault="Atlas Vault" dev:errors
+npm run verify:live
 ```
+
+`npm run verify:live` owns the live health audit, legacy storage migration dry-run, real-vault smoke, post-smoke settle, second live health audit, and Obsidian developer-error check. Use `npm run verify:live:ui` when the optional live table DOM workflows should also run.
 
 ## Final Architecture Target
 
