@@ -72,7 +72,7 @@ export const tableUndoWriteForDirectEdit = ({
       fieldValue,
       authority,
     }).filter(([, entryValue]) => entryValue !== undefined)
-  ) as TablePasteWrite;
+  ) as unknown as TablePasteWrite;
 };
 
 const rowForWrite = (rows: DBRow[], write: TablePasteWrite): DBRow =>
@@ -108,7 +108,10 @@ const currentPathAfterWrite = (
   row: DBRow,
   write: TablePasteWrite
 ): string | undefined => {
-  if (write.authority != "file") return write.path;
+  // For non-file writes, bake the row's resolved path so replay targets the
+  // original file by path, not by (possibly reordered) row index. See
+  // bd Notidian-sck.
+  if (write.authority != "file") return write.path ?? row?.[PathPropertyName];
 
   const oldPath = row?.[PathPropertyName];
   return oldPath
@@ -131,36 +134,73 @@ export const createTableUndoEntry = ({
   writes,
   columns,
 }: CreateTableUndoEntryParams): TableUndoEntry => {
-  const seen = new Set<string>();
-  const inverseWrites = writes.reduce<TablePasteWrite[]>((entryWrites, write) => {
+  // Group writes per target cell, preserving first-seen order. The net forward
+  // value for a cell is its last write, so undo/redo operate on net effect (one
+  // write per cell) rather than replaying an intermediate sequence. This keeps
+  // expectedCurrentValue meaningful for replay-conflict detection.
+  const order: string[] = [];
+  const byKey = new Map<string, { first: TablePasteWrite; net: TablePasteWrite }>();
+  for (const write of writes) {
     const key = undoKeyForWrite(write);
-    if (seen.has(key)) return entryWrites;
-    seen.add(key);
+    const existing = byKey.get(key);
+    if (!existing) {
+      order.push(key);
+      byKey.set(key, { first: write, net: write });
+    } else {
+      existing.net = write;
+    }
+  }
 
-    const row = rowForWrite(rows, write);
-    if (!row) return entryWrites;
+  const inverseWrites: TablePasteWrite[] = [];
+  const redoWrites: TablePasteWrite[] = [];
 
-    const currentValue = currentValueForWrite(row, write);
-    if (currentValue == write.value) return entryWrites;
+  for (const key of order) {
+    const { first, net } = byKey.get(key)!;
+    const row = rowForWrite(rows, first);
+    if (!row) continue;
 
-    return [
-      ...entryWrites,
+    // Pre-edit value of the cell (what undo restores).
+    const currentValue = currentValueForWrite(row, first);
+    if (currentValue == net.value) continue;
+
+    const bakedPath = currentPathAfterWrite(row, net);
+    // expectedCurrentValue gates replay against newer external changes (only for
+    // non-file value writes, which flow through executeTableValueWrites).
+    const isFile = net.authority == "file";
+
+    // Undo restores the pre-edit value; valid only if canonical still equals the
+    // net value the forward edit produced.
+    inverseWrites.push(
       sanitizeHistoryWrite({
-        ...write,
-        path: currentPathAfterWrite(row, write),
+        ...net,
+        path: bakedPath,
         value: currentValue,
+        expectedCurrentValue: isFile ? undefined : net.value,
         fieldValue:
-          write.fieldValue !== undefined
-            ? columnForWrite(columns, write)?.value ?? ""
+          net.fieldValue !== undefined
+            ? columnForWrite(columns, net)?.value ?? ""
             : undefined,
-      }),
-    ];
-  }, []);
+      })
+    );
+
+    // Redo re-applies the net forward value; valid only if canonical still equals
+    // the value undo restored (currentValue). File writes flow through the rename
+    // path, not executeTableValueWrites, so they keep their original shape.
+    redoWrites.push(
+      isFile
+        ? sanitizeHistoryWrite(net)
+        : sanitizeHistoryWrite({
+            ...net,
+            path: bakedPath,
+            expectedCurrentValue: currentValue,
+          })
+    );
+  }
 
   return {
     label,
     writes: inverseWrites,
-    redoWrites: writes.map(sanitizeHistoryWrite),
+    redoWrites,
   };
 };
 

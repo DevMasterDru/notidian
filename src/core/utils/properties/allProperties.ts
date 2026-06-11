@@ -89,6 +89,18 @@ export const contextHasOnlyDefaultOrFrontmatterColumns = (
   );
 };
 
+const contextHasOnlyDefaultOrObservedFrontmatterColumns = (
+  cols: Pick<SpaceProperty, "name" | "type" | "value">[] = [],
+  frontmatterProperties: Set<string>
+): boolean => {
+  return cols.every(
+    (col) =>
+      contextHasOnlyDefaultColumns([col]) ||
+      isFrontmatterBackedProperty(col) ||
+      frontmatterProperties.has(col.name)
+  );
+};
+
 const safeFrontmatterType = (types: Set<string>): string => {
   const knownTypes = [...types].filter((type) => type !== "unknown");
   if (knownTypes.length === 0) return "text";
@@ -97,12 +109,18 @@ const safeFrontmatterType = (types: Set<string>): string => {
   return uniqueTypes.size === 1 ? knownTypes[0] : "text";
 };
 
-const observedFrontmatterPropertyTypes = (
+type ObservedFrontmatterProperties = {
+  propertyNames: Set<string>;
+  propertyTypes: Map<string, string>;
+};
+
+const observeFrontmatterProperties = (
   pathsIndex: Map<string, Pick<PathState, "metadata">>,
   paths: string[],
   settings: MakeMDSettings
-): Map<string, string> => {
+): ObservedFrontmatterProperties => {
   const excluded = excludedFrontmatterPropertyNames(settings);
+  const propertyNames = new Set<string>();
   const observedTypes = new Map<string, Set<string>>();
 
   for (const path of paths) {
@@ -111,6 +129,7 @@ const observedFrontmatterPropertyTypes = (
 
     for (const key of Object.keys(properties)) {
       if (excluded.has(key)) continue;
+      propertyNames.add(key);
       const mappedType = yamlTypeToMDBType(
         detectPropertyType(properties[key], key)
       );
@@ -121,12 +140,38 @@ const observedFrontmatterPropertyTypes = (
     }
   }
 
-  return new Map(
-    [...observedTypes.entries()].map(([key, types]) => [
-      key,
-      safeFrontmatterType(types),
-    ])
-  );
+  return {
+    propertyNames,
+    propertyTypes: new Map(
+      [...observedTypes.entries()].map(([key, types]) => [
+        key,
+        safeFrontmatterType(types),
+      ])
+    ),
+  };
+};
+
+const discoverFrontmatterPropertiesFromObserved = (
+  observed: ObservedFrontmatterProperties,
+  existingCols: Pick<SpaceProperty, "name">[] = [],
+  schemaId = defaultContextSchemaID
+): SpaceProperty[] => {
+  const seen = new Set(existingCols.map((col) => col.name));
+  const discovered: SpaceProperty[] = [];
+
+  for (const key of observed.propertyNames) {
+    if (seen.has(key)) continue;
+    discovered.push({
+      name: key,
+      type: observed.propertyTypes.get(key) ?? "text",
+      value: "",
+      schemaId,
+      source: frontmatterPropertySource,
+    });
+    seen.add(key);
+  }
+
+  return discovered;
 };
 
 export const discoverFrontmatterPropertiesFromPathStates = (
@@ -136,35 +181,11 @@ export const discoverFrontmatterPropertiesFromPathStates = (
   existingCols: Pick<SpaceProperty, "name">[] = [],
   schemaId = defaultContextSchemaID
 ): SpaceProperty[] => {
-  const excluded = excludedFrontmatterPropertyNames(settings);
-  const seen = new Set(existingCols.map((col) => col.name));
-  const discovered: SpaceProperty[] = [];
-  const propertyTypes = observedFrontmatterPropertyTypes(
-    pathsIndex,
-    paths,
-    settings
+  return discoverFrontmatterPropertiesFromObserved(
+    observeFrontmatterProperties(pathsIndex, paths, settings),
+    existingCols,
+    schemaId
   );
-
-  for (const path of paths) {
-    const properties = pathsIndex.get(path)?.metadata?.property;
-    if (!properties) continue;
-
-    for (const key of Object.keys(properties)) {
-      if (excluded.has(key) || seen.has(key)) continue;
-      discovered.push({
-        name: key,
-        type:
-          propertyTypes.get(key) ??
-          yamlTypeToMDBType(detectPropertyType(properties[key], key)),
-        value: "",
-        schemaId,
-        source: frontmatterPropertySource,
-      });
-      seen.add(key);
-    }
-  }
-
-  return discovered;
 };
 
 export const propertyMenuDiscoveryScope = (
@@ -203,15 +224,25 @@ export const materializeFrontmatterBackedContextTable = (
   const sourceCols = table.cols?.length > 0
     ? table.cols
     : defaultContextFields.rows as SpaceProperty[];
+  let observedFrontmatter: ObservedFrontmatterProperties | null = null;
+  const getObservedFrontmatter = () => {
+    if (!observedFrontmatter) {
+      observedFrontmatter = observeFrontmatterProperties(
+        pathsIndex,
+        paths,
+        settings
+      );
+    }
+    return observedFrontmatter;
+  };
 
   if (
     !enabled ||
-    !contextHasOnlyDefaultOrFrontmatterColumns(
-      sourceCols,
-      pathsIndex,
-      paths,
-      settings
-    )
+    (!contextHasOnlyDefaultColumns(sourceCols) &&
+      !contextHasOnlyDefaultOrObservedFrontmatterColumns(
+        sourceCols,
+        getObservedFrontmatter().propertyNames
+      ))
   ) {
     return {
       table: { ...table, cols: sourceCols, rows: table.rows ?? [] },
@@ -219,27 +250,12 @@ export const materializeFrontmatterBackedContextTable = (
     };
   }
 
-  const excluded = excludedFrontmatterPropertyNames(settings);
-  const frontmatterProperties = new Set<string>();
-  const frontmatterPropertyTypes = observedFrontmatterPropertyTypes(
-    pathsIndex,
-    paths,
-    settings
-  );
-  for (const path of paths) {
-    const properties = pathsIndex.get(path)?.metadata?.property;
-    if (!properties) continue;
-
-    for (const key of Object.keys(properties)) {
-      if (excluded.has(key)) continue;
-      frontmatterProperties.add(key);
-    }
-  }
+  const { propertyNames, propertyTypes } = getObservedFrontmatter();
 
   const normalizedCols = sourceCols.map((col) => {
     if (
       contextHasOnlyDefaultColumns([col]) ||
-      !frontmatterProperties.has(col.name) ||
+      !propertyNames.has(col.name) ||
       isFrontmatterBackedProperty(col)
     ) {
       return col;
@@ -247,14 +263,12 @@ export const materializeFrontmatterBackedContextTable = (
 
     return {
       ...col,
-      type: frontmatterPropertyTypes.get(col.name) ?? col.type,
+      type: propertyTypes.get(col.name) ?? col.type,
       source: frontmatterPropertySource,
     };
   });
-  const discoveredCols = discoverFrontmatterPropertiesFromPathStates(
-    pathsIndex,
-    paths,
-    settings,
+  const discoveredCols = discoverFrontmatterPropertiesFromObserved(
+    getObservedFrontmatter(),
     normalizedCols,
     defaultContextSchemaID
   );

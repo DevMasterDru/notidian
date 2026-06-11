@@ -21,6 +21,9 @@ export type TablePasteWrite = {
   path?: string;
   fieldValue?: string;
   authority: Exclude<PropertyAuthority, "computed">;
+  clear?: true;
+  // Set only on undo/redo replay writes (see TableCellWrite.expectedCurrentValue).
+  expectedCurrentValue?: string;
 };
 
 export type TablePasteRejectionReason =
@@ -48,6 +51,7 @@ export type PlanTablePasteParams = {
   columns: TablePasteColumn[];
   selection: CellSelection;
   clipboardGrid: string[][];
+  clear?: boolean;
 };
 
 const dimensionsForPaste = (
@@ -120,6 +124,7 @@ export const planTablePaste = ({
   columns,
   selection,
   clipboardGrid,
+  clear = false,
 }: PlanTablePasteParams): TablePastePlan => {
   const columnOrder = columns.map((column) => column.id);
   const dimensions = dimensionsForPaste(
@@ -212,14 +217,16 @@ export const planTablePaste = ({
         continue;
       }
 
-      writes.push({
+      const write: TablePasteWrite = {
         rowId,
         columnId: column.id,
         columnName: column.name,
         table: column.table ?? "",
         value,
         authority,
-      });
+      };
+      if (clear) write.clear = true;
+      writes.push(write);
     }
   }
 

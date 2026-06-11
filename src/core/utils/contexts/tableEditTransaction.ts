@@ -16,6 +16,12 @@ export type TableCellWrite = {
   path?: string;
   fieldValue?: string;
   forceFrontmatterWrite?: boolean;
+  clear?: true;
+  // Only set on undo/redo replay writes: the value canonical frontmatter is
+  // expected to hold at replay time (the value the original edit produced). Used
+  // instead of the current row value for stale-conflict detection so a replay
+  // cannot silently overwrite a newer external change. See bd Notidian-29g.
+  expectedCurrentValue?: string;
 };
 
 export type TableEditSkipReason =
@@ -91,6 +97,12 @@ type FrontmatterGroup = {
   writes: TableCellWrite[];
 };
 
+const frontmatterValueForWrite = (
+  column: SpaceProperty,
+  write: TableCellWrite,
+  parseValue: ExecuteTableValueWritesParams["parseValue"]
+): unknown => (write.clear ? null : parseValue(column, write.value));
+
 export const resolveTableEditPath = (
   explicitPath: string | null | undefined,
   rowPath: string | undefined
@@ -107,8 +119,16 @@ export const applyTableEditPathOverrides = <T extends TableCellWrite>(
       : write
   );
 
-const rowForWrite = (rows: DBRow[], write: TableCellWrite): DBRow | undefined =>
-  rows[parseInt(write.rowId)];
+const rowForWrite = (rows: DBRow[], write: TableCellWrite): DBRow | undefined => {
+  // Replay writes (undo/redo) carry a baked path; resolve by file identity so a
+  // row reorder between edit and replay cannot retarget a different row. Falls
+  // back to row index for ordinary (non-replay) writes that have no path.
+  if (write.path && write.path.trim().length > 0) {
+    const byPath = rows.find((row) => row[PathPropertyName] == write.path);
+    if (byPath) return byPath;
+  }
+  return rows[parseInt(write.rowId)];
+};
 
 const rowValueForWrite = (row: DBRow, write: TableCellWrite): string =>
   String(row?.[write.columnId] ?? row?.[write.columnName] ?? "");
@@ -144,22 +164,42 @@ const applyColumnFieldValues = (
 const applyRootWrites = (
   tableData: SpaceTable,
   writes: TableCellWrite[]
-): SpaceTable => ({
-  ...tableData,
-  cols: applyColumnFieldValues(tableData.cols, writes),
-  rows: tableData.rows.map((row, index) => {
-    const rowWrites = writes.filter((write) => parseInt(write.rowId) == index);
-    if (rowWrites.length == 0) return row;
+): SpaceTable => {
+  // Resolve each write to a target row index by baked path when present (replay
+  // of a possibly-reordered table), else by row index. Keeps root Notidian-owned
+  // writes aligned to the originally-edited file, matching the frontmatter and
+  // linked-context paths.
+  const indexByPath = new Map<string, number>();
+  tableData.rows.forEach((row, index) => {
+    const path = row[PathPropertyName];
+    if (path != null && !indexByPath.has(String(path))) {
+      indexByPath.set(String(path), index);
+    }
+  });
+  const targetIndexForWrite = (write: TableCellWrite): number =>
+    write.path && indexByPath.has(write.path)
+      ? (indexByPath.get(write.path) as number)
+      : parseInt(write.rowId);
 
-    return rowWrites.reduce(
-      (nextRow, write) => ({
-        ...nextRow,
-        [write.columnName]: write.value,
-      }),
-      row
-    );
-  }),
-});
+  return {
+    ...tableData,
+    cols: applyColumnFieldValues(tableData.cols, writes),
+    rows: tableData.rows.map((row, index) => {
+      const rowWrites = writes.filter(
+        (write) => targetIndexForWrite(write) == index
+      );
+      if (rowWrites.length == 0) return row;
+
+      return rowWrites.reduce(
+        (nextRow, write) => ({
+          ...nextRow,
+          [write.columnName]: write.value,
+        }),
+        row
+      );
+    }),
+  };
+};
 
 const applyContextWrites = (
   table: SpaceTable,
@@ -245,7 +285,7 @@ export const executeTableValueWrites = async ({
         row,
         write,
       });
-      const baseValue = rowValueForWrite(row, write);
+      const baseValue = write.expectedCurrentValue ?? rowValueForWrite(row, write);
       if (
         !write.forceFrontmatterWrite &&
         canonicalValue !== undefined &&
@@ -264,7 +304,11 @@ export const executeTableValueWrites = async ({
       frontmatterChangesByPath.set(resolvedPath, {
         properties: {
           ...(frontmatterChangesByPath.get(resolvedPath)?.properties ?? {}),
-          [write.columnName]: parseValue(column, write.value),
+          [write.columnName]: frontmatterValueForWrite(
+            column,
+            write,
+            parseValue
+          ),
         },
         writes: [
           ...(frontmatterChangesByPath.get(resolvedPath)?.writes ?? []),

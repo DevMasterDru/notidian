@@ -19,6 +19,13 @@ const frontmatterTableTypes = new Set([
 const isTagsProperty = (field: Pick<SpaceProperty, "name">): boolean =>
   field.name?.toLowerCase() == "tags";
 
+// A frontmatter-backed column may only hold a file-backed type. Switching a
+// column's storage to frontmatter with a context-only type (aggregate/context/
+// object) would make propertyAuthorityForColumn report "frontmatter" over an
+// incompatible type — callers should reset the type when this returns false.
+export const isFrontmatterCompatibleType = (type?: string): boolean =>
+  !!type && (frontmatterTableTypes.has(type) || type == "tags-multi");
+
 export const isOptionPropertyType = (type?: string): boolean =>
   type == "option" || type == "option-multi";
 

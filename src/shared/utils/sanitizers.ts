@@ -5,7 +5,16 @@ export const sanitizeSQLStatement = (name: string) => {
   } catch(e) {
     return ''
   }
-};export const sanitizeColumnName = (name: string): string => {
+};
+
+export const quoteIdent = (name: string): string => {
+  return `"${(name ?? "").replace(/"/g, `""`)}"`;
+};
+
+// Data rule for stored column names: strip double quotes (kept out of persisted
+// identifiers). SQL escaping of identifiers happens at construction time via
+// quoteIdent, NOT here — escaping here would persist `""` into the name.
+export const sanitizeColumnName = (name: string): string => {
   if (name?.charAt(0) == "_" || name?.charAt(0) == "$") {
     return sanitizeColumnName(name.substring(1));
   }
@@ -37,4 +46,3 @@ export const sanitizeFileName = (name: string) => {
     .replace(reservedRe, replacement)
     .replace(windowsReservedRe, replacement);
 };
-

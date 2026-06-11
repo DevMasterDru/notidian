@@ -11,6 +11,7 @@ import { uniq } from "shared/utils/array";
 import { serializeMultiString } from "utils/serializers";
 import { parseMultiString, parseProperty } from "../../../utils/parsers";
 import { runFormulaWithContext } from "../formula/parser";
+import { shouldWriteAuthorityValueToFrontmatter } from "../properties/propertyAuthority";
 import { calculateAggregate } from "./predicate/aggregates";
 import { filterReturnForCol } from "./predicate/filter";
 
@@ -92,7 +93,10 @@ const resolvedPath = resolvePath(_row[PathPropertyName], path?.path, (spacePath)
   const frontmatter = (paths.get(resolvedPath)?.metadata?.property ?? {});
   
   const fieldsByName = new Map(fields.map((field) => [field.name, field]));
-  const filteredFrontmatter = Object.keys(frontmatter).filter(f => fieldsByName.has(f) && f != PathPropertyName).reduce((p, c) => {
+  const filteredFrontmatter = Object.keys(frontmatter).filter(f => {
+    const field = fieldsByName.get(f);
+    return field && f != PathPropertyName && shouldWriteAuthorityValueToFrontmatter(field);
+  }).reduce((p, c) => {
     const field = fieldsByName.get(c);
     return { ...p, [c]: parseProperty(c, frontmatter[c], field?.type) };
   }, {})

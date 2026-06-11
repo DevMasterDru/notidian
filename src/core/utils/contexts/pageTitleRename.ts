@@ -37,6 +37,13 @@ export type BulkPageTitleRenameFailure = {
   reason: BulkPageTitleRenameFailureReason;
 };
 
+export type BulkPageTitleRenameApplied = {
+  row: DBRow;
+  value: string;
+  oldPath: string;
+  newPath: string;
+};
+
 export type BulkPageTitleRenamePlan =
   | {
       ok: true;
@@ -53,7 +60,12 @@ export type BulkPageTitleRenamePlan =
 
 export type BulkPageTitleRenameResult =
   | { ok: true; paths: string[] }
-  | { ok: false; failures: BulkPageTitleRenameFailure[]; error?: unknown };
+  | {
+      ok: false;
+      applied: BulkPageTitleRenameApplied[];
+      failures: BulkPageTitleRenameFailure[];
+      error?: unknown;
+    };
 
 export type BulkPageTitleRenameParams = {
   items: BulkPageTitleRenameItem[];
@@ -148,6 +160,47 @@ const notifyBulkRenameFailure = (superstate: Superstate) => {
 
 const normalizePathKey = (path: string): string => path.toLowerCase();
 
+const bulkRenameApplied = (rename: {
+  row: DBRow;
+  value: string;
+  oldPath: string;
+  newPath: string;
+}): BulkPageTitleRenameApplied => ({
+  row: rename.row,
+  value: rename.value,
+  oldPath: rename.oldPath,
+  newPath: rename.newPath,
+});
+
+const bulkRenameFailure = (rename: {
+  row: DBRow;
+  value: string;
+}): BulkPageTitleRenameFailure => ({
+  row: rename.row,
+  value: rename.value,
+  reason: "rename-failed",
+});
+
+const bulkRenameResultKey = (row: DBRow, value: string): string =>
+  `${row[PathPropertyName] ?? ""}\u0000${value}`;
+
+const safePathExists = async (
+  superstate: Superstate,
+  path: string
+): Promise<boolean> => {
+  try {
+    return await superstate.spaceManager.pathExists(path);
+  } catch (_error) {
+    return false;
+  }
+};
+
+const tableRowsHaveSamePaths = (left: DBRow[], right: DBRow[]): boolean =>
+  left.length == right.length &&
+  left.every(
+    (row, index) => row[PathPropertyName] == right[index]?.[PathPropertyName]
+  );
+
 const extensionForPath = (path: string): string => {
   const fileName = path.split("/").pop() ?? path;
   const dotIndex = fileName.lastIndexOf(".");
@@ -173,23 +226,29 @@ const temporaryPathForRename = (
 const reconcileBulkContextRows = async (
   superstate: Superstate,
   contextPath: string,
-  renames: { oldPath: string; newPath: string }[],
+  renames: BulkPageTitleRenameApplied[],
   originalRows: DBRow[]
-) => {
-  if (!contextPath || renames.length == 0) return;
+): Promise<BulkPageTitleRenameFailure[]> => {
+  if (!contextPath || renames.length == 0) return [];
 
   const context = superstate.contextsIndex?.get(contextPath);
   const table = context?.contextTable;
-  if (!table) return;
+  if (!table) return [];
 
   const renameMap = new Map(
-    renames.map((rename) => [rename.oldPath, rename.newPath])
+    renames.map((rename) => [rename.oldPath, rename])
+  );
+  const oldPathKeys = new Set(
+    renames.map((rename) => normalizePathKey(rename.oldPath))
   );
   const usedRows = new Set<number>();
-  const rows = originalRows.reduce<DBRow[]>((nextRows, originalRow) => {
-    const targetPath =
-      renameMap.get(originalRow[PathPropertyName]) ??
-      originalRow[PathPropertyName];
+  const failures: BulkPageTitleRenameFailure[] = [];
+  const rows: DBRow[] = [];
+
+  for (const originalRow of originalRows) {
+    const originalPath = originalRow[PathPropertyName];
+    const rename = renameMap.get(originalPath);
+    const targetPath = rename?.newPath ?? originalPath;
     const matchingIndex = table.rows.findIndex(
       (row, index) =>
         !usedRows.has(index) && row[PathPropertyName] == targetPath
@@ -197,25 +256,36 @@ const reconcileBulkContextRows = async (
 
     if (matchingIndex >= 0) {
       usedRows.add(matchingIndex);
-      return [...nextRows, table.rows[matchingIndex]];
+      rows.push(table.rows[matchingIndex]);
+      continue;
     }
 
-    return [
-      ...nextRows,
-      {
+    if (targetPath && (await safePathExists(superstate, targetPath))) {
+      rows.push({
         ...originalRow,
         [PathPropertyName]: targetPath,
-      },
-    ];
-  }, []);
+      });
+      continue;
+    }
+
+    if (rename) {
+      failures.push(bulkRenameFailure(rename));
+    }
+  }
 
   for (let index = 0; index < table.rows.length; index++) {
     const row = table.rows[index];
+    const rowPath = row[PathPropertyName];
     if (usedRows.has(index)) continue;
+    if (rowPath && oldPathKeys.has(normalizePathKey(rowPath))) continue;
     if (rows.some((r) => r[PathPropertyName] == row[PathPropertyName])) {
       continue;
     }
     rows.push(row);
+  }
+
+  if (tableRowsHaveSamePaths(table.rows, rows)) {
+    return failures;
   }
 
   await superstate.spaceManager.saveTable(
@@ -230,6 +300,8 @@ const reconcileBulkContextRows = async (
     force: true,
     calculate: true,
   });
+
+  return failures;
 };
 
 export const planBulkPageTitleRename = async ({
@@ -342,7 +414,7 @@ export const executeBulkPageTitleRename = async ({
 
   if (plan.ok == false) {
     notifyBulkRenameFailure(superstate);
-    return plan;
+    return { ok: false, applied: [], failures: plan.failures };
   }
 
   const changedRenames = plan.renames.filter((rename) => rename.changed);
@@ -359,40 +431,93 @@ export const executeBulkPageTitleRename = async ({
     superstate.contextsIndex
       ?.get(contextPath)
       ?.contextTable?.rows?.map((row) => ({ ...row })) ?? [];
-  const movedToTemp: typeof tempRenames = [];
-  const movedToFinal: typeof tempRenames = [];
+  const renameStates = tempRenames.map((rename) => ({
+    ...rename,
+    state: "old" as "old" | "temp" | "final",
+  }));
 
   try {
-    for (const rename of tempRenames) {
-      await superstate.spaceManager.renamePath(rename.oldPath, rename.tempPath);
-      movedToTemp.push(rename);
+    for (const rename of renameStates) {
+      const renamedPath = await superstate.spaceManager.renamePath(
+        rename.oldPath,
+        rename.tempPath
+      );
+      // The Obsidian adapter resolves null on a failed rename instead of
+      // throwing; treat a falsy result as failure so rollback/partial-result
+      // handling runs. See bd Notidian-lrf / Notidian-79s.
+      if (!renamedPath) {
+        throw new Error(`rename-failed: ${rename.oldPath} -> ${rename.tempPath}`);
+      }
+      rename.state = "temp";
     }
 
-    for (const rename of tempRenames) {
-      await superstate.spaceManager.renamePath(rename.tempPath, rename.newPath);
-      movedToFinal.push(rename);
+    for (const rename of renameStates) {
+      const renamedPath = await superstate.spaceManager.renamePath(
+        rename.tempPath,
+        rename.newPath
+      );
+      if (!renamedPath) {
+        throw new Error(`rename-failed: ${rename.tempPath} -> ${rename.newPath}`);
+      }
+      rename.state = "final";
     }
   } catch (error) {
-    for (const rename of movedToTemp.slice().reverse()) {
-      if (movedToFinal.some((moved) => moved.oldPath == rename.oldPath)) {
-        continue;
-      }
+    for (const rename of renameStates.slice().reverse()) {
+      if (rename.state != "temp") continue;
       try {
-        await superstate.spaceManager.renamePath(rename.tempPath, rename.oldPath);
+        const rolledBackPath = await superstate.spaceManager.renamePath(
+          rename.tempPath,
+          rename.oldPath
+        );
+        // Only consider the file restored if the rollback actually moved it.
+        if (rolledBackPath) rename.state = "old";
       } catch (_rollbackError) {}
     }
+
+    let applied = renameStates
+      .filter((rename) => rename.state == "final")
+      .map(bulkRenameApplied);
+    let failures = renameStates
+      .filter((rename) => rename.state != "final")
+      .map(bulkRenameFailure);
+
+    if (contextPath && applied.length > 0) {
+      if (settleDelayMs > 0) await sleep(settleDelayMs);
+      await waitForContextStateQueue(superstate);
+      await superstate.reloadContextByPath?.(contextPath, {
+        force: true,
+        calculate: true,
+      });
+      const reconciliationFailures = await reconcileBulkContextRows(
+        superstate,
+        contextPath,
+        applied,
+        originalRows
+      );
+      const reconciliationFailureKeys = new Set(
+        reconciliationFailures.map(
+          (failure) => bulkRenameResultKey(failure.row, failure.value)
+        )
+      );
+      applied = applied.filter(
+        (rename) =>
+          !reconciliationFailureKeys.has(
+            bulkRenameResultKey(rename.row, rename.value)
+          )
+      );
+      failures = [...failures, ...reconciliationFailures];
+    }
+
     notifyBulkRenameFailure(superstate);
     return {
       ok: false,
-      failures: changedRenames.map((rename) => ({
-        row: rename.row,
-        value: rename.value,
-        reason: "rename-failed",
-      })),
+      applied,
+      failures,
       error,
     };
   }
 
+  const applied = changedRenames.map(bulkRenameApplied);
   if (contextPath) {
     if (settleDelayMs > 0) await sleep(settleDelayMs);
     await waitForContextStateQueue(superstate);
@@ -400,12 +525,30 @@ export const executeBulkPageTitleRename = async ({
       force: true,
       calculate: true,
     });
-    await reconcileBulkContextRows(
+    const reconciliationFailures = await reconcileBulkContextRows(
       superstate,
       contextPath,
-      changedRenames,
+      applied,
       originalRows
     );
+    if (reconciliationFailures.length > 0) {
+      const reconciliationFailureKeys = new Set(
+        reconciliationFailures.map(
+          (failure) => bulkRenameResultKey(failure.row, failure.value)
+        )
+      );
+      notifyBulkRenameFailure(superstate);
+      return {
+        ok: false,
+        applied: applied.filter(
+          (rename) =>
+            !reconciliationFailureKeys.has(
+              bulkRenameResultKey(rename.row, rename.value)
+            )
+        ),
+        failures: reconciliationFailures,
+      };
+    }
   }
 
   return { ok: true, paths: plan.renames.map((rename) => rename.newPath) };
@@ -452,7 +595,7 @@ export const renamePageTitleForRowWithResult = async ({
     return { ok: false, reason: "duplicate" };
   }
 
-  let renamedPath: string;
+  let renamedPath: string | null | undefined;
   try {
     renamedPath = await superstate.spaceManager.renamePath(
       rename.oldPath,
@@ -461,6 +604,10 @@ export const renamePageTitleForRowWithResult = async ({
   } catch (error) {
     notifyRenameFailure(superstate, "rename-failed");
     return { ok: false, reason: "rename-failed", error };
+  }
+  if (!renamedPath) {
+    notifyRenameFailure(superstate, "rename-failed");
+    return { ok: false, reason: "rename-failed" };
   }
 
   if (contextPath) {
