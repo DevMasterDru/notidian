@@ -14,6 +14,10 @@ import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrit
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
 import { buildRowUpdateWrites } from "core/utils/contexts/rowUpdateWrites";
 import {
+  createContextEditSerializerState,
+  runSerializedContextEdit,
+} from "core/utils/contexts/contextEditSerializer";
+import {
   executeBulkPageTitleRename,
   renamePageTitleForRow,
 } from "core/utils/contexts/pageTitleRename";
@@ -421,6 +425,7 @@ export const ContextEditorProvider: React.FC<
   // persisted table no longer has only default columns, so the gate stays
   // closed on every later load; the ref dedupes attempts while mounted.
   const frontmatterImportAttempts = useRef(new Set<string>());
+  const editSerializerRef = useRef(createContextEditSerializerState());
   useEffect(() => {
     if (!tableData || !dbSchema) return;
     if (readMode || spaceInfo?.readOnly) return;
@@ -745,37 +750,48 @@ export const ContextEditorProvider: React.FC<
   const executeValueWrites = async (
     writes: TableCellWrite[]
   ): Promise<TableEditTransactionResult> => {
-    return executeTableValueWrites({
-      writes,
+    // Serialize per-context value transactions and thread the latest root table
+    // into the next, so two concurrent edits sharing one rendered snapshot do not
+    // last-write-wins. bd Notidian-lg1.
+    return runSerializedContextEdit(
+      editSerializerRef.current,
       tableData,
-      contextTable,
-      dbSchemaId: dbSchema?.id,
-      contextPath,
-      resolvePath: (path, source) =>
-        props.superstate.spaceManager.resolvePath(path, source),
-      shouldWritePropertyToFrontmatter:
-        shouldWriteContextPropertyToFrontmatter,
-      parseValue: (column, value) =>
-        parseMDBStringValue(fieldTypeForField(column), value, true),
-      currentFrontmatterValue: ({ path, column }) => {
-        const pathState = props.superstate.pathsIndex.get(path);
-        if (!pathState) return undefined;
-        return parseProperty(
-          column.name,
-          pathState.metadata?.property?.[column.name],
-          column.type
-        );
-      },
-      saveFrontmatterProperties: ({ path, properties }) =>
-        saveFrontmatterProperties({
-          superstate: props.superstate,
-          path,
-          properties,
-        }),
-      saveDB,
-      saveContextDB,
-      contextKeyForTable: tagSpacePathFromTag,
-    });
+      ({ tableData: latestTable, onRootTableSaved }) =>
+        executeTableValueWrites({
+          writes,
+          tableData: latestTable,
+          contextTable,
+          dbSchemaId: dbSchema?.id,
+          contextPath,
+          resolvePath: (path, source) =>
+            props.superstate.spaceManager.resolvePath(path, source),
+          shouldWritePropertyToFrontmatter:
+            shouldWriteContextPropertyToFrontmatter,
+          parseValue: (column, value) =>
+            parseMDBStringValue(fieldTypeForField(column), value, true),
+          currentFrontmatterValue: ({ path, column }) => {
+            const pathState = props.superstate.pathsIndex.get(path);
+            if (!pathState) return undefined;
+            return parseProperty(
+              column.name,
+              pathState.metadata?.property?.[column.name],
+              column.type
+            );
+          },
+          saveFrontmatterProperties: ({ path, properties }) =>
+            saveFrontmatterProperties({
+              superstate: props.superstate,
+              path,
+              properties,
+            }),
+          saveDB: async (nextTable) => {
+            onRootTableSaved(nextTable);
+            await saveDB(nextTable);
+          },
+          saveContextDB,
+          contextKeyForTable: tagSpacePathFromTag,
+        })
+    );
   };
 
   const applyValueEdits = async (
