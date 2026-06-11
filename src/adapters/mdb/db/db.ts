@@ -5,11 +5,36 @@ import JSZip from "jszip";
 import { DBRows, DBTable, DBTables, SpaceTables } from "shared/types/mdb";
 import { uniq } from "shared/utils/array";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
-import { sanitizeSQLStatement } from "shared/utils/sanitizers";
+import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database, QueryExecResult, SqlJsStatic } from "sql.js";
 import { serializeSQLFieldNames, serializeSQLStatements, serializeSQLValues } from "utils/serializers";
 
 JSZip.support.nodebuffer = false;
+
+const dbPathWriteQueues = new Map<string, Promise<void>>();
+
+export const withDBPathWriteQueue = async <T>(
+  path: string,
+  operation: () => Promise<T>
+): Promise<T> => {
+  const previous = dbPathWriteQueues.get(path) ?? Promise.resolve();
+  let releaseCurrent: () => void = () => {};
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => current);
+  dbPathWriteQueues.set(path, tail);
+
+  await previous.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (dbPathWriteQueues.get(path) === tail) {
+      dbPathWriteQueues.delete(path);
+    }
+  }
+};
 
 export const getDBFile = async (plugin: MDBFileTypeAdapter,
   path: string, isRemote: boolean) => {
@@ -25,25 +50,114 @@ export const getDBFile = async (plugin: MDBFileTypeAdapter,
   return file;
 };
 
+// missing  -> no file on disk (a fresh empty DB is the correct initial state)
+// ok       -> file exists and parses as a readable database
+// corrupt  -> file exists but is not a readable database. Critically distinct
+//             from "missing": callers must NOT silently overwrite a corrupt file
+//             with a fresh empty DB, or recoverable view/context state is lost.
+//             See bd Notidian-44c.
+export type DBOpenStatus = "missing" | "ok" | "corrupt";
+
+const isReadableDB = (db: Database): boolean => {
+  try {
+    db.exec("SELECT name FROM sqlite_schema");
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const openDBFromBuffer = (
+  sqlJS: SqlJsStatic,
+  buf: ArrayBuffer | null
+): { db: Database; status: DBOpenStatus } => {
+  if (!buf) {
+    return { db: new sqlJS.Database(), status: "missing" };
+  }
+  let db: Database;
+  try {
+    db = new sqlJS.Database(new Uint8Array(buf));
+  } catch {
+    return { db: new sqlJS.Database(), status: "corrupt" };
+  }
+  if (isReadableDB(db)) {
+    return { db, status: "ok" };
+  }
+  db.close();
+  return { db: new sqlJS.Database(), status: "corrupt" };
+};
+
+export const openDBWithStatus = async (
+  plugin: MDBFileTypeAdapter,
+  sqlJS: SqlJsStatic,
+  path: string,
+  isRemote?: boolean,
+): Promise<{ db: Database; status: DBOpenStatus }> => {
+  const buf = await getDBFile(plugin, path, isRemote);
+  return openDBFromBuffer(sqlJS, buf as ArrayBuffer | null);
+};
+
+export const openZippedDBWithStatus = async (
+  plugin: MDBFileTypeAdapter,
+  sqlJS: SqlJsStatic,
+  path: string,
+  isRemote?: boolean,
+): Promise<{ db: Database; status: DBOpenStatus }> => {
+  if (!isRemote && !(await plugin.middleware.fileExists(path))) {
+    return openDBFromBuffer(sqlJS, null);
+  }
+  const buf = await getZippedDBFile(plugin, path, isRemote);
+  if (!isRemote && !buf) {
+    return { db: new sqlJS.Database(), status: "corrupt" };
+  }
+  return openDBFromBuffer(sqlJS, buf as ArrayBuffer | null);
+};
+
+// Best-effort quarantine: copy the unreadable bytes to a timestamped sibling so
+// the user can attempt recovery, instead of leaving the file to be overwritten.
+export const quarantineCorruptDBFile = async (
+  plugin: MDBFileTypeAdapter,
+  path: string,
+  isZipped: boolean,
+) => {
+  try {
+    const buf = isZipped
+      ? await plugin.middleware.readBinaryToFile(path)
+      : await getDBFile(plugin, path, false);
+    if (!buf) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    await plugin.middleware.writeBinaryToFile(
+      `${path}.corrupt-${stamp}.bak`,
+      buf as ArrayBuffer
+    );
+  } catch (e) {
+    // Quarantine is best-effort; never let it block the refuse-to-overwrite path.
+  }
+};
+
+export const refuseCorruptDBWrite = async (
+  plugin: MDBFileTypeAdapter,
+  path: string,
+  isZipped: boolean,
+) => {
+  await quarantineCorruptDBFile(plugin, path, isZipped);
+  console.warn(
+    `[notidian] Refusing to overwrite unreadable database at ${path}; original left in place (a .corrupt-*.bak copy was made).`
+  );
+};
+
 export const getDB = async (
   plugin: MDBFileTypeAdapter,
   sqlJS: SqlJsStatic,
   path: string,
   isRemote?: boolean,
 ) => {
-  const buf = await getDBFile(plugin, path, isRemote);
-  if (buf) {
-    const db = await new sqlJS.Database(new Uint8Array(buf));
-    try {
-      db.exec(
-        "SELECT name FROM sqlite_schema"
-      );
-    } catch {
-      return new sqlJS.Database();
-    }
-    return db
+  const { db, status } = await openDBWithStatus(plugin, sqlJS, path, isRemote);
+  if (status === "corrupt") {
+    db.close();
+    return null;
   }
-  return new sqlJS.Database();
+  return db;
 };
 
 export const getZippedDB =  async (
@@ -52,19 +166,12 @@ export const getZippedDB =  async (
   path: string,
   isRemote?: boolean,
 ) => {
-  const buf = await getZippedDBFile(plugin, path, isRemote);
-  if (buf) {
-    const db = await new sqlJS.Database(new Uint8Array(buf));
-    try {
-      db.exec(
-        "SELECT name FROM sqlite_schema"
-      );
-    } catch {
-      return new sqlJS.Database();
-    }
-    return db
+  const { db, status } = await openZippedDBWithStatus(plugin, sqlJS, path, isRemote);
+  if (status === "corrupt") {
+    db.close();
+    return null;
   }
-  return new sqlJS.Database();
+  return db;
 };
 
 export const getZippedDBFile = async (plugin: MDBFileTypeAdapter,
@@ -88,43 +195,95 @@ export const getZippedDBFile = async (plugin: MDBFileTypeAdapter,
   return buffer;
 };
 
-export const saveZippedDBFile = async (plugin: MDBFileTypeAdapter, path: string, binary: ArrayBuffer) => {
+const ensureDBParentFolder = async (plugin: MDBFileTypeAdapter, path: string) => {
+  const parentPath = getParentPathFromString(path);
   if (
     !(await plugin.middleware.fileExists(
-      removeTrailingSlashFromFolder(getParentPathFromString(path)))
-    )
-    
+      removeTrailingSlashFromFolder(parentPath)
+    ))
   ) {
-    
-    await plugin.middleware.createFolder(getParentPathFromString(path));
+    await plugin.middleware.createFolder(parentPath);
   }
+};
+
+const tempPathForDBWrite = (path: string) =>
+  `${path}.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const cleanupTempDBFile = async (plugin: MDBFileTypeAdapter, path: string) => {
+  const deleteFile = (plugin.middleware as any).deleteFile;
+  if (typeof deleteFile !== "function") return;
+  try {
+    if (await plugin.middleware.fileExists(path)) {
+      await deleteFile.call(plugin.middleware, path);
+    }
+  } catch {
+  }
+};
+
+const verifyTempDBReadable = async (
+  plugin: MDBFileTypeAdapter,
+  path: string,
+  isZipped: boolean,
+) => {
+  const sqlJS = await plugin.sqlJS();
+  const { db, status } = isZipped
+    ? await openZippedDBWithStatus(plugin, sqlJS, path)
+    : await openDBWithStatus(plugin, sqlJS, path);
+  db.close();
+  if (status !== "ok") {
+    throw new Error(`[notidian] Refusing to save unreadable temporary database at ${path}`);
+  }
+};
+
+const writeBinaryToFileWithTempReplace = async (
+  plugin: MDBFileTypeAdapter,
+  path: string,
+  binary: ArrayBuffer,
+  isZipped: boolean,
+) => {
+  await ensureDBParentFolder(plugin, path);
+  const tempPath = tempPathForDBWrite(path);
+  try {
+    await plugin.middleware.writeBinaryToFile(tempPath, binary);
+
+    const renameFile = (plugin.middleware as any).renameFile;
+    if (typeof renameFile === "function") {
+      const finalPath = await renameFile.call(plugin.middleware, tempPath, path);
+      if (finalPath === path) {
+        return;
+      }
+    }
+
+    // Without a usable rename primitive, the fallback target write is non-atomic.
+    await verifyTempDBReadable(plugin, tempPath, isZipped);
+    await plugin.middleware.writeBinaryToFile(path, binary);
+  } finally {
+    await cleanupTempDBFile(plugin, tempPath);
+  }
+};
+
+export const saveZippedDBFile = async (plugin: MDBFileTypeAdapter, path: string, binary: ArrayBuffer) => {
   const zip = new JSZip();
   zip.file("data.mdb", binary)
   const zipFile = await zip.generateAsync({type : "arraybuffer", compression: "DEFLATE",
   compressionOptions: {
       level: 5
   }});
-  const file = plugin.middleware.writeBinaryToFile(
+  const file = writeBinaryToFileWithTempReplace(
+    plugin,
     path,
-    zipFile
+    zipFile,
+    true
   );
   return file;
 }
 
 export const saveDBFile = async (plugin: MDBFileTypeAdapter, path: string, binary: ArrayBuffer) => {
-  
-  if (
-    !(await plugin.middleware.fileExists(
-      removeTrailingSlashFromFolder(getParentPathFromString(path)))
-    )
-    
-  ) {
-    
-    await plugin.middleware.createFolder(getParentPathFromString(path));
-  }
-  const file = plugin.middleware.writeBinaryToFile(
+  const file = writeBinaryToFileWithTempReplace(
+    plugin,
     path,
-    binary
+    binary,
+    false
   );
   return file;
 };
@@ -175,8 +334,8 @@ export const selectDB = (
 ): DBTable | null => {
   const fieldsStr = fields ?? "*";
   const sqlstr = condition
-    ? `SELECT ${fieldsStr} FROM "${table}" WHERE ${condition};`
-    : `SELECT ${fieldsStr} FROM ${table};`;
+    ? `SELECT ${fieldsStr} FROM ${quoteIdent(table)} WHERE ${condition};`
+    : `SELECT ${fieldsStr} FROM ${quoteIdent(table)};`;
   let tables;
   try {
     tables = dbResultsToDBTables(db.exec(sqlstr)); // Run the query without returning anything
@@ -198,7 +357,7 @@ export const insertIntoDB = (
       const rowsQuery = tables[t].rows.reduce((prev, curr) => {
         return `${prev} ${
           replace ? "REPLACE" : "INSERT"
-        } INTO "${t}" VALUES (${serializeSQLValues(tableFields
+        } INTO ${quoteIdent(t)} VALUES (${serializeSQLValues(tableFields
           .map((c) => `'${sanitizeSQLStatement(curr?.[c]) ?? ""}'`)
           )});`;
       }, "");
@@ -222,9 +381,9 @@ export const updateDB = (
     .map((t) => {
       const tableFields = tables[t].cols.filter((f) => f != updateRef);
       const rowsQuery = tables[t].rows.reduce((prev, curr) => {
-        return `${prev} UPDATE "${t}" SET ${serializeSQLValues(tableFields
-          .map((c) => `${c}='${sanitizeSQLStatement(curr?.[c]) ?? ""}'`)
-          )} WHERE ${updateCol}='${
+        return `${prev} UPDATE ${quoteIdent(t)} SET ${serializeSQLValues(tableFields
+          .map((c) => `${quoteIdent(c)}='${sanitizeSQLStatement(curr?.[c]) ?? ""}'`)
+          )} WHERE ${quoteIdent(updateCol)}='${
           sanitizeSQLStatement(curr?.[updateRef]) ?? ""
         }';`;
       }, "");
@@ -252,7 +411,7 @@ export const deleteFromDB = (
   table: string,
   condition: string
 ) => {
-  const sqlstr = `DELETE FROM "${table}" WHERE ${condition};`;
+  const sqlstr = `DELETE FROM ${quoteIdent(table)} WHERE ${condition};`;
   // Run the query without returning anything
   try {
     db.exec(sqlstr);
@@ -261,7 +420,7 @@ export const deleteFromDB = (
 };
 
 export const dropTable = (db: Database, table: string) => {
-  const sqlstr = `DROP TABLE IF EXISTS "${table}";`;
+  const sqlstr = `DROP TABLE IF EXISTS ${quoteIdent(table)};`;
   // Run the query without returning anything
   try {
     db.exec(sqlstr);
@@ -278,24 +437,23 @@ export const replaceDB = (db: Database, tables: DBTables) => {
     .forEach((t) => {
       const tableFields = tables[t].cols;
       const fieldQuery = serializeSQLFieldNames(uniq(tableFields).
-        filter(f => f).map((f) => `'${sanitizeSQLStatement(f)}' char`));
+        filter(f => f).map((f) => `${quoteIdent(f)} char`));
       
-      const createQuery = `CREATE TABLE IF NOT EXISTS "${t}" (${fieldQuery}); `
+      const createQuery = `CREATE TABLE IF NOT EXISTS ${quoteIdent(t)} (${fieldQuery}); `
       const idxQuery = tables[t].uniques
         .filter((f) => f)
         .reduce((p, c) => {
-          return `${p} CREATE UNIQUE INDEX IF NOT EXISTS "idx_${t}_${c.replace(
-            /,/g,
-            "_"
-          )}" ON "${t}"(${c});`;
+          const indexName = `idx_${t}_${c.replace(/,/g, "_")}`;
+          const indexCols = c.split(",").map((f) => quoteIdent(f.trim())).join(",");
+          return `${p} CREATE UNIQUE INDEX IF NOT EXISTS ${quoteIdent(indexName)} ON ${quoteIdent(t)}(${indexCols});`;
         }, "");
       const beginTransaction = `BEGIN TRANSACTION;`
       const rowsQuery = tables[t].rows.map((curr) => {
-        return `REPLACE INTO "${t}" VALUES (${serializeSQLValues(tableFields
+        return `REPLACE INTO ${quoteIdent(t)} VALUES (${serializeSQLValues(tableFields
           .map((c) => `'${sanitizeSQLStatement(curr?.[c] ?? "")}'`))});`;
       });
       const commitQuery = `COMMIT;`;
-      sqlStatements.push(`DROP INDEX IF EXISTS "idx_${t}__id"; DROP TABLE IF EXISTS "${t}";`)
+      sqlStatements.push(`DROP INDEX IF EXISTS ${quoteIdent(`idx_${t}__id`)}; DROP TABLE IF EXISTS ${quoteIdent(t)};`)
       if (fieldQuery.length > 0) {
         sqlStatements.push(createQuery);
         sqlStatements.push(idxQuery);
@@ -321,10 +479,16 @@ export const saveZippedDBToPath = async (
   path: string,
   tables: DBTables
 ): Promise<boolean> => {
+  return withDBPathWriteQueue(path, async () => {
 
   const sqlJS = await plugin.sqlJS();
   //rewrite the entire table, useful for storing ranks and col order, not good for performance
-  const db = await getZippedDB(plugin, sqlJS, path);
+  const { db, status } = await openZippedDBWithStatus(plugin, sqlJS, path);
+  if (status === "corrupt") {
+    db.close();
+    await refuseCorruptDBWrite(plugin, path, true);
+    return false;
+  }
   if (!db) {
     db.close()
     return false;
@@ -336,6 +500,7 @@ export const saveZippedDBToPath = async (
 
     
   return true;
+  });
 };
 
 
@@ -345,10 +510,16 @@ export const saveDBToPath = async (
   tables: DBTables,
   mdb = true
 ): Promise<boolean> => {
+  return withDBPathWriteQueue(path, async () => {
 
   const sqlJS = await plugin.sqlJS();
   //rewrite the entire table, useful for storing ranks and col order, not good for performance
-  const db = await getDB(plugin, sqlJS, path);
+  const { db, status } = await openDBWithStatus(plugin, sqlJS, path);
+  if (status === "corrupt") {
+    db.close();
+    await refuseCorruptDBWrite(plugin, path, false);
+    return false;
+  }
   if (!db) {
     db.close()
     return false;
@@ -360,14 +531,14 @@ export const saveDBToPath = async (
     } catch (e) {
     }
     if (!mdbStruct.some(f => f.name == "m_schema")) {
-      const createSchemaTable = `CREATE TABLE m_schema ("id" char, "name" char, "type" char, "def" char, "predicate" char, "primary" char)`
+      const createSchemaTable = `CREATE TABLE ${quoteIdent("m_schema")} (${["id", "name", "type", "def", "predicate", "primary"].map((f) => `${quoteIdent(f)} char`).join(", ")})`
       try {
       db.exec(createSchemaTable);
       } catch(e) {
       }
     }
     if (!mdbStruct.some(f => f.name == "m_fields")) {
-      const createFieldsTable = `CREATE TABLE m_fields ("name" char, "schemaId" char, "type" char, "value" char, "hidden" char, "attrs" char, "unique" char, "primary" char)`
+      const createFieldsTable = `CREATE TABLE ${quoteIdent("m_fields")} (${["name", "schemaId", "type", "value", "hidden", "attrs", "unique", "primary"].map((f) => `${quoteIdent(f)} char`).join(", ")})`
       try {db.exec(createFieldsTable);
       } catch(e) { 
       }
@@ -383,4 +554,5 @@ if (result) {
 
     
   return result;
+  });
 };

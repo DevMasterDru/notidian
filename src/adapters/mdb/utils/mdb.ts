@@ -12,12 +12,12 @@ import { FilesystemSpaceInfo } from "shared/types/spaceInfo";
 import { vaultSchema } from "adapters/obsidian/filesystem/schemas/vaultSchema";
 import { defaultContextDBSchema, defaultContextSchemaID } from "shared/schemas/context";
 import { defaultFieldsForContext } from "shared/schemas/fields";
-import { sanitizeSQLStatement } from "shared/utils/sanitizers";
+import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database, QueryExecResult } from "sql.js";
 import {
   dbResultsToDBTables,
   deleteFromDB,
-  dropTable, getDBFile, replaceDB, saveDBFile
+  dropTable, getDBFile, openDBWithStatus, refuseCorruptDBWrite, replaceDB, saveDBFile, withDBPathWriteQueue
 } from "../db/db";
 import { MDBFileTypeAdapter } from "../mdbAdapter";
 
@@ -52,21 +52,22 @@ export const getMDB = async (
   path: string,
 ): Promise<MDB> => {
   const sqlJS = await plugin.sqlJS();
-  const buf = await getDBFile(plugin, path, false);
-  if (!buf) {
+  // Route through openDBWithStatus so a constructor-corrupt file returns null
+  // instead of throwing before the exec catch. bd Notidian-51n.
+  const { db, status } = await openDBWithStatus(plugin, sqlJS, path);
+  if (status !== "ok") {
+    db.close();
     return null;
   }
-
-  const db = new sqlJS.Database(new Uint8Array(buf));
 
   let fields;
   let schemas;
   try {
     fields = dbResultsToDBTables(
-      db.exec(`SELECT * FROM m_fields`)
+      db.exec(`SELECT * FROM ${quoteIdent("m_fields")}`)
     )[0].rows as SpaceProperty[];
     schemas = dbResultsToDBTables(
-      db.exec(`SELECT * FROM m_schema`)
+      db.exec(`SELECT * FROM ${quoteIdent("m_schema")}`)
     )[0].rows as SpaceTableSchema[];
   } catch (e) {
     db.close();
@@ -76,7 +77,7 @@ export const getMDB = async (
   try {
    dbTable = schemas.filter(f => f.type == 'db').map(f => ({[f.id]: dbResultsToDBTables(
     db.exec(
-      `SELECT * FROM "${f.id}"`
+      `SELECT * FROM ${quoteIdent(f.id)}`
     )
   )[0]})).reduce((p,c) => ({...p, ...c}), {});
   
@@ -103,22 +104,20 @@ export const getMDBTable = async (
 
   
   const sqlJS = await adapter.sqlJS();
-  const buf = await getDBFile(adapter, dbPath, false);
-  
-  if (!buf) {
+  const { db, status } = await openDBWithStatus(adapter, sqlJS, dbPath);
+  if (status !== "ok") {
+    db.close();
     return null;
   }
-
-  const db = new sqlJS.Database(new Uint8Array(buf));
 
   let fieldsTables;
   let schema;
   try {
     fieldsTables = dbResultsToDBTables(
-      db.exec(`SELECT * FROM m_fields WHERE schemaId = '${table}'`)
+      db.exec(`SELECT * FROM ${quoteIdent("m_fields")} WHERE ${quoteIdent("schemaId")} = '${sanitizeSQLStatement(table)}'`)
     );
     schema = dbResultsToDBTables(
-      db.exec(`SELECT * FROM m_schema WHERE id = '${table}'`)
+      db.exec(`SELECT * FROM ${quoteIdent("m_schema")} WHERE ${quoteIdent("id")} = '${sanitizeSQLStatement(table)}'`)
     )[0]?.rows[0] as SpaceTableSchema;
   } catch (e) {
     adapter.plugin.superstate.ui.error(e);
@@ -135,7 +134,7 @@ export const getMDBTable = async (
   try {
       dbTable = dbResultsToDBTables(
       db.exec(
-        `SELECT * FROM "${table}"`
+        `SELECT * FROM ${quoteIdent(table)}`
       )
     );
       } catch (e) {
@@ -156,18 +155,23 @@ export const getMDBTable = async (
 };
 
 export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) => {
+  return withDBPathWriteQueue(dbPath, async () => {
   const sqlJS = await plugin.sqlJS();
-    const buf = await getDBFile(plugin, dbPath, false);
-    if (!buf) {
+    const { db, status } = await openDBWithStatus(plugin, sqlJS, dbPath, false);
+    if (status === "missing") {
+      db.close();
       return null;
     }
-  
-    const db = new sqlJS.Database(new Uint8Array(buf));
+    if (status === "corrupt") {
+      db.close();
+      await refuseCorruptDBWrite(plugin, dbPath, false);
+      return null;
+    }
   
     let schemas : SpaceTableSchema[] = []
     try {
        schemas = (dbResultsToDBTables(
-      db.exec(`SELECT * FROM m_schema`)
+      db.exec(`SELECT * FROM ${quoteIdent("m_schema")}`)
     )[0]?.rows ?? []) as SpaceTableSchema[];
     } catch (e) {
     }
@@ -179,9 +183,9 @@ export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) =
       const tables = tableResults[0]?.rows?.map(f => f.name) as string[] ?? [];
       schemas = tables.filter(f => !f.startsWith('m_')).map(f => (f == defaultContextSchemaID ? defaultContextDBSchema : { id: f, name: f, type: 'db', primary: ''}));
       db.exec(
-        `CREATE TABLE IF NOT EXISTS m_schema ('id' char, 'name' char, 'type' char, 'def' char, 'predicate' char, 'primary' char)`
+        `CREATE TABLE IF NOT EXISTS ${quoteIdent("m_schema")} (${["id", "name", "type", "def", "predicate", "primary"].map((f) => `${quoteIdent(f)} char`).join(", ")})`
       );
-      db.exec(schemas.map(f => `INSERT INTO m_schema ('id', 'name', 'type', 'primary') VALUES ('${f.id}', '${f.name}', '${f.type}', '${f.primary}')`).join(';'));
+      db.exec(schemas.map(f => `INSERT INTO ${quoteIdent("m_schema")} (${["id", "name", "type", "primary"].map(quoteIdent).join(", ")}) VALUES ('${sanitizeSQLStatement(f.id)}', '${sanitizeSQLStatement(f.name)}', '${sanitizeSQLStatement(f.type)}', '${sanitizeSQLStatement(f.primary)}')`).join(';'));
       await saveDBFile(plugin, dbPath, db.export().buffer as ArrayBuffer);
     }
     const mdbTables = {} as SpaceTables;
@@ -189,7 +193,7 @@ export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) =
       let fieldsTables;
       try {
         fieldsTables = dbResultsToDBTables(
-          db.exec(`SELECT * FROM m_fields WHERE schemaId = '${schema.id}'`)
+          db.exec(`SELECT * FROM ${quoteIdent("m_fields")} WHERE ${quoteIdent("schemaId")} = '${sanitizeSQLStatement(schema.id)}'`)
         );
         
       } catch (e) {
@@ -203,7 +207,7 @@ export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) =
     
       let dbTable;
       try {
-      dbTable = dbResultsToDBTables(db.exec(`SELECT * FROM "${schema.id}"`));
+      dbTable = dbResultsToDBTables(db.exec(`SELECT * FROM ${quoteIdent(schema.id)}`));
       
       mdbTables[schema.id] = dbTableToMDBTable(
         dbTable[0],
@@ -221,6 +225,7 @@ export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) =
     })
     db.close();
     return mdbTables
+  });
 }
 
 export const deleteMDBTable = async (
@@ -228,19 +233,26 @@ export const deleteMDBTable = async (
   table: string,
   dbPath: string,
 ): Promise<boolean> => {
+  return withDBPathWriteQueue(dbPath, async () => {
   const sqlJS = await plugin.sqlJS();
-  const buf = await getDBFile(plugin, dbPath, false);
-  if (!buf) {
+  const { db, status } = await openDBWithStatus(plugin, sqlJS, dbPath, false);
+  if (status === "missing") {
+    db.close();
     return false;
   }
-  const db = new sqlJS.Database(new Uint8Array(buf));
-  deleteFromDB(db, "m_schema", `id = '${sanitizeSQLStatement(table)}'`);
-  deleteFromDB(db, "m_schema", `def = '${sanitizeSQLStatement(table)}'`);
-  deleteFromDB(db, "m_fields", `schemaId = '${sanitizeSQLStatement(table)}'`);
+  if (status === "corrupt") {
+    db.close();
+    await refuseCorruptDBWrite(plugin, dbPath, false);
+    return false;
+  }
+  deleteFromDB(db, "m_schema", `${quoteIdent("id")} = '${sanitizeSQLStatement(table)}'`);
+  deleteFromDB(db, "m_schema", `${quoteIdent("def")} = '${sanitizeSQLStatement(table)}'`);
+  deleteFromDB(db, "m_fields", `${quoteIdent("schemaId")} = '${sanitizeSQLStatement(table)}'`);
   dropTable(db, table);
   await saveDBFile(plugin, dbPath, db.export().buffer as ArrayBuffer);
   db.close();
   return true;
+  });
 };
 
 export const getMDBTableSchemas = async (
@@ -248,14 +260,14 @@ export const getMDBTableSchemas = async (
   path: string,
 ): Promise<SpaceTableSchema[]> => {
   const sqlJS = await plugin.sqlJS();
-  const buf = await getDBFile(plugin, path, false);
-  if (!buf) {
+  const { db, status } = await openDBWithStatus(plugin, sqlJS, path);
+  if (status !== "ok") {
+    db.close();
     return null;
   }
-  const db = new sqlJS.Database(new Uint8Array(buf));
   let schemas : QueryExecResult[] = [];
   try {
-    schemas = db.exec(`SELECT * FROM m_schema`)
+    schemas = db.exec(`SELECT * FROM ${quoteIdent("m_schema")}`)
   } catch (e) {
   }
   db.close();
@@ -270,16 +282,16 @@ export const getMDBTableProperties = async (
   path: string,
 ): Promise<SpaceProperty[]> => {
   const sqlJS = await adapter.sqlJS();
-  const buf = await getDBFile(adapter, path, false);
-  if (!buf) {
+  const { db, status } = await openDBWithStatus(adapter, sqlJS, path);
+  if (status !== "ok") {
+    db.close();
     return null;
   }
-  const db = new sqlJS.Database(new Uint8Array(buf));
   let fieldsTables
-  
+
 
   try {
-    fieldsTables = dbResultsToDBTables(db.exec(`SELECT * FROM m_fields`))[0].rows as SpaceProperty[];
+    fieldsTables = dbResultsToDBTables(db.exec(`SELECT * FROM ${quoteIdent("m_fields")}`))[0].rows as SpaceProperty[];
 
   } catch (e) {
     db.close();
@@ -289,7 +301,7 @@ export const getMDBTableProperties = async (
   if (fieldsTables.length == 0) {
     try {
       db.exec(
-        `CREATE TABLE m_fields (name TEXT, schemaId TEXT, type TEXT, value TEXT, hidden TEXT, attrs TEXT, unique TEXT, primary TEXT)`
+        `CREATE TABLE ${quoteIdent("m_fields")} (${["name", "schemaId", "type", "value", "hidden", "attrs", "unique", "primary"].map((f) => `${quoteIdent(f)} TEXT`).join(", ")})`
       );
     } catch (e) {
     }
@@ -307,7 +319,3 @@ export const initiateDB = (db: Database) => {
     vault: vaultSchema,
   });
 };
-
-
-
-

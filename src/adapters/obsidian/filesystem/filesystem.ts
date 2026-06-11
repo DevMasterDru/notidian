@@ -118,6 +118,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         })).filter(f => !excludePathPredicate(this.plugin.superstate.settings, f.path));
 
         const allPaths = await this.persister.loadAll('file');
+        const persistedByPath = new Map(allPaths.map(g => [g.path, g]));
         this.fileNameWarnings = new Set();
         // this.persister.reset();
         this.vaultDBCache.forEach(f => {
@@ -133,7 +134,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
                 tags: [],
                 label: {sticker: f.sticker, thumbnail: '', color: f.color, name:f.name} as PathLabel,
             };
-                const h = allPaths.find(g => g.path == f.path)
+                const h = persistedByPath.get(f.path)
                 if (h)
                 cache = {...cache, ...parsePathState(h.cache)}
                 if (file)

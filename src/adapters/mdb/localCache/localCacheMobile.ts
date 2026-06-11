@@ -1,5 +1,5 @@
 
-import { dbResultsToDBTables, getZippedDB, replaceDB, saveZippedDBFile, saveZippedDBToPath, selectDB } from "adapters/mdb/db/db";
+import { dbResultsToDBTables, openZippedDBWithStatus, replaceDB, saveZippedDBFile, saveZippedDBToPath, selectDB, withDBPathWriteQueue } from "adapters/mdb/db/db";
 import { MDBFileTypeAdapter } from "adapters/mdb/mdbAdapter";
 import { debounce } from "lodash";
 import { CacheDBSchema } from "schemas/cache";
@@ -17,7 +17,11 @@ export class MobileCachePersister implements LocalCachePersister {
     }
 
     public async getDB (){
-        return await getZippedDB(this.mdbAdapter, await this.mdbAdapter.sqlJS(), this.storageDBPath);
+        const { db, status } = await openZippedDBWithStatus(this.mdbAdapter, await this.mdbAdapter.sqlJS(), this.storageDBPath);
+        if (status === "corrupt") {
+            console.warn(`[notidian] Rebuilding unreadable local cache at ${this.storageDBPath}.`);
+        }
+        return db;
     }
     public async initialize () {
         const db = await this.getDB();
@@ -34,7 +38,9 @@ export class MobileCachePersister implements LocalCachePersister {
             }
         if (tables.length == 0) {
             replaceDB(db, this.types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {}));
-            await saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
+            await withDBPathWriteQueue(this.storageDBPath, () =>
+                saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
+            )
         }
         this.maps = this.types.reduce((p, type) => ({...p, [type]: new Map((selectDB(db, type)?.rows ?? []).map(f => [f.path, f]))}), {});
         db.close();
@@ -51,7 +57,9 @@ public async reset() {
     if (!this.initialized) return;
     const db = await this.getDB();
     replaceDB(db, this.types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {}));
-            await saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
+            await withDBPathWriteQueue(this.storageDBPath, () =>
+                saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
+            )
             this.maps = this.types.reduce((acc, type) => ({...acc, [type]: new Map((selectDB(db, type)?.rows ?? []).map(f => [f.path, f]))}), {});
             db.close();
 }

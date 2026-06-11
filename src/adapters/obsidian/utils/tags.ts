@@ -11,11 +11,78 @@ import {
 } from "obsidian";
 import { MakeMDSettings } from "shared/types/settings";
 import { uniq } from "shared/utils/array";
+import { parseMultiString } from "utils/parsers";
 import { serializeMultiDisplayString } from "utils/serializers";
 import { stringFromTag, tagPathToTag, validateName } from "utils/tags";
 
 
 const tagKeys = ["tags"];
+
+type TagsFrontmatter = Record<string, any>;
+
+const appForManager = (manager: SpaceManager, path: string): App | null => {
+  const spaceAdapter =
+    typeof (manager as any).adapterForPath === "function"
+      ? (manager as any).adapterForPath(path)
+      : (manager as any).primarySpaceAdapter;
+  const fileSystem = spaceAdapter?.fileSystem;
+  const fileSystemAdapter =
+    typeof fileSystem?.adapterForPath === "function"
+      ? fileSystem.adapterForPath(path)
+      : fileSystem?.primary;
+
+  return (
+    fileSystemAdapter?.plugin?.app ??
+    fileSystem?.primary?.plugin?.app ??
+    spaceAdapter?.plugin?.app ??
+    (manager as any).plugin?.app ??
+    null
+  );
+};
+
+const rawFrontmatterForPath = (
+  manager: SpaceManager,
+  path: string
+): TagsFrontmatter | null => {
+  try {
+    const app = appForManager(manager, path);
+    const file = app?.vault?.getAbstractFileByPath?.(path);
+    return file
+      ? app?.metadataCache?.getFileCache?.(file as TFile)?.frontmatter ?? null
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const readTagFrontmatter = async (
+  manager: SpaceManager,
+  path: string
+): Promise<TagsFrontmatter> => {
+  return (
+    rawFrontmatterForPath(manager, path) ?? (await manager.readProperties(path))
+  );
+};
+
+const tagsFromPropertyValue = (value: any): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((f) => f?.toString?.() ?? "").filter((f) => f.length > 0);
+  }
+  if (typeof value === "string") {
+    return parseMultiString(value).filter((f) => f.length > 0);
+  }
+  return [];
+};
+
+const tagPropertyValueForOriginalShape = (value: any, tags: string[]) => {
+  if (Array.isArray(value)) {
+    return tags;
+  }
+  if (typeof value === "string") {
+    return serializeMultiDisplayString(tags);
+  }
+  return tags[0] ?? "";
+};
 
 
 
@@ -112,34 +179,23 @@ export const renameTagInMarkdownFile = async (plugin: MakeMDPlugin, tag: string,
 
 const removeTagInProperties = async (manager: SpaceManager, oldTag: string, path: string) => {
   
-  const fm = await manager.readProperties(path);
+  const fm = await readTagFrontmatter(manager, path);
+  const oldTagName = stringFromTag(oldTag).toLowerCase();
   const processKey = (value: string | string[]) => {
-    if (Array.isArray(value)) {
-      return value.filter((f) => stringFromTag(oldTag).toLowerCase() != f.toLowerCase());
-    } else if (typeof value === "string") {
-      return serializeMultiDisplayString(value
-        .replace(/\s/g, "")
-        .split(",")
-        .filter((f) => stringFromTag(oldTag).toLowerCase() != f.toLowerCase())
-        );
-    }
-    return value;
+    const tags = tagsFromPropertyValue(value).filter(
+      (f) => oldTagName != f.toLowerCase()
+    );
+    return tagPropertyValueForOriginalShape(value, tags);
   };
   
   const editKeys = tagKeys.filter((f) => {
-    let tags: string[] = [];
-    if (Array.isArray(fm[f])) {
-      tags = fm[f];
-    } else if (typeof fm[f] === "string") {
-      tags = fm[f].replace(/\s/g, "").split(",");
-    }
-    if (tags.find((g) => g.toLowerCase() == stringFromTag(oldTag).toLowerCase())) return true;
-    return false;
+    return tagsFromPropertyValue(fm?.[f]).some(
+      (g) => g.toLowerCase() == oldTagName
+    );
   });
-  editKeys.forEach((tag) => {
-    manager.saveProperties(path, { [tag]: processKey(fm[tag]) });
-    
-  });
+  for (const tag of editKeys) {
+    await manager.saveProperties(path, { [tag]: processKey(fm[tag]) });
+  }
   
 };
 
@@ -151,62 +207,42 @@ const editTagInProperties = async (
 ) => {
   
   const addTag = (value: string | string[]) => {
-    if (Array.isArray(value)) {
-      return uniq([...value, stringFromTag(newTag)]).filter(f => f?.length > 0);
-    } else if (typeof value === "string") {
-      return serializeMultiDisplayString(uniq([
-        ...value.replace(/\s/g, "").split(","),
-        stringFromTag(newTag),
-      ]).filter(f => f?.length > 0));
-    }
-    return stringFromTag(newTag);
+    const tags = uniq([
+      ...tagsFromPropertyValue(value),
+      stringFromTag(newTag),
+    ]).filter(f => f?.length > 0);
+    return tagPropertyValueForOriginalShape(value, tags);
   };
-  const fm = await manager.readProperties(path);
+  const fm = await readTagFrontmatter(manager, path);
     if (fm) {
       const processKey = (value: string | string[]) => {
-        if (Array.isArray(value)) {
-          return uniq(
-            value.map((f) =>
-              stringFromTag(oldTag) == f ? stringFromTag(newTag) : f
-            )
-          );
-        } else if (typeof value === "string") {
-          return serializeMultiDisplayString(uniq(
-            value
-              .replace(/\s/g, "")
-              .split(",")
-              .map((f) =>
-                stringFromTag(oldTag) == f ? stringFromTag(newTag) : f
-              )
-          ));
-        }
-        return value;
+        const tags = uniq(
+          tagsFromPropertyValue(value).map((f) =>
+            stringFromTag(oldTag) == f ? stringFromTag(newTag) : f
+          )
+        ).filter(f => f?.length > 0);
+        return tagPropertyValueForOriginalShape(value, tags);
       };
 
       const editKeys = tagKeys.filter((f) => {
-        let tags: string[] = [];
-        if (Array.isArray(fm[f])) {
-          tags = fm[f];
-        } else if (typeof fm[f] === "string") {
-          tags = fm[f].replace(/\s/g, "").split(",");
-        }
-        if (tags.find((g) => g == stringFromTag(oldTag))) return true;
-        return false;
+        return tagsFromPropertyValue(fm[f]).some(
+          (g) => g == stringFromTag(oldTag)
+        );
       });
       if (editKeys.length > 0) {
-        editKeys.forEach((key) => {
-          manager.saveProperties(path, {
+        for (const key of editKeys) {
+          await manager.saveProperties(path, {
             [key]: processKey(fm[key]),
           });
-        });
+        }
       } else {
-        manager.saveProperties(path, {
+        await manager.saveProperties(path, {
           tags: addTag(fm["tags"]),
         });
         
       }
     } else {
-      manager.saveProperties(path, {
+      await manager.saveProperties(path, {
         tags: stringFromTag(newTag),
       });
       

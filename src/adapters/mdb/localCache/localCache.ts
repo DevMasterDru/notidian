@@ -1,10 +1,10 @@
 
-import { dbResultsToDBTables, deleteFromDB, getZippedDB, insertIntoDB, replaceDB, saveZippedDBFile, selectDB } from "adapters/mdb/db/db";
+import { dbResultsToDBTables, deleteFromDB, insertIntoDB, openZippedDBWithStatus, replaceDB, saveZippedDBFile, selectDB, withDBPathWriteQueue } from "adapters/mdb/db/db";
 import { MDBFileTypeAdapter } from "adapters/mdb/mdbAdapter";
 import { debounce } from "lodash";
 import { CacheDBSchema } from "schemas/cache";
 import { DBRow, DBTables } from "shared/types/mdb";
-import { sanitizeSQLStatement } from "shared/utils/sanitizers";
+import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database } from "sql.js";
 import { LocalCachePersister } from "../../../shared/types/persister";
 
@@ -24,7 +24,11 @@ export class LocalStorageCache implements LocalCachePersister {
     }
     public async initialize () {
 
-        this.db = await getZippedDB(this.mdbAdapter, await this.mdbAdapter.sqlJS(), this.storageDBPath);
+        const { db, status } = await openZippedDBWithStatus(this.mdbAdapter, await this.mdbAdapter.sqlJS(), this.storageDBPath);
+        if (status === "corrupt") {
+            console.warn(`[notidian] Rebuilding unreadable local cache at ${this.storageDBPath}.`);
+        }
+        this.db = db;
         let tables;
         try {
             tables =  dbResultsToDBTables(
@@ -63,19 +67,21 @@ public reset() {
     public async remove(path: string, type: string): Promise<void> {
         if (!this.initialized) return;
         if (!this.db) return;
-        await deleteFromDB(this.db, type, `path='${sanitizeSQLStatement(path)}'`)
+        await deleteFromDB(this.db, type, `${quoteIdent("path")}='${sanitizeSQLStatement(path)}'`)
         this.debounceSaveSpaceDatabase();
         return;
     }
     public cleanType (type: string) {
         if (!this.initialized) return;
         if (!this.db) return;
-        deleteFromDB(this.db, type, `version != '${this.indexVersion}'`)
+        deleteFromDB(this.db, type, `${quoteIdent("version")} != '${this.indexVersion}'`)
         return;
     }
     private debounceSaveSpaceDatabase = debounce(
         () => {
-             saveZippedDBFile(this.mdbAdapter, this.storageDBPath, this.db.export().buffer as ArrayBuffer)
+             return withDBPathWriteQueue(this.storageDBPath, () =>
+                saveZippedDBFile(this.mdbAdapter, this.storageDBPath, this.db.export().buffer as ArrayBuffer)
+             )
     }, 5000,
     {
         leading: false,
