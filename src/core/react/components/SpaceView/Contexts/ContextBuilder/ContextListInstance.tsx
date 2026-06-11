@@ -11,6 +11,10 @@ import {
   updatePathRankInSpace,
 } from "core/superstate/utils/spaces";
 import { updateTableValue } from "core/utils/contexts/context";
+import {
+  frontmatterGroupDragWrite,
+  resolveGroupFieldName,
+} from "core/utils/contexts/groupDrag";
 import _ from "lodash";
 import { Superstate } from "makemd-core";
 import React, { useContext, useEffect, useState } from "react";
@@ -238,9 +242,13 @@ const dropListItem = async (
 
       if (activePath && context) {
         if (groupValueMismatch) {
-          {
+          const write = frontmatterGroupDragWrite(
+            props.props?._groupField,
+            props.props?._groupValue
+          );
+          if (write) {
             saveProperties(props.superstate, activePath, {
-              [props.props?._groupField]: props.props?._groupValue,
+              [write.key]: write.value,
             });
           }
         } else {
@@ -254,15 +262,18 @@ const dropListItem = async (
       }
     } else {
       const context = over.data.current.contexts?.$context;
-      updateTableValue(
-        props.superstate.spaceManager,
-        spaceInfo,
-        active.data.current.schema,
-        active.data.current.contexts?.$context?.["_index"],
-        props.props?._groupField,
-        props.props?._groupValue,
-        context?._index
-      );
+      const groupFieldName = resolveGroupFieldName(props.props?._groupField);
+      if (groupFieldName) {
+        updateTableValue(
+          props.superstate.spaceManager,
+          spaceInfo,
+          active.data.current.schema,
+          active.data.current.contexts?.$context?.["_index"],
+          groupFieldName,
+          props.props?._groupValue,
+          context?._index
+        );
+      }
     }
   }
 };

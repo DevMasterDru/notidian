@@ -12,6 +12,7 @@ import {
 } from "core/utils/properties/allProperties";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
+import { buildRowUpdateWrites } from "core/utils/contexts/rowUpdateWrites";
 import {
   executeBulkPageTitleRename,
   renamePageTitleForRow,
@@ -731,42 +732,14 @@ export const ContextEditorProvider: React.FC<
       saveDB(createNewRow(tableData, row));
       return;
     }
-    const changedCols = Object.keys(row).filter(
-      (f) => row[f] != currentData[f]
-    );
-    const frontmatterChanges = changedCols.reduce((p, c) => {
-      const col = cols.find((f) => f.name == c);
-      if (
-        !col ||
-        !shouldWriteContextPropertyToFrontmatter(col)
-      ) {
-        return p;
-      }
-
-      return {
-        ...p,
-        [c]: parseMDBStringValue(col.type, row[c], true),
-      };
-    }, {});
-    if (Object.keys(frontmatterChanges).length > 0) {
-      const writeResult = await saveFrontmatterProperties({
-        superstate: props.superstate,
-        path: currentData?.[PathPropertyName],
-        properties: frontmatterChanges,
-      });
-      if (!writeResult.ok) return;
+    // Route ordinary value changes through the authority-aware transaction so
+    // calendar/modal/header edits get the same stale-frontmatter conflict gate,
+    // MDB stripping, and undo as table cell edits. Title (PathPropertyName)
+    // changes are excluded — they must use the rename transaction. bd Notidian-f2l.
+    const writes = buildRowUpdateWrites(row, currentData, cols, index);
+    if (writes.length > 0) {
+      await executeValueWrites(writes);
     }
-    saveDB({
-      ...tableData,
-      rows: tableData.rows.map((r, i) =>
-        i == index
-          ? {
-              ...r,
-              ...row,
-            }
-          : r
-      ),
-    });
   };
 
   const executeValueWrites = async (
@@ -872,30 +845,69 @@ export const ContextEditorProvider: React.FC<
         superstate: props.superstate,
       });
 
+      // Resolve the old path for a file write the same way the rename items were
+      // built, so applied/failed entries can be correlated back to writes.
+      const oldPathForFileWrite = (write: TablePasteWrite): string | undefined =>
+        write.path ??
+        (
+          data.find((r) => r._index == write.rowId) ??
+          tableData.rows[parseInt(write.rowId)]
+        )?.[PathPropertyName];
+
       if (result.ok == false) {
-        const failedRenameResult: TableEditTransactionResult = {
+        // Partial success: some renames reached final paths, the rest failed.
+        // Classify FAILED writes from result.failures explicitly (a no-op title
+        // write that didn't change is neither applied nor failed — it must not be
+        // dropped). Report only the failures as failed (so undo captures the
+        // applied renames) and retarget the applied rows. bd Notidian-79s.
+        const key = (oldPath: string | undefined, value: string) =>
+          `${oldPath ?? ""}\u0000${value}`;
+        const failedKeys = new Set(
+          result.failures.map((fail) => key(fail.row?.[PathPropertyName], fail.value))
+        );
+        const appliedByKey = new Map(
+          result.applied.map((a) => [key(a.oldPath, a.value), a.newPath])
+        );
+        const failedFileWrites: TablePasteWrite[] = [];
+        const overrideMap = new Map<string, string>();
+        for (const write of fileWrites) {
+          const k = key(oldPathForFileWrite(write), write.value);
+          if (failedKeys.has(k)) {
+            failedFileWrites.push(write);
+          } else if (appliedByKey.has(k)) {
+            overrideMap.set(write.rowId, appliedByKey.get(k) as string);
+          }
+        }
+        results.push({
           ok: false,
-          applied: 0,
+          applied: fileWrites.length - failedFileWrites.length,
           skipped: [],
-          failed: fileWrites.map((write) => ({
+          failed: failedFileWrites.map((write) => ({
             write,
-            reason: "file-rename-failed",
+            reason: "file-rename-failed" as const,
           })),
-        };
-        return failedRenameResult;
+        });
+        // Drop value writes for failed-rename rows (their file is not at the new
+        // path); retarget value writes for applied renames.
+        const failedRowIds = new Set(failedFileWrites.map((w) => w.rowId));
+        valueWrites = applyTableEditPathOverrides(
+          valueWrites.filter((w) => !failedRowIds.has(w.rowId)),
+          overrideMap
+        );
+      } else {
+        results.push({
+          ok: true,
+          applied: fileWrites.length,
+          skipped: [],
+          failed: [],
+        });
+        valueWrites = applyTableEditPathOverrides(
+          valueWrites,
+          new Map(
+            fileWrites.map((write, index) => [write.rowId, result.paths[index]])
+          )
+        );
       }
-      results.push({
-        ok: true,
-        applied: fileWrites.length,
-        skipped: [],
-        failed: [],
-      });
-      valueWrites = applyTableEditPathOverrides(
-        valueWrites,
-        new Map(
-          fileWrites.map((write, index) => [write.rowId, result.paths[index]])
-        )
-      );
     }
 
     if (valueWrites.length > 0) {

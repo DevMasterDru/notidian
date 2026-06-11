@@ -820,7 +820,7 @@ const defaultSpaceTemplate = this.defaultFrame(path);
   }
   public async deleteProperty (path: string, property: string) {
     const file = await this.fileSystem.getFile(path)
-    this.fileSystem.deleteFileFragment(file, 'property', property)
+    return this.fileSystem.deleteFileFragment(file, 'property', property)
   }
 
     onCreate = async (payload: {file: AFile}) => {

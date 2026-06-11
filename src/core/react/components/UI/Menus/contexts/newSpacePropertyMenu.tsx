@@ -1,6 +1,7 @@
 import i18n from "shared/i18n";
 
 import {
+  isFrontmatterCompatibleType,
   propertyTypeLabelForField,
   propertyTypeOptionsForField,
   shouldShowMultiToggleForPropertyType,
@@ -13,6 +14,7 @@ import {
   frontmatterPropertySource,
   propertyMenuDiscoveryScope,
 } from "core/utils/properties/allProperties";
+import { defaultPropertySourceForContext } from "core/utils/properties/newPropertyDefaults";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fieldTypeForType, fieldTypes, stickerForField } from "schemas/mdb";
@@ -46,10 +48,23 @@ const NewPropertyMenuComponent = (
     ) => void;
   } & NewPropertyMenuProps
 ) => {
+  const defaultPropertySource = useMemo(
+    () =>
+      defaultPropertySourceForContext({
+        schemaId: props.schemaId,
+        contextPath: props.contextPath,
+        fileMetadata: props.fileMetadata,
+        isSpace: props.isSpace,
+      }),
+    [props.schemaId, props.contextPath, props.fileMetadata, props.isSpace]
+  );
   const [fieldName, setFieldName] = useState<string>("");
   const [fieldSource, setFieldSource] = useState<string>(
     props.fileMetadata ? "$fm" : ""
   );
+  const [fieldPropertySource, setFieldPropertySource] = useState<
+    string | undefined
+  >(defaultPropertySource);
   const spaceCaches = useMemo(
     () =>
       props.spaces
@@ -97,10 +112,54 @@ const NewPropertyMenuComponent = (
     );
     setFieldType(field.type == fieldType ? field.multiType : field.type);
   };
+  const effectivePropertySource =
+    fieldSource == "" ? fieldPropertySource : undefined;
   const typeMenuSource = () =>
     fieldSource == "$fm" && !props.isSpace
       ? frontmatterPropertySource
-      : fieldSource;
+      : effectivePropertySource ?? fieldSource;
+  const selectedPropertySource = (_: string[], value: string[]) => {
+    const nextSource =
+      value[0] == frontmatterPropertySource
+        ? frontmatterPropertySource
+        : undefined;
+    setFieldPropertySource(nextSource);
+    // Frontmatter-backed columns only support file-backed types. If the user had
+    // selected a context-only type (aggregate/context/object) under Notidian
+    // storage, reset it so we cannot save an invalid frontmatter+computed column.
+    if (
+      nextSource == frontmatterPropertySource &&
+      !isFrontmatterCompatibleType(fieldType)
+    ) {
+      setFieldType("text");
+    }
+  };
+  const selectPropertySource = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    props.superstate.ui.openMenu(
+      (e.target as HTMLElement).getBoundingClientRect(),
+      {
+        ui: props.superstate.ui,
+        multi: false,
+        editable: false,
+        searchable: false,
+        saveOptions: selectedPropertySource,
+        value: [fieldPropertySource ?? "notidian"],
+        showAll: true,
+        options: [
+          {
+            name: "Frontmatter",
+            value: frontmatterPropertySource,
+          },
+          {
+            name: "Notidian-owned field",
+            value: "notidian",
+          },
+        ],
+      },
+      windowFromDocument(e.view.document)
+    );
+  };
 
   const selectType = (e: React.MouseEvent) => {
     const specialMenu = (rect: Rect, onHide: () => void) => {
@@ -203,6 +262,7 @@ const NewPropertyMenuComponent = (
       type: fieldType,
       value: fieldValue,
       schemaId: props.schemaId,
+      ...(effectivePropertySource ? { source: effectivePropertySource } : {}),
     });
     if (result) props.hide();
   };
@@ -216,6 +276,9 @@ const NewPropertyMenuComponent = (
       input.current?.focus();
     }, 50);
   }, []);
+  useEffect(() => {
+    setFieldPropertySource(defaultPropertySource);
+  }, [defaultPropertySource]);
   const input = useRef(null);
   const discoveredProperties = useMemo(() => {
     const scope = propertyMenuDiscoveryScope(fieldSource, props.contextPath);
@@ -378,6 +441,19 @@ const NewPropertyMenuComponent = (
                 : fieldSource == ""
                 ? props.superstate.spacesIndex.get(props.contextPath)?.name
                 : props.superstate.spacesIndex.get(fieldSource)?.name}
+            </span>
+          </div>
+        )}
+        {defaultPropertySource && fieldSource == "" && (
+          <div
+            className="mk-menu-option"
+            onClick={(e) => selectPropertySource(e)}
+          >
+            <div className="mk-menu-options-inner">Property Storage</div>
+            <span>
+              {fieldPropertySource == frontmatterPropertySource
+                ? "Frontmatter"
+                : "Notidian-owned"}
             </span>
           </div>
         )}

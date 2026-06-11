@@ -773,8 +773,45 @@ export const TableView = (props: { superstate: Superstate }) => {
         pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
       }
     };
-    const clearCell = () => {
-      pasteSelection("", "Clear cells");
+    const clearCell = async () => {
+      if (!activeSelection) return;
+      const plan = planTablePaste({
+        rowOrder: visibleRowOrder,
+        columns: pasteColumns,
+        selection: activeSelection,
+        clipboardGrid: [[""]],
+        clear: true,
+      });
+      notifyRejections(plan.rejections.length);
+      if (plan.writes.length == 0) return;
+
+      const undoEntry = createTableUndoEntry({
+        label: "Clear cells",
+        rows: data,
+        writes: plan.writes,
+      });
+      const withoutClearIntent = (
+        write: (typeof undoEntry.writes)[number]
+      ): (typeof undoEntry.writes)[number] => {
+        if (!write.clear) return write;
+        const nextWrite = { ...write };
+        delete nextWrite.clear;
+        return nextWrite;
+      };
+      const clearUndoEntry = {
+        ...undoEntry,
+        writes: undoEntry.writes.map(withoutClearIntent),
+        redoWrites: undoEntry.redoWrites.map((write) => ({
+          ...write,
+          clear: true as const,
+        })),
+      };
+      const operationId = beginCellFeedbackOperation(plan.writes);
+      const result = await applyTableEdits(plan.writes);
+      finishCellFeedbackOperation(operationId, result);
+      if (result.applied > 0) {
+        pushTableUndo(filterTableUndoEntryForResult(clearUndoEntry, result));
+      }
     };
     const undoLastTableOperation = async () => {
       const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);

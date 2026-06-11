@@ -13,6 +13,7 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow } from "shared/types/mdb";
+import { renamePageTitleForRow } from "core/utils/contexts/pageTitleRename";
 
 export interface ContextCreateItemModalProps {
   superstate: Superstate;
@@ -223,13 +224,19 @@ const ContextCreateItemContent = (props: {
           // Creating new file
           const itemName = itemTitle.trim();
 
-          // Create the file
-          await props.superstate.api.path.create(
+          // Create the file and capture its actual path. The created path is
+          // `source/itemName` in a subfolder context, so properties must target
+          // the returned path, not the bare title. bd Notidian-te8.
+          const createdResult = await props.superstate.api.path.create(
             itemName, // name/path
             source, // space/context path
             "md", // type (markdown file)
             "" // content (empty initially)
           );
+          const createdPath =
+            typeof createdResult === "string" && createdResult
+              ? createdResult
+              : itemName;
 
           // Add other properties to the created file
           const otherFields = { ...newItem };
@@ -237,7 +244,7 @@ const ContextCreateItemContent = (props: {
             for (const [key, value] of Object.entries(otherFields)) {
               if (value !== undefined && value !== "") {
                 await props.superstate.api.path.setProperty(
-                  itemName,
+                  createdPath,
                   key,
                   value
                 );
@@ -248,25 +255,32 @@ const ContextCreateItemContent = (props: {
           props.hide && props.hide();
           return;
         } else {
-          // Editing existing file - handle title change
+          // Editing existing file - handle title change through the validated
+          // rename transaction (empty/slash/duplicate checks, backlink-aware
+          // rename, row reconciliation), not a raw renamePath. bd Notidian-te8.
           const currentPath = props.initialData?.[PathPropertyName] as string;
           const newTitle = itemTitle.trim();
 
           if (currentPath && newTitle && currentPath !== newTitle) {
-            // Rename the file if title changed
-            await props.superstate.spaceManager.renamePath(
-              currentPath,
-              newTitle
-            );
+            const renamedPath = await renamePageTitleForRow({
+              row: { [PathPropertyName]: currentPath } as DBRow,
+              value: newTitle,
+              contextPath: source,
+              superstate: props.superstate,
+            });
+            if (!renamedPath) {
+              props.superstate.ui.notify?.("Could not rename the item.");
+              return;
+            }
           }
 
-          // Update other properties
-          const updatedItem = { ...newItem, [PathPropertyName]: newTitle };
-
+          // Update other properties. The title is intentionally not passed as a
+          // row value (updateRow excludes PathPropertyName); identity is owned by
+          // the rename above.
           if (props.onSave) {
-            await props.onSave(updatedItem, rowIndex);
+            await props.onSave(newItem, rowIndex);
           } else {
-            await updateRow(updatedItem, rowIndex);
+            await updateRow(newItem, rowIndex);
           }
 
           props.hide && props.hide();

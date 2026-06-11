@@ -17,6 +17,10 @@ import {
 import { addTagToPath } from "core/superstate/utils/tags";
 import { FMMetadataKeys } from "core/types/space";
 import { updateContextValue } from "core/utils/contexts/context";
+import {
+  propertyAuthorityForColumn,
+  shouldWriteAuthorityValueToFrontmatter,
+} from "core/utils/properties/propertyAuthority";
 import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React, {
@@ -293,38 +297,50 @@ export const HeaderPropertiesView = (props: PropsWithChildren<{
     setCols(properties);
   };
   const updateValue = (value: string, field: PathContextProperty) => {
-    saveProperties(props.superstate, pathState.path, {
-      [field.property.name]: parseMDBStringValue(
-        field.property.type,
-        value,
-        true
-      ),
-    });
-    Promise.all(
-      field.contexts.map((f) => {
-        updateContextValue(
-          props.superstate.spaceManager,
-          props.superstate.spacesIndex.get(f).space,
-          pathState.path,
-          field.property.name,
-          value
-        );
-      })
-    );
+    // Authority split: a frontmatter-backed property is written ONLY to the
+    // file's YAML; a Notidian-owned property is written ONLY to the context MDB;
+    // computed/file properties are read-only. Mixing them would leak ordinary
+    // metadata into the hidden store (or a context field into YAML). bd Notidian-f2l.
+    const authority = propertyAuthorityForColumn(field.property);
+    if (authority == "frontmatter") {
+      saveProperties(props.superstate, pathState.path, {
+        [field.property.name]: parseMDBStringValue(
+          field.property.type,
+          value,
+          true
+        ),
+      });
+    } else if (authority == "notidian") {
+      Promise.all(
+        field.contexts.map((f) => {
+          updateContextValue(
+            props.superstate.spaceManager,
+            props.superstate.spacesIndex.get(f).space,
+            pathState.path,
+            field.property.name,
+            value
+          );
+        })
+      );
+    }
   };
   const updateFieldValue = (
     fv: string,
     value: string,
     field: PathContextProperty
   ) => {
-    saveProperties(props.superstate, pathState.path, {
-      [field.property.name]: parseMDBStringValue(
-        field.property.type,
-        value,
-        true
-      ),
-    });
+    if (shouldWriteAuthorityValueToFrontmatter(field.property)) {
+      saveProperties(props.superstate, pathState.path, {
+        [field.property.name]: parseMDBStringValue(
+          field.property.type,
+          value,
+          true
+        ),
+      });
+    }
 
+    // Field-option config (saveSpaceProperty) is view/schema state, not a row
+    // value, and is written regardless of authority.
     props.superstate.spaceManager.saveSpaceProperty(
       field.contexts[0],
       {
