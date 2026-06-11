@@ -1,6 +1,6 @@
 const { spawn } = require("child_process");
 
-const DEFAULT_FIXTURE_ROOT = "Notidian Integration Fixtures";
+const DEFAULT_FIXTURE_ROOT = "Sandbox/Notidian/Integration Fixtures";
 const DEFAULT_PLUGIN_ID = "notidian";
 const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 20000;
@@ -350,6 +350,31 @@ const renameFileEvalCode = ({ fromPath, toPath }) =>
       }
       await app.fileManager.renameFile(file, toPath);
       return finish({ ok: true, path: toPath });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const ensureFixtureFolderEvalCode = ({ folder }) =>
+  `(async () => {
+    const marker = "notidianEnsureFixtureFolder";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const parts = ${JSON.stringify(folder)}.split("/").filter(Boolean);
+      let current = "";
+      const created = [];
+      for (const part of parts) {
+        current = current ? current + "/" + part : part;
+        if (!app.vault.getAbstractFileByPath(current)) {
+          await app.vault.createFolder(current);
+          created.push(current);
+        }
+      }
+      return finish({ ok: true, folder: ${JSON.stringify(folder)}, created });
     } catch (error) {
       return finish({
         ok: false,
@@ -2835,6 +2860,9 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       id: config.pluginId,
     });
     await runObsidian(config, execute, "dev:errors", { clear: true });
+    await runObsidian(config, execute, "eval", {
+      code: ensureFixtureFolderEvalCode({ folder: paths.folder }),
+    });
     await runObsidian(config, execute, "create", {
       path: paths.alphaPath,
       content: alphaContent,

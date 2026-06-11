@@ -130,6 +130,9 @@ describe("notidian real vault harness", () => {
       const command = args[1];
       if (command == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true, path: args[0] });
         }
@@ -172,6 +175,7 @@ describe("notidian real vault harness", () => {
       "vault",
       "plugin:reload",
       "dev:errors",
+      "eval",
       "create",
       "create",
       "eval",
@@ -233,6 +237,9 @@ describe("notidian real vault harness", () => {
       const command = args[1];
       if (command == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
         }
@@ -349,7 +356,7 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(36);
+      .toHaveLength(37);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
@@ -405,6 +412,9 @@ describe("notidian real vault harness", () => {
     const runner = jest.fn(async (args) => {
       if (args[1] == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
         }
@@ -447,6 +457,9 @@ describe("notidian real vault harness", () => {
     const runner = jest.fn(async (args) => {
       if (args[1] == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
         }
@@ -496,6 +509,9 @@ describe("notidian real vault harness", () => {
       const command = args[1];
       if (command == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
         }
@@ -545,6 +561,9 @@ describe("notidian real vault harness", () => {
       const command = args[1];
       if (command == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
         }
@@ -606,6 +625,9 @@ describe("notidian real vault harness", () => {
     const runner = jest.fn(async (args) => {
       if (args[1] == "eval") {
         const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
         if (code.includes("notidianRenameFile")) {
           return JSON.stringify({ ok: true });
         }

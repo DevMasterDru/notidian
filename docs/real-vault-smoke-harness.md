@@ -35,9 +35,14 @@ The harness refuses to write unless both conditions are true:
 It writes only under a stable fixture root with timestamped fixture file names:
 
 ```text
-Notidian Integration Fixtures/notidian-smoke-<timestamp>-Alpha.md
-Notidian Integration Fixtures/notidian-smoke-<timestamp>-Beta.md
+Sandbox/Notidian/Integration Fixtures/notidian-smoke-<timestamp>-Alpha.md
+Sandbox/Notidian/Integration Fixtures/notidian-smoke-<timestamp>-Beta.md
 ```
+
+The fixture root lives under the vault's sanctioned `Sandbox/` dev area (Atlas
+Method ADR-0008 root allowlist: tools never create other root items; each tool
+namespaces its dev artifacts under `Sandbox/<Tool>/`). The harness ensures the
+folder chain exists before creating fixtures, so a fresh vault needs no setup.
 
 By default, it deletes the fixture notes before exiting. Pass `--keep-fixture` to leave them in the vault for inspection.
 
@@ -45,7 +50,7 @@ The harness intentionally avoids creating a per-run folder. Notidian may create 
 
 The rename step exercises the runtime guard that redirects stale `.makemd` and `.space` storage writes into `.notidian`. The harness now checks the live vault's loaded files after the smoke scenario and after fixture cleanup, failing if any active `.makemd`, `.space`, or `*.base` artifact appears outside archive, ignore, or `.trash` paths. Run `npm run verify:live` when you want this smoke check wrapped with pre/post health audits and a migration dry-run.
 
-When `--ui` is passed, the harness also writes the fixture root's default frame view predicate to table view. Use a dedicated fixture root for this command; the default `Notidian Integration Fixtures` folder is intended for that purpose.
+When `--ui` is passed, the harness also writes the fixture root's default frame view predicate to table view. Use a dedicated fixture root for this command; the default `Sandbox/Notidian/Integration Fixtures` folder is intended for that purpose.
 
 The harness wraps each Obsidian CLI command with a hard process timeout. File rename is performed through `obsidian eval` and Obsidian's `fileManager.renameFile` API instead of the CLI `rename` command because the CLI command can complete the rename but keep the child process open. Fixture cleanup is also performed through one API-backed `obsidian eval` call using `app.vault.delete(file, true)` for each fixture path. These API paths still exercise Obsidian's native file events and metadata-cache behavior while avoiding fragile per-file CLI commands.
 
@@ -144,7 +149,7 @@ The conflict scenario intentionally creates the stale authority state inside Not
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
 | `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, redo, frontmatter type changes, Select option creation and existing-option selection, Multi-select persistence, conflict apply, and file-title rename workflows. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
-| `--fixture-root=<folder>` | `Notidian Integration Fixtures` | Folder for smoke fixtures. |
+| `--fixture-root=<folder>` | `Sandbox/Notidian/Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
 | `--command-timeout-ms=<number>` | `20000` | Hard timeout for each Obsidian CLI child process. |
 | `--poll-interval-ms=<number>` | `250` | Delay between metadata-cache polls. |
