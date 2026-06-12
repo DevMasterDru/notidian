@@ -118,6 +118,12 @@ type ContextEditorContextProps = {
   delColumn: (column: SpaceTableColumn) => void;
   searchString: string;
   setSearchString: React.Dispatch<React.SetStateAction<string>>;
+  // Quick find (Notidian-r20) is a separate view-layer affordance from the
+  // row-hiding filter search above. Only the open toggle is shared here so the
+  // filter-bar button and the table's Cmd/Ctrl+F open the same bar; the matches,
+  // active index, and query live in TableView where the rows + DOM are.
+  findOpen: boolean;
+  setFindOpen: React.Dispatch<React.SetStateAction<boolean>>;
   tableData: SpaceTable;
   cols: SpaceTableColumn[];
   saveDB: (table: SpaceTable) => void;
@@ -171,6 +177,8 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   delColumn: () => null,
   searchString: "",
   setSearchString: () => null,
+  findOpen: false,
+  setFindOpen: () => null,
   data: [],
   applyTableEdits: async () => emptyTableEditTransactionResult(),
   applyValueEdits: async () => emptyTableEditTransactionResult(),
@@ -270,6 +278,7 @@ export const ContextEditorProvider: React.FC<
   const [tableData, setTableData] = useState<SpaceTable>(null);
 
   const [searchString, setSearchString] = useState<string>(null);
+  const [findOpen, setFindOpen] = useState<boolean>(false);
   const [predicate, setPredicate] = useState<Predicate>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editMode, setEditMode] = useState<number>(0);
@@ -1539,6 +1548,8 @@ export const ContextEditorProvider: React.FC<
         newColumn,
         searchString,
         setSearchString,
+        findOpen,
+        setFindOpen,
         updateValue,
         applyTableEdits,
         applyValueEdits,

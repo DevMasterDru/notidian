@@ -49,6 +49,12 @@ import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
+import {
+  computeQuickFindMatches,
+  pageSizeToRevealRow,
+  stepMatchIndex,
+} from "core/utils/contexts/tableQuickFind";
+import { QuickFindBar } from "./QuickFindBar";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { newPathInSpace } from "core/superstate/utils/spaces";
 import { PointerModifiers } from "core/types/ui";
@@ -425,6 +431,8 @@ export const TableView = (props: { superstate: Superstate }) => {
     applyTableEdits,
     reloadContextData,
     renameRowTitle,
+    findOpen,
+    setFindOpen,
   } = useContext(ContextEditorContext);
 
   const pageSize = props.superstate.settings.contextPagination ?? 25;
@@ -470,6 +478,98 @@ export const TableView = (props: { superstate: Superstate }) => {
     currentPageSize: pagination.pageSize,
     totalRows: data.length,
   });
+
+  // --- Quick find (Notidian-r20): highlight + navigate, never hides rows ---
+  const [findQuery, setFindQuery] = useState("");
+  const [findActiveIndex, setFindActiveIndex] = useState(0);
+
+  const findMatches = useMemo(() => {
+    if (!findOpen) return [];
+    return computeQuickFindMatches({
+      rows: data as Record<string, unknown>[],
+      columns: cols.map((c) => ({ key: c.name + c.table, type: c.type })),
+      hiddenColumnIds: predicate?.colsHidden ?? [],
+      query: findQuery,
+    });
+  }, [findOpen, data, cols, predicate?.colsHidden, findQuery]);
+
+  const findActiveClamped =
+    findMatches.length == 0
+      ? -1
+      : Math.max(0, Math.min(findActiveIndex, findMatches.length - 1));
+  const findActiveMatch =
+    findActiveClamped >= 0 ? findMatches[findActiveClamped] : null;
+
+  // Stable per-cell keys (row `_index` + column) so highlighting survives
+  // pagination/grouping reindexing; group header rows have no `_index`.
+  const findMatchKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of findMatches) {
+      const id = (data[m.rowIndex] as DBRow)?.["_index"];
+      if (id !== undefined) set.add(id + ":" + m.colKey);
+    }
+    return set;
+  }, [findMatches, data]);
+  const findActiveKey =
+    findActiveMatch != null
+      ? ((data[findActiveMatch.rowIndex] as DBRow)?.["_index"] ?? "") +
+        ":" +
+        findActiveMatch.colKey
+      : null;
+
+  // Reset to the first match when the query changes.
+  useEffect(() => {
+    setFindActiveIndex(0);
+  }, [findQuery]);
+  // Clear state when the bar closes so reopening starts fresh.
+  useEffect(() => {
+    if (!findOpen) {
+      setFindQuery("");
+      setFindActiveIndex(0);
+    }
+  }, [findOpen]);
+  // Reveal the active match: grow pagination so its row renders, then scroll it
+  // into view. When grouping is active, synthetic group-header rows make the
+  // flat-index reveal math unreliable, so load all rows (find is an explicit
+  // action and grouped tables are typically small) — that guarantees the active
+  // cell renders. A short retry covers the frame where pagination just changed.
+  useEffect(() => {
+    if (!findActiveMatch) return;
+    const groupingActive = (predicate?.groupBy?.length ?? 0) > 0;
+    const neededPageSize = groupingActive
+      ? Math.max(pagination.pageSize, data.length)
+      : pageSizeToRevealRow(
+          findActiveMatch.rowIndex,
+          pageSize,
+          pagination.pageSize
+        );
+    if (neededPageSize != pagination.pageSize) {
+      setPagination((p) => ({ ...p, pageSize: neededPageSize }));
+    }
+    let cancelled = false;
+    let raf = 0;
+    const tryScroll = (attempt: number) => {
+      raf = requestAnimationFrame(() => {
+        if (cancelled) return;
+        const el = ref.current?.querySelector('[data-find-active="true"]');
+        if (el) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+        else if (attempt < 2) tryScroll(attempt + 1);
+      });
+    };
+    tryScroll(0);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findActiveKey]);
+
+  // Step from the clamped index (always valid) so navigation stays correct even
+  // after the match set changes under edits/visibility changes.
+  const stepFind = (dir: 1 | -1) =>
+    setFindActiveIndex(stepMatchIndex(findMatches.length, findActiveClamped, dir));
+  const closeFind = () => setFindOpen(false);
+
   const frozenColumnCount = clampFrozenColumnCount({
     columns: cols,
     hiddenColumnIds: predicate?.colsHidden ?? [],
@@ -699,6 +799,19 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Quick find (Notidian-r20): Cmd/Ctrl+F opens the find bar when the table is
+    // focused. Obsidian's editor find does not bind inside this custom view, so
+    // intercepting here is safe and does not fight the app.
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      (e.key == "f" || e.key == "F")
+    ) {
+      e.preventDefault();
+      setFindOpen(true);
+      return;
+    }
     const pasteColumns = cols.map((f) => ({
       id: f.name + f.table,
       name: f.name,
@@ -1715,6 +1828,18 @@ export const TableView = (props: { superstate: Superstate }) => {
         onKeyDown={onKeyDown}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {findOpen && (
+          <QuickFindBar
+            superstate={props.superstate}
+            query={findQuery}
+            matchCount={findMatches.length}
+            activeOrdinal={findActiveClamped + 1}
+            onQueryChange={setFindQuery}
+            onNext={() => stepFind(1)}
+            onPrev={() => stepFind(-1)}
+            onClose={closeFind}
+          />
+        )}
         <table
           {
             ...{
@@ -1911,9 +2036,18 @@ export const TableView = (props: { superstate: Superstate }) => {
                               )
                             ]
                           : undefined;
+                      const findCellKey =
+                        rowOriginalIndex !== undefined
+                          ? rowOriginalIndex + ":" + accessorKey
+                          : null;
+                      const isFindMatch =
+                        findCellKey != null && findMatchKeys.has(findCellKey);
+                      const isFindActive =
+                        findCellKey != null && findCellKey == findActiveKey;
 
                       return (
                         <td
+                          data-find-active={isFindActive ? "true" : undefined}
                           onMouseDown={(e) =>
                             selectCell(e, cell.row.index, accessorKey)
                           }
@@ -1949,7 +2083,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                             feedback?.action == "frontmatter-conflict" &&
                               "mk-cell-conflict",
                             frozenOffset && "mk-frozen-column",
-                            frozenOffset?.isLast && "mk-frozen-column-last"
+                            frozenOffset?.isLast && "mk-frozen-column-last",
+                            isFindMatch && "mk-cell-find-match",
+                            isFindActive && "mk-cell-find-active"
                           )}
                           key={cell.id}
                           style={{

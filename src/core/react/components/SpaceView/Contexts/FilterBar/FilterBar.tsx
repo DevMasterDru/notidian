@@ -66,6 +66,7 @@ export const FilterBar = (props: {
     dbSchema,
     cols,
     setSearchString,
+    setFindOpen,
     setEditMode,
     predicate,
     savePredicate,
@@ -1464,6 +1465,17 @@ export const FilterBar = (props: {
                   ></SearchBar>
                 )}
 
+                <button
+                  className="mk-toolbar-button mk-quick-find-toggle"
+                  aria-label="Find in view"
+                  title="Find in view (⌘/Ctrl+F)"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFindOpen((f) => !f);
+                  }}
+                >
+                  ⌕
+                </button>
                 <button
                   className="mk-toolbar-button"
                   onClick={(e) => showLayoutMenu(e)}
