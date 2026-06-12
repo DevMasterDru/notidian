@@ -23,10 +23,11 @@ import {
 } from "core/utils/contexts/pageTitleRename";
 import { planPropertyColumnDelete } from "core/utils/contexts/propertyColumnActions";
 import { applyFrontmatterSchemaWritePlans } from "core/utils/contexts/notidianSchemaApply";
+import { isTypeProfileMirrorableType } from "core/utils/contexts/typeProfileMirror";
 import {
-  isTypeProfileMirrorableType,
-  mirrorSchemaChangeToTypeProfile,
-} from "core/utils/contexts/typeProfileMirror";
+  createTypeProfileMirrorQueue,
+  runSerializedTypeProfileMirror,
+} from "core/utils/contexts/typeProfileMirrorQueue";
 import {
   NotidianSchemaIssue,
   planRenameFrontmatterProperty,
@@ -430,6 +431,10 @@ export const ContextEditorProvider: React.FC<
   // closed on every later load; the ref dedupes attempts while mounted.
   const frontmatterImportAttempts = useRef(new Set<string>());
   const editSerializerRef = useRef(createContextEditSerializerState());
+  // Serializes Type Profile mirror writes so a burst of schema edits (notably
+  // add-option, which fires one mirror per new option) cannot lose updates to
+  // the hub `fields` map (Notidian-miy).
+  const typeProfileMirrorRef = useRef(createTypeProfileMirrorQueue());
   useEffect(() => {
     if (!tableData || !dbSchema) return;
     if (readMode || spaceInfo?.readOnly) return;
@@ -1296,11 +1301,16 @@ export const ContextEditorProvider: React.FC<
 
     await saveDB(tablePreview);
     if (dbSchema?.id == defaultContextSchemaID) {
-      void mirrorSchemaChangeToTypeProfile(props.superstate, contextPath, {
-        kind: "rename-key",
-        oldName: column.name,
-        newName: normalizedNewKey,
-      });
+      void runSerializedTypeProfileMirror(
+        typeProfileMirrorRef.current,
+        props.superstate,
+        contextPath,
+        {
+          kind: "rename-key",
+          oldName: column.name,
+          newName: normalizedNewKey,
+        }
+      );
     }
     await reloadContextData();
     props.superstate.ui.notify(
@@ -1460,11 +1470,16 @@ export const ContextEditorProvider: React.FC<
       isTypeProfileMirrorableType(column.type)
     ) {
       if (!oldColumn) {
-        void mirrorSchemaChangeToTypeProfile(props.superstate, contextPath, {
-          kind: "add-column",
-          name: column.name,
-          type: column.type,
-        });
+        void runSerializedTypeProfileMirror(
+          typeProfileMirrorRef.current,
+          props.superstate,
+          contextPath,
+          {
+            kind: "add-column",
+            name: column.name,
+            type: column.type,
+          }
+        );
       } else if (
         oldColumn.name == column.name &&
         column.type.startsWith("option") &&
@@ -1482,11 +1497,16 @@ export const ContextEditorProvider: React.FC<
         for (const option of optionValues(column.value).filter(
           (option) => option.length > 0 && !previous.includes(option)
         )) {
-          void mirrorSchemaChangeToTypeProfile(props.superstate, contextPath, {
-            kind: "add-option",
-            name: column.name,
-            option,
-          });
+          void runSerializedTypeProfileMirror(
+            typeProfileMirrorRef.current,
+            props.superstate,
+            contextPath,
+            {
+              kind: "add-option",
+              name: column.name,
+              option,
+            }
+          );
         }
       }
     }

@@ -9,7 +9,7 @@ import React, { useContext, useEffect, useState } from "react";
 // Emptiness is evaluated when the note path changes, not live — the region
 // must not vanish while the user is editing it down to empty.
 export const SpaceNoteBody = (props: { superstate: Superstate }) => {
-  const { spaceState } = useContext(SpaceContext);
+  const { spaceState, readMode } = useContext(SpaceContext);
   const notePath = spaceState?.space?.notePath;
   const [hasBody, setHasBody] = useState(false);
 
@@ -18,10 +18,16 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
     setHasBody(false);
     if (!notePath || !props.superstate.settings.enableFolderNote) return;
     (async () => {
-      const exists = await props.superstate.spaceManager.pathExists(notePath);
-      if (!exists || !active) return;
-      const content = await props.superstate.spaceManager.readPath(notePath);
-      if (active && !isNoteBodyEmpty(content)) setHasBody(true);
+      try {
+        const exists = await props.superstate.spaceManager.pathExists(notePath);
+        if (!exists || !active) return;
+        const content = await props.superstate.spaceManager.readPath(notePath);
+        if (active && !isNoteBodyEmpty(content)) setHasBody(true);
+      } catch (e) {
+        // A read failure (deleted mid-read, permission, etc.) must not throw an
+        // unhandled rejection; just leave the region collapsed.
+        if (active) setHasBody(false);
+      }
     })();
     return () => {
       active = false;
@@ -36,6 +42,7 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
         path={spaceState.path}
         forceNote={true}
         load={true}
+        readOnly={readMode}
       ></NoteView>
     </div>
   );
