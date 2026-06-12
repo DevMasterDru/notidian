@@ -34,6 +34,10 @@ Notidian currently implements the core Obsidian-native database foundation:
 - Paste operations show pending, failed, and skipped cell feedback derived from transaction results.
 - Direct value edits, field-option edits, and page-title rename edits show pending/failed/skipped cell feedback and reset failed optimistic editor state back to canonical data.
 - Bulk paste, cut, delete/clear, fill-from-single-cell paste, and page-title paste can be undone with `Cmd/Ctrl+Z` through the same authority-aware write paths.
+- The space view renders the hub note's body (definitions/legend) above the table as an editable embed; the region hides when the body is empty and can be disabled with the `spaceViewShowNoteBody` setting.
+- The `folderNoteInsideFolder` setting now controls where the folder/hub note resolves: inside the folder (default) or adjacent to it (`Reviews.md` beside `Reviews/`), including note creation and space renames.
+- Hub notes can declare a Type Profile (`schema_type: notidian_type_profile` + a `fields:` map): profile fields auto-materialize as frontmatter-backed columns with hub-owned kinds and select options, and Notidian schema edits (new columns, key renames, new options) mirror back into the hub's fields map.
+- A `password` field kind renders secrets as masked dots with reveal-on-click and copy-without-reveal; storage stays plain frontmatter (masking is a UI concern, not encryption).
 
 This is intentionally not a hidden Make.md-style parallel database and not a native Bases wrapper. Contexts remain the current view/configuration engine while files and frontmatter remain the durable data layer.
 

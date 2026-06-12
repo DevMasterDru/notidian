@@ -1,4 +1,5 @@
 import { SpaceHeader } from "core/react/components/SpaceView/SpaceHeader";
+import { SpaceNoteBody } from "core/react/components/SpaceView/SpaceNoteBody";
 import SpaceOuter from "core/react/components/SpaceView/SpaceOuter";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { Backlinks, Superstate } from "makemd-core";
@@ -14,6 +15,9 @@ export const SpaceInner = (props: {
     <>
       {props.header && (
         <SpaceHeader superstate={props.superstate}></SpaceHeader>
+      )}
+      {spaceState && props.superstate.settings.spaceViewShowNoteBody && (
+        <SpaceNoteBody superstate={props.superstate}></SpaceNoteBody>
       )}
       {spaceState && (
         <SpaceOuter

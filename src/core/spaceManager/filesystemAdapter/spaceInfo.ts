@@ -83,6 +83,13 @@ export const fileSystemSpaceInfoByPath = (
   return null;
 };
 
+// Folder that contains a space's note file ("/" for vault-root notes).
+// Equals folderPath in inside mode and the folder's parent in adjacent mode.
+export const noteParentPath = (spaceInfo: { notePath: string }) => {
+  const parent = spaceInfo.notePath.split("/").slice(0, -1).join("/");
+  return parent.length > 0 ? parent : "/";
+};
+
 export const fileSystemSpaceInfoFromFolder = (
   manager: SpaceManager,
   folder: string,
@@ -107,6 +114,13 @@ export const fileSystemSpaceInfoFromFolder = (
   }
   const folderName = folderPathToString(folder);
   const folderNoteName = manager.superstate.settings.folderNoteName;
+  // Adjacent mode (folderNoteInsideFolder false): the note sits beside the
+  // folder as <parent>/<folderName>.md; a custom folderNoteName would collide
+  // across sibling folders, so it only applies to inside mode.
+  const parentFolder = folder.split("/").slice(0, -1).join("/");
+  const notePath = manager.superstate.settings.folderNoteInsideFolder === false
+    ? (parentFolder.length > 0 ? parentFolder + "/" : "") + folderName + ".md"
+    : folder + "/" + (folderNoteName.length > 0 ? folderNoteName : folderName) + ".md";
   return {
     name: folderName,
 
@@ -115,7 +129,7 @@ export const fileSystemSpaceInfoFromFolder = (
     readOnly: readOnly,
     folderPath: folder,
     defPath: folder + `/${manager.superstate.settings.spaceSubFolder}/def.json`,
-    notePath: folder + "/" + (folderNoteName.length > 0 ? folderNoteName : folderName) + ".md",
+    notePath: notePath,
     dbPath: spaceFolderPathFromSpace(folder +
       "/", manager) +  "context.mdb",
     framePath: spaceFolderPathFromSpace(folder +

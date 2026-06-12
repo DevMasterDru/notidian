@@ -18,6 +18,7 @@ export interface MakeMDSettings {
   banners: boolean;
   bannerHeight: number;
   spaceViewEnabled: boolean;
+  spaceViewShowNoteBody: boolean;
   sidebarTabs: boolean;
   vaultSelector: boolean;
   showRibbon: boolean;

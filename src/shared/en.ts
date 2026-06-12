@@ -487,6 +487,10 @@ export const en = {
       "label": "Text",
       "description": "Text field"
     },
+    "password": {
+      "label": "Password",
+      "description": "Masked secret value — hidden on screen, stored as plain frontmatter (masking, not encryption)"
+    },
     "number": {
       "label": "Number",
       "description": "Number field with optional unit"
@@ -1243,6 +1247,14 @@ export const en = {
     "enableFolderNote": {
       "name": "Enable Folder Note",
       "desc": "Access the folder note in the folder page and hide the folder note from spaces"
+    },
+    "folderNoteInsideFolder": {
+      "name": "Folder Note Inside Folder",
+      "desc": "Keep the folder note inside its folder; turn off to use a note next to the folder with the same name"
+    },
+    "spaceViewShowNoteBody": {
+      "name": "Show Note Body in Space View",
+      "desc": "Show the folder note's text above the space view so definitions and legends live at the top of the page"
     },
     "folderNoteName": {
       "name": "Folder Note Name",

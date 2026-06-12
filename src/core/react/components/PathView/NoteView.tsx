@@ -1,3 +1,4 @@
+import { noteParentPath } from "core/spaceManager/filesystemAdapter/spaceInfo";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React, { forwardRef, useEffect, useRef, useState } from "react";
@@ -45,18 +46,21 @@ export const NoteView = forwardRef((props: NoteViewProps, ref) => {
         setLoaded(false);
         return;
       } else {
-        const parent =
+        const spaceNotePath =
           pathState?.type == "space"
             ? (
                 props.superstate.spacesIndex.get(props.path)
                   ?.space as FilesystemSpaceInfo
-              ).folderPath
-            : props.superstate.spaceManager.parentPathForPath(path.basePath);
+              )?.notePath
+            : null;
+        const parent = spaceNotePath
+          ? noteParentPath({ notePath: spaceNotePath })
+          : props.superstate.spaceManager.parentPathForPath(path.basePath);
         if (!parent) return;
         const newPath = await props.superstate.spaceManager.createItemAtPath(
           parent,
           "md",
-          pathToString(props.path)
+          spaceNotePath ? pathToString(spaceNotePath) : pathToString(props.path)
         );
         setExistsPas(false);
         await props.superstate.ui.openPath(newPath, false, div, {readOnly: props.readOnly});

@@ -8,6 +8,7 @@ import { orderStringArrayByArray, uniq } from "shared/utils/array";
 
 import { builtinSpaces } from "core/types/space";
 import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow } from "core/utils/contexts/linkContextRow";
+import { parseTypeProfile, planTypeProfileApply } from "core/utils/contexts/typeProfile";
 import {
     materializeFrontmatterBackedContextTable,
 } from "core/utils/properties/allProperties";
@@ -56,13 +57,25 @@ export const parseContextTableToCache = (space: SpaceInfo, mdb: SpaceTables, pat
     const shouldAutoImportProperties =
         settings.autoImportObsidianPropertiesToContexts !== false &&
         !space.path.startsWith("spaces://");
-    const materializedContextTable = materializeFrontmatterBackedContextTable(
+    let materializedContextTable = materializeFrontmatterBackedContextTable(
         { ...sourceContextTable, cols: sourceCols, rows: sourceRows },
         pathsIndex,
         paths,
         settings,
         shouldAutoImportProperties
     ).table;
+    // Hub-note Type Profile (Notidian-5qr): the space's note frontmatter can
+    // declare the schema; missing fields materialize as frontmatter-backed
+    // columns and hub select options refresh the column config.
+    const noteProfile = parseTypeProfile(
+        space.notePath ? pathsIndex.get(space.notePath)?.metadata?.property : null
+    );
+    if (noteProfile) {
+        const profilePlan = planTypeProfileApply(noteProfile, materializedContextTable);
+        if (profilePlan.changed) {
+            materializedContextTable = { ...materializedContextTable, cols: profilePlan.cols };
+        }
+    }
     const schemas = Object.values(mdb).map(f => f.schema);
     let cols = materializedContextTable?.cols;
     if (!cols || cols.length == 0) {

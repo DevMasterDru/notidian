@@ -24,6 +24,10 @@ import {
 import { planPropertyColumnDelete } from "core/utils/contexts/propertyColumnActions";
 import { applyFrontmatterSchemaWritePlans } from "core/utils/contexts/notidianSchemaApply";
 import {
+  isTypeProfileMirrorableType,
+  mirrorSchemaChangeToTypeProfile,
+} from "core/utils/contexts/typeProfileMirror";
+import {
   NotidianSchemaIssue,
   planRenameFrontmatterProperty,
 } from "core/utils/contexts/notidianSchema";
@@ -1291,6 +1295,13 @@ export const ContextEditorProvider: React.FC<
     });
 
     await saveDB(tablePreview);
+    if (dbSchema?.id == defaultContextSchemaID) {
+      void mirrorSchemaChangeToTypeProfile(props.superstate, contextPath, {
+        kind: "rename-key",
+        oldName: column.name,
+        newName: normalizedNewKey,
+      });
+    }
     await reloadContextData();
     props.superstate.ui.notify(
       `Renamed "${column.name}" to "${normalizedNewKey}" in ${applyResult.applied} file${
@@ -1441,6 +1452,43 @@ export const ContextEditorProvider: React.FC<
       }
     } else if (contextTable[tagSpacePathFromTag(table)]) {
       saveContextDB(newTable, tagSpacePathFromTag(table));
+    }
+
+    if (
+      table == "" &&
+      dbSchema?.id == defaultContextSchemaID &&
+      isTypeProfileMirrorableType(column.type)
+    ) {
+      if (!oldColumn) {
+        void mirrorSchemaChangeToTypeProfile(props.superstate, contextPath, {
+          kind: "add-column",
+          name: column.name,
+          type: column.type,
+        });
+      } else if (
+        oldColumn.name == column.name &&
+        column.type.startsWith("option") &&
+        oldColumn.value != column.value
+      ) {
+        const optionValues = (value: string) => {
+          const options = safelyParseJSON(value)?.options;
+          return Array.isArray(options)
+            ? options.map((option: { value?: string; name?: string }) =>
+                String(option?.value ?? option?.name ?? "")
+              )
+            : [];
+        };
+        const previous = optionValues(oldColumn.value);
+        for (const option of optionValues(column.value).filter(
+          (option) => option.length > 0 && !previous.includes(option)
+        )) {
+          void mirrorSchemaChangeToTypeProfile(props.superstate, contextPath, {
+            kind: "add-option",
+            name: column.name,
+            option,
+          });
+        }
+      }
     }
 
     return true;

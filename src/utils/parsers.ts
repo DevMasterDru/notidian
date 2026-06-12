@@ -117,6 +117,7 @@ export const parseMultiString = (str: string): string[] => ensureString(str).sta
     case "tag":
     case "option":
     case "image":
+    case "password":
       return stringifyPropertyValue(value);
       break;
   }

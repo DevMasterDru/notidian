@@ -6,7 +6,7 @@ import { AFile } from "shared/types/afile";
 import { PathLabel } from "shared/types/caches";
 
 import { DefaultEverViewTables, DefaultFolderNoteMDBTables, DefaultMDBTables } from "core/react/components/SpaceView/Frames/DefaultFrames/DefaultFrames";
-import { fileSystemSpaceInfoByPath, fileSystemSpaceInfoFromFolder, fileSystemSpaceInfoFromTag } from "core/spaceManager/filesystemAdapter/spaceInfo";
+import { fileSystemSpaceInfoByPath, fileSystemSpaceInfoFromFolder, fileSystemSpaceInfoFromTag, noteParentPath } from "core/spaceManager/filesystemAdapter/spaceInfo";
 import { parseSpaceMetadata } from "core/superstate/utils/spaces";
 import { builtinSpaces, spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemplateKey, spaceTemplateNameKey } from "core/types/space";
 import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow } from "core/utils/contexts/linkContextRow";
@@ -784,7 +784,7 @@ const defaultSpaceTemplate = this.defaultFrame(path);
       let noteFile = await this.fileSystem.getFile(spaceInfo.notePath)
       if (this.spaceManager.superstate.settings.enableFolderNote) {
         if (!noteFile)
-          noteFile = await this.fileSystem.newFile(spaceInfo.folderPath, spaceInfo.name, "md")
+          noteFile = await this.fileSystem.newFile(noteParentPath(spaceInfo), pathToString(spaceInfo.notePath), "md")
       } else {
         if (!defFile) {
           const defPath = this.spaceInfoForPath(path).defPath
@@ -933,7 +933,7 @@ const defaultSpaceTemplate = this.defaultFrame(path);
       let noteFile = await this.fileSystem.getFile(spaceInfo.notePath)
       if (this.spaceManager.superstate.settings.enableFolderNote) {
         if (!noteFile)
-          noteFile = await this.fileSystem.newFile(spaceInfo.folderPath, pathToString(spaceInfo.notePath), "md")
+          noteFile = await this.fileSystem.newFile(noteParentPath(spaceInfo), pathToString(spaceInfo.notePath), "md")
       } else {
         noteFile = defFile;
       }
@@ -964,10 +964,17 @@ const defaultSpaceTemplate = this.defaultFrame(path);
       
       const spaceInfo = this.spaceInfoForPath(oldPath);
       const newSpaceInfo = this.spaceInfoForPath(newPath);
-      return this.fileSystem.renameFile(spaceInfo.folderPath, newSpaceInfo.folderPath).then(f => 
+      return this.fileSystem.renameFile(spaceInfo.folderPath, newSpaceInfo.folderPath).then(f =>
       {
-        if (this.spaceManager.superstate.settings.enableFolderNote)
-          this.fileSystem.renameFile(movePath(spaceInfo.notePath, newSpaceInfo.path), newSpaceInfo.notePath)
+        if (this.spaceManager.superstate.settings.enableFolderNote) {
+          // Inside mode: the folder rename already moved the note, so its
+          // current path is the old note name inside the new folder.
+          // Adjacent mode: the note still sits beside the old folder path.
+          const currentNotePath = this.spaceManager.superstate.settings.folderNoteInsideFolder === false
+            ? spaceInfo.notePath
+            : movePath(spaceInfo.notePath, newSpaceInfo.path);
+          this.fileSystem.renameFile(currentNotePath, newSpaceInfo.notePath)
+        }
         return f
       });
     }

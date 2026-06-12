@@ -23,6 +23,7 @@ import { PropertySelectCell } from "./PropertySelectCell";
 import { SpaceCell } from "./SpaceCell";
 import { SuperCell } from "./SuperCell";
 import { TagCell } from "./TagCell";
+import { PasswordCell } from "./PasswordCell";
 import { TextCell } from "./TextCell";
 
 export type DataTypeViewProps = {
@@ -105,6 +106,8 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
     );
   } else if (fieldType.type == "boolean") {
     return <BooleanCell {...viewProps}></BooleanCell>;
+  } else if (fieldType.type == "password") {
+    return <PasswordCell {...viewProps}></PasswordCell>;
   } else if (fieldType.type == "option") {
     return (
       <OptionCell

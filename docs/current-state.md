@@ -107,6 +107,29 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Open state is per-session React state only. It is not written to the view predicate or the context MDB; persisted open-state is an explicit deferred follow-up in ADR 0016.
 - Rows that do not resolve to a markdown note keep an alignment spacer and no affordance. Board, cards, gallery, catalog, flow, calendar, and table layouts are unchanged.
 
+### Hub Note Body Above The Table
+
+- The space view renders the space's folder/hub note body as an editable inline embed between the space header and the frame body (`SpaceNoteBody`), so a database's definitions/legend live at the top of its page (Notidian-7oj).
+- The region renders nothing when the note is missing or its body (frontmatter stripped) is blank; emptiness is evaluated on mount/path change so the region does not vanish mid-edit. The embed hides the note's frontmatter properties widget — schema frontmatter is edited in the hub note itself.
+- Gated by `spaceViewShowNoteBody` (default on) and requires `enableFolderNote`.
+- `folderNoteInsideFolder` now actually controls `notePath` resolution: `true` keeps the note inside the folder (legacy default, honors `folderNoteName`); `false` resolves the adjacent sibling note (`Reviews.md` beside `Reviews/`, custom note names ignored to avoid sibling collisions). Note creation (`saveLabel`, `saveSpace`, `NoteView` force-create), space renames, and folder-note creation reload (`onPathCreated`) follow the same resolution. The Atlas Vault runs adjacent mode per Atlas Method ADR-0008.
+
+### Hub Note Type Profiles
+
+- A database's hub note can declare its schema in frontmatter:
+  `schema_type: notidian_type_profile` plus a `fields:` map (Atlas Method ADR-0008; Notidian-5qr). The pure planner layer lives in `core/utils/contexts/typeProfile.ts`.
+- Hub → table (auto on context load, in `parseContextTableToCache`): missing profile fields materialize as frontmatter-backed columns with no row writes; the profile owns the kind for frontmatter-backed columns (an inferred `text` upgrades to the profile's `option`/`date`/etc.); hub select options seed/refresh the column config hub-first while keeping table-local extras and their colors. Conforming tables are a strict no-op.
+- Kinds v1: text, select(options), date, number, checkbox, link/url; `password` parses but maps to text until the masked field kind ships. Unknown kinds degrade to text with a parse issue, never an error.
+- Table → hub mirror (`typeProfileMirror.ts`, hooked in `ContextEditorContext`): adding a primary-table column, renaming a frontmatter key via `Rename Frontmatter Key`, and adding select options write the updated `fields:` map back to the hub. The mirror fires only when the hub already declares a profile, only for ordinary value kinds (computed/relation/layout types stay table-local), and suppresses echoes so the two directions cannot loop. Mirror failures notify and never roll back the table write.
+
+### Password Field Kind
+
+- `password` is a first-class column type (property-type menu, `ui//lock` icon) for secret values such as API keys (Atlas Method ADR-0009; Notidian-k6e). Type Profile `kind: password` maps to it.
+- **Masking is a UI concern, not encryption**: values are stored as plain frontmatter and the vault-local threat model is accepted in the ADR. Obsidian's native properties panel on the raw note still shows the value — only Notidian surfaces mask.
+- Cells render fixed-length dots (no length leak) with hover eye/copy buttons: the eye toggles reveal (auto-rehides on pointer leave, Escape, and when editing ends), copy puts the real value on the clipboard without revealing it. Edit mode is a real `<input type="password">`; no `dangerouslySetInnerHTML` of the value anywhere.
+- Rectangular/TSV range copy includes real values by user decision — clipboard writes are deliberate actions; display stays masked.
+- `parseProperty` treats `password` as a string kind so frontmatter values sync into context rows like text.
+
 ### Add-Property Menu Frontmatter Discovery
 
 - The add-property menu discovers existing frontmatter keys across the context's rows when it opens and lists them as a visible `Existing Property` section with inferred-type icons ([ADR 0016](adr/0016-per-view-display-properties-and-inline-row-expansion.md)).

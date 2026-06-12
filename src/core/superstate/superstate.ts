@@ -678,9 +678,18 @@ public api: API;
         
         await this.reloadPath(path, true)
         const parent = getParentPathFromString(path);
-        if (this.spacesIndex.has(parent) && this.spacesIndex.get(parent).space.notePath == path) {
-            await this.reloadSpace(this.spacesIndex.get(parent).space)
-            await this.reloadContextByPath(parent, {force: true})
+        // A folder note can live inside its space (parent folder) or beside it
+        // (adjacent mode: Reviews.md next to Reviews/).
+        const siblingSpacePath = path.endsWith(".md") ? path.slice(0, -3) : null;
+        const noteSpacePath =
+            this.spacesIndex.has(parent) && this.spacesIndex.get(parent).space.notePath == path
+                ? parent
+                : siblingSpacePath && this.spacesIndex.has(siblingSpacePath) && this.spacesIndex.get(siblingSpacePath).space.notePath == path
+                    ? siblingSpacePath
+                    : null;
+        if (noteSpacePath) {
+            await this.reloadSpace(this.spacesIndex.get(noteSpacePath).space)
+            await this.reloadContextByPath(noteSpacePath, {force: true})
         }
         this.dispatchEvent("pathCreated", { path});
     }

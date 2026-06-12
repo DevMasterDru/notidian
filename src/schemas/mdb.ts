@@ -69,6 +69,14 @@ export const fieldTypes: FieldType[] = [
     description: i18n.properties.text.description
   },
   {
+    type: "password",
+    label: i18n.properties.password.label,
+    metadata: true,
+    icon: 'ui//lock',
+    primative: true,
+    description: i18n.properties.password.description
+  },
+  {
     type: "number",
     label: i18n.properties.number.label,
     metadata: true,

@@ -265,6 +265,48 @@ export const NotesSettings = ({ superstate }: SettingsProps) => {
         <div className="mk-setting-item">
           <div className="mk-setting-item-info">
             <div className="mk-setting-item-name">
+              {i18n.settings.folderNoteInsideFolder.name}
+            </div>
+            <div className="mk-setting-item-description">
+              {i18n.settings.folderNoteInsideFolder.desc}
+            </div>
+          </div>
+          <div className="mk-setting-item-control">
+            <input
+              type="checkbox"
+              checked={superstate.settings.folderNoteInsideFolder}
+              onChange={(e) => {
+                superstate.settings.folderNoteInsideFolder = e.target.checked;
+                immediateSave();
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="mk-setting-item">
+          <div className="mk-setting-item-info">
+            <div className="mk-setting-item-name">
+              {i18n.settings.spaceViewShowNoteBody.name}
+            </div>
+            <div className="mk-setting-item-description">
+              {i18n.settings.spaceViewShowNoteBody.desc}
+            </div>
+          </div>
+          <div className="mk-setting-item-control">
+            <input
+              type="checkbox"
+              checked={superstate.settings.spaceViewShowNoteBody}
+              onChange={(e) => {
+                superstate.settings.spaceViewShowNoteBody = e.target.checked;
+                immediateSave();
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="mk-setting-item">
+          <div className="mk-setting-item-info">
+            <div className="mk-setting-item-name">
               {i18n.settings.folderNoteName.name}
             </div>
             <div className="mk-setting-item-description">

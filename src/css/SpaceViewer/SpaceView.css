@@ -148,6 +148,16 @@ body:not(.is-mobile) .markdown-source-view.mod-cm6 .mk-space-header .inline-titl
   position: relative;
   padding-bottom: 100px;
 }
+.mk-space-note {
+  max-width: var(--page-width);
+  width: 100%;
+  margin: 0 auto;
+}
+/* The space note region shows the hub note's body (legend/definitions);
+   its schema frontmatter is edited in the note itself, not here. */
+.mk-space-note .metadata-container {
+  display: none;
+}
 .mk-space-body > .mk-f {
   max-width: var(--page-width);
 margin: 0 auto;  

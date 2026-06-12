@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   spacesPerformance: false,
   currentWaypoint: 0,
   enableFolderNote: true,
+  spaceViewShowNoteBody: true,
   folderIndentationLines: true,
   revealActiveFile: false,
   spacesStickers: true,
