@@ -18,6 +18,7 @@ import { OptionCell } from "./OptionCell";
 import { PageTitleCell } from "./PageTitleCell";
 
 import { AggregateCell } from "./AggregateCell";
+import { RollupCell } from "./RollupCell";
 import { FlexCell } from "./FlexCell";
 import { PropertySelectCell } from "./PropertySelectCell";
 import { SpaceCell } from "./SpaceCell";
@@ -141,6 +142,17 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
         columns={props.columns}
         saveOptions={saveFieldValue}
       ></AggregateCell>
+    );
+  } else if (fieldType.type == "rollup") {
+    return (
+      <RollupCell
+        {...viewProps}
+        multi={false}
+        row={row}
+        source={props.source}
+        contextPath={props.contextPath}
+        columns={props.columns}
+      ></RollupCell>
     );
   } else if (fieldType.type == "fileprop") {
     return (

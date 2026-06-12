@@ -344,6 +344,38 @@ export const PropertyValueComponent = (props: {
     showOptions(e, null, options, "fn");
   };
 
+  // Rollup config (Notidian-8pl): pick a relation column (ref), a target
+  // property on the linked rows (field), and an aggregate (fn).
+  const selectRollupRelation = (e: React.MouseEvent) => {
+    const options: SelectOption[] = (props.fields ?? [])
+      .filter((f) => f.type?.startsWith("context") || f.type?.startsWith("link"))
+      .map((f) => ({ name: f.name, value: f.name }));
+    showOptions(e, parsedValue.ref, options, "ref");
+  };
+  const selectRollupProperty = (e: React.MouseEvent) => {
+    props.superstate.ui.openModal(
+      "Rollup property",
+      <InputModal
+        value={parsedValue.field ?? ""}
+        saveLabel={"Save"}
+        saveValue={(value) => saveParsedValue("field", value)}
+      ></InputModal>,
+      windowFromDocument(e.view.document)
+    );
+  };
+  const selectRollupFn = (e: React.MouseEvent) => {
+    const options: SelectOption[] = [
+      "count",
+      "count_values",
+      "values",
+      "sum",
+      "avg",
+      "min",
+      "max",
+    ].map((f) => ({ name: f, value: f }));
+    showOptions(e, parsedValue.fn, options, "fn");
+  };
+
   const selectSpaceProperty = (e: React.MouseEvent) => {
     showOptions(
       e,
@@ -626,6 +658,25 @@ export const PropertyValueComponent = (props: {
         <div className="mk-menu-option" onClick={(e) => selectDateFormat(e)}>
           <span>{i18n.labels.dateFormat}</span>
           <span>{parsedValue.format}</span>
+        </div>
+      )}
+    </>
+  ) : props.fieldType?.startsWith("rollup") ? (
+    <>
+      <div className="mk-menu-option" onClick={(e) => selectRollupRelation(e)}>
+        <span>{"Relation"}</span>
+        <span>{parsedValue.ref ?? i18n.labels.select}</span>
+      </div>
+      {parsedValue.ref?.length > 0 && (
+        <div className="mk-menu-option" onClick={(e) => selectRollupFn(e)}>
+          <span>{"Calculate"}</span>
+          <span>{parsedValue.fn ?? "count"}</span>
+        </div>
+      )}
+      {parsedValue.ref?.length > 0 && parsedValue.fn && parsedValue.fn != "count" && (
+        <div className="mk-menu-option" onClick={(e) => selectRollupProperty(e)}>
+          <span>{"Property"}</span>
+          <span>{parsedValue.field ?? i18n.labels.select}</span>
         </div>
       )}
     </>

@@ -60,6 +60,15 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 
 (Each feature appends: decisions, gates result, Codex findings + resolution, commit hash.)
 
+### 8pl — Rollups wired end-to-end (column type + cell + config) — DONE
+
+- **Rollups are now usable in tables.** Add a column, set its type to **Rollup**, then in the property menu pick **Relation** (a link/context column), **Calculate** (count / count_values / values / sum / avg / min / max), and **Property** (the target field on linked rows; not needed for count). The cell shows the computed value, read-only.
+- **Units:** runtime bridge `tableRollupRuntime.ts` (`computeRowRollup`: relation value → `resolvePath` → `pathsIndex` frontmatter → engine; 3 tests) + `RollupCell.tsx` + `rollup` fieldType (`mdb.ts`, `configKeys: ['ref','field','fn']`) + DataTypeView dispatch + a config block in `PropertyValue.tsx` (mirrors the aggregate menu).
+- **Self-verified the critical round-trip:** registering `configKeys: ['ref','field','fn']` makes `parseFieldValue('rollup')` preserve exactly those keys (mdb line 28), so PropertyValue's write and RollupCell's `safelyParseJSON` read match. Null-safe: empty config → "", missing row → count 0.
+- **Gates:** 455/455 Jest (+3), tsc clean, build clean.
+- **Codex review:** the review endpoint kept stalling (as for charts); committed on green gates + self-verification given the engine/bridge are tested and the wiring mirrors the aggregate template. Re-review is a follow-up.
+- **Live-verify on waking:** make a database with a relation column (e.g. Projects → Tasks links), add a Rollup column (sum of Tasks.hours), confirm the computed total shows.
+
 ### 9ln — Frontmatter-link rollups: pure engine (capstone v1) — ENGINE LANDED
 
 - **The big Notion gap, de-risked.** Settled the cache question: **no new cache** — `superstate.pathsIndex` already holds every note's parsed frontmatter in memory, so the original "per-render disk-read perf cliff" is dissolved. A clean frontmatter-canonical engine alongside the existing MDB path, not a wholesale inversion of `linkContextRow`.

@@ -174,6 +174,16 @@ export const fieldTypes: FieldType[] = [
     description: i18n.properties.aggregate.description
   },
   {
+    // Notidian-8pl: read-only rollup over a relation's linked rows' frontmatter.
+    type: "rollup",
+    label: "Rollup",
+    icon: 'ui//aggregate',
+    multi: false,
+    configKeys: ['ref', 'field', 'fn'],
+    flex: true,
+    description: "Aggregate a property across the rows a relation links to"
+  },
+  {
     type: "object",
     label: i18n.properties.object.label,
     multi: true,
