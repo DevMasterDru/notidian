@@ -1,5 +1,6 @@
 import { spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemplateKey, spaceTemplateNameKey } from "core/types/space";
 import { reorderPathsInContext } from "core/utils/contexts/context";
+import { applyNewRowTypeProfileDefaults } from "core/utils/contexts/typeProfileDefaults";
 import { runFormulaWithContext } from "core/utils/formula/parser";
 import { ensureArray, ensureBoolean, ensureString, ensureStringValueFromSet } from "core/utils/strings";
 import { compareByField, compareByFieldCaseInsensitive, compareByFieldDeep, compareByFieldNumerical } from "core/utils/tree";
@@ -496,6 +497,11 @@ if (space.type == 'tag') {
       name,
       content
     );
+    // Seed a new folder-backed row with its database's Type Profile defaults
+    // (Notidian-drv). No-op unless the hub note declares a profile with defaults.
+    if (type == "md" && typeof newPath == "string" && newPath) {
+      await applyNewRowTypeProfileDefaults(superstate, space.path, newPath);
+    }
 }
     if (!dontOpen) {
       superstate.ui.openPath(newPath, location);

@@ -290,6 +290,23 @@ export const planTypeProfileApply = (
   return { changed, cols };
 };
 
+// Per-database template defaults (Notidian-drv): the frontmatter a new row in a
+// profiled database should start with — each field's declared `value` default
+// (e.g. Infrastructure's `database: infrastructure`). Only fields with a
+// non-empty default are seeded; empty/required-without-default fields are left
+// for the user. Pure — the caller writes these to the new file's frontmatter.
+export const newRowFrontmatterFromProfile = (
+  profile: NotidianTypeProfile | null
+): Record<string, string> => {
+  const defaults: Record<string, string> = {};
+  if (!profile) return defaults;
+  for (const field of profile.fields) {
+    if (field.value != null && field.value.length > 0)
+      defaults[field.name] = field.value;
+  }
+  return defaults;
+};
+
 export type TypeProfileSchemaChange =
   | { kind: "add-column"; name: string; type: string }
   | { kind: "rename-key"; oldName: string; newName: string }

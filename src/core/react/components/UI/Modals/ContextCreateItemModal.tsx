@@ -14,6 +14,7 @@ import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow } from "shared/types/mdb";
 import { renamePageTitleForRow } from "core/utils/contexts/pageTitleRename";
+import { applyNewRowTypeProfileDefaults } from "core/utils/contexts/typeProfileDefaults";
 
 export interface ContextCreateItemModalProps {
   superstate: Superstate;
@@ -237,6 +238,14 @@ const ContextCreateItemContent = (props: {
             typeof createdResult === "string" && createdResult
               ? createdResult
               : itemName;
+
+          // Seed Type Profile value defaults first (Notidian-drv); the user's
+          // own field inputs below override any overlapping default.
+          await applyNewRowTypeProfileDefaults(
+            props.superstate,
+            source,
+            createdPath
+          );
 
           // Add other properties to the created file
           const otherFields = { ...newItem };

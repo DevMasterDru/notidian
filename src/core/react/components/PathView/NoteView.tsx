@@ -1,4 +1,5 @@
 import { noteParentPath } from "core/spaceManager/filesystemAdapter/spaceInfo";
+import { applyNewRowTypeProfileDefaults } from "core/utils/contexts/typeProfileDefaults";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React, { forwardRef, useEffect, useRef, useState } from "react";
@@ -62,6 +63,14 @@ export const NoteView = forwardRef((props: NoteViewProps, ref) => {
           "md",
           spaceNotePath ? pathToString(spaceNotePath) : pathToString(props.path)
         );
+        // Seed Type Profile defaults for a freshly force-created row; the guard
+        // inside skips the hub note and non-profiled folders (Notidian-drv).
+        if (typeof newPath == "string" && newPath)
+          await applyNewRowTypeProfileDefaults(
+            props.superstate,
+            parent,
+            newPath
+          );
         setExistsPas(false);
         await props.superstate.ui.openPath(newPath, false, div, {readOnly: props.readOnly});
       }

@@ -41,6 +41,17 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 
 (Each feature appends: decisions, gates result, Codex findings + resolution, commit hash.)
 
+### drv — Per-database new-row defaults (Type Profile templates) — DONE
+
+- **Scope (builds on egz):** when a new row is created in a folder-backed database whose hub note declares a Type Profile, seed the new file's frontmatter with each field's declared `value` default (e.g. a new Infrastructure row gets `database: infrastructure`). The richer body-template path already exists (`newTemplateInSpace` copies `space.metadata.template`) and is complementary — defaults apply to the plain "new note" path.
+- **Units:** pure `newRowFrontmatterFromProfile(profile)` (2 tests) + `applyNewRowTypeProfileDefaults(superstate, contextPath, filePath)` (resolves hub profile, writes defaults via `saveFrontmatterProperties`, never seeds the hub note). Wired in `newPathInSpace` (the menu/`+` chokepoint you use — `contextCreateUseModal: false`) and the modal path (defaults first, user input overrides).
+- **Gates:** 431/431 Jest (+2), tsc clean, build clean.
+- **Codex review (~389k tokens):** confirmed no wrong-target / overwrite / timing / re-entrancy bug on the wired paths. 2 REAL completeness gaps (other create paths) —
+  1. `newTemplateInSpace` (template-copy path) skips defaults. → **decision, documented:** a configured body template is the authored scaffold; layering schema defaults could overwrite the user's template values, so the template wins.
+  2. NoteView + basics UINote force-create paths skip defaults. → **NoteView force-create now wired**; basics UINote (off-core fork debt, Notidian-409, divergent enactor API) documented as a deferred gap.
+- **Gates after fixes:** 431/431 Jest, tsc clean, build clean.
+- **Live-verify on waking:** add a new row to the Infrastructure database (or any profiled DB) → the new note should open with the schema's default frontmatter (e.g. `database: infrastructure`) already set.
+
 ### 7gg — CSV export + CSV core — DONE (import execution split to Notidian-84u)
 
 - **Scope decision (autonomous safety):** shipped CSV **export** (additive single-file write, safe) + the fully-tested CSV **core** (RFC 4180 serialize/parse + `tableToCsv` + `parseCsvToRecords`). The file-creating **import execution** (creates N row files on your real vault) is split to **Notidian-84u** — it needs a preview UI + your live verification before running blind. The import parser is already tested, so 84u is wiring only.

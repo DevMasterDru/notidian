@@ -1,4 +1,5 @@
 import {
+  newRowFrontmatterFromProfile,
   parseTypeProfile,
   planFieldsMirror,
   planTypeProfileApply,
@@ -347,6 +348,28 @@ describe("parseTypeProfile v2 — kind_fields (Notidian-egz)", () => {
     });
     expect(profile.fields.map((f) => f.name)).toEqual(["a"]);
     expect(profile.issues).toEqual([]);
+  });
+
+  it("seeds new-row defaults from field value defaults (drv)", () => {
+    const profile = parseTypeProfile({
+      schema_type: "notidian_type_profile",
+      fields: {
+        database: { kind: "text", value: "infrastructure", required: true },
+        kind: { kind: "select", options: ["a"], required: true },
+        status: { kind: "select", options: ["active"] },
+      },
+      kind_fields: {
+        "credential-reference": { scope: { kind: "text", value: "global" } },
+      },
+    });
+    expect(newRowFrontmatterFromProfile(profile)).toEqual({
+      database: "infrastructure",
+      scope: "global",
+    });
+  });
+
+  it("returns no defaults for a null profile", () => {
+    expect(newRowFrontmatterFromProfile(null)).toEqual({});
   });
 
   it("records an issue for a malformed kind_fields entry without crashing", () => {
