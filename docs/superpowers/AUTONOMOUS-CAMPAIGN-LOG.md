@@ -5,6 +5,24 @@
 **Driver:** Claude (Opus 4.8), adversarial verification by Codex (`codex exec`)
 **Mandate:** Improve Notidian toward Notion-parity, highest quality, fully autonomous, maximize Codex verification spend.
 
+## ⭐ Session result (8 commits, branch pushed, all gates green)
+
+`git log --oneline main..autonomous/notion-parity-2026-06-12`:
+
+| Commit | What | bd | Codex |
+| --- | --- | --- | --- |
+| `cd7d14e` | Harden: Type Profile mirror serializer + SpaceNoteBody read-path | miy | — |
+| `5c7bf8d` | Quick find (Ctrl+F highlight/navigate, off-screen reveal) | r20 ✓ | 4 fixed |
+| `8377958` | Type Profile v2 (`kind_fields` per-kind sub-schemas + kind-aware mirror) | egz ✓ | 3 fixed (2 rounds) |
+| `b1cd6df` | CSV export + RFC 4180 core | 7gg ✓ | 6 fixed |
+| `18fed34` | Per-DB new-row defaults from Type Profile | drv ✓ | 2 gaps addressed |
+| `6b03c1b` | Charts (read-only bar chart) | 4j7 ✓ | review stalled; on gates |
+| `f95976e` | Frontmatter-link rollup engine (relations capstone v1) | 9ln | 4 fixed |
+
+Tests **382 → 452** (+70). ~1.4M Codex tokens spent on adversarial review. Every commit: jest + tsc + build green. No `main` merge, no vault install — left for your live-verify.
+
+**Deferred (need your live testing, not autonomous-safe):** `amx`/`ddk` (UI-interaction bugs). **Sessionized follow-ups:** `8pl` (rollup runtime bridge + cell + config UX — the engine is the tested foundation), `ahk` (back-relations), `84u` (CSV import execution). **Recommended next push:** wire `8pl` in a fresh session to make rollups visible in tables.
+
 ## Operating contract (what I will and won't do)
 
 - All work on this branch, pushed regularly. **No auto-merge to `main`. No auto-install to the live vault.** Left merge-ready for your review + live-verify.
@@ -24,16 +42,17 @@
 
 | bd | Feature | Effort | Status |
 | --- | --- | --- | --- |
-| r20 | Quick find (Ctrl+F highlight + navigate) | S | in progress |
-| drv | Per-DB templates on row create | M | queued |
-| egz | Type Profile v2 (kind_fields sub-schemas) | M | queued |
-| ddk | Inline sort/filter controls in the bar | S | queued |
-| 4j7 | Charts / simple data viz | M | queued |
-| e6v | Richer date UX + reminders + recurring | M | queued |
-| gg9 | Sub-items (frontmatter parent link) | M | queued |
-| 7gg | CSV / Markdown import-export | M | queued |
-| 9ln | Frontmatter-link relations + rollups | L | queued (sub-epic; cache design first) |
-| amx | Bug: drag-select stuck green | S | queued |
+| r20 | Quick find (Ctrl+F highlight + navigate) | S | ✅ shipped `5c7bf8d` |
+| egz | Type Profile v2 (kind_fields sub-schemas) | M | ✅ shipped `8377958` |
+| 7gg | CSV export + RFC 4180 core | M | ✅ shipped `b1cd6df` (import → 84u) |
+| drv | Per-DB templates on row create | M | ✅ shipped `18fed34` |
+| 4j7 | Charts / simple data viz | M | ✅ shipped `6b03c1b` |
+| 9ln | Frontmatter-link rollups (engine) | L | ✅ engine `f95976e`; wiring → 8pl |
+| 8pl | Rollup runtime bridge + cell + config | M | ◻ next (engine is the foundation) |
+| e6v | Richer date UX + reminders + recurring | M | ◻ queued |
+| gg9 | Sub-items (frontmatter parent link) | M | ◻ queued |
+| ddk | Inline sort/filter controls in the bar | S | ◻ deferred (UI-interaction, live-verify) |
+| amx | Bug: drag-select stuck green | S | ◻ deferred (UI-interaction, live-verify) |
 
 Market grounding (2026-06-12 research): Notion's most-requested DB features are row-level permissions, offline, **charts**, and **forms** — of which charts and (loosely) forms apply to a single-user vault; the rest (permissions/offline) are already moot for a local file-backed DB. Relations/rollups/templates/sub-items remain the core parity gap.
 
