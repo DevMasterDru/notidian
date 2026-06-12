@@ -12,6 +12,7 @@ const mockMirror = mirrorSchemaChangeToTypeProfile as jest.MockedFunction<
 
 const superstate = {} as any;
 const ctx = "Library";
+const state0 = { fields: {}, kindFields: {} };
 
 beforeEach(() => {
   mockMirror.mockReset();
@@ -27,7 +28,7 @@ describe("runSerializedTypeProfileMirror", () => {
       await Promise.resolve();
       await Promise.resolve();
       active--;
-      return { ok: true, fields: {} };
+      return { ok: true, state: state0 };
     });
 
     const state = createTypeProfileMirrorQueue();
@@ -53,16 +54,19 @@ describe("runSerializedTypeProfileMirror", () => {
     expect(mockMirror).toHaveBeenCalledTimes(3);
   });
 
-  it("threads each write's result into the next so a burst cannot lose updates", async () => {
-    const bases: Array<Record<string, unknown> | null | undefined> = [];
+  it("threads each write's state into the next so a burst cannot lose updates", async () => {
+    const bases: Array<any> = [];
     // Simulate the real hazard: base=null means "read the (stale, lagging)
     // metadata cache", which here never reflects prior writes. Only threading
     // the previous result forward keeps every option.
     mockMirror.mockImplementation(async (_ss, _cp, change: any, base) => {
       bases.push(base);
       await Promise.resolve();
-      const start = base ?? { stale: true };
-      return { ok: true, fields: { ...start, [change.option]: true } };
+      const start = base?.fields ?? { stale: true };
+      return {
+        ok: true,
+        state: { fields: { ...start, [change.option]: true }, kindFields: {} },
+      };
     });
 
     const state = createTypeProfileMirrorQueue();
@@ -79,16 +83,19 @@ describe("runSerializedTypeProfileMirror", () => {
     // First call reads the cache (null); each later call builds on the prior
     // result, so the threaded map accumulates every option.
     expect(bases[0]).toBeNull();
-    expect(bases[1]).toEqual({ stale: true, a: true });
-    expect(bases[2]).toEqual({ stale: true, a: true, b: true });
+    expect(bases[1].fields).toEqual({ stale: true, a: true });
+    expect(bases[2].fields).toEqual({ stale: true, a: true, b: true });
   });
 
-  it("clears the threaded map once a hub's burst drains, so the next mirror re-reads the cache", async () => {
-    const bases: Array<Record<string, unknown> | null | undefined> = [];
+  it("clears the threaded state once a hub's burst drains, so the next mirror re-reads the cache", async () => {
+    const bases: Array<any> = [];
     mockMirror.mockImplementation(async (_ss, _cp, change: any, base) => {
       bases.push(base);
-      const start = base ?? {};
-      return { ok: true, fields: { ...start, [change.option]: true } };
+      const start = base?.fields ?? {};
+      return {
+        ok: true,
+        state: { fields: { ...start, [change.option]: true }, kindFields: {} },
+      };
     });
 
     const state = createTypeProfileMirrorQueue();
@@ -109,20 +116,20 @@ describe("runSerializedTypeProfileMirror", () => {
     });
 
     // The second (separate) burst starts fresh from the cache, not the stale
-    // in-memory map from the first.
+    // in-memory state from the first.
     expect(bases[1]).toBeNull();
   });
 
-  it("does not thread a failed write's map forward", async () => {
-    const bases: Array<Record<string, unknown> | null | undefined> = [];
+  it("does not thread a failed write's state forward", async () => {
+    const bases: Array<any> = [];
     mockMirror
       .mockImplementationOnce(async (_ss, _cp, _change, base) => {
         bases.push(base);
-        return { ok: false, fields: null };
+        return { ok: false, state: null };
       })
       .mockImplementationOnce(async (_ss, _cp, _change, base) => {
         bases.push(base);
-        return { ok: true, fields: { b: true } };
+        return { ok: true, state: { fields: { b: true }, kindFields: {} } };
       });
 
     const state = createTypeProfileMirrorQueue();
@@ -149,8 +156,11 @@ describe("runSerializedTypeProfileMirror", () => {
     const seen: Array<{ ctx: string; base: unknown }> = [];
     mockMirror.mockImplementation(async (_ss, cp: any, change: any, base) => {
       seen.push({ ctx: cp, base });
-      const start = base ?? {};
-      return { ok: true, fields: { ...start, [change.option]: true } };
+      const start = (base?.fields as any) ?? {};
+      return {
+        ok: true,
+        state: { fields: { ...start, [change.option]: true }, kindFields: {} },
+      };
     });
 
     const state = createTypeProfileMirrorQueue();
@@ -168,7 +178,7 @@ describe("runSerializedTypeProfileMirror", () => {
     ]);
 
     // Each hub's first mirror reads its own cache; neither inherits the other's
-    // threaded map.
+    // threaded state.
     expect(seen.find((s) => s.ctx == "Library")?.base).toBeNull();
     expect(seen.find((s) => s.ctx == "Tools")?.base).toBeNull();
   });

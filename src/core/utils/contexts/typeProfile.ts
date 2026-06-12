@@ -28,23 +28,36 @@ export type TypeProfileIssue =
 export type NotidianTypeProfile = {
   database?: string;
   fields: TypeProfileField[];
+  // v2 (Notidian-egz): per-kind sub-schemas keyed by the `kind` discriminator
+  // value. `fields` above is the materialized union (common + every kind); this
+  // preserves which fields belong to which kind for future per-kind use
+  // (templates, validation).
+  kindFields: Record<string, TypeProfileField[]>;
   issues: TypeProfileIssue[];
 };
 
 const kindToTypeMap: Record<string, string> = {
   text: "text",
   select: "option",
+  multi_select: "option-multi",
   date: "date",
   number: "number",
   checkbox: "boolean",
   link: "link",
   url: "link",
+  // v2: relations live as [[links]] in frontmatter; the full rollup behavior
+  // arrives with Notidian-9ln. Until then `link` is the closest file-backed kind
+  // so relation columns still round-trip their links instead of degrading to
+  // plain text.
+  relation: "link",
+  path: "text",
   password: "password",
 };
 
 export const typeProfileKindForType = (type: string): string => {
   if (!type) return "text";
   if (type == "password") return "password";
+  if (type.startsWith("option-multi")) return "multi_select";
   if (type.startsWith("option")) return "select";
   if (type.startsWith("date")) return "date";
   if (type == "number") return "number";
@@ -64,22 +77,13 @@ const normalizeRawFields = (
   return parsed as Record<string, unknown>;
 };
 
-export const parseTypeProfile = (
-  frontmatter: Record<string, any> | null | undefined
-): NotidianTypeProfile | null => {
-  if (!frontmatter || frontmatter["schema_type"] != typeProfileSchemaType)
-    return null;
-  const database =
-    typeof frontmatter["slug"] == "string"
-      ? frontmatter["slug"]
-      : typeof frontmatter["database"] == "string"
-      ? frontmatter["database"]
-      : undefined;
-  const issues: TypeProfileIssue[] = [];
-  const rawFields = normalizeRawFields(frontmatter["fields"]);
-  if (!rawFields) {
-    return { database, fields: [], issues: [{ reason: "missing-fields" }] };
-  }
+// Parse one `name -> field-def` map into typed fields, recording issues for
+// invalid defs and unknown kinds (which degrade to text, never throw).
+const parseFieldsMap = (
+  rawFields: Record<string, unknown>,
+  issues: TypeProfileIssue[],
+  issuePrefix = ""
+): TypeProfileField[] => {
   const fields: TypeProfileField[] = [];
   for (const [name, def] of Object.entries(rawFields)) {
     if (!name) continue;
@@ -88,7 +92,7 @@ export const parseTypeProfile = (
         ? (def as Record<string, any>)
         : null;
     if (!fieldDef) {
-      issues.push({ reason: "invalid-field", field: name });
+      issues.push({ reason: "invalid-field", field: issuePrefix + name });
       continue;
     }
     const kind =
@@ -97,7 +101,7 @@ export const parseTypeProfile = (
         : "text";
     let type = kindToTypeMap[kind];
     if (!type) {
-      issues.push({ reason: "unknown-kind", field: name, kind });
+      issues.push({ reason: "unknown-kind", field: issuePrefix + name, kind });
       type = "text";
     }
     fields.push({
@@ -111,7 +115,73 @@ export const parseTypeProfile = (
       value: fieldDef.value != null ? String(fieldDef.value) : undefined,
     });
   }
-  return { database, fields, issues };
+  return fields;
+};
+
+export const parseTypeProfile = (
+  frontmatter: Record<string, any> | null | undefined
+): NotidianTypeProfile | null => {
+  if (!frontmatter || frontmatter["schema_type"] != typeProfileSchemaType)
+    return null;
+  const database =
+    typeof frontmatter["slug"] == "string"
+      ? frontmatter["slug"]
+      : typeof frontmatter["database"] == "string"
+      ? frontmatter["database"]
+      : undefined;
+  const issues: TypeProfileIssue[] = [];
+
+  const commonRaw = normalizeRawFields(frontmatter["fields"]);
+  const common = commonRaw ? parseFieldsMap(commonRaw, issues) : [];
+
+  // v2 (Notidian-egz): kind_fields maps each `kind` discriminator value to its
+  // own field sub-schema. The table shares one column set across rows, so the
+  // materialized columns are the union of common fields + every kind's fields.
+  const kindFields: Record<string, TypeProfileField[]> = {};
+  const kindFieldsRaw = normalizeRawFields(frontmatter["kind_fields"]);
+  if (!kindFieldsRaw && frontmatter["kind_fields"] != null) {
+    // Present but not a usable map (e.g. a scalar) — surface it instead of
+    // silently dropping the entire per-kind schema block.
+    issues.push({ reason: "invalid-field", field: "kind_fields" });
+  }
+  if (kindFieldsRaw) {
+    for (const [kindName, kindDef] of Object.entries(kindFieldsRaw)) {
+      const kindMap = normalizeRawFields(kindDef);
+      if (!kindMap) {
+        issues.push({
+          reason: "invalid-field",
+          field: "kind_fields." + kindName,
+        });
+        continue;
+      }
+      kindFields[kindName] = parseFieldsMap(
+        kindMap,
+        issues,
+        "kind_fields." + kindName + "."
+      );
+    }
+  }
+
+  // Union, deduped by lowercased name: common fields win, then kinds in
+  // declaration order (first occurrence wins on a name collision).
+  const fields: TypeProfileField[] = [];
+  const seen = new Set<string>();
+  const addUnique = (list: TypeProfileField[]) => {
+    for (const field of list) {
+      const key = field.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fields.push(field);
+    }
+  };
+  addUnique(common);
+  for (const list of Object.values(kindFields)) addUnique(list);
+
+  if (fields.length == 0) {
+    issues.push({ reason: "missing-fields" });
+    return { database, fields: [], kindFields, issues };
+  }
+  return { database, fields, kindFields, issues };
 };
 
 type OptionEntry = { name: string; value: string; color?: string };
@@ -203,7 +273,7 @@ export const planTypeProfileApply = (
       name: field.name,
       type: field.type,
       value:
-        field.type == "option" && field.options
+        field.type.startsWith("option") && field.options
           ? JSON.stringify({
               options: field.options.map((option) => ({
                 name: option,
@@ -281,4 +351,138 @@ export const planFieldsMirror = (
       [fieldKey]: { ...(fieldDef as Record<string, any>), options: [...options, change.option] },
     },
   };
+};
+
+// v2 kind-aware mirror (Notidian-egz). planFieldsMirror only touches the
+// top-level `fields` map; a column materialized from `kind_fields` would then
+// be invisible to the mirror, so a rename done from the table never reaches the
+// hub and the apply path re-materializes the old key as a duplicate on reload.
+// This planner locates which map owns the field (common `fields`, or a specific
+// kind in `kind_fields`) and rewrites the right one, returning whichever map(s)
+// changed plus the current normalized maps for the serializer to thread.
+export type TypeProfileMirrorWrite = {
+  changed: boolean;
+  fields?: Record<string, unknown>;
+  kindFields?: Record<string, unknown>;
+  currentFields: Record<string, unknown>;
+  currentKindFields: Record<string, unknown>;
+};
+
+const findMapKey = (map: Record<string, unknown>, name: string) =>
+  Object.keys(map).find((key) => key.toLowerCase() == name.toLowerCase());
+
+const addOptionToDef = (
+  map: Record<string, unknown>,
+  key: string,
+  option: string
+): Record<string, unknown> | null => {
+  const def = map[key];
+  if (!def || typeof def != "object" || Array.isArray(def)) return null;
+  const options = Array.isArray((def as Record<string, any>).options)
+    ? (def as Record<string, any>).options.map((o: unknown) => String(o))
+    : [];
+  if (options.includes(option)) return null;
+  return {
+    ...map,
+    [key]: { ...(def as Record<string, any>), options: [...options, option] },
+  };
+};
+
+const renameMapKey = (
+  map: Record<string, unknown>,
+  oldKey: string,
+  newName: string
+): Record<string, unknown> => {
+  const renamed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(map))
+    renamed[key == oldKey ? newName : key] = value;
+  return renamed;
+};
+
+export const planTypeProfileMirror = (
+  frontmatter: Record<string, any> | null | undefined,
+  change: TypeProfileSchemaChange
+): TypeProfileMirrorWrite => {
+  const fields = normalizeRawFields(frontmatter?.["fields"]) ?? {};
+  const kindFields = normalizeRawFields(frontmatter?.["kind_fields"]) ?? {};
+  const base = { currentFields: fields, currentKindFields: kindFields };
+
+  // Locate the kind that owns a field name, if any.
+  const findOwningKind = (
+    name: string
+  ): { kind: string; map: Record<string, unknown>; key: string } | null => {
+    for (const [kindName, kindDef] of Object.entries(kindFields)) {
+      const kindMap = normalizeRawFields(kindDef);
+      if (!kindMap) continue;
+      const key = findMapKey(kindMap, name);
+      if (key) return { kind: kindName, map: kindMap, key };
+    }
+    return null;
+  };
+
+  if (change.kind == "add-column") {
+    // A brand-new table column has no kind — it mirrors to common `fields`.
+    // No-op if it already exists anywhere (common or kind-owned).
+    if (findMapKey(fields, change.name) || findOwningKind(change.name))
+      return { changed: false, ...base };
+    return {
+      changed: true,
+      fields: {
+        ...fields,
+        [change.name]: { kind: typeProfileKindForType(change.type) },
+      },
+      ...base,
+    };
+  }
+
+  if (change.kind == "rename-key") {
+    // Avoid collisions: no-op if the new name already exists anywhere.
+    if (findMapKey(fields, change.newName) || findOwningKind(change.newName))
+      return { changed: false, ...base };
+    const fieldsKey = findMapKey(fields, change.oldName);
+    // A name can appear in BOTH common fields and one or more kinds. The rename
+    // must update every map that holds it — otherwise the unrenamed copy stops
+    // colliding on the next parse and resurfaces as a duplicate column.
+    const owningKinds: Array<{ kind: string; map: Record<string, unknown>; key: string }> =
+      [];
+    for (const [kindName, kindDef] of Object.entries(kindFields)) {
+      const kindMap = normalizeRawFields(kindDef);
+      if (!kindMap) continue;
+      const key = findMapKey(kindMap, change.oldName);
+      if (key) owningKinds.push({ kind: kindName, map: kindMap, key });
+    }
+    if (!fieldsKey && owningKinds.length == 0) return { changed: false, ...base };
+    const out: TypeProfileMirrorWrite = { changed: true, ...base };
+    if (fieldsKey) out.fields = renameMapKey(fields, fieldsKey, change.newName);
+    if (owningKinds.length > 0) {
+      const nextKindFields = { ...kindFields };
+      for (const owner of owningKinds)
+        nextKindFields[owner.kind] = renameMapKey(
+          owner.map,
+          owner.key,
+          change.newName
+        );
+      out.kindFields = nextKindFields;
+    }
+    return out;
+  }
+
+  // add-option
+  const fieldsKey = findMapKey(fields, change.name);
+  if (fieldsKey) {
+    const next = addOptionToDef(fields, fieldsKey, change.option);
+    return next ? { changed: true, fields: next, ...base } : { changed: false, ...base };
+  }
+  const owner = findOwningKind(change.name);
+  if (owner) {
+    const next = addOptionToDef(owner.map, owner.key, change.option);
+    return next
+      ? {
+          changed: true,
+          kindFields: { ...kindFields, [owner.kind]: next },
+          ...base,
+        }
+      : { changed: false, ...base };
+  }
+  return { changed: false, ...base };
 };

@@ -1,6 +1,9 @@
 import { Superstate } from "makemd-core";
 import { TypeProfileSchemaChange } from "core/utils/contexts/typeProfile";
-import { mirrorSchemaChangeToTypeProfile } from "core/utils/contexts/typeProfileMirror";
+import {
+  mirrorSchemaChangeToTypeProfile,
+  TypeProfileSchemaState,
+} from "core/utils/contexts/typeProfileMirror";
 
 // Per-provider serializer for Type Profile mirror writes (Notidian-miy).
 //
@@ -17,7 +20,7 @@ import { mirrorSchemaChangeToTypeProfile } from "core/utils/contexts/typeProfile
 // mirror re-reads from the metadata cache and picks up any external edit.
 export type TypeProfileMirrorQueueState = {
   tail: Promise<unknown>;
-  threaded: Map<string, Record<string, unknown>>;
+  threaded: Map<string, TypeProfileSchemaState>;
   depth: Map<string, number>;
 };
 
@@ -46,7 +49,7 @@ export const runSerializedTypeProfileMirror = (
       change,
       base
     );
-    if (result.fields) state.threaded.set(contextPath, result.fields);
+    if (result.state) state.threaded.set(contextPath, result.state);
     return result.ok;
   };
 

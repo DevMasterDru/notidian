@@ -54,3 +54,21 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
   Codex confirmed the password/hidden exclusion is sound end-to-end.
 - **Commit:** see `git log` (next entry).
 - **Live-verify on waking:** open a DB table, Ctrl+F, type → cells highlight, `n/m` + ↑/↓ navigate, off-screen match scrolls into view, password columns never highlight.
+
+### amx / ddk — DEFERRED to your live testing
+
+- These are UI-**interaction** bugs/features (drag-select clear semantics; inline sort/filter chips) whose correctness needs live reproduction in Obsidian — a poor fit for autonomous work where I can't verify the fix by interacting. Left for you. (For amx I confirmed `selectCell`→`selectItem` already clears row selection on a normal cell click, so the real defect is in the marquee/outside-click path — needs live repro.)
+
+### egz — Type Profile v2: kind_fields per-kind sub-schemas — DONE
+
+- **Grounded in your real `Atlas Vault/Infrastructure.md`:** common `fields:` + a `kind:` select discriminator + `kind_fields:` mapping each kind value (network-device, daemon, network, mcp-server, credential-reference) to its own sub-schema (e.g. `credential-reference.secret: {kind: password}`).
+- **Behavior:** the table shares one column set, so columns = **union** of common fields + every kind's fields, deduped by lowercased name (common wins, then kinds in declaration order). Per-kind groups preserved in `profile.kindFields` for future per-kind templates/validation. New kind mappings: `multi_select`→option-multi, `relation`→link (full rollups land with 9ln), `path`→text. `typeProfileKindForType` now round-trips `option-multi`→`multi_select` (was lossy `select`).
+- **Conservative mirror choice (documented):** table→hub mirror still writes to the top-level common `fields:` only; kind-specific schema edits stay hub-authored (the write-back kind would be ambiguous). No duplication/data-loss because materialized columns don't trigger the mirror.
+- **Gates:** 406/406 Jest (+7), tsc clean, build clean.
+- **Codex review (2 rounds, ~340k tokens):** 3 REAL findings, all fixed —
+  1. *HIGH:* mirror wasn't kind_fields-aware → renaming a kind-owned column re-materialized a duplicate on reload. → new `planTypeProfileMirror` routes rename/add-option to the owning map (common `fields` or the specific `kind_fields[kind]`); mirror writes both maps; serializer threads `{fields, kindFields}`.
+  2. *MED:* malformed (non-object) `kind_fields` silently dropped. → records an `invalid-field` issue.
+  3. *MED:* a name present in BOTH `fields` and a kind only renamed the common copy → stale kind copy resurfaced as a duplicate. → rename now updates every map holding the name.
+  Codex confirmed union/dedupe ordering, relation→link, option-multi→multi_select, the collision guard, and the burst-threading are all correct.
+- **Gates after fixes:** 414/414 Jest (+15 over v1), tsc clean, build clean.
+- **Live-verify on waking:** open the Infrastructure database — columns for every kind's fields (hostname, secret as masked password, aliases as multi-select, etc.) should be present.
