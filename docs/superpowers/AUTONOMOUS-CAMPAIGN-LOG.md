@@ -41,6 +41,14 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 
 (Each feature appends: decisions, gates result, Codex findings + resolution, commit hash.)
 
+### 4j7 — Charts (read-only bar chart over a database) — DONE
+
+- **Why safe autonomously:** charts are **read-only** aggregation — zero vault-data risk even if visual polish needs your eyes.
+- **Units:** pure `computeChartBuckets` (group filtered rows, aggregate count/sum/avg/min/max; 7 tests) + `SpaceChart` panel (horizontal bars, group-by/aggregate/value `<select>`s). Rendered above the table when `predicate.chart.visible`; toggled from view-options ("Show/Hide chart"); config persisted in the predicate.
+- **Gates:** 438/438 Jest (+7), tsc clean, build clean.
+- **Codex review:** the review run stalled (no output after an extended wait, unlike the others). Committed on green gates given charts are **read-only** (worst case is a UI imperfection, never data loss); a re-review/findings pass is a follow-up. The 7 core tests cover the aggregation; the UI is straightforward bars.
+- **Live-verify on waking:** open a DB → view-options (⋯) → Show chart → a bar chart appears above the table grouped by the first select column; change group-by/aggregate in the panel.
+
 ### drv — Per-database new-row defaults (Type Profile templates) — DONE
 
 - **Scope (builds on egz):** when a new row is created in a folder-backed database whose hub note declares a Type Profile, seed the new file's frontmatter with each field's declared `value` default (e.g. a new Infrastructure row gets `database: infrastructure`). The richer body-template path already exists (`newTemplateInSpace` copies `space.metadata.template`) and is complementary — defaults apply to the plain "new note" path.

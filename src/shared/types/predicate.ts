@@ -26,6 +26,15 @@ export type Filter = {
     colsCalc: Record<string, string>;
     frozenColumnCount: number;
     limit: number;
+    // Notidian-4j7: optional read-only chart over the filtered rows.
+    chart?: ChartPredicate;
+  };
+
+  export type ChartPredicate = {
+    visible: boolean;
+    groupKey: string;
+    aggregate: "count" | "sum" | "avg" | "min" | "max";
+    valueKey?: string;
   };
 
   export type Sort = {

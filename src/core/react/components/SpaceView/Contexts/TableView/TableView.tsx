@@ -55,6 +55,8 @@ import {
   stepMatchIndex,
 } from "core/utils/contexts/tableQuickFind";
 import { QuickFindBar } from "./QuickFindBar";
+import { SpaceChart } from "./SpaceChart";
+import { ChartPredicate } from "shared/types/predicate";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { newPathInSpace } from "core/superstate/utils/spaces";
 import { PointerModifiers } from "core/types/ui";
@@ -1811,6 +1813,22 @@ export const TableView = (props: { superstate: Superstate }) => {
     .map((rowId) => data.find((row) => row._index == rowId) as DBRow)
     .filter(Boolean);
 
+  // Chart config (Notidian-4j7): defaults to grouping by the first select/option
+  // column (else first non-primary column), count aggregate.
+  const chartGroupDefault = (() => {
+    const keyOf = (c: SpaceTableColumn) => c.name + (c.table ?? "");
+    const option = cols.find((c) => c.type?.startsWith("option"));
+    if (option) return keyOf(option);
+    const nonPrimary = cols.find((c) => c.primary != "true");
+    return keyOf(nonPrimary ?? cols[0] ?? ({ name: "", table: "" } as any));
+  })();
+  const chartConfig: ChartPredicate = {
+    visible: predicate?.chart?.visible ?? false,
+    groupKey: predicate?.chart?.groupKey || chartGroupDefault,
+    aggregate: predicate?.chart?.aggregate ?? "count",
+    valueKey: predicate?.chart?.valueKey,
+  };
+
   return (
     <DndContext
       sensors={sensors}
@@ -1821,6 +1839,18 @@ export const TableView = (props: { superstate: Superstate }) => {
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
+      {chartConfig.visible && (
+        <SpaceChart
+          superstate={props.superstate}
+          columns={cols}
+          rows={data as Record<string, unknown>[]}
+          config={chartConfig}
+          onConfigChange={(config) => savePredicate({ chart: config })}
+          onClose={() =>
+            savePredicate({ chart: { ...chartConfig, visible: false } })
+          }
+        />
+      )}
       <div
         className="mk-table"
         ref={ref}

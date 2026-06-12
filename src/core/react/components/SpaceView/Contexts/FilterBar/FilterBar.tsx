@@ -618,6 +618,20 @@ export const FilterBar = (props: {
 
     menuOptions.push(menuSeparator);
     menuOptions.push({
+      name: predicate?.chart?.visible ? "Hide chart" : "Show chart",
+      icon: "ui//bar-chart",
+      onClick: () => {
+        savePredicate({
+          chart: {
+            visible: !predicate?.chart?.visible,
+            groupKey: predicate?.chart?.groupKey ?? "",
+            aggregate: predicate?.chart?.aggregate ?? "count",
+            valueKey: predicate?.chart?.valueKey,
+          },
+        });
+      },
+    });
+    menuOptions.push({
       name: "Export to CSV",
       icon: "ui//download",
       onClick: () => {
