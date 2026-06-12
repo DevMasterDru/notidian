@@ -24,7 +24,7 @@ Tests **382 → 455** (+73). ~1.4M Codex tokens spent on review before the endpo
 
 **The #1 Notion gap (relations/rollups) is now functional** — add a Rollup column, pick a relation + aggregate + property, and it computes from linked rows' frontmatter (no MDB, no perf cliff).
 
-**⚠️ Codex review endpoint went unresponsive** partway through (charts + 2 rollup reviews all stalled at 0 bytes). Those features were committed on green gates + tests + self-verification; they (and any new ones built while Codex is down) want a Codex re-review pass once the endpoint recovers — tracked as a follow-up.
+**Codex review endpoint was briefly unresponsive** mid-session, then recovered. The rollup-wiring review completed **clean** ("No real findings. Safe to commit" — round-trip, null-safety, gating all validated). Only the **charts** review (`4j7`) still needs a re-run once convenient (Notidian-2y6); charts are read-only so risk is bounded.
 
 **Deferred (need your live testing, not autonomous-safe):** `amx`/`ddk` (UI-interaction bugs). **Sessionized follow-ups:** `8pl` (rollup runtime bridge + cell + config UX — the engine is the tested foundation), `ahk` (back-relations), `84u` (CSV import execution). **Recommended next push:** wire `8pl` in a fresh session to make rollups visible in tables.
 
@@ -64,6 +64,12 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 ## Run log
 
 (Each feature appends: decisions, gates result, Codex findings + resolution, commit hash.)
+
+### gg9 — Sub-items: parent/child tree core — CORE LANDED
+
+- **Pure tree builder** `tableRowTree.ts` (6 tests): `buildRowTree` groups rows by a frontmatter `parent` link property into depth-ordered nodes (roots = no/out-of-set/self parent; cycles broken; siblings in input order; `hasChildren` flags). Reuses `parseRelationLinks` from the rollup work — sub-items are a self-relation.
+- **Follow-up (display wiring):** apply the tree ordering + indentation in the list/table render (the inline-expansion UI already exists). Filed separately.
+- **Gates:** tsc clean, build clean, tree tests green. Codex review in progress at commit.
 
 ### 8pl — Rollups wired end-to-end (column type + cell + config) — DONE
 
