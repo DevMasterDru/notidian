@@ -41,6 +41,17 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 
 (Each feature appends: decisions, gates result, Codex findings + resolution, commit hash.)
 
+### 9ln — Frontmatter-link rollups: pure engine (capstone v1) — ENGINE LANDED
+
+- **The big Notion gap, de-risked.** Settled the cache question: **no new cache** — `superstate.pathsIndex` already holds every note's parsed frontmatter in memory, so the original "per-render disk-read perf cliff" is dissolved. A clean frontmatter-canonical engine alongside the existing MDB path, not a wholesale inversion of `linkContextRow`.
+- **Landed (this slice):** pure `tableRollup.ts` (14 tests) — `parseRelationLinks` (wikilinks/array/CSV, mixed, aliases, dedupe) + `computeFrontmatterRollup` (count / count_values / values / sum / avg / min / max over linked rows' frontmatter, resolver injected). Spec: `docs/superpowers/specs/2026-06-12-frontmatter-rollups-design.md`.
+- **Codex review (99k tokens):** 4 REAL findings, all fixed — mixed plain+wikilink parsing dropped the plain path (HIGH); array-valued frontmatter treated as one scalar (HIGH); lossy `Number()` coercion of booleans/dates/whitespace (MED); `Math.min/max(...spread)` arg-limit on huge rollups → `reduce` (MED).
+- **Gates:** 452/452 Jest (+14), tsc clean, build clean.
+- **Follow-ups (sessionized):** runtime bridge + wikilink→path resolution + cell display + config UX (**Notidian-8pl**); inverse/back-relations (**Notidian-ahk**).
+- **Next session:** wire 8pl (the engine is the tested foundation) to make rollups visible in tables.
+
+### 4j7 — Charts — committed on green gates (Codex review stalled, read-only feature). See entry below for details.
+
 ### 4j7 — Charts (read-only bar chart over a database) — DONE
 
 - **Why safe autonomously:** charts are **read-only** aggregation — zero vault-data risk even if visual polish needs your eyes.
