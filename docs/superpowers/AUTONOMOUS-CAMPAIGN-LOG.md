@@ -18,8 +18,13 @@
 | `18fed34` | Per-DB new-row defaults from Type Profile | drv ✓ | 2 gaps addressed |
 | `6b03c1b` | Charts (read-only bar chart) | 4j7 ✓ | review stalled; on gates |
 | `f95976e` | Frontmatter-link rollup engine (relations capstone v1) | 9ln | 4 fixed |
+| `a0d5c85` | **Rollups wired end-to-end** (rollup column type + cell + config) | 8pl ✓ | endpoint stalled; on gates + self-verify |
 
-Tests **382 → 452** (+70). ~1.4M Codex tokens spent on adversarial review. Every commit: jest + tsc + build green. No `main` merge, no vault install — left for your live-verify.
+Tests **382 → 455** (+73). ~1.4M Codex tokens spent on review before the endpoint degraded. Every commit: jest + tsc + build green. No `main` merge, no vault install — left for your live-verify.
+
+**The #1 Notion gap (relations/rollups) is now functional** — add a Rollup column, pick a relation + aggregate + property, and it computes from linked rows' frontmatter (no MDB, no perf cliff).
+
+**⚠️ Codex review endpoint went unresponsive** partway through (charts + 2 rollup reviews all stalled at 0 bytes). Those features were committed on green gates + tests + self-verification; they (and any new ones built while Codex is down) want a Codex re-review pass once the endpoint recovers — tracked as a follow-up.
 
 **Deferred (need your live testing, not autonomous-safe):** `amx`/`ddk` (UI-interaction bugs). **Sessionized follow-ups:** `8pl` (rollup runtime bridge + cell + config UX — the engine is the tested foundation), `ahk` (back-relations), `84u` (CSV import execution). **Recommended next push:** wire `8pl` in a fresh session to make rollups visible in tables.
 
