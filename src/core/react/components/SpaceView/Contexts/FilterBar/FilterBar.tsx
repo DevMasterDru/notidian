@@ -18,6 +18,7 @@ import { showSetValueMenu } from "core/react/components/UI/Menus/properties/prop
 import { showSpacesMenu } from "core/react/components/UI/Menus/properties/selectSpaceMenu";
 import { openContextCreateItemModal } from "core/react/components/UI/Modals/ContextCreateItemModal";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
+import { tableToCsv } from "core/utils/contexts/tableCsv";
 import { FramesMDBContext } from "core/react/context/FramesMDBContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
@@ -65,6 +66,7 @@ export const FilterBar = (props: {
     source,
     dbSchema,
     cols,
+    filteredData,
     setSearchString,
     setFindOpen,
     setEditMode,
@@ -496,6 +498,57 @@ export const FilterBar = (props: {
   }, [predicate]);
 
   const optionsMenuRef = useRef(null);
+  // Export the current view (visible columns in display order, filtered rows)
+  // to a CSV file in the space folder (Notidian-7gg). Additive — it only writes
+  // a new .csv; existing data is untouched.
+  const exportViewToCsv = async () => {
+    // Only folder-backed databases have a real write target; tag/builtin spaces
+    // are virtual `spaces://` URIs.
+    if (!spaceCache?.path || spaceCache.path.startsWith("spaces://")) {
+      props.superstate.ui.notify(
+        "CSV export is only available for folder-backed databases."
+      );
+      return;
+    }
+    const hidden = predicate?.colsHidden ?? [];
+    const order = predicate?.colsOrder ?? [];
+    const keyOf = (col: { name: string; table?: string }) =>
+      col.name + (col.table ?? "");
+    const visible = (cols ?? []).filter((col) => !hidden.includes(keyOf(col)));
+    // Respect the user's column order (colsOrder), unlisted columns trailing.
+    visible.sort((a, b) => {
+      const ia = order.indexOf(keyOf(a));
+      const ib = order.indexOf(keyOf(b));
+      if (ia == -1 && ib == -1) return 0;
+      if (ia == -1) return 1;
+      if (ib == -1) return -1;
+      return ia - ib;
+    });
+    const columns = visible.map((col) => ({ key: keyOf(col), name: col.name }));
+    const rows = (filteredData ?? []) as Record<string, unknown>[];
+    if (columns.length == 0 || rows.length == 0) {
+      props.superstate.ui.notify("Nothing to export in this view.");
+      return;
+    }
+    const csv = tableToCsv({ columns, rows });
+    const baseName = (
+      (frameSchema?.name && frameSchema.name.length > 0
+        ? frameSchema.name
+        : spaceCache?.name) ?? "export"
+    ).replace(/[\\/]/g, "-");
+    const path = `${spaceCache.path}/${baseName} export.csv`;
+    try {
+      await props.superstate.spaceManager.writeToPath(path, csv);
+      props.superstate.ui.notify(
+        `Exported ${rows.length} row${
+          rows.length == 1 ? "" : "s"
+        } to ${path}.`
+      );
+    } catch (e) {
+      props.superstate.ui.notify("CSV export failed.");
+    }
+  };
+
   const showViewOptionsMenu = async (
     e?: React.MouseEvent,
     update?: boolean
@@ -560,6 +613,15 @@ export const FilterBar = (props: {
           windowFromDocument(e.view.document),
           onHide
         );
+      },
+    });
+
+    menuOptions.push(menuSeparator);
+    menuOptions.push({
+      name: "Export to CSV",
+      icon: "ui//download",
+      onClick: () => {
+        void exportViewToCsv();
       },
     });
 

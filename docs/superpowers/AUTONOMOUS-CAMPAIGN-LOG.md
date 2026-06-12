@@ -41,6 +41,21 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 
 (Each feature appends: decisions, gates result, Codex findings + resolution, commit hash.)
 
+### 7gg — CSV export + CSV core — DONE (import execution split to Notidian-84u)
+
+- **Scope decision (autonomous safety):** shipped CSV **export** (additive single-file write, safe) + the fully-tested CSV **core** (RFC 4180 serialize/parse + `tableToCsv` + `parseCsvToRecords`). The file-creating **import execution** (creates N row files on your real vault) is split to **Notidian-84u** — it needs a preview UI + your live verification before running blind. The import parser is already tested, so 84u is wiring only.
+- **Units:** `tableCsv.ts` (pure, 13 tests: quoting, embedded commas/quotes/newlines, CRLF, round-trip, empty rows) + an `Export to CSV` view-options menu item → writes `<db> export.csv` in the space folder from visible columns + filtered rows.
+- **Gates:** 427/427 Jest (+13), tsc clean, build clean.
+- **Codex review (~210k tokens):** 6 REAL findings, all fixed —
+  1. *HIGH:* `createItemAtPath(…, "csv", …)` had no adapter → silently wrote nothing while reporting success. → switched to `spaceManager.writeToPath(path, csv)` (→ `writeTextToFile`), the correct API (verified by reading the adapter).
+  2. *MED:* virtual `spaces://` paths (tag/builtin spaces) aren't real folders. → export gated to folder-backed databases.
+  3. *MED:* used raw `cols` + only `colsHidden`. → now respects `colsOrder` (display order) and `colsHidden`; name sanitized for path safety.
+  4. *MED:* parser silently corrupted malformed quotes. → bare mid-field quotes kept literal; unterminated quote recovered at EOF (+2 tests).
+  5. *MED:* `[['']]` round-trips to no data. → documented as intended (export always has a header; import skips empty rows).
+  6. *LOW:* no CSV formula-injection mitigation. → documented as an accepted non-mitigation (trusted single-user vault; escaping would corrupt the user's own values).
+- **Gates after fixes:** 429/429 Jest, tsc clean, build clean.
+- **Live-verify on waking:** open a folder-backed DB → view-options (⋯) → Export to CSV → a `.csv` appears in the folder with the visible columns + filtered rows; reopen it in a spreadsheet to confirm quoting.
+
 ### r20 — Quick find (Ctrl+F highlight + navigate) — DONE
 
 - **Decisions (you chose, before sleep):** augment (keep filter-search, add find); trigger = Ctrl/Cmd+F + filter-bar `⌕` button; scope = all filtered rows with off-screen reveal; password + hidden columns excluded (no oracle on masked secrets).
