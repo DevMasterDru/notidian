@@ -29,8 +29,13 @@ export const buildRowTree = (params: {
   }
 
   const parentPathOf = (row: Record<string, any>): string | null => {
-    const parent = parseRelationLinks(row[parentKey])[0];
-    return parent && byPath.has(parent) && parent != pathOf(row) ? parent : null;
+    const self = pathOf(row);
+    // First link that resolves to another row in the set (so a stale/missing
+    // first link does not orphan a row that also links a valid parent).
+    for (const parent of parseRelationLinks(row[parentKey])) {
+      if (parent != self && byPath.has(parent)) return parent;
+    }
+    return null;
   };
 
   const childrenOf = new Map<string, Record<string, any>[]>();

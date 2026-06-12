@@ -50,6 +50,17 @@ describe("buildRowTree", () => {
     expect(result).toHaveLength(2);
   });
 
+  it("attaches to the first parent link that resolves (skips a stale link)", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[Missing]], [[A]]" },
+    ];
+    expect(tree(rows)).toEqual([
+      { path: "A", depth: 0, hasChildren: true },
+      { path: "B", depth: 1, hasChildren: false },
+    ]);
+  });
+
   it("with no parents, all rows are roots in order", () => {
     expect(tree([{ File: "A" }, { File: "B" }])).toEqual([
       { path: "A", depth: 0, hasChildren: false },
