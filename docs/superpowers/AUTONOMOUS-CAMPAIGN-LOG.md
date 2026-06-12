@@ -69,7 +69,7 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 
 - **Pure tree builder** `tableRowTree.ts` (6 tests): `buildRowTree` groups rows by a frontmatter `parent` link property into depth-ordered nodes (roots = no/out-of-set/self parent; cycles broken; siblings in input order; `hasChildren` flags). Reuses `parseRelationLinks` from the rollup work — sub-items are a self-relation.
 - **Follow-up (display wiring):** apply the tree ordering + indentation in the list/table render (the inline-expansion UI already exists). Filed separately.
-- **Gates:** tsc clean, build clean, tree tests green. Codex review in progress at commit.
+- **Gates:** 7 tests, tsc clean, build clean. **Codex review: 1 real finding fixed** (`e3f6540` — `[[Missing]], [[A]]` now attaches to the first *resolving* parent instead of orphaning the row); cycle/order/hasChildren all validated clean.
 
 ### 8pl — Rollups wired end-to-end (column type + cell + config) — DONE
 
