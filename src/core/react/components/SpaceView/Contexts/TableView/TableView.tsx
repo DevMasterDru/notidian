@@ -47,6 +47,7 @@ import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowC
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
+import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import {
@@ -435,6 +436,9 @@ export const TableView = (props: { superstate: Superstate }) => {
     renameRowTitle,
     findOpen,
     setFindOpen,
+    subItemsInfo,
+    collapsedSubItems,
+    toggleSubItemCollapse,
   } = useContext(ContextEditorContext);
 
   const pageSize = props.superstate.settings.contextPagination ?? 25;
@@ -1308,11 +1312,15 @@ export const TableView = (props: { superstate: Superstate }) => {
 
   const groupBy = useMemo(
     () =>
+      // Sub-items tree and groupBy both reorder rows — the tree wins, so
+      // grouping is suppressed while sub-items is active (data is already
+      // tree-ordered in the provider).
+      !subItemsInfo &&
       predicate?.groupBy?.length > 0 &&
       cols.find((f) => f.name + f.table == predicate.groupBy[0])
         ? predicate.groupBy
         : [],
-    [predicate, cols]
+    [predicate, cols, subItemsInfo]
   );
   const table = useReactTable({
     data,
@@ -1974,6 +1982,13 @@ export const TableView = (props: { superstate: Superstate }) => {
               const rowSelected = !!selectedRows?.some(
                 (f) => f == rowOriginalIndex
               );
+              // Sub-items (Notidian-pv4): indent + collapse affordance for the
+              // first column. Null when sub-items is off, so the cell renders
+              // exactly as before.
+              const rowPath = String(rowData?.[PathPropertyName] ?? "");
+              const subItemNode = subItemsInfo?.get(rowPath);
+              const subItemCollapsed =
+                !!subItemNode && collapsedSubItems.has(rowPath);
 
               return (
                 <TableBodyRow
@@ -2138,6 +2153,29 @@ export const TableView = (props: { superstate: Superstate }) => {
                         >
                           {cell.getIsPlaceholder() ? null : (
                             <>
+                              {i === 0 && subItemNode ? (
+                                <span
+                                  className="mk-subitem-affordance"
+                                  style={{
+                                    paddingLeft: `${subItemNode.depth * 16}px`,
+                                  }}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                  {subItemNode.hasChildren ? (
+                                    <CollapseToggleSmall
+                                      superstate={props.superstate}
+                                      collapsed={subItemCollapsed}
+                                      onToggle={(_, e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        toggleSubItemCollapse(rowPath);
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className="mk-subitem-toggle-spacer" />
+                                  )}
+                                </span>
+                              ) : null}
                               {flexRender(
                                 cell.column.columnDef.cell,
                                 cell.getContext()

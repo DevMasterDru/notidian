@@ -78,6 +78,19 @@ export const validatePredicate = (
       typeof prevPredicate.limit === "number" && prevPredicate.limit >= 0
         ? prevPredicate.limit
         : 0,
+    // Optional view configs must be carried through validation or every
+    // savePredicate strips them (Notidian-4j7 chart never persisted before this;
+    // Notidian-pv4 sub-items rides the same path).
+    chart:
+      prevPredicate.chart && typeof prevPredicate.chart === "object"
+        ? prevPredicate.chart
+        : undefined,
+    subItems:
+      prevPredicate.subItems &&
+      typeof prevPredicate.subItems === "object" &&
+      typeof prevPredicate.subItems.field === "string"
+        ? prevPredicate.subItems
+        : undefined,
   };
 };
 

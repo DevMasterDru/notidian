@@ -68,8 +68,26 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 ### gg9 — Sub-items: parent/child tree core — CORE LANDED
 
 - **Pure tree builder** `tableRowTree.ts` (6 tests): `buildRowTree` groups rows by a frontmatter `parent` link property into depth-ordered nodes (roots = no/out-of-set/self parent; cycles broken; siblings in input order; `hasChildren` flags). Reuses `parseRelationLinks` from the rollup work — sub-items are a self-relation.
-- **Follow-up (display wiring):** apply the tree ordering + indentation in the list/table render (the inline-expansion UI already exists). Filed separately.
+- **Follow-up (display wiring):** apply the tree ordering + indentation in the list/table render (the inline-expansion UI already exists). Filed separately → **pv4 (below)**.
 - **Gates:** 7 tests, tsc clean, build clean. **Codex review: 1 real finding fixed** (`e3f6540` — `[[Missing]], [[A]]` now attaches to the first *resolving* parent instead of orphaning the row); cycle/order/hasChildren all validated clean.
+
+### pv4 — Sub-items DISPLAY wired into the table tree — DONE (live-verify pending)
+
+- **What:** the tested `buildRowTree` (gg9) now drives the table render. Rows order depth-first, children indent by depth, and a reused `CollapseToggleSmall` chevron expands/collapses subtrees. A **"Sub-items"** view-option in the filter bar picks the parent-link column (primary-table self-relations only). **Gated:** with no parent column configured the table renders exactly as before — **zero regression risk** for existing tables.
+- **Architecture decision:** tree ordering + collapse live in `ContextEditorContext` so the **single `filteredData` array** is what the table consumes. This avoids any index/identity mismatch in TableView's positional `data[index]` / `cell.row.index` selection + edit paths (the alternative — reordering inside TableView — would have desynced ~15 call sites). `_index` row identity is preserved through reorder.
+- **Live-path resolution:** `buildRowTree` gained an injectable `resolveLink` so live `[[wikilinks]]` resolve to row paths via the **same** `resolvePath(link, sourcePath, isSpace)` the rollup runtime (8pl) uses. New pure `flattenVisibleTree` hides collapsed subtrees (depth-first walk). Tree builds over the filtered+sorted set *before* the pagination limit.
+- **Units:** `tableRowTree.ts` (+resolveLink, +flattenVisibleTree, 14 tests total) · `ContextEditorContext.tsx` (filteredSortedData split + tree memos + collapse state) · `TableView.tsx` (indent + chevron, groupBy suppressed in tree mode) · `FilterBar.tsx` (picker) · `predicate.ts` (`SubItemsPredicate`) · CSS.
+- **Codex review (~252k tokens):** **2 real findings fixed** — (1) parent key dropped the `table` suffix → now `name+table` (universal data accessor) + picker restricted to primary-table columns; (2) column-rename flows didn't remap `subItems.field` → both rename sites now do.
+- **Live-verify on waking:** open a table, set view-options → **Sub-items** → a self-relation column; rows with a `parent: [[…]]` frontmatter link should indent under their parent with an expand/collapse chevron. (The one thing units can't cover: that the live link→path resolution matches — high confidence since rollups use the identical resolver.)
+- **Remaining:** sub-items in the **list view** is a separate render path → filed as a follow-up bead.
+
+### 2y6 — Codex re-review of charts (4j7) — DONE, 3 real bugs fixed
+
+- The charts feature shipped (`6b03c1b`) without Codex review (endpoint was down). Re-review on recovery found **3 real bugs**, all fixed + regression-tested:
+  1. **Persistence (latent, pre-existing):** `validatePredicate` is a whitelist that **dropped `predicate.chart` on every save** — so "Show chart" never persisted. Now preserves `chart` (and `subItems`).
+  2. **Crash:** `Math.min/max(...nums)` spread → `RangeError: Maximum call stack size exceeded` on a bucket with ~100k+ rows. Now `reduce`. (Regression test at 200k rows.)
+  3. **Misrender:** bar widths assumed non-negative — all-negative buckets scaled against 0 (every bar 0%), mixed-sign gave negative widths. Now magnitude-scaled (`maxBucketMagnitude`) with a distinct color for negative bars.
+- **Gates (pv4 + 2y6 combined):** **476/476 Jest** (+21 over 455), tsc clean, build clean.
 
 ### 8pl — Rollups wired end-to-end (column type + cell + config) — DONE
 

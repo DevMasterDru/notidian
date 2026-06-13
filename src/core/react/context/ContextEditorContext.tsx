@@ -43,6 +43,11 @@ import {
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
+import {
+  buildRowTree,
+  flattenVisibleTree,
+} from "core/utils/contexts/tableRowTree";
+import { resolvePath } from "core/superstate/utils/path";
 import { serializeOptionValue } from "core/utils/serializer";
 import { tagSpacePathFromTag } from "core/utils/strings";
 import _, { isEqual } from "lodash";
@@ -152,6 +157,12 @@ type ContextEditorContextProps = {
     index: number,
     path?: string
   ) => Promise<TableEditTransactionResult>;
+  // Sub-items (Notidian-pv4): per-row tree info for the table's indentation +
+  // expand/collapse chevron, keyed by resolved path; null when the view has no
+  // sub-items parent column configured (the table renders flat).
+  subItemsInfo: Map<string, { depth: number; hasChildren: boolean }> | null;
+  collapsedSubItems: Set<string>;
+  toggleSubItemCollapse: (path: string) => void;
 };
 
 export const ContextEditorContext = createContext<ContextEditorContextProps>({
@@ -189,6 +200,9 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   updateRow: () => null,
   tableData: null,
   cols: [],
+  subItemsInfo: null,
+  collapsedSubItems: new Set(),
+  toggleSubItemCollapse: () => null,
 });
 
 const frontmatterRenameIssueMessage = ({
@@ -282,6 +296,19 @@ export const ContextEditorProvider: React.FC<
   const [predicate, setPredicate] = useState<Predicate>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editMode, setEditMode] = useState<number>(0);
+  // Sub-items (Notidian-pv4): parent rows the user has collapsed in the tree.
+  // View UI state, not persisted; empty = everything expanded.
+  const [collapsedSubItems, setCollapsedSubItems] = useState<Set<string>>(
+    () => new Set()
+  );
+  const toggleSubItemCollapse = useCallback((path: string) => {
+    setCollapsedSubItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
   const contextPath =
     props.source ?? frameSchema?.def?.context ?? spaceInfo?.path;
 
@@ -634,8 +661,8 @@ export const ContextEditorProvider: React.FC<
           (predicate?.colsOrder ?? []).findIndex((x) => x == b.name + b.table)
       );
   }, [cols, predicate]);
-  const filteredData = useMemo(() => {
-    const filtered = data
+  const filteredSortedData = useMemo(() => {
+    return data
       .filter((f) => {
         return (predicate?.filters ?? []).reduce((p, c) => {
           const row = cols.some(
@@ -682,14 +709,58 @@ export const ContextEditorProvider: React.FC<
             : p;
         }, 0);
       });
+  }, [predicate, data, cols, searchString]);
 
+  // Sub-items (Notidian-pv4): the parent-link column the tree follows, if the
+  // view configured one and it still exists. Resolved to the live column so the
+  // data key (col.name) and link resolver match the relations/rollup runtime.
+  const subItemsCol = useMemo(() => {
+    const field = predicate?.subItems?.field;
+    if (!field) return null;
+    return cols.find((c) => c.name + c.table == field) ?? null;
+  }, [predicate?.subItems?.field, cols]);
+
+  // Depth-first tree nodes over the filtered+sorted rows, with collapsed
+  // subtrees hidden. Null when sub-items is off (the table stays a flat list).
+  const subItemsNodes = useMemo(() => {
+    if (!subItemsCol) return null;
+    const isSpace = (path: string) =>
+      props.superstate.spacesIndex.get(path) != null;
+    const nodes = buildRowTree({
+      rows: filteredSortedData,
+      // Row data keys context-table columns as name+table (primary cols use
+      // name, since their table is ""), so the universal accessor is name+table.
+      parentKey: subItemsCol.name + subItemsCol.table,
+      pathKey: PathPropertyName,
+      resolveLink: (link, sourcePath) => resolvePath(link, sourcePath, isSpace),
+    });
+    return flattenVisibleTree(nodes, collapsedSubItems, PathPropertyName);
+  }, [subItemsCol, filteredSortedData, collapsedSubItems, props.superstate]);
+
+  // Per-row tree info (depth + hasChildren) keyed by resolved path, for the
+  // table's indentation and expand/collapse chevron. Null when sub-items is off.
+  const subItemsInfo = useMemo(() => {
+    if (!subItemsNodes) return null;
+    const info = new Map<string, { depth: number; hasChildren: boolean }>();
+    for (const node of subItemsNodes) {
+      info.set(String(node.row[PathPropertyName] ?? ""), {
+        depth: node.depth,
+        hasChildren: node.hasChildren,
+      });
+    }
+    return info;
+  }, [subItemsNodes]);
+
+  const filteredData = useMemo(() => {
+    const base = subItemsNodes
+      ? subItemsNodes.map((n) => n.row)
+      : filteredSortedData;
     // Apply limit if set (0 means show all)
     if (predicate?.limit > 0) {
-      return filtered.slice(0, predicate.limit);
+      return base.slice(0, predicate.limit);
     }
-
-    return filtered;
-  }, [predicate, data, cols, searchString]);
+    return base;
+  }, [subItemsNodes, filteredSortedData, predicate?.limit]);
 
   const updateRow = async (row: DBRow, index: number) => {
     const spaceState = props.superstate.spacesIndex.get(
@@ -1306,6 +1377,25 @@ export const ContextEditorProvider: React.FC<
           predicate?.colsCalc?.[column.name + column.table],
         [column.name + column.table]: undefined,
       },
+      // Chart + sub-items also reference a column; remap them on rename so the
+      // reference does not go stale (chart would empty, sub-items would flatten).
+      chart: predicate?.chart
+        ? {
+            ...predicate.chart,
+            groupKey:
+              predicate.chart.groupKey == column.name + column.table
+                ? normalizedNewKey + column.table
+                : predicate.chart.groupKey,
+            valueKey:
+              predicate.chart.valueKey == column.name + column.table
+                ? normalizedNewKey + column.table
+                : predicate.chart.valueKey,
+          }
+        : undefined,
+      subItems:
+        predicate?.subItems?.field == column.name + column.table
+          ? { ...predicate.subItems, field: normalizedNewKey + column.table }
+          : predicate?.subItems,
     });
 
     await saveDB(tablePreview);
@@ -1462,6 +1552,23 @@ export const ContextEditorProvider: React.FC<
             predicate?.colsCalc?.[oldColumn.name + oldColumn.table],
           [oldColumn.name + oldColumn.table]: undefined,
         },
+        chart: predicate?.chart
+          ? {
+              ...predicate.chart,
+              groupKey:
+                predicate.chart.groupKey == oldColumn.name + oldColumn.table
+                  ? column.name + column.table
+                  : predicate.chart.groupKey,
+              valueKey:
+                predicate.chart.valueKey == oldColumn.name + oldColumn.table
+                  ? column.name + column.table
+                  : predicate.chart.valueKey,
+            }
+          : undefined,
+        subItems:
+          predicate?.subItems?.field == oldColumn.name + oldColumn.table
+            ? { ...predicate.subItems, field: column.name + column.table }
+            : predicate?.subItems,
       });
     if (table == "") {
       if (dbSchema.id == defaultContextSchemaID) {
@@ -1560,6 +1667,9 @@ export const ContextEditorProvider: React.FC<
         setEditMode,
         data,
         updateRow,
+        subItemsInfo,
+        collapsedSubItems,
+        toggleSubItemCollapse,
       }}
     >
       {props.children}

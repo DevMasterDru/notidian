@@ -632,6 +632,56 @@ export const FilterBar = (props: {
       },
     });
     menuOptions.push({
+      name: "Sub-items",
+      icon: "ui//rows",
+      type: SelectOptionType.Disclosure,
+      value: predicate?.subItems?.field
+        ? (filteredCols.find(
+            (f) => f.name + f.table == predicate.subItems.field
+          )?.name ?? predicate.subItems.field)
+        : i18n.menu.none,
+      onClick: (e) => {
+        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Sub-items follows a relation/link column whose links point at each
+        // row's parent row in THIS table — a self-relation. Only primary-table
+        // columns (table == "") qualify; a linked-context column points at
+        // another space's rows and can never form the tree.
+        const eligible = filteredCols.filter(
+          (f) =>
+            (f.table ?? "") == "" &&
+            (f.type?.startsWith("link") || f.type?.startsWith("context"))
+        );
+        props.superstate.ui.openMenu(
+          offset,
+          {
+            ui: props.superstate.ui,
+            multi: false,
+            editable: false,
+            value: predicate?.subItems?.field
+              ? [predicate.subItems.field]
+              : [""],
+            options: [
+              { name: i18n.menu.none, value: "" },
+              ...eligible.map((f) => ({
+                name: f.name + f.table,
+                icon: stickerForField(f),
+                value: f.name + f.table,
+              })),
+            ],
+            saveOptions: (_: string[], value: string[]) => {
+              const field = value[0] ?? "";
+              savePredicate({
+                subItems: field ? { field } : undefined,
+              });
+            },
+            searchable: false,
+            showAll: true,
+          },
+          windowFromDocument(e.view.document)
+        );
+      },
+    });
+    menuOptions.push({
       name: "Export to CSV",
       icon: "ui//download",
       onClick: () => {

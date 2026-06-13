@@ -18,8 +18,14 @@ export const buildRowTree = (params: {
   rows: Record<string, any>[];
   parentKey: string;
   pathKey: string;
+  // Optional: map a parsed parent link to a canonical path so it can match the
+  // children's pathKey values. Live callers pass the same resolver the rollup
+  // runtime uses (resolvePath against the row's own path); defaults to identity
+  // so pure tests can supply pre-resolved paths. Receives the row's own path as
+  // the source so relative links resolve correctly.
+  resolveLink?: (link: string, sourcePath: string) => string;
 }): RowTreeNode[] => {
-  const { rows, parentKey, pathKey } = params;
+  const { rows, parentKey, pathKey, resolveLink } = params;
   const pathOf = (row: Record<string, any>) => String(row[pathKey] ?? "");
 
   const byPath = new Map<string, Record<string, any>>();
@@ -32,7 +38,8 @@ export const buildRowTree = (params: {
     const self = pathOf(row);
     // First link that resolves to another row in the set (so a stale/missing
     // first link does not orphan a row that also links a valid parent).
-    for (const parent of parseRelationLinks(row[parentKey])) {
+    for (const link of parseRelationLinks(row[parentKey])) {
+      const parent = resolveLink ? resolveLink(link, self) : link;
       if (parent != self && byPath.has(parent)) return parent;
     }
     return null;
@@ -65,4 +72,30 @@ export const buildRowTree = (params: {
   // Rows only reachable through a cycle (no real root) surface as roots.
   for (const row of rows) if (!visited.has(pathOf(row))) emit(row, 0);
   return result;
+};
+
+// Filter a depth-first tree (from buildRowTree) down to the rows that are
+// visible given a set of collapsed parent paths: a collapsed node keeps its own
+// row but hides every descendant beneath it. Pure — the collapse state and the
+// render live in the caller. Relies on buildRowTree's depth-first order: once a
+// node at depth d is collapsed, every following node deeper than d is its
+// descendant until depth returns to <= d.
+export const flattenVisibleTree = (
+  nodes: RowTreeNode[],
+  collapsedPaths: Set<string>,
+  pathKey: string
+): RowTreeNode[] => {
+  const visible: RowTreeNode[] = [];
+  let hideBelowDepth: number | null = null;
+  for (const node of nodes) {
+    if (hideBelowDepth !== null) {
+      if (node.depth > hideBelowDepth) continue; // descendant of a collapsed node
+      hideBelowDepth = null; // returned to/above the collapsed level
+    }
+    visible.push(node);
+    if (node.hasChildren && collapsedPaths.has(String(node.row[pathKey] ?? ""))) {
+      hideBelowDepth = node.depth;
+    }
+  }
+  return visible;
 };

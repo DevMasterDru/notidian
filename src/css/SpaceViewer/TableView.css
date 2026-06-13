@@ -1289,6 +1289,9 @@ width: 24px;
   background: var(--interactive-accent);
   border-radius: 3px;
 }
+.mk-space-chart-bar-negative {
+  background: var(--text-error, var(--color-red));
+}
 .mk-space-chart-value {
   width: 52px;
   flex-shrink: 0;
@@ -1299,4 +1302,20 @@ width: 24px;
 .mk-space-chart-empty {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
+}
+
+/* Sub-items (Notidian-pv4): indent + expand/collapse affordance in the first
+   column. Inert unless the view configures a sub-items parent property. */
+.mk-subitem-affordance {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+.mk-subitem-affordance .mk-collapse {
+  margin-right: 2px;
+}
+.mk-subitem-toggle-spacer {
+  display: inline-block;
+  width: 18px;
+  flex-shrink: 0;
 }

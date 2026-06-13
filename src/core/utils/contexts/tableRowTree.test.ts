@@ -1,4 +1,7 @@
-import { buildRowTree } from "core/utils/contexts/tableRowTree";
+import {
+  buildRowTree,
+  flattenVisibleTree,
+} from "core/utils/contexts/tableRowTree";
 
 const tree = (rows: Record<string, any>[]) =>
   buildRowTree({ rows, parentKey: "parent", pathKey: "File" }).map((n) => ({
@@ -77,5 +80,76 @@ describe("buildRowTree", () => {
       { path: "Tasks/A", depth: 0, hasChildren: true },
       { path: "Tasks/B", depth: 1, hasChildren: false },
     ]);
+  });
+
+  it("applies resolveLink so a bare link matches the resolved row path", () => {
+    // Live shape: parent value is a bare basename, row paths are full paths.
+    const rows = [
+      { File: "Tasks/A.md", parent: "" },
+      { File: "Tasks/B.md", parent: "[[A]]" },
+    ];
+    const resolveLink = (link: string) => `Tasks/${link}.md`;
+    const result = buildRowTree({
+      rows,
+      parentKey: "parent",
+      pathKey: "File",
+      resolveLink,
+    }).map((n) => ({ path: n.row.File, depth: n.depth }));
+    expect(result).toEqual([
+      { path: "Tasks/A.md", depth: 0 },
+      { path: "Tasks/B.md", depth: 1 },
+    ]);
+  });
+
+  it("resolveLink receives the row's own path as the source", () => {
+    const seen: Array<[string, string]> = [];
+    buildRowTree({
+      rows: [{ File: "A", parent: "[[X]]" }],
+      parentKey: "parent",
+      pathKey: "File",
+      resolveLink: (link, sourcePath) => {
+        seen.push([link, sourcePath]);
+        return link;
+      },
+    });
+    expect(seen).toEqual([["X", "A"]]);
+  });
+});
+
+describe("flattenVisibleTree", () => {
+  const nodes = buildRowTree({
+    rows: [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+      { File: "D", parent: "[[B]]" },
+      { File: "C", parent: "[[A]]" },
+      { File: "E", parent: "" },
+    ],
+    parentKey: "parent",
+    pathKey: "File",
+  });
+  // Tree order: A, B, D, C, E (A>{B>{D}, C}, E root)
+  const flatten = (collapsed: string[]) =>
+    flattenVisibleTree(nodes, new Set(collapsed), "File").map((n) => n.row.File);
+
+  it("shows the whole tree when nothing is collapsed", () => {
+    expect(flatten([])).toEqual(["A", "B", "D", "C", "E"]);
+  });
+
+  it("hides all descendants of a collapsed node but keeps the node", () => {
+    expect(flatten(["A"])).toEqual(["A", "E"]);
+  });
+
+  it("collapses a mid-tree node without affecting its siblings", () => {
+    // Collapsing B hides D; A, C, E stay.
+    expect(flatten(["B"])).toEqual(["A", "B", "C", "E"]);
+  });
+
+  it("handles multiple collapsed nodes", () => {
+    expect(flatten(["B", "A"])).toEqual(["A", "E"]);
+  });
+
+  it("ignores a collapsed path with no children (leaf)", () => {
+    expect(flatten(["E"])).toEqual(["A", "B", "D", "C", "E"]);
   });
 });

@@ -1,7 +1,7 @@
 import {
   ChartConfig,
   computeChartBuckets,
-  maxBucketValue,
+  maxBucketMagnitude,
 } from "core/utils/contexts/tableChart";
 
 const rows = [
@@ -88,16 +88,66 @@ describe("computeChartBuckets", () => {
     });
     expect(buckets[0].value).toBe(0);
   });
+
+  it("min/max do not overflow the stack on a very large bucket", () => {
+    // Codex finding: Math.min/max(...spread) throws RangeError ~100k+ items.
+    const rows = Array.from({ length: 200000 }, (_, i) => ({
+      g: "a",
+      v: String(i),
+    }));
+    expect(
+      computeChartBuckets({
+        rows,
+        config: { groupKey: "g", aggregate: "max", valueKey: "v" },
+      })[0].value
+    ).toBe(199999);
+    expect(
+      computeChartBuckets({
+        rows,
+        config: { groupKey: "g", aggregate: "min", valueKey: "v" },
+      })[0].value
+    ).toBe(0);
+  });
+
+  it("aggregates negative values correctly", () => {
+    const rows = [
+      { g: "a", v: "-3" },
+      { g: "a", v: "-7" },
+    ];
+    expect(
+      computeChartBuckets({
+        rows,
+        config: { groupKey: "g", aggregate: "min", valueKey: "v" },
+      })[0].value
+    ).toBe(-7);
+    expect(
+      computeChartBuckets({
+        rows,
+        config: { groupKey: "g", aggregate: "max", valueKey: "v" },
+      })[0].value
+    ).toBe(-3);
+  });
 });
 
-describe("maxBucketValue", () => {
-  it("returns the largest bucket value, or 0 for none", () => {
+describe("maxBucketMagnitude", () => {
+  it("returns the largest absolute bucket value, or 0 for none", () => {
     expect(
-      maxBucketValue([
+      maxBucketMagnitude([
         { label: "a", value: 2, count: 2 },
         { label: "b", value: 5, count: 1 },
       ])
     ).toBe(5);
-    expect(maxBucketValue([])).toBe(0);
+    expect(maxBucketMagnitude([])).toBe(0);
+  });
+
+  it("uses magnitude so all-negative buckets scale (not against 0)", () => {
+    // Codex finding: with the old max-of-raw-value, negatives reduced to 0 and
+    // every bar rendered at 0%. Magnitude keeps bars proportional.
+    expect(
+      maxBucketMagnitude([
+        { label: "a", value: -2, count: 1 },
+        { label: "b", value: -8, count: 1 },
+      ])
+    ).toBe(8);
   });
 });

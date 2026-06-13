@@ -1,6 +1,6 @@
 import {
   computeChartBuckets,
-  maxBucketValue,
+  maxBucketMagnitude,
 } from "core/utils/contexts/tableChart";
 import { Superstate } from "makemd-core";
 import React, { useMemo } from "react";
@@ -33,7 +33,7 @@ export const SpaceChart = (props: {
     () => computeChartBuckets({ rows: props.rows, config: props.config }),
     [props.rows, props.config]
   );
-  const max = maxBucketValue(buckets);
+  const max = maxBucketMagnitude(buckets);
 
   const update = (patch: Partial<ChartPredicate>) =>
     props.onConfigChange({ ...props.config, ...patch });
@@ -102,9 +102,15 @@ export const SpaceChart = (props: {
               </span>
               <div className="mk-space-chart-track">
                 <div
-                  className="mk-space-chart-bar"
+                  className={
+                    "mk-space-chart-bar" +
+                    (bucket.value < 0 ? " mk-space-chart-bar-negative" : "")
+                  }
                   style={{
-                    width: max > 0 ? `${(bucket.value / max) * 100}%` : "0%",
+                    width:
+                      max > 0
+                        ? `${(Math.abs(bucket.value) / max) * 100}%`
+                        : "0%",
                   }}
                 ></div>
               </div>

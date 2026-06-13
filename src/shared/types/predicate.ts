@@ -28,6 +28,10 @@ export type Filter = {
     limit: number;
     // Notidian-4j7: optional read-only chart over the filtered rows.
     chart?: ChartPredicate;
+    // Notidian-pv4: optional sub-items parent/child tree over a frontmatter
+    // parent-link property. When set, the table orders rows depth-first and
+    // indents children; unset leaves the table a flat list (inert).
+    subItems?: SubItemsPredicate;
   };
 
   export type ChartPredicate = {
@@ -35,6 +39,12 @@ export type Filter = {
     groupKey: string;
     aggregate: "count" | "sum" | "avg" | "min" | "max";
     valueKey?: string;
+  };
+
+  export type SubItemsPredicate = {
+    // The parent-link column (stored as name+table, like groupBy/sort fields)
+    // whose links resolve to each row's parent row. Empty disables sub-items.
+    field: string;
   };
 
   export type Sort = {

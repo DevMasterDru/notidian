@@ -40,10 +40,12 @@ const aggregateBucket = (
       return nums.reduce((a, b) => a + b, 0);
     case "avg":
       return nums.reduce((a, b) => a + b, 0) / nums.length;
+    // reduce, not Math.min/max(...spread): spreading a large bucket overflows
+    // the call stack (RangeError) on tables with many rows in one group.
     case "min":
-      return Math.min(...nums);
+      return nums.reduce((m, n) => (n < m ? n : m), nums[0]);
     case "max":
-      return Math.max(...nums);
+      return nums.reduce((m, n) => (n > m ? n : m), nums[0]);
     default:
       return 0;
   }
@@ -80,5 +82,9 @@ export const computeChartBuckets = (params: {
   });
 };
 
-export const maxBucketValue = (buckets: ChartBucket[]): number =>
-  buckets.reduce((max, bucket) => Math.max(max, bucket.value), 0);
+// Largest bar magnitude (absolute value) across buckets, so proportional bar
+// widths stay correct when aggregates are negative (all-negative buckets would
+// otherwise scale against 0 and render every bar at 0%). 0 when there are no
+// buckets or every value is 0.
+export const maxBucketMagnitude = (buckets: ChartBucket[]): number =>
+  buckets.reduce((max, bucket) => Math.max(max, Math.abs(bucket.value)), 0);
