@@ -17,6 +17,10 @@ import { showLinkMenu } from "core/react/components/UI/Menus/properties/linkMenu
 import { showSetValueMenu } from "core/react/components/UI/Menus/properties/propertyMenu";
 import { showSpacesMenu } from "core/react/components/UI/Menus/properties/selectSpaceMenu";
 import { openContextCreateItemModal } from "core/react/components/UI/Modals/ContextCreateItemModal";
+import { CsvImportModal } from "core/react/components/UI/Modals/CsvImportModal";
+import { executeCsvImport } from "core/utils/contexts/tableCsvImportRuntime";
+import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
+import { PathPropertyName } from "shared/types/context";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { tableToCsv } from "core/utils/contexts/tableCsv";
 import { FramesMDBContext } from "core/react/context/FramesMDBContext";
@@ -75,6 +79,7 @@ export const FilterBar = (props: {
     hideColumn,
     delColumn,
     saveColumn,
+    reloadContextData,
   } = useContext(ContextEditorContext);
 
   const { frameSchema, saveSchema, setFrameSchema } =
@@ -549,6 +554,55 @@ export const FilterBar = (props: {
     }
   };
 
+  const importCsvFile = (win: Window) => {
+    // Same folder-backed guard as export: virtual spaces:// have no file target.
+    if (!spaceCache?.path || spaceCache.path.startsWith("spaces://")) {
+      props.superstate.ui.notify(
+        "CSV import is only available for folder-backed databases."
+      );
+      return;
+    }
+    const space = props.superstate.spacesIndex.get(spaceCache.path);
+    if (!space) {
+      props.superstate.ui.notify("Could not resolve the target database.");
+      return;
+    }
+    // Headers map to primary-table columns by name; collisions are previewed
+    // against the rows already in view (execution auto-renames regardless).
+    const existingColumnNames = (cols ?? [])
+      .filter((c) => (c.table ?? "") == "")
+      .map((c) => c.name);
+    const existingRowTitles = (filteredData ?? [])
+      .map((r) => {
+        const p = r[PathPropertyName];
+        return typeof p == "string" ? pageTitleFromPath(p) : null;
+      })
+      .filter((x): x is string => !!x);
+    props.superstate.ui.openModal(
+      "Import from CSV",
+      <CsvImportModal
+        superstate={props.superstate}
+        existingColumnNames={existingColumnNames}
+        existingRowTitles={existingRowTitles}
+        onImport={async (plan) => {
+          const result = await executeCsvImport({
+            superstate: props.superstate,
+            space,
+            plan,
+            cols: cols ?? [],
+          });
+          await reloadContextData();
+          props.superstate.ui.notify(
+            `Imported ${result.created} row${
+              result.created == 1 ? "" : "s"
+            }${result.failed > 0 ? ` (${result.failed} failed)` : ""}.`
+          );
+        }}
+      />,
+      win
+    );
+  };
+
   const showViewOptionsMenu = async (
     e?: React.MouseEvent,
     update?: boolean
@@ -679,6 +733,13 @@ export const FilterBar = (props: {
           },
           windowFromDocument(e.view.document)
         );
+      },
+    });
+    menuOptions.push({
+      name: "Import from CSV",
+      icon: "ui//upload",
+      onClick: (e) => {
+        importCsvFile(windowFromDocument(e.view.document));
       },
     });
     menuOptions.push({

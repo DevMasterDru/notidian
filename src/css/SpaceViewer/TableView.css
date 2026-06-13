@@ -1304,6 +1304,42 @@ width: 24px;
   color: var(--text-muted);
 }
 
+/* CSV import preview modal (Notidian-84u). */
+.mk-csv-import-input {
+  font-size: var(--font-ui-small);
+  resize: vertical;
+}
+.mk-csv-import-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-ui-small);
+}
+.mk-csv-import-headers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mk-csv-import-chip {
+  font-size: var(--font-ui-smaller);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.mk-csv-import-chip-title {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.mk-csv-import-chip-new {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+.mk-csv-import-summary {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
 /* Sub-items (Notidian-pv4): indent + expand/collapse affordance in the first
    column. Inert unless the view configures a sub-items parent property. */
 .mk-subitem-affordance {

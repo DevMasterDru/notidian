@@ -89,6 +89,15 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
   3. **Misrender:** bar widths assumed non-negative — all-negative buckets scaled against 0 (every bar 0%), mixed-sign gave negative widths. Now magnitude-scaled (`maxBucketMagnitude`) with a distinct color for negative bars.
 - **Gates (pv4 + 2y6 combined):** **476/476 Jest** (+21 over 455), tsc clean, build clean.
 
+### 84u — CSV import execution (preview + create row files) — DONE (live-verify pending)
+
+- **What:** completes the import/export pillar (7gg shipped export + the RFC 4180 core). A **"Import from CSV"** view-option opens a preview modal — paste CSV, pick the name column, see header→column mapping (existing vs new), row count, skipped/collision counts — then **Import** creates one markdown row file per record with frontmatter from the other headers. No file is written until the explicit Import click.
+- **Layers:** pure `planCsvImport` (`tableCsvImport.ts`, **13 tests**) turns parsed records into a reviewable plan (title→`fileName`, mappings, per-row properties, collisions, counts) · `executeCsvImport` (`tableCsvImportRuntime.ts`) creates files (`newPathInSpace`) + writes type-coerced frontmatter (`parseMDBStringValue`) · `CsvImportModal.tsx` (preview/confirm) · `FilterBar.tsx` trigger (folder-backed guard, mirrors export) + `reloadContextData`.
+- **Data-safety verified:** file creation routes to Obsidian's `createNewMarkdownFile`, which **auto-dedupes** names — a CSV title matching an existing note creates "Title 1.md", never overwrites. (Confirmed in code + Codex.)
+- **Codex review (~262k tokens):** **3 real bugs fixed** — (1) raw title used as file name → now `sanitizeFileName` strips path separators/illegal chars in the planner (so "A/B" can't create a subfolder); (2) column-type map keyed by bare `name` → now primary-table columns only (`table==""`), so a same-named context column can't mis-coerce; (3) file created before coercion → now **coerce-before-create** so a throwing `object` cell leaves no stray note; also **skip empty cells** (no `NaN` for number columns). Codex confirmed no overwrite risk and that the modal `hide` is injected.
+- **Gates:** **489/489 Jest** (+13), tsc clean, build clean.
+- **Live-verify on waking:** in a folder-backed table, view-options → **Import from CSV** → paste a small CSV → confirm the preview (mapping + counts) → Import → new row files appear with frontmatter. Check a header that matches an existing typed column (e.g. a select/date) coerces correctly.
+
 ### 8pl — Rollups wired end-to-end (column type + cell + config) — DONE
 
 - **Rollups are now usable in tables.** Add a column, set its type to **Rollup**, then in the property menu pick **Relation** (a link/context column), **Calculate** (count / count_values / values / sum / avg / min / max), and **Property** (the target field on linked rows; not needed for count). The cell shows the computed value, read-only.
