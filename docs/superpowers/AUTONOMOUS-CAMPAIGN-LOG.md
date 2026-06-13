@@ -98,6 +98,15 @@ Market grounding (2026-06-12 research): Notion's most-requested DB features are 
 - **Gates:** **489/489 Jest** (+13), tsc clean, build clean.
 - **Live-verify on waking:** in a folder-backed table, view-options → **Import from CSV** → paste a small CSV → confirm the preview (mapping + counts) → Import → new row files appear with frontmatter. Check a header that matches an existing typed column (e.g. a select/date) coerces correctly.
 
+### ahk — Back-relations / "linked from" — DONE (live-verify pending)
+
+- **What:** a read-only **"Linked from"** (`backlink`) column type — the reverse side of a frontmatter-link relation. For a row, it shows (or aggregates) the rows that link TO it through a named relation property. Configured via the property menu: relation property name + Show (`list` default → linking rows' titles; or count/values/sum/avg/min/max over a target field).
+- **Perf-bounded by design:** the candidate set is the target row's **precomputed `inlinks`** (Obsidian's reverse-link index), so it's O(inlinks) per cell with O(1) `pathsIndex` Map lookups — no full-vault scan, no N². Codex confirmed the perf.
+- **Layers (max reuse):** pure `filterBackRelations` (`tableBackRelations.ts`, **7 tests**) keeps only candidates whose relation property actually resolves back (not incidental body links) · `computeRowBackRelation` (`tableBackRelationRuntime.ts`) reuses the existing `computeFrontmatterRollup` engine for aggregates · `BacklinkCell` + `DataTypeView` dispatch + `backlink` fieldType + `PropertyValue` config.
+- **Codex review (~245k tokens):** **2 real bugs fixed** — (1) **`backlink` (and, it turned out, pre-existing `rollup`) was not classified `computed`** in `propertyAuthorityForColumn`, so a paste/undo into a computed cell could persist into the context table — both now classified read-only (+regression test); (2) the shared wikilink resolver doesn't canonicalize `[[Note]]`→`Note.md` — partially fixed (heading/block `#` fragments now stripped in `parseRelationLinks`, helping all relation features) with the full cross-cutting fix filed as **Notidian-e1u (P2)**.
+- **Gates:** **498/498 Jest** (+9), tsc clean, build clean.
+- **Live-verify on waking:** add a "Linked from" column, set the relation property name (e.g. the property other rows use to point here) → it lists/aggregates the linking rows. NB: until **e1u** lands, plain `[[Note]]` (no path/extension) frontmatter links may not resolve — same caveat as forward rollups/sub-items.
+
 ### 8pl — Rollups wired end-to-end (column type + cell + config) — DONE
 
 - **Rollups are now usable in tables.** Add a column, set its type to **Rollup**, then in the property menu pick **Relation** (a link/context column), **Calculate** (count / count_values / values / sum / avg / min / max), and **Property** (the target field on linked rows; not needed for count). The cell shows the computed value, read-only.

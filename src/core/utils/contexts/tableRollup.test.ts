@@ -16,6 +16,11 @@ describe("parseRelationLinks", () => {
     expect(parseRelationLinks(["[[A]]", "[[B|b]]"])).toEqual(["A", "B"]);
   });
 
+  it("strips heading/block fragments so links resolve to the file path", () => {
+    expect(parseRelationLinks("[[Tasks/A#Section]]")).toEqual(["Tasks/A"]);
+    expect(parseRelationLinks("[[Tasks/A#^block|Alias]]")).toEqual(["Tasks/A"]);
+  });
+
   it("falls back to comma-separated plain paths when there are no wikilinks", () => {
     expect(parseRelationLinks("A, B ,C")).toEqual(["A", "B", "C"]);
   });

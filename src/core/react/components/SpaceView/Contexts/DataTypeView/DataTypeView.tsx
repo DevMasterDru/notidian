@@ -19,6 +19,7 @@ import { PageTitleCell } from "./PageTitleCell";
 
 import { AggregateCell } from "./AggregateCell";
 import { RollupCell } from "./RollupCell";
+import { BacklinkCell } from "./BacklinkCell";
 import { FlexCell } from "./FlexCell";
 import { PropertySelectCell } from "./PropertySelectCell";
 import { SpaceCell } from "./SpaceCell";
@@ -153,6 +154,17 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
         contextPath={props.contextPath}
         columns={props.columns}
       ></RollupCell>
+    );
+  } else if (fieldType.type == "backlink") {
+    return (
+      <BacklinkCell
+        {...viewProps}
+        multi={false}
+        row={row}
+        source={props.source}
+        contextPath={props.contextPath}
+        columns={props.columns}
+      ></BacklinkCell>
     );
   } else if (fieldType.type == "fileprop") {
     return (

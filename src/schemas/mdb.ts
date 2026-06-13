@@ -184,6 +184,17 @@ export const fieldTypes: FieldType[] = [
     description: "Aggregate a property across the rows a relation links to"
   },
   {
+    // Notidian-ahk: read-only "linked from" — rows that link to this one via a
+    // relation property. ref = that relation property's name on the linking rows.
+    type: "backlink",
+    label: "Linked from",
+    icon: 'ui//links-coming-in',
+    multi: false,
+    configKeys: ['ref', 'fn', 'field'],
+    flex: true,
+    description: "Show or aggregate the rows that link to this row via a relation"
+  },
+  {
     type: "object",
     label: i18n.properties.object.label,
     multi: true,

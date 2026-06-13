@@ -33,7 +33,13 @@ export const parseRelationLinks = (value: unknown): string[] => {
       const wikilinks = seg.match(/\[\[([^\]]+)\]\]/g);
       if (wikilinks) {
         for (const link of wikilinks) {
-          const inner = link.slice(2, -2).split("|")[0].trim();
+          // Strip the alias (|display) then any heading/block fragment
+          // (#heading, #^block) so the link resolves to the target file path.
+          const inner = link
+            .slice(2, -2)
+            .split("|")[0]
+            .split("#")[0]
+            .trim();
           if (inner) out.push(inner);
         }
       } else {

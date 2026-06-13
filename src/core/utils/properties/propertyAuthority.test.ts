@@ -26,6 +26,25 @@ describe("propertyAuthorityForColumn", () => {
     );
   });
 
+  it("classifies rollup and backlink as computed/read-only (no write-through)", () => {
+    expect(propertyAuthorityForColumn({ name: "total", type: "rollup" })).toBe(
+      "computed"
+    );
+    expect(
+      propertyAuthorityForColumn({ name: "linkedFrom", type: "backlink" })
+    ).toBe("computed");
+    // Computed columns must not persist a pasted/undone value into context.
+    expect(
+      shouldPersistAuthorityValueToContext({ name: "total", type: "rollup" })
+    ).toBe(false);
+    expect(
+      shouldPersistAuthorityValueToContext({
+        name: "linkedFrom",
+        type: "backlink",
+      })
+    ).toBe(false);
+  });
+
   it("only frontmatter authority writes through to frontmatter", () => {
     expect(
       shouldWriteAuthorityValueToFrontmatter(

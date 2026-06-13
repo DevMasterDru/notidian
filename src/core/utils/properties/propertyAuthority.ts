@@ -14,7 +14,15 @@ export const propertyAuthorityForColumn = (
 ): PropertyAuthority => {
   if (property?.name === PathPropertyName) return "file";
   if (property?.source === frontmatterSource) return "frontmatter";
-  if (property?.type === "fileprop" || property?.type === "aggregate") {
+  // Computed/read-only column types: their value is derived at render time and
+  // must never be persisted from a paste/undo into the context table. rollup
+  // (8pl) and backlink (ahk) are computed like fileprop/aggregate.
+  if (
+    property?.type === "fileprop" ||
+    property?.type === "aggregate" ||
+    property?.type === "rollup" ||
+    property?.type === "backlink"
+  ) {
     return "computed";
   }
   return "notidian";

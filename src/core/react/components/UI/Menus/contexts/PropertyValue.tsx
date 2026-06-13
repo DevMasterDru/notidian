@@ -376,6 +376,34 @@ export const PropertyValueComponent = (props: {
     showOptions(e, parsedValue.fn, options, "fn");
   };
 
+  // Back-relation config (Notidian-ahk): ref = the relation property NAME on the
+  // linking rows. They live in another database, so it is free text (not a local
+  // column). fn "list" shows the linking rows; other fns aggregate a field.
+  const selectBacklinkRelation = (e: React.MouseEvent) => {
+    props.superstate.ui.openModal(
+      "Relation property name",
+      <InputModal
+        value={parsedValue.ref ?? ""}
+        saveLabel={"Save"}
+        saveValue={(value) => saveParsedValue("ref", value)}
+      ></InputModal>,
+      windowFromDocument(e.view.document)
+    );
+  };
+  const selectBacklinkFn = (e: React.MouseEvent) => {
+    const options: SelectOption[] = [
+      "list",
+      "count",
+      "count_values",
+      "values",
+      "sum",
+      "avg",
+      "min",
+      "max",
+    ].map((f) => ({ name: f, value: f }));
+    showOptions(e, parsedValue.fn, options, "fn");
+  };
+
   const selectSpaceProperty = (e: React.MouseEvent) => {
     showOptions(
       e,
@@ -660,6 +688,28 @@ export const PropertyValueComponent = (props: {
           <span>{parsedValue.format}</span>
         </div>
       )}
+    </>
+  ) : props.fieldType?.startsWith("backlink") ? (
+    <>
+      <div className="mk-menu-option" onClick={(e) => selectBacklinkRelation(e)}>
+        <span>{"Relation property"}</span>
+        <span>{parsedValue.ref ?? i18n.labels.select}</span>
+      </div>
+      {parsedValue.ref?.length > 0 && (
+        <div className="mk-menu-option" onClick={(e) => selectBacklinkFn(e)}>
+          <span>{"Show"}</span>
+          <span>{parsedValue.fn ?? "list"}</span>
+        </div>
+      )}
+      {parsedValue.ref?.length > 0 &&
+        parsedValue.fn &&
+        parsedValue.fn != "list" &&
+        parsedValue.fn != "count" && (
+          <div className="mk-menu-option" onClick={(e) => selectRollupProperty(e)}>
+            <span>{"Property"}</span>
+            <span>{parsedValue.field ?? i18n.labels.select}</span>
+          </div>
+        )}
     </>
   ) : props.fieldType?.startsWith("rollup") ? (
     <>
