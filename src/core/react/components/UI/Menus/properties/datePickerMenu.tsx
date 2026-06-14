@@ -2,7 +2,7 @@ import { UIManager } from "core/middleware/ui";
 import { Anchors, Rect } from "shared/types/Pos";
 
 import { formatDate } from "core/utils/date";
-import { addMonths, startOfDay } from "date-fns";
+import { addDays, addMonths, startOfDay } from "date-fns";
 import i18n from "shared/i18n";
 import React, { useEffect, useState } from "react";
 import { CaptionProps, DayPicker, useNavigation } from "react-day-picker";
@@ -186,8 +186,42 @@ export const DatePicker = (props: {
     );
   };
 
+  // Richer date UX (Notidian-e6v): Notion-style quick shortcuts. Each reuses the
+  // exact day-click path (props.setValue with a real Date, time applied only when
+  // the time mode is on), so there is no new save/clear semantics — clearing
+  // still goes through the table's canonical clear-cell path.
+  const applyQuickDate = (target: Date) => {
+    const newDate = target;
+    if (mode) {
+      newDate.setHours(hour);
+      newDate.setMinutes(minutes);
+      newDate.setSeconds(seconds);
+    }
+    setDate(newDate);
+    props.setValue(
+      newDate,
+      props.time != DatePickerTimeMode.None &&
+        !(hour == 0 && minutes == 0 && seconds == 0)
+    );
+  };
+
   return (
     <div className="mk-date-picker-container">
+      <div className="mk-date-picker-shortcuts">
+        <button onClick={() => applyQuickDate(startOfDay(new Date()))}>
+          Today
+        </button>
+        <button
+          onClick={() => applyQuickDate(startOfDay(addDays(new Date(), 1)))}
+        >
+          Tomorrow
+        </button>
+        <button
+          onClick={() => applyQuickDate(startOfDay(addDays(new Date(), 7)))}
+        >
+          Next week
+        </button>
+      </div>
       <DayPicker
         defaultMonth={date}
         mode="single"

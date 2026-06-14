@@ -14,6 +14,25 @@
     width: 100%;
 }
 
+/* Quick date shortcuts (Notidian-e6v) */
+.mk-date-picker-shortcuts {
+    display: flex;
+    gap: 4px;
+    width: 100%;
+}
+.mk-date-picker-shortcuts button {
+    flex: 1;
+    background: none;
+    box-shadow: none;
+    border: thin solid var(--mk-ui-border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+}
+.mk-date-picker-shortcuts button:hover {
+    background: var(--mk-ui-background-hover);
+}
+
 .mk-date-picker table {
     border-spacing: 0;
     table-layout: fixed;
