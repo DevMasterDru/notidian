@@ -10,6 +10,7 @@ import {
   materializeFrontmatterBackedContextTable,
   stripFrontmatterBackedRowValues,
 } from "core/utils/properties/allProperties";
+import { notidianPropertySource } from "core/utils/properties/propertyAuthority";
 import { linkContextRow, syncContextRow } from "../linkContextRow";
 
 const settings = {
@@ -22,7 +23,12 @@ const settings = {
 } as MakeMDSettings;
 
 describe("audit a1-synccontextrow-leak", () => {
-  it("does not overlay YAML onto unmarked mixed-context columns", () => {
+  // Regression test (flipped from a characterization of the old buggy behavior):
+  // After bd Notidian-2j3 / ADR 0017, an UNMARKED file-backed column reflects the
+  // live frontmatter value instead of a stale hidden-MDB shadow, while an
+  // EXPLICITLY Notidian-owned column is still never overlaid by YAML — preserving
+  // the original A1-leak fix.
+  it("reflects live frontmatter for unmarked columns but never overlays YAML onto explicit Notidian-owned columns", () => {
     const spacePath = "Relays & Devices";
     const filePath = "Relays & Devices/Veg - Mix Pump - B3 - Ch 2.md";
     const spaceState = { path: spacePath, type: "space" } as unknown as PathState;
@@ -53,8 +59,16 @@ describe("audit a1-synccontextrow-leak", () => {
           schemaId: "files",
           source: frontmatterPropertySource,
         },
+        // Unmarked column whose name matches a live frontmatter key (the bug case).
         { name: "status", type: "text", value: "", schemaId: "files" },
-        { name: "manual", type: "text", value: "", schemaId: "files" },
+        // Explicitly Notidian-owned column with no frontmatter representation.
+        {
+          name: "manual",
+          type: "text",
+          value: "",
+          schemaId: "files",
+          source: notidianPropertySource,
+        },
       ],
       rows: [
         {
@@ -95,20 +109,25 @@ describe("audit a1-synccontextrow-leak", () => {
       rows: [linkedRow],
     });
 
-    // Only explicit frontmatter-backed columns project YAML values. A sourceless
-    // mixed-context column remains Notidian-owned even when its name matches YAML.
+    // The mixed table is not auto-materialized (it carries an explicit
+    // Notidian-owned column that is not present in any file's frontmatter), so
+    // the unmarked "status" column keeps its source-less shape on disk.
     expect(
       materialized.cols.find((col) => col.name == "status")?.source
     ).toBeUndefined();
+    // Explicit frontmatter-backed columns project the live YAML value.
     expect(linkedRow.canonicalStatus).toBe("frontmatter-visible");
-    expect(linkedRow.status).toBe("old-context-shadow");
+    // FIXED (Notidian-2j3): an UNMARKED column whose name matches a frontmatter
+    // key now reflects the live file value, not the stale hidden-MDB shadow.
+    expect(linkedRow.status).toBe("frontmatter-active");
+    // The explicit Notidian-owned column is never overlaid by YAML (A1-leak fix
+    // preserved) and survives persistence; the now-frontmatter "status" and the
+    // computed/frontmatter columns are stripped from the durable MDB row.
     expect(persistedAfterReload.rows[0]).toMatchObject({
       [PathPropertyName]: filePath,
-      status: "old-context-shadow",
       manual: "notidian-owned",
     });
-    expect(persistedAfterReload.rows[0]).not.toHaveProperty(
-      "canonicalStatus"
-    );
+    expect(persistedAfterReload.rows[0]).not.toHaveProperty("canonicalStatus");
+    expect(persistedAfterReload.rows[0]).not.toHaveProperty("status");
   });
 });

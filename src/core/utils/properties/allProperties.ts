@@ -8,6 +8,7 @@ import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
 import { detectPropertyType, yamlTypeToMDBType } from "utils/properties";
 import {
+  propertyAuthorityForColumn,
   shouldPersistAuthorityValueToContext,
   shouldWriteAuthorityValueToFrontmatter,
 } from "./propertyAuthority";
@@ -256,7 +257,11 @@ export const materializeFrontmatterBackedContextTable = (
     if (
       contextHasOnlyDefaultColumns([col]) ||
       !propertyNames.has(col.name) ||
-      isFrontmatterBackedProperty(col)
+      isFrontmatterBackedProperty(col) ||
+      // Respect explicit Notidian ownership (and context-only types whose only
+      // durable home is the MDB): never auto-convert them to frontmatter just
+      // because a file happens to expose a same-named frontmatter key (ADR 0017).
+      propertyAuthorityForColumn(col) === "notidian"
     ) {
       return col;
     }

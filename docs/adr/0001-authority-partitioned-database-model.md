@@ -104,6 +104,12 @@ The current authority categories are:
 - `notidian`
 - `computed`
 
+Durable `notidian` ownership of a row value is now **explicit**: it requires a
+`source: "notidian"` marker (or a context-only type with no frontmatter form). A
+source-less file-backed-compatible column resolves to `frontmatter`, not the
+hidden store — the silent fallback this ADR forbade is closed. See
+[ADR 0017](0017-explicit-notidian-ownership.md).
+
 ## Follow-Up Work
 
 - Add a migration command for legacy Make.md contexts.

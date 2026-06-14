@@ -1,4 +1,5 @@
 import { frontmatterPropertySource } from "core/utils/properties/allProperties";
+import { notidianPropertySource } from "core/utils/properties/propertyAuthority";
 import { defaultContextDBSchema } from "shared/schemas/context";
 import { defaultContextFields } from "shared/schemas/fields";
 import { PathPropertyName } from "shared/types/context";
@@ -62,6 +63,7 @@ describe("FilesystemSpaceAdapter.saveTable", () => {
             schemaId: "files",
             type: "text",
             value: "",
+            source: notidianPropertySource,
           },
         ],
         rows: [

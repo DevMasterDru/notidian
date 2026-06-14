@@ -38,7 +38,8 @@ The write phase copies missing `.space` files into sibling `.notidian` folders, 
 | Page identity | Markdown file path/name | Displayed as the `File`/page-title cell and changed through rename transactions. |
 | Ordinary note metadata | Markdown frontmatter / Obsidian metadata cache | Discovered as table columns and edited through frontmatter writes. |
 | View layout | Notidian view model, stored in `.notidian` context MDB today | Stores column order, hidden columns, frozen columns, filters, grouping, sorting, and view state. |
-| Context-native fields | Notidian context MDB | Stores values only when a field is explicitly Notidian-owned. |
+| Context-native fields | Notidian context MDB | Stores a row value only when the column is **explicitly** Notidian-owned (`source: "notidian"`) or is a context-only type with no frontmatter form ([ADR 0017](adr/0017-explicit-notidian-ownership.md)). |
+| Authority-ambiguous columns (no source marker) | Markdown frontmatter | A source-less, file-backed-compatible column (text/number/date/select/link/…) defaults to frontmatter and is never silently owned by the MDB ([ADR 0017](adr/0017-explicit-notidian-ownership.md)). |
 | Formulas, aggregates, file projections | Computed from current inputs | Displayed as projections, not durable user-entered values. |
 | Relations | Notidian context model | Preserved from Make.md semantics unless later mapped to frontmatter links. |
 

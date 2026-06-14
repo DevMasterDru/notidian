@@ -1,13 +1,14 @@
 import { PathPropertyName } from "shared/types/context";
 import { frontmatterPropertySource } from "./allProperties";
 import {
+  notidianPropertySource,
   propertyAuthorityForColumn,
   shouldPersistAuthorityValueToContext,
   shouldWriteAuthorityValueToFrontmatter,
 } from "./propertyAuthority";
 
 describe("propertyAuthorityForColumn", () => {
-  it("classifies file identity, frontmatter, formula, and Notidian-owned columns", () => {
+  it("classifies file identity, frontmatter, and computed columns", () => {
     expect(
       propertyAuthorityForColumn({ name: PathPropertyName, type: "file" })
     ).toBe("file");
@@ -21,9 +22,74 @@ describe("propertyAuthorityForColumn", () => {
     expect(propertyAuthorityForColumn({ name: "age", type: "fileprop" })).toBe(
       "computed"
     );
-    expect(propertyAuthorityForColumn({ name: "manual", type: "text" })).toBe(
-      "notidian"
-    );
+  });
+
+  it("requires an explicit source:notidian marker for durable MDB ownership", () => {
+    // The "Notidian-owned field" choice persists source: "notidian"; only then
+    // does a file-backed-compatible column durably store its value in the MDB.
+    expect(
+      propertyAuthorityForColumn({
+        name: "manual",
+        type: "text",
+        source: notidianPropertySource,
+      })
+    ).toBe("notidian");
+    expect(
+      shouldPersistAuthorityValueToContext({
+        name: "manual",
+        type: "text",
+        source: notidianPropertySource,
+      })
+    ).toBe(true);
+    expect(
+      shouldWriteAuthorityValueToFrontmatter({
+        name: "manual",
+        type: "text",
+        source: notidianPropertySource,
+      })
+    ).toBe(false);
+  });
+
+  it("never silently flips an unmarked file-backed column into the hidden store (bd Notidian-2j3)", () => {
+    // A source-less ordinary column defaults to the visible frontmatter layer,
+    // NOT durable MDB ownership — this closes the fallback-to-notidian hole that
+    // let a missing/lost source marker hand file-backed data to the hidden MDB.
+    for (const type of [
+      "text",
+      "number",
+      "boolean",
+      "date",
+      "option",
+      "option-multi",
+      "link",
+      "image",
+      "password",
+      "tags-multi",
+    ]) {
+      expect(propertyAuthorityForColumn({ name: "x", type })).toBe(
+        "frontmatter"
+      );
+    }
+    expect(
+      shouldWriteAuthorityValueToFrontmatter({ name: "manual", type: "text" })
+    ).toBe(true);
+    expect(
+      shouldPersistAuthorityValueToContext({ name: "manual", type: "text" })
+    ).toBe(false);
+  });
+
+  it("keeps source-less context-only types Notidian-owned (no frontmatter representation)", () => {
+    // Relation/object/flex types cannot live in frontmatter, so the MDB is their
+    // only durable home even without an explicit marker — behavior unchanged.
+    for (const type of ["context", "object", "flex"]) {
+      expect(propertyAuthorityForColumn({ name: "rel", type })).toBe("notidian");
+      expect(
+        shouldPersistAuthorityValueToContext({ name: "rel", type })
+      ).toBe(true);
+      expect(
+        shouldWriteAuthorityValueToFrontmatter({ name: "rel", type })
+      ).toBe(false);
+    }
   });
 
   it("classifies rollup and backlink as computed/read-only (no write-through)", () => {
@@ -45,23 +111,6 @@ describe("propertyAuthorityForColumn", () => {
     ).toBe(false);
   });
 
-  it("only frontmatter authority writes through to frontmatter", () => {
-    expect(
-      shouldWriteAuthorityValueToFrontmatter(
-        {
-          name: "status",
-          type: "text",
-          source: frontmatterPropertySource,
-        }
-      )
-    ).toBe(true);
-    expect(
-      shouldWriteAuthorityValueToFrontmatter(
-        { name: "manual", type: "text" }
-      )
-    ).toBe(false);
-  });
-
   it("does not persist frontmatter or computed values as durable context values", () => {
     expect(
       shouldPersistAuthorityValueToContext({
@@ -79,8 +128,5 @@ describe("propertyAuthorityForColumn", () => {
     expect(
       shouldPersistAuthorityValueToContext({ name: "age", type: "fileprop" })
     ).toBe(false);
-    expect(
-      shouldPersistAuthorityValueToContext({ name: "manual", type: "text" })
-    ).toBe(true);
   });
 });

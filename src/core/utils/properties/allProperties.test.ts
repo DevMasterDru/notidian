@@ -14,6 +14,7 @@ import {
   shouldWriteContextPropertyToFrontmatter,
   stripFrontmatterBackedRowValues,
 } from "./allProperties";
+import { notidianPropertySource } from "./propertyAuthority";
 
 const settings = {
   fmKeyAlias: "aliases",
@@ -421,7 +422,13 @@ describe("stripFrontmatterBackedRowValues", () => {
           schemaId: "files",
           source: frontmatterPropertySource,
         },
-        { name: "manual", type: "text", value: "", schemaId: "files" },
+        {
+          name: "manual",
+          type: "text",
+          value: "",
+          schemaId: "files",
+          source: notidianPropertySource,
+        },
       ],
       rows: [
         {
@@ -455,10 +462,10 @@ describe("shouldWriteContextPropertyToFrontmatter", () => {
     ).toBe(true);
   });
 
-  it("keeps context-only columns out of frontmatter", () => {
+  it("keeps explicitly Notidian-owned columns out of frontmatter", () => {
     expect(
       shouldWriteContextPropertyToFrontmatter(
-        { name: "manual", type: "text" }
+        { name: "manual", type: "text", source: notidianPropertySource }
       )
     ).toBe(false);
   });

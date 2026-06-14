@@ -14,7 +14,10 @@ import {
   frontmatterPropertySource,
   propertyMenuDiscoveryScope,
 } from "core/utils/properties/allProperties";
-import { defaultPropertySourceForContext } from "core/utils/properties/newPropertyDefaults";
+import {
+  defaultPropertySourceForContext,
+  persistedSourceForPropertyChoice,
+} from "core/utils/properties/newPropertyDefaults";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fieldTypeForType, fieldTypes, stickerForField } from "schemas/mdb";
@@ -119,10 +122,10 @@ const NewPropertyMenuComponent = (
       ? frontmatterPropertySource
       : effectivePropertySource ?? fieldSource;
   const selectedPropertySource = (_: string[], value: string[]) => {
-    const nextSource =
-      value[0] == frontmatterPropertySource
-        ? frontmatterPropertySource
-        : undefined;
+    // A Notidian-owned column now persists an explicit source: "notidian" marker
+    // instead of relying on a source-less fallback, so authority can never be
+    // silently inferred from a missing marker (bd Notidian-2j3 / ADR 0017).
+    const nextSource = persistedSourceForPropertyChoice(value[0]);
     setFieldPropertySource(nextSource);
     // Frontmatter-backed columns only support file-backed types. If the user had
     // selected a context-only type (aggregate/context/object) under Notidian

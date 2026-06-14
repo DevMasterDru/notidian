@@ -1,4 +1,5 @@
 import { frontmatterPropertySource } from "core/utils/properties/allProperties";
+import { notidianPropertySource } from "core/utils/properties/propertyAuthority";
 import { PathPropertyName } from "shared/types/context";
 import { CellSelection } from "./tableSelection";
 import { planTablePaste } from "./tablePastePlan";
@@ -12,7 +13,7 @@ const columns = [
     type: "text",
     source: frontmatterPropertySource,
   },
-  { id: "manual", name: "manual", type: "text" },
+  { id: "manual", name: "manual", type: "text", source: notidianPropertySource },
   { id: "Created", name: "Created", type: "fileprop" },
 ];
 

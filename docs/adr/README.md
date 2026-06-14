@@ -22,6 +22,7 @@ These records define the current Notidian architecture and implemented safety mo
 | [0010](0010-legacy-context-audit-and-migration.md) | Legacy context audit and migration | Defines audit-first migration so legacy context values are not lost. |
 | [0014](0014-notidian-only-personal-database-engine.md) | Notidian-only personal database engine | Current governing strategy: Notidian is the only intended database engine/interface. |
 | [0015](0015-canonical-schema-planning.md) | Canonical schema planning | Defines frontmatter property discovery, create, rename, and delete previews before destructive schema UI/apply flows. |
+| [0017](0017-explicit-notidian-ownership.md) | Explicit Notidian ownership | Closes the silent authority fallback: durable MDB ownership requires an explicit `source: "notidian"` marker, and source-less file-backed columns default to frontmatter. Refines ADR 0001. |
 
 ## Historical Records
 
