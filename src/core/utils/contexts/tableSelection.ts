@@ -108,6 +108,39 @@ export const cellSelectionRange = (
   return cells;
 };
 
+/**
+ * State a table selection-clear decision depends on. Pure inputs only so the
+ * "click outside the table clears the stuck selection" rule (Notidian-amx) is
+ * testable without rendering the React table.
+ */
+export type OutsideClickSelectionState = {
+  /** Native mouse button (0 = primary). */
+  button: number;
+  /** Whether the click landed inside the table container element. */
+  insideTable: boolean;
+  /** A cell is being edited (its editor/menu portals outside the table DOM). */
+  isEditing: boolean;
+  /** A drag-reorder or marquee gesture is in progress. */
+  isDragging: boolean;
+  /** There is a row or cell selection that could be cleared. */
+  hasSelection: boolean;
+};
+
+/**
+ * A primary-button click fully outside the table clears the selection, unless a
+ * cell edit or drag gesture is in progress, or nothing is selected. Right/middle
+ * clicks (e.g. opening a context menu) and clicks inside the table are ignored.
+ */
+export const shouldClearSelectionOnOutsideClick = (
+  state: OutsideClickSelectionState
+): boolean => {
+  if (state.button !== 0) return false;
+  if (state.insideTable) return false;
+  if (state.isEditing) return false;
+  if (state.isDragging) return false;
+  return state.hasSelection;
+};
+
 export const selectionContainsCell = (
   selection: CellSelection,
   rowOrder: string[],

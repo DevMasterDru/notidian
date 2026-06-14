@@ -5,6 +5,7 @@ import {
   extendCellSelection,
   moveCellSelection,
   selectionContainsCell,
+  shouldClearSelectionOnOutsideClick,
 } from "./tableSelection";
 
 const rows = ["r1", "r2", "r3"];
@@ -102,6 +103,50 @@ describe("tableSelection", () => {
         rowId: "r3",
         columnId: "area",
       })
+    ).toBe(false);
+  });
+});
+
+describe("shouldClearSelectionOnOutsideClick", () => {
+  const base = {
+    button: 0,
+    insideTable: false,
+    isEditing: false,
+    isDragging: false,
+    hasSelection: true,
+  };
+
+  it("clears on a primary click outside the table when something is selected", () => {
+    expect(shouldClearSelectionOnOutsideClick(base)).toBe(true);
+  });
+
+  it("ignores non-primary buttons (e.g. right-click context menu)", () => {
+    expect(shouldClearSelectionOnOutsideClick({ ...base, button: 2 })).toBe(
+      false
+    );
+  });
+
+  it("ignores clicks inside the table (table owns those)", () => {
+    expect(
+      shouldClearSelectionOnOutsideClick({ ...base, insideTable: true })
+    ).toBe(false);
+  });
+
+  it("does not interrupt an active cell edit", () => {
+    expect(
+      shouldClearSelectionOnOutsideClick({ ...base, isEditing: true })
+    ).toBe(false);
+  });
+
+  it("does not clear mid drag/marquee gesture", () => {
+    expect(
+      shouldClearSelectionOnOutsideClick({ ...base, isDragging: true })
+    ).toBe(false);
+  });
+
+  it("is a no-op when nothing is selected", () => {
+    expect(
+      shouldClearSelectionOnOutsideClick({ ...base, hasSelection: false })
     ).toBe(false);
   });
 });

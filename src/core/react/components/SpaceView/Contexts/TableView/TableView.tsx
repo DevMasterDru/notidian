@@ -109,6 +109,7 @@ import {
   extendCellSelection,
   moveCellSelection,
   selectionContainsCell,
+  shouldClearSelectionOnOutsideClick,
 } from "core/utils/contexts/tableSelection";
 import {
   moveVisibleRows,
@@ -630,6 +631,44 @@ export const TableView = (props: { superstate: Superstate }) => {
   useEffect(() => {
     selectedRowsRef.current = selectedRows;
   }, [selectedRows]);
+
+  // A click anywhere outside the table clears any stuck row/cell selection
+  // (e.g. the green whole-row highlight from the drag-handle grip), mirroring
+  // the Escape handler. Without this the selection has no way to clear once
+  // table focus is lost (Notidian-amx). The mk-table onMouseDown stops React
+  // propagation, but this uses a native document listener with an explicit
+  // contains() check, so it is independent of that bubbling. Skipped during an
+  // active cell edit (the editor/menu portals outside the table DOM) and mid
+  // drag/marquee gesture (those own their own document listeners), and a no-op
+  // when nothing is selected so background clicks never force a re-render.
+  useEffect(() => {
+    const clearSelectionOnOutsideClick = (e: MouseEvent) => {
+      const tableEl = ref.current as HTMLElement | null;
+      const target = e.target as Node | null;
+      const hasSelection =
+        selectedRowsRef.current.length > 0 ||
+        !!cellSelection ||
+        selectedColumn != null ||
+        lastSelectedIndex != null;
+      const shouldClear = shouldClearSelectionOnOutsideClick({
+        button: e.button,
+        insideTable: !tableEl || !target || tableEl.contains(target),
+        isEditing: !!currentEdit,
+        isDragging: !!activeDragTypeRef.current || !!rowMarqueeRef.current?.active,
+        hasSelection,
+      });
+      if (!shouldClear) return;
+      selectRows(null, []);
+      setCellSelection(null);
+      setSelectedColumn(null);
+      setLastSelectedIndex(null);
+      rowMarqueeRef.current = null;
+      setRowMarqueeRect(null);
+    };
+    document.addEventListener("mousedown", clearSelectionOnOutsideClick);
+    return () =>
+      document.removeEventListener("mousedown", clearSelectionOnOutsideClick);
+  }, [currentEdit, cellSelection, selectedColumn, lastSelectedIndex, selectRows]);
 
   useEffect(() => {
     activeDragTypeRef.current = activeDragType;
