@@ -38,10 +38,36 @@ const SVG_DANGEROUS_TAGS = new Set([
   "animatetransform",
 ]);
 
+const CSS_IMPORT_RE = /@import[^;]*;?/gi;
+const CSS_URL_RE = /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi;
+
+// Neutralise remote fetches inside CSS — a <style> block or a style="" attribute.
+// Element URL attributes (href/xlink:href/src) are allowlisted below, but CSS can
+// fetch too: @import url(...), background/fill: url(...), cursor: url(...). CSS
+// cannot execute script in this context, so the risk closed here is a remote
+// fetch (icon phoning home / SSRF / tracking beacon) — the same guarantee
+// sanitizeIconSVG already makes for element attributes (Notidian-m9r, found by
+// the Notidian-5jk adversarial tests). Drop @import rules, and rewrite any
+// url(...) that is not a same-document fragment (#id) or an inline data:image to
+// an empty url() — preserving legitimate url(#gradient) refs and inline raster
+// icons. Regex-based: it handles realistic payloads; exotic CSS escape-obfuscation
+// of the url()/@import tokens is out of scope (still only a fetch, never script).
+const neutralizeCssFetches = (css: string): string => {
+  if (!css) return css;
+  return css.replace(CSS_IMPORT_RE, "").replace(CSS_URL_RE, (match, _quote, target) => {
+    const value = String(target).replace(/\s+/g, "").toLowerCase();
+    return value.startsWith("#") || value.startsWith("data:image/")
+      ? match
+      : "url()";
+  });
+};
+
 // Sanitize a vault-supplied SVG icon (custom iconsets) before it is injected as
-// raw markup. Removes script/foreignObject/etc. elements, all on* event-handler
-// attributes, and javascript: URLs, while preserving the shapes/paths/fills/
-// styles that make up a legitimate icon. DOM-based: an inert <template> parses
+// raw markup. Removes script/foreignObject/etc. elements and all on* event-handler
+// attributes, restricts URL attributes and CSS url()/@import to same-document
+// fragments and inline data:image (blocking javascript: and remote fetches in both
+// element attributes AND <style>/style CSS), while preserving the shapes/paths/
+// fills/styles that make up a legitimate icon. DOM-based: an inert <template> parses
 // the markup without executing scripts or fetching resources, and elements are
 // matched by lower-cased tagName so camelCase SVG tags can't slip past a
 // case-sensitive selector. Runtime only (no DOM in the node test env). Fail-safe:
@@ -56,12 +82,25 @@ export const sanitizeIconSVG = (svg: string): string => {
     template.innerHTML = svg;
     // Static snapshot of all descendants; safe to mutate while iterating.
     template.content.querySelectorAll("*").forEach((el) => {
-      if (SVG_DANGEROUS_TAGS.has(el.tagName.toLowerCase())) {
+      const tag = el.tagName.toLowerCase();
+      if (SVG_DANGEROUS_TAGS.has(tag)) {
         el.remove();
         return;
       }
+      // <style> CSS is kept (legit icons use it) but its remote fetches are
+      // neutralised; the element's own attributes (e.g. <style onload>) are still
+      // processed by the loop below.
+      if (tag == "style") {
+        el.textContent = neutralizeCssFetches(el.textContent ?? "");
+      }
       Array.from(el.attributes).forEach((attr) => {
         const name = attr.name.toLowerCase();
+        // Inline style attributes can fetch via url(); neutralise rather than drop
+        // so legitimate fills/gradients survive.
+        if (name == "style") {
+          el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+          return;
+        }
         const value = attr.value.replace(/\s+/g, "").toLowerCase();
         const isUrlAttr =
           name == "href" || name == "xlink:href" || name == "src";
