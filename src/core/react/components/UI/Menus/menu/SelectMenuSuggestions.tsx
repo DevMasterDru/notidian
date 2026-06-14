@@ -6,10 +6,14 @@ import i18n from "shared/i18n";
 import React, { useEffect, useRef, useState } from "react";
 import { MenuObject } from "shared/types/menu";
 import { Rect } from "shared/types/Pos";
+import { escapeHtml } from "shared/utils/sanitize";
 import { matchAny } from "./concerns/matchers";
+// Notidian-ebz: option name/description are user/vault-controlled and injected
+// via dangerouslySetInnerHTML — escape first, THEN wrap the query match in
+// <mark>, so the only markup that survives is the highlight, never the value.
 function markIt(name: string, query: string) {
   const regexp = matchAny(query);
-  return name?.replace(regexp, "<mark>$&</mark>");
+  return escapeHtml(name)?.replace(regexp, "<mark>$&</mark>");
 }
 
 const SelectMenuSuggestionsComponent = (props: {
@@ -52,7 +56,7 @@ const SelectMenuSuggestionsComponent = (props: {
             __html:
               props.query.length > 0
                 ? markIt(props.item.name, props.query)
-                : props.item.name,
+                : escapeHtml(props.item.name),
           }}
         />
         {props.item.description && (

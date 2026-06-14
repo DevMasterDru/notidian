@@ -1,5 +1,6 @@
 import MakeMDPlugin from "main";
 import { uiIconSet } from "shared/assets/icons";
+import { escapeHtml, sanitizeIconSVG } from "shared/utils/sanitize";
 import { emojiFromString, parseStickerString } from "shared/utils/stickers";
 import { lucideIcon } from "./icons";
 
@@ -13,7 +14,12 @@ export const stickerFromString = (sticker: string, plugin: MakeMDPlugin, options
   if (type == '' || type == 'emoji') {
     // State-of-the-art solution for exact emoji bounding box fitting
     // Uses SVG foreignObject for perfect sizing and alignment
-    const emoji = emojiFromString(value);
+    // Notidian-ebz: the sticker string is vault-controlled and emojiFromString
+    // returns its raw input when the value is not a valid unified code, so a
+    // non-emoji value (e.g. an <img onerror> payload) would otherwise be
+    // interpolated straight into this foreignObject (which renders HTML). Escape
+    // it — a real emoji has no HTML-significant chars, so it is unaffected.
+    const emoji = escapeHtml(emojiFromString(value));
     
     // Method 1: SVG with foreignObject for precise control
     // Using 2x2 viewBox with 1.7px font-size for perfect alignment
@@ -70,7 +76,10 @@ export const stickerFromString = (sticker: string, plugin: MakeMDPlugin, options
                    assetManager.getIconSync(sticker);
       
       if (icon) {
-        return icon;
+        // Notidian-ebz: custom iconsets are vault/user-supplied SVG — strip any
+        // script/foreignObject/on*/javascript: vectors before it is injected
+        // raw. The bundled ui/lucide branches above are trusted and bypass this.
+        return sanitizeIconSVG(icon);
       }
       
       // If not found, schedule async load for next time

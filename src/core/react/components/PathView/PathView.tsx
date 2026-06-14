@@ -50,7 +50,14 @@ export const PathView = (props: {
             readOnly={props.readOnly}
           ></NoteView>
         ) : (
-          <iframe src={props.path}></iframe>
+          // Notidian-ebz: sandbox the remote embed. The content is cross-origin,
+          // so allow-scripts + allow-same-origin keeps normal sites working
+          // without granting access to the vault origin, while top-navigation and
+          // downloads stay blocked (no allow-top-navigation / allow-downloads).
+          <iframe
+            src={props.path}
+            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+          ></iframe>
         )
       ) : pathState?.type == "space" ? (
         <SpaceFragmentViewComponent

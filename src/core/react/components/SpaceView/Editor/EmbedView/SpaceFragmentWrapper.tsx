@@ -6,6 +6,7 @@ import { PathContext } from "core/react/context/PathContext";
 import { useContext, useRef } from "react";
 import { SpaceFragmentSchema } from "shared/types/spaceFragment";
 
+import { escapeHtml } from "shared/utils/sanitize";
 import { uriToSpaceFragmentSchema } from "shared/utils/makemd/fragment";
 import {
   frameSchemaToTableSchema,
@@ -26,7 +27,10 @@ export const SpaceFragmentTitleComponent = (props: {
   const contentEditable = true;
 
   const onBlur = (e: React.ChangeEvent<HTMLDivElement>) => {
-    const newValue = e.target.innerHTML;
+    // Notidian-ebz: read innerText, not innerHTML — the seed is now escaped, so
+    // reading innerHTML would round-trip the escaped entities and double-escape
+    // the saved name on every blur (TextCell/ContextTitle already use innerText).
+    const newValue = e.target.innerText;
     if (newValue != props.name) {
       props.saveName(newValue);
     }
@@ -92,8 +96,10 @@ export const SpaceFragmentTitleComponent = (props: {
           onKeyDown={onKeyDown}
           onKeyPress={onKeyPress}
           onKeyUp={onKeyUp}
+          // Notidian-ebz: a file/space name is vault-controlled — render it as
+          // escaped text in this contentEditable title, not as markup.
           dangerouslySetInnerHTML={{
-            __html: props.name,
+            __html: escapeHtml(props.name),
           }}
         ></div>
       </div>

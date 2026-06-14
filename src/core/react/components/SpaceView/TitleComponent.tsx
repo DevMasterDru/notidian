@@ -21,6 +21,7 @@ import React, {
 import { PathStickerContainer } from "shared/components/PathSticker";
 import { PathState, SpaceState } from "shared/types/PathState";
 import { windowFromDocument } from "shared/utils/dom";
+import { escapeHtml } from "shared/utils/sanitize";
 import { sanitizeFileName } from "shared/utils/sanitizers";
 import { stringFromTag } from "utils/tags";
 import StickerModal from "../../../../shared/components/StickerModal";
@@ -188,8 +189,10 @@ export const TitleComponent = (
             onKeyDown={onKeyDown}
             onKeyPress={onKeyPress}
             onKeyUp={onKeyUp}
+            // Notidian-ebz: name is a vault-controlled file/tag name or alias —
+            // escape it (onBlur reads innerText, so the round-trip is lossless).
             dangerouslySetInnerHTML={{
-              __html: name,
+              __html: escapeHtml(name),
             }}
             data-ph={aliasMode ? i18n.hintText.alias : i18n.hintText.fileName}
           ></div>

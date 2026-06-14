@@ -6,6 +6,7 @@ import StickerModal from "shared/components/StickerModal";
 import { windowFromDocument } from "shared/utils/dom";
 import { safelyParseJSON } from "shared/utils/json";
 import { contextPathForSpace } from "shared/utils/makemd/embed";
+import { escapeHtml } from "shared/utils/sanitize";
 export const ContextTitle = (props: { superstate: Superstate }) => {
   const { dbSchema, source } = useContext(ContextEditorContext);
 
@@ -82,7 +83,9 @@ export const ContextTitle = (props: { superstate: Superstate }) => {
       ></div>
       <div
         contentEditable
-        dangerouslySetInnerHTML={{ __html: dbSchema?.name }}
+        // Notidian-ebz: schema name is vault/user-controlled — escape it in this
+        // contentEditable title (innerText is read back on blur, so lossless).
+        dangerouslySetInnerHTML={{ __html: escapeHtml(dbSchema?.name) }}
         onBlur={onBlur}
         onKeyPress={onKeyPress}
         onKeyUp={onKeyUp}

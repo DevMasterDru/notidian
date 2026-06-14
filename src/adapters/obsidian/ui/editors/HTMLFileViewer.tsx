@@ -81,6 +81,11 @@ export class HTMLFileViewer extends FileView {
     const iframe = document.createElement("iframe");
     iframe.width = "100%";
     iframe.height = "100%";
+    // Notidian-ebz: vault .html is untrusted. allow-same-origin (without
+    // allow-scripts) keeps the srcdoc same-origin so the post-load contentDocument
+    // rewrites below still work, while blocking all script execution (incl.
+    // inline on* / <script>) inside the framed document. HTML/CSS/images render.
+    iframe.setAttribute("sandbox", "allow-same-origin");
     iframe.srcdoc = htmlString;
     this.contentEl.empty();
     this.contentEl.appendChild(iframe);

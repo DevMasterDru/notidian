@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { Sticker } from "shared/types/ui";
+import { escapeHtml, sanitizeIconSVG } from "shared/utils/sanitize";
 import { emojiFromString } from "shared/utils/stickers";
 import { default as i18n } from "shared/i18n";
 import { IUIManager as UIManager } from "../types/uiManager";
@@ -23,10 +24,12 @@ const StickerModal: React.FC<StickerModalProps> = (props) => {
   const [selectedSticker, setSelectedSticker] = useState<number>(null);
 
   const htmlFromSticker = (sticker: Sticker) => {
+    // Notidian-ebz: the picker injects this raw, bypassing the stickerFromString
+    // chokepoint — escape the emoji and sanitize custom-iconset SVG here too.
     if (sticker.type == "emoji") {
-      return emojiFromString(sticker.html);
+      return escapeHtml(emojiFromString(sticker.html));
     }
-    return sticker.html;
+    return sanitizeIconSVG(sticker.html);
   };
 
   useEffect(() => {

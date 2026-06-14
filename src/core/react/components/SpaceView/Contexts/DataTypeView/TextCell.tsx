@@ -1,6 +1,7 @@
 import i18n from "shared/i18n";
 
 import React, { useEffect, useRef } from "react";
+import { escapeHtml } from "shared/utils/sanitize";
 import { CellEditMode, TableCellProp } from "../TableView/TableView";
 
 export const TextCell = (props: TableCellProp) => {
@@ -47,7 +48,10 @@ export const TextCell = (props: TableCellProp) => {
       onKeyDown={onKeyDown}
       onBlur={onBlur}
       contentEditable={true}
-      dangerouslySetInnerHTML={{ __html: initialValue }}
+      // Notidian-ebz: frontmatter is vault-controlled; seed the editable as
+      // escaped text (view mode already renders {initialValue} as plain text, so
+      // this only makes edit mode consistent) — innerText reads back losslessly.
+      dangerouslySetInnerHTML={{ __html: escapeHtml(initialValue) }}
     />
   ) : (
     <div className="mk-cell-text">{initialValue}</div>
