@@ -1663,6 +1663,50 @@ export const FilterBar = (props: {
                 >
                   ⌕
                 </button>
+                {/* Inline Filter/Sort affordances (Notidian-ddk): surface
+                    filtering + sorting directly on the bar, Notion-style, rather
+                    than buried in the view-options ("3 knobs") menu. They reuse
+                    the same add menus and persist via savePredicate (no new data
+                    authority); active state is highlighted so the user sees at a
+                    glance that a filter/sort is applied. */}
+                <button
+                  className={classNames(
+                    "mk-toolbar-button",
+                    predicate?.filters.length > 0 && "mk-active"
+                  )}
+                  aria-label="Filter"
+                  title="Filter"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    showAddFilterMenu(
+                      e.currentTarget.getBoundingClientRect(),
+                      windowFromDocument(e.view.document),
+                      null
+                    );
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: props.superstate.ui.getSticker("ui//filter"),
+                  }}
+                ></button>
+                <button
+                  className={classNames(
+                    "mk-toolbar-button",
+                    predicate?.sort.length > 0 && "mk-active"
+                  )}
+                  aria-label="Sort"
+                  title="Sort"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    showSortMenu(
+                      e.currentTarget.getBoundingClientRect(),
+                      windowFromDocument(e.view.document),
+                      null
+                    );
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: props.superstate.ui.getSticker("ui//sort-desc"),
+                  }}
+                ></button>
                 <button
                   className="mk-toolbar-button"
                   onClick={(e) => showLayoutMenu(e)}
