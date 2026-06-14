@@ -135,6 +135,22 @@ describe("planTypeProfileApply", () => {
     expect(options.find((o: { value: string }) => o.value == "approved").color).toBe("green");
   });
 
+  it("does not clobber a select column whose options JSON is corrupt (Notidian-9vp)", () => {
+    const profile = parseTypeProfile(reviewsFrontmatter);
+    const corruptValue = "{options:[broken";
+    const plan = planTypeProfileApply(profile, tableWithCols([
+      { name: "File", type: "file" },
+      { name: "type", type: "text", source: "frontmatter" },
+      { name: "created", type: "date", source: "frontmatter" },
+      { name: "project", type: "text", source: "frontmatter" },
+      { name: "status", type: "option", source: "frontmatter", value: corruptValue },
+    ]));
+    // The unparseable config is preserved rather than overwritten with hub-only
+    // options, which would silently drop any recoverable table-local extras.
+    expect(plan.cols.find((c) => c.name == "status").value).toBe(corruptValue);
+    expect(plan.changed).toBe(false);
+  });
+
   it("upgrades a frontmatter-backed column's inferred type to the profile kind", () => {
     const profile = parseTypeProfile(reviewsFrontmatter);
     const plan = planTypeProfileApply(profile, tableWithCols([

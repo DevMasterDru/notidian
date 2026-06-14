@@ -203,6 +203,18 @@ const mergedOptionValue = (
   col: SpaceProperty,
   hubOptions: string[]
 ): string | null => {
+  // Guard (Notidian-9vp): if the column's own options config is present but
+  // unparseable, skip the merge rather than treating it as empty. Otherwise the
+  // corrupt JSON would be overwritten with hub-only options, silently dropping
+  // any table-local extra options + their colors. A genuinely empty/absent value
+  // still falls through to seed the hub options.
+  if (
+    typeof col.value == "string" &&
+    col.value.trim() != "" &&
+    safelyParseJSON(col.value) == null
+  ) {
+    return null;
+  }
   const existing = existingOptionEntries(col);
   const existingValues = existing.map((option) => option.value);
   // Hub options lead (hub order is canonical); table-local extras follow.
