@@ -1,5 +1,5 @@
-import { resolvePath } from "core/superstate/utils/path";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
+import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { filterBackRelations } from "core/utils/contexts/tableBackRelations";
 import { computeFrontmatterRollup } from "core/utils/contexts/tableRollup";
 import { Superstate } from "makemd-core";
@@ -22,7 +22,6 @@ export const computeRowBackRelation = (
   config: BackRelationConfig
 ): string => {
   if (!config?.relationProperty || !targetPath) return "";
-  const isSpace = (path: string) => superstate.spacesIndex.get(path) != null;
 
   const inlinks = superstate.pathsIndex.get(targetPath)?.inlinks ?? [];
   const candidates = inlinks.map((path) => ({
@@ -36,7 +35,7 @@ export const computeRowBackRelation = (
   const sources = filterBackRelations({
     targetPath,
     candidates,
-    resolveLink: (link, sourcePath) => resolvePath(link, sourcePath, isSpace),
+    resolveLink: makeRelationLinkResolver(superstate),
   });
 
   const fn = config.fn ?? "list";

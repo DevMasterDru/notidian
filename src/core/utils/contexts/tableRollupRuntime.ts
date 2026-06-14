@@ -1,4 +1,4 @@
-import { resolvePath } from "core/superstate/utils/path";
+import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import {
   computeFrontmatterRollup,
   parseRelationLinks,
@@ -17,9 +17,9 @@ export const computeRowRollup = (
   sourcePath: string
 ): string => {
   const linkPaths = parseRelationLinks(relationValue);
-  const isSpace = (path: string) => superstate.spacesIndex.get(path) != null;
+  const resolveLink = makeRelationLinkResolver(superstate);
   const resolveFrontmatter = (target: string) => {
-    const resolved = resolvePath(target, sourcePath, isSpace);
+    const resolved = resolveLink(target, sourcePath);
     return superstate.pathsIndex.get(resolved)?.metadata?.property ?? null;
   };
   return computeFrontmatterRollup({ linkPaths, config, resolveFrontmatter });

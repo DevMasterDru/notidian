@@ -47,7 +47,7 @@ import {
   buildRowTree,
   flattenVisibleTree,
 } from "core/utils/contexts/tableRowTree";
-import { resolvePath } from "core/superstate/utils/path";
+import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { serializeOptionValue } from "core/utils/serializer";
 import { tagSpacePathFromTag } from "core/utils/strings";
 import _, { isEqual } from "lodash";
@@ -724,15 +724,15 @@ export const ContextEditorProvider: React.FC<
   // subtrees hidden. Null when sub-items is off (the table stays a flat list).
   const subItemsNodes = useMemo(() => {
     if (!subItemsCol) return null;
-    const isSpace = (path: string) =>
-      props.superstate.spacesIndex.get(path) != null;
     const nodes = buildRowTree({
       rows: filteredSortedData,
       // Row data keys context-table columns as name+table (primary cols use
       // name, since their table is ""), so the universal accessor is name+table.
       parentKey: subItemsCol.name + subItemsCol.table,
       pathKey: PathPropertyName,
-      resolveLink: (link, sourcePath) => resolvePath(link, sourcePath, isSpace),
+      // Shared relation resolver (e1u): canonicalize a parent [[link]] to the
+      // child rows' real paths via the link index, so basename/bare wikilinks match.
+      resolveLink: makeRelationLinkResolver(props.superstate),
     });
     return flattenVisibleTree(nodes, collapsedSubItems, PathPropertyName);
   }, [subItemsCol, filteredSortedData, collapsedSubItems, props.superstate]);
