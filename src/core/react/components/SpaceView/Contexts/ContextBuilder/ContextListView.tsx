@@ -7,6 +7,7 @@ import { Superstate } from "makemd-core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { NoteView } from "core/react/components/PathView/NoteView";
 import { CollapseToggle } from "core/react/components/UI/Toggles/CollapseToggle";
+import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
 import { FrameInstanceContext } from "core/react/context/FrameInstanceContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
@@ -24,6 +25,7 @@ import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { SelectOption } from "makemd-core";
 import { parseMultiString } from "utils/parsers";
 import { defaultContextSchemaID } from "shared/schemas/context";
+import { PathPropertyName } from "shared/types/context";
 import { FrameEditorMode } from "shared/types/frameExec";
 import { DBRow } from "shared/types/mdb";
 import { ActionProp, FrameTreeProp } from "shared/types/mframe";
@@ -67,6 +69,9 @@ export const ContextListView = (props: {
     cols,
     dbSchema,
     source,
+    subItemsInfo,
+    collapsedSubItems,
+    toggleSubItemCollapse,
   } = useContext(ContextEditorContext);
 
   const [pageId, setPageId] = useState(1);
@@ -403,8 +408,53 @@ export const ContextListView = (props: {
                           contexts={contextMap[f["_index"]]}
                         ></ContextListInstance>
                       );
+                      // Sub-items (Notidian-s9m): mirror the table's depth indent
+                      // + collapse chevron in the list view. filteredData already
+                      // arrives tree-ordered with collapsed descendants removed, so
+                      // this only renders the per-row affordance. null when the view
+                      // has no sub-items parent column configured.
+                      const rowPath = String(f[PathPropertyName] ?? "");
+                      const subItemNode = subItemsInfo?.get(rowPath);
+                      const subItemCollapsed =
+                        !!subItemNode && collapsedSubItems.has(rowPath);
+                      const subItemAffordance = subItemNode ? (
+                        <span
+                          className="mk-subitem-affordance"
+                          style={{
+                            paddingLeft: `${subItemNode.depth * 16}px`,
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
+                          {subItemNode.hasChildren ? (
+                            <CollapseToggleSmall
+                              superstate={props.superstate}
+                              collapsed={subItemCollapsed}
+                              onToggle={(_, e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                toggleSubItemCollapse(rowPath);
+                              }}
+                            />
+                          ) : (
+                            <span className="mk-subitem-toggle-spacer" />
+                          )}
+                        </span>
+                      ) : null;
                       if (!rowsExpandable) {
-                        return instance;
+                        if (!subItemAffordance) {
+                          return instance;
+                        }
+                        return (
+                          <div
+                            key={"listGroup" + i + "_listItem" + j}
+                            className="mk-list-subitem-row"
+                          >
+                            {subItemAffordance}
+                            <div className="mk-list-subitem-row-item">
+                              {instance}
+                            </div>
+                          </div>
+                        );
                       }
                       const notePath = expandableRowNotePath(
                         f,
@@ -420,6 +470,7 @@ export const ContextListView = (props: {
                           className="mk-list-toggle-row"
                         >
                           <div className="mk-list-toggle-row-header">
+                            {subItemAffordance}
                             {notePath ? (
                               <CollapseToggle
                                 superstate={props.superstate}

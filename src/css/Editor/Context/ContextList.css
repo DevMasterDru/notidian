@@ -99,3 +99,13 @@ flex-direction: column;
 .mk-list-toggle-row-body {
   padding: 0 0 8px 18px;
 }
+/* Sub-items (Notidian-s9m): depth indent + collapse chevron for non-expandable
+   list rows. Mirrors the table's .mk-subitem-affordance (TableView.css). */
+.mk-list-subitem-row {
+  display: flex;
+  align-items: center;
+}
+.mk-list-subitem-row-item {
+  flex: 1;
+  min-width: 0;
+}
