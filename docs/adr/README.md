@@ -23,6 +23,7 @@ These records define the current Notidian architecture and implemented safety mo
 | [0014](0014-notidian-only-personal-database-engine.md) | Notidian-only personal database engine | Current governing strategy: Notidian is the only intended database engine/interface. |
 | [0015](0015-canonical-schema-planning.md) | Canonical schema planning | Defines frontmatter property discovery, create, rename, and delete previews before destructive schema UI/apply flows. |
 | [0017](0017-explicit-notidian-ownership.md) | Explicit Notidian ownership | Closes the silent authority fallback: durable MDB ownership requires an explicit `source: "notidian"` marker, and source-less file-backed columns default to frontmatter. Refines ADR 0001. |
+| [0018](0018-makemd-fork-debt-scope-and-frame-trust-boundary.md) | Make.md fork-debt scope + frame trust boundary | **Proposed** — scopes keep/disable/remove for Make.md-era subsystems (MKit installer, HTML export, Basics/Flow, `spaceSubFolder`) and the frame-execution RCE sink. Awaiting owner direction (bd Notidian-409). |
 
 ## Historical Records
 
