@@ -62,6 +62,10 @@ import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { newPathInSpace } from "core/superstate/utils/spaces";
 import { PointerModifiers } from "core/types/ui";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
+import {
+  lifecycleValuesFromColumnValue,
+  stepLifecycleValue,
+} from "core/utils/contexts/optionLifecycle";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import {
   displayPropertyForPredicate,
@@ -1096,6 +1100,49 @@ export const TableView = (props: { superstate: Superstate }) => {
     if (e.key == "ArrowRight") {
       moveSelection("right");
       e.preventDefault();
+    }
+    // Lifecycle progression (Notidian-ucd): on a single selected single-select
+    // option cell, `]` advances and `[` steps back one state along the column's
+    // ordered options (the same order the option sort and picker use). The new
+    // value is written through the normal paste path so it inherits the
+    // authority-aware transaction, conflict gate, and undo/redo. No-op for
+    // ranges, multi-select, source-backed options, or non-option columns.
+    if (
+      (e.key == "]" || e.key == "[") &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !currentEdit &&
+      activeSelection
+    ) {
+      const bounds = cellSelectionBounds(
+        activeSelection,
+        visibleRowOrder,
+        visibleColumnOrder
+      );
+      const singleCell =
+        bounds.minRow == bounds.maxRow && bounds.minColumn == bounds.maxColumn;
+      const columnId = activeSelection.active.columnId;
+      const col = cols.find((c) => c.name + c.table == columnId);
+      if (singleCell && col && col.type == "option" && !col.source) {
+        const current = String(
+          data.find((f) => f._index == activeSelection.active.rowId)?.[
+            columnId
+          ] ?? ""
+        );
+        const next = stepLifecycleValue({
+          values: lifecycleValuesFromColumnValue(col.value),
+          current,
+          direction: e.key == "]" ? "next" : "previous",
+        });
+        if (next != null) {
+          pasteSelection(
+            next,
+            e.key == "]" ? "Advance status" : "Previous status"
+          );
+        }
+        e.preventDefault();
+      }
     }
   };
   const columns: any[] = useMemo(

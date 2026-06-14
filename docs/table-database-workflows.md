@@ -133,8 +133,24 @@ Notidian tables support rectangular spreadsheet-style selection.
 | Undo the last table operation | `Cmd/Ctrl+Z` |
 | Redo the last undone table operation | `Cmd/Ctrl+Shift+Z` or `Cmd/Ctrl+Y` |
 | Clear the current selection | `Escape` |
+| Advance a single-select cell to the next lifecycle state | `]` |
+| Step a single-select cell back one lifecycle state | `[` |
 
 Copying a page-title cell copies the visible title, not the full file path.
+
+### Ordered Lifecycle Select Progression
+
+A single-select option column is an ordered lifecycle: the order of its options
+(drag to reorder in the option editor) is meaningful for both sorting and
+progression — for example `wishlist → evaluating → to-install → using →
+retired`. With one such cell selected (not while editing it), press `]` to
+advance the row to the next state and `[` to step back, without reopening the
+picker. An unset cell enters at the first state (or the last, stepping back); the
+ends clamp (no silent wrap from `retired` back to `wishlist`). The new value is
+written through the same authority-aware transaction as a normal edit, so it
+respects the frontmatter conflict gate and participates in undo/redo. This works
+only on static single-select columns — multi-select and source-backed option
+columns are left unchanged.
 
 Pasting follows these rules:
 
