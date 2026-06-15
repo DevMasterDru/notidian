@@ -4,10 +4,17 @@
 
 Proposed.
 
-Awaiting an owner decision. Tracked by bd `Notidian-0id` (discovered by the
-characterization net `Notidian-dx5`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of changing the comparator blind. `intelligentCompare` is
+Awaiting an owner decision. Tracked by bd `Notidian-0id` (the decision bead;
+defect first characterized by the net `Notidian-dx5`, which pre-wrote this ADR);
+queued in [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR
+was written instead of changing the comparator blind. The `Notidian-0id` decision
+pass (2026-06-15) re-grounded the ADR against current code — confirmed every cited
+call site live (`D3VisualizationEngine.tsx:205,388`, `LineChartUtility.ts:173,600`,
+the Bar/Line/Area/Radar transformers), the 52-test characterization net green, and
+the defect still locked — and **pinned the two Option-B sub-choices** (cross-bucket
+order + numeric predicate, below) so "approve B" is a complete, reviewable picture
+of the resulting visible chart order rather than a partially-deferred build. No
+duplicate ADR was created: this is the single canonical decision record. `intelligentCompare` is
 **load-bearing** (it orders chart axes and categories on the D3 render path), its
 current output is **explicitly locked as characterization, not correction** in
 `src/core/react/components/Visualization/utils/sortingUtils.test.ts`, and a fix
@@ -82,11 +89,12 @@ cmp(a, c) = +1   // a is date-like -> date path. BOTH parse: new Date("10") = ye
 
 The bare string `"10"` is treated as the **number 10** when compared against `""`
 (numeric/string branch), but as the **Date "year 2001"** when compared against a
-date-like value. The test net pins that the violation count is `> 0` over the
-18-value mixed domain (it is 416 today, counted NaN-tolerantly — the exact figure
-is not load-bearing, only that it is nonzero); a self-consistent sub-domain
-(all-dates, all-numbers, or all-strings) provably **does** obey the full triad —
-confirming the breakage is the cross-branch mixing, not the per-branch logic.
+date-like value. The test net pins only that the violation count is `> 0` over the
+18-value mixed domain (counted NaN-tolerantly) — the exact figure is **deliberately
+not** load-bearing (it shifts with the domain), only that it is nonzero; a
+self-consistent sub-domain (all-dates, all-numbers, or all-strings) provably **does**
+obey the full triad — confirming the breakage is the cross-branch mixing, not the
+per-branch logic.
 
 ### Why this matters (the harm)
 
@@ -182,7 +190,9 @@ const classify = (s: string): { bucket: Bucket; date?: number; num?: number } =>
     // date-shaped but invalid: fall through to number/string so it is stable
   }
   const n = parseFloat(s);
-  if (!isNaN(n) && /* whole string is numeric, not "10abc" */ s.trim() !== "" && isFinite(n))
+  // RECOMMENDED numeric predicate: whole string is a finite number, not "10abc"
+  // and not a date-shaped token that already failed the date bucket.
+  if (s.trim() !== "" && isFinite(n) && /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s.trim()))
     return { bucket: 1, num: n };
   return { bucket: 2 };
 };
@@ -190,9 +200,44 @@ const classify = (s: string): { bucket: Bucket; date?: number; num?: number } =>
 
 then compare buckets first, then within-bucket by `date`/`num`/`localeCompare`.
 Key change: a value's bucket no longer depends on its partner, so the relation is
-transitive by construction. (Exact bucket-order and the "is the whole string
-numeric" predicate are sub-choices to settle in implementation; the test net
-pins the per-branch expectations the fix must preserve.)
+transitive by construction.
+
+**The two sub-choices, now pinned (so "approve B" is a complete picture of the
+visible order):**
+
+1. **Cross-bucket order — RECOMMENDED `dates < numbers < strings`** (the `0/1/2`
+   above). Rationale: it mirrors the *intent* of the legacy code (date path tried
+   first, numeric second, string fallback last), so the common single-type axis
+   (all dates, or all numbers, or all text) renders **identically** to today — the
+   visible delta is confined to genuinely mixed-type axes, which are the only place
+   the old comparator was ever incoherent. The exact cross-bucket order is the
+   *one* purely-cosmetic knob the owner can override at approval (e.g. numbers
+   first) at zero correctness cost.
+2. **Numeric predicate — RECOMMENDED "whole-string finite-numeric"** (the regex
+   above), which also **closes the locked `"Infinity"`/`"1e999"` NaN-reflexivity
+   defect**: `"Infinity"`/`"1e999"`/`"-Infinity"` fail `isFinite`, so they fall to
+   the string bucket and `cmp(x,x) === 0` holds — no more `NaN` return. This is the
+   discriminator the existing test net already exercises (`parseFloat`-style numeric
+   tokens vs date strings vs free text), so flipping the two `KNOWN DEFECT` blocks
+   (non-transitivity *and* the Infinity NaN-return) is mechanical.
+
+The test net pins the per-branch expectations the fix must preserve (chronological
+within dates, numeric within numbers, numeric-aware locale within strings); only the
+cross-branch *mixing* changes.
+
+**Worked example — exactly how a mixed axis reorders under recommended B** (the
+review picture the owner approves):
+
+```
+input axis categories: ["2024-01-01", "10", "", "1234-56-78", "apple"]
+
+  legacy intelligentCompare -> V8/TimSort-dependent, no defined contract
+  recommended B            -> ["2024-01-01",  "10",  "",  "1234-56-78",  "apple"]
+                               |__date(b0)__|  |b1|  |________strings (b2)________|
+                                               num   localeCompare: "" < "1234-56-78" < "apple"
+```
+
+Single-type axes (all dates / all numbers / all text) are **unchanged**.
 
 - **Pros:** real total order; removes the TimSort hazard at the source;
   comparator becomes a reusable, correct util; the risky per-branch behavior is
@@ -259,7 +304,17 @@ ADR's scope stays "comparator transitivity."
 
 **Pick A, B, or C for `intelligentCompare`** (recommended **B** — per-value
 classification into a real strict weak ordering, then flip the locked `KNOWN
-DEFECT` assertions). On a pick, the implementing session/loop applies it; the
-per-branch property net guards the change, and a single eyes-on chart check
-confirms the category-order delta. The `Notidian-dox` robustness gaps can proceed
-in parallel (gap 1 immediately; gaps 2/3 with this decision's posture).
+DEFECT` assertions). If you pick **B**, the two sub-choices are already pinned to
+recommended values you may override at zero correctness cost:
+
+- **cross-bucket order:** `dates < numbers < strings` (keeps every single-type axis
+  identical to today; mixed-type axes are the only visible delta) — overridable;
+- **numeric predicate:** whole-string finite-numeric (which *also* closes the
+  locked `"Infinity"`/`"1e999"` NaN-reflexivity defect, so **both** `KNOWN DEFECT`
+  blocks flip in one commit).
+
+On a pick, the implementing session/loop applies it; the per-branch property net
+guards the change, and a single eyes-on chart check confirms the category-order
+delta (the worked example above is the picture). The `Notidian-dox` robustness gaps
+can proceed in parallel (gap 1 already landed as a Q1 hardening; gaps 2/3 with this
+decision's posture).

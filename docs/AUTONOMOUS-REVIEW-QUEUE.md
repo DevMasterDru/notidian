@@ -632,7 +632,8 @@ queueing more and pivots to safe work — so this list stays reviewable.
   `sortingUtils.test.ts`): `cmp("2024-01-01","")=-1`, `cmp("","10")=-1`,
   `cmp("2024-01-01","10")=+1` — because `new Date("10")` parses as year 2001 while
   `""` is an invalid Date; `"10"` is a *number* vs `""` but a *Date* vs a real date.
-  295 violations over an 18-value mixed domain. Self-consistent sub-domains
+  A nonzero violation count over an 18-value mixed domain (the exact figure is
+  deliberately not locked — only that it is `> 0`). Self-consistent sub-domains
   (all-dates / all-numbers / all-strings) provably obey the full triad — so the
   breakage is the cross-branch mixing, not the per-branch logic.
 - **Why it matters:** the comparator is fed **directly** to `Array.prototype.sort`
@@ -651,6 +652,15 @@ queueing more and pivots to safe work — so this list stays reviewable.
   (keep + document the latent hazard) or **C** (flag-gate pure offline-provable
   logic — over-engineering, ruled out as in ADR-0025). One eyes-on chart check
   settles the category-order delta.
+- **The two B sub-choices are now pinned in the ADR (Notidian-0id decision pass)**
+  so "approve B" is a complete picture: **(i)** cross-bucket order
+  **`dates < numbers < strings`** (keeps every single-type axis byte-identical to
+  today — the visible delta is confined to genuinely mixed-type axes; overridable at
+  zero correctness cost); **(ii)** numeric predicate = **whole-string
+  finite-numeric**, which *also* closes the locked `"Infinity"`/`"1e999"`
+  NaN-reflexivity defect, so **both** `KNOWN DEFECT` blocks (non-transitivity + the
+  Infinity NaN-return) flip in one commit. The ADR carries a worked mixed-axis
+  reorder example as the exact review picture.
 - **Adjacent (not decided here):** **Notidian-dox** — `getOptionsOrder` throws on a
   truthy non-array `options` (no `Array.isArray` guard; safe Q1 hardening, no
   valid-data change); `getOptionsOrder` drops options with falsy value (`0`/`''`/
