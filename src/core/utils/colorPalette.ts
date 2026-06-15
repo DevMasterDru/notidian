@@ -92,9 +92,17 @@ export function hexToRgb(hex: string) {
 }
 
 export function hexToHsl(color: string)  {
-    const red = parseInt(color.slice(1, 3) ?? '0', 16) / 255;
-    const green = parseInt(color.slice(3, 5)  ?? '0', 16) / 255;
-    const blue = parseInt(color.slice(5, 7) ?? '0', 16) / 255;
+    // Guard + normalize input the same way hexToRgb does: accept an optional
+    // leading '#', reject non-hex, and fall back to {0,0,0} rather than
+    // producing NaN saturation/luminance (D2 NaN guard, D3 '#'-dependence).
+    const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(color);
+    if (!match) {
+        return {h: 0, s: 0, l: 0};
+    }
+
+    const red = parseInt(match[1], 16) / 255;
+    const green = parseInt(match[2], 16) / 255;
+    const blue = parseInt(match[3], 16) / 255;
 
     const max = Math.max(red, green, blue);
     const min = Math.min(red, green, blue);
@@ -109,10 +117,10 @@ export function hexToHsl(color: string)  {
         hue = 60 * (((green - blue) / delta) % 6);
     }
     else if (max === green) {
-        hue = 60 * (((green - blue) / delta) + 2);        
+        hue = 60 * (((blue - red) / delta) + 2);
     }
     else if (max === blue) {
-        hue = 60 * (((green - blue) / delta) + 4);
+        hue = 60 * (((red - green) / delta) + 4);
     }
 
     hue = Math.round(hue);
@@ -150,11 +158,17 @@ function hslToHex(color: { h: number, s: number, l: number }) {
       rgbValue = {r: c, g: 0, b: x};
   }
 
-  const red = Math.round((rgbValue.r + m) * 255);
-  const green = Math.round((rgbValue.g + m) * 255);
-  const blue = Math.round((rgbValue.b + m) * 255);
+  // Clamp to [0, 255] before formatting: out-of-gamut HSL (e.g. shiftColor
+  // pushing l below 0 or above 1) would otherwise round to a negative or >255
+  // channel whose hex is malformed even after padding.
+  const toHex = (value: number) =>
+    Math.min(255, Math.max(0, Math.round((value + m) * 255)))
+      .toString(16)
+      .padStart(2, '0');
 
-  return '#' + red.toString(16) + green.toString(16) + blue.toString(16);
+  // Pad each channel to 2 chars so a value < 0x10 cannot collapse into a
+  // short, malformed hex string (D4 zero-pad). Output is always 7 chars.
+  return '#' + toHex(rgbValue.r) + toHex(rgbValue.g) + toHex(rgbValue.b);
 }
 
 export const shiftColor = (color: string, s: number, l: number) => {

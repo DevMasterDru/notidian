@@ -12,33 +12,32 @@ import { hexToRgb, hexToHsl, shiftColor } from "./color";
 // / OptionCell / calendar swatches inherit. Everything below is pure / offline
 // — no vault, no DOM, no I/O.
 //
-// IMPORTANT — CHARACTERIZATION, NOT CORRECTION. Probing the real runtime
-// surfaced FOUR genuine defects. We do NOT blind-fix them (per AGENTS.md
-// autonomous-mode quality bar): we LOCK current behavior so any future fix is
-// a conscious, reviewed change, and file FIX follow-up beads. Each defective
-// assertion is tagged DEFECT with the follow-up bead id.
+// FIXED (Notidian-cgo, single-pass D1-D4). The characterization probe surfaced
+// FOUR genuine defects; they have now been CORRECTED in both copies
+// (src/shared/utils/color.ts canonical + src/core/utils/colorPalette.ts live).
+// These assertions therefore pin the CORRECT behavior — any regression to the
+// old buggy output fails here. Each formerly-defective assertion is tagged
+// DEFECT (FIXED) with the resolving bead id.
 //
-//   D1 (Notidian-djt follow-up: HUE)   hexToHsl mis-computes hue for the
-//       green-max and blue-max branches: lines 28-32 reuse (green - blue) in
-//       all three branches instead of (blue - red) for green-max and
-//       (red - green) for blue-max. Consequence: pure green -> h=180 (should
-//       be 120), pure blue -> h=180 (should be 240), cyan -> h=120 (should be
-//       180). Red/yellow/magenta land in the red-max branch and stay correct.
+//   D1 (Notidian-cgo: HUE)   hexToHsl now computes hue correctly for the
+//       green-max and blue-max branches: (blue - red) + 2 for green-max and
+//       (red - green) + 4 for blue-max (instead of reusing (green - blue) in
+//       every branch). Pure green -> 120, pure blue -> 240, cyan -> 180.
+//       Red/yellow/magenta land in the (always-correct) red-max branch.
 //
-//   D2 (follow-up: NaN GUARD)  hexToHsl does NOT validate input the way
-//       hexToRgb's regex does — it slice+parseInt's blindly, so non-hex input
-//       yields NaN for s and l (h falls back to 0 because delta===0).
+//   D2 (Notidian-yuz: NaN GUARD)  hexToHsl now validates input via the same
+//       regex hexToRgb uses and falls back to {h:0, s:0, l:0} on non-hex
+//       input instead of emitting NaN saturation/luminance.
 //
-//   D3 (follow-up: '#' DEPENDENCE)  hexToHsl slices from index 1 assuming a
-//       leading '#'. A valid-but-unprefixed 6-digit string ("ff0000") is
-//       mis-parsed (drops the first nibble) instead of being read like
-//       hexToRgb reads it (which accepts an optional '#').
+//   D3 (Notidian-feg: '#' DEPENDENCE)  hexToHsl now accepts an optional
+//       leading '#' (regex capture groups, not slice-from-1), so an
+//       unprefixed valid 6-digit string ("ff0000") round-trips exactly like
+//       hexToRgb reads it.
 //
-//   D4 (follow-up: ZERO-PAD)  hslToHex (line 75) builds
-//       '#' + r.toString(16) + g.toString(16) + b.toString(16) WITHOUT
-//       zero-padding each channel to 2 chars, so any channel < 16 (0x10)
-//       produces a malformed hex shorter than 7 chars (e.g. '#1900', '#0ffff').
-//       shiftColor round-trips hexToHsl -> hslToHex and inherits D2/D4.
+//   D4 (Notidian-0rj: ZERO-PAD)  hslToHex now pads each channel to 2 chars,
+//       so any channel < 16 (0x10) no longer collapses into a malformed hex.
+//       Output is always a well-formed 7-char string; shiftColor inherits the
+//       fix (and a guarded hexToHsl, so malformed input yields '#000000').
 // ---------------------------------------------------------------------------
 
 describe("hexToRgb", () => {
@@ -143,8 +142,8 @@ describe("hexToHsl", () => {
       expect(Math.abs(hsl.l - 0.5)).toBeLessThan(TOL);
     });
 
-    // The red-max branch is the only hue path that is computed correctly, so
-    // yellow and magenta (which also fall in max===red) match real HSL.
+    // Yellow and magenta fall in max===red (which was always correct) and
+    // remain correct after the fix.
     it("yellow -> h:60 (correct)", () => {
       expect(hexToHsl("#ffff00").h).toBe(60);
     });
@@ -160,13 +159,12 @@ describe("hexToHsl", () => {
       }
     });
 
-    it("DEFECT D1 (hue): green-max & blue-max branches use the wrong channel diff", () => {
-      // CORRECT HSL would give green->120, blue->240, cyan->180. The
-      // implementation reuses (green - blue) in every branch, so:
-      expect(hexToHsl("#00ff00").h).toBe(180); // WRONG (correct: 120)
-      expect(hexToHsl("#0000ff").h).toBe(180); // WRONG (correct: 240)
-      expect(hexToHsl("#00ffff").h).toBe(120); // WRONG (correct: 180)
-      // Documented so the fix (Notidian-djt follow-up FIX bead) is deliberate.
+    it("DEFECT D1 (hue, FIXED Notidian-cgo): green-max & blue-max branches now correct", () => {
+      // The green-max branch uses (blue - red) and the blue-max branch uses
+      // (red - green), so the pure secondaries land on their true hues:
+      expect(hexToHsl("#00ff00").h).toBe(120); // green
+      expect(hexToHsl("#0000ff").h).toBe(240); // blue
+      expect(hexToHsl("#00ffff").h).toBe(180); // cyan
     });
   });
 
@@ -191,30 +189,29 @@ describe("hexToHsl", () => {
     });
   });
 
-  describe("malformed input — NO validation (DEFECT D2/D3)", () => {
-    it("DEFECT D2 (NaN guard): non-hex input yields NaN saturation/luminance", () => {
+  describe("malformed input — guarded fallback (DEFECT D2/D3, FIXED)", () => {
+    it("DEFECT D2 (NaN guard, FIXED Notidian-yuz): non-hex input falls back to {0,0,0}", () => {
       const hsl = hexToHsl("garbage");
-      expect(hsl.h).toBe(0); // delta===0 path -> hue stays 0
-      expect(Number.isNaN(hsl.s)).toBe(true);
-      expect(Number.isNaN(hsl.l)).toBe(true);
+      expect(hsl).toEqual({ h: 0, s: 0, l: 0 });
+      expect(Number.isNaN(hsl.s)).toBe(false);
+      expect(Number.isNaN(hsl.l)).toBe(false);
     });
 
-    it("DEFECT D2: empty string yields NaN s/l", () => {
-      const hsl = hexToHsl("");
-      expect(Number.isNaN(hsl.s)).toBe(true);
-      expect(Number.isNaN(hsl.l)).toBe(true);
+    it("DEFECT D2 (FIXED): empty string falls back to {0,0,0}", () => {
+      expect(hexToHsl("")).toEqual({ h: 0, s: 0, l: 0 });
     });
 
-    it("DEFECT D3 ('#' dependence): unprefixed valid hex is MIS-parsed", () => {
-      // hexToRgb("ff0000") reads red, but hexToHsl slices from index 1 (assumes
-      // a leading '#'), so it reads "f00000"-ish nibbles and produces a
-      // different, wrong color than the same string through hexToRgb.
-      const viaRgb = hexToRgb("ff0000"); // {255,0,0} -> would be h:0,s:1,l:0.5
+    it("DEFECT D3 ('#' dependence, FIXED Notidian-feg): unprefixed valid hex round-trips like hexToRgb", () => {
+      // hexToRgb("ff0000") reads red; hexToHsl now accepts an optional leading
+      // '#' too, so the same unprefixed string yields red's HSL exactly.
+      const viaRgb = hexToRgb("ff0000");
       expect(viaRgb).toEqual({ r: 255, g: 0, b: 0 });
       const hsl = hexToHsl("ff0000");
-      // It does NOT round-trip to red's HSL; l is ~0.47 (parsed "f0","00","00").
-      expect(hsl.l).not.toBeCloseTo(0.5, 5);
-      expect(hsl.l).toBeCloseTo(0xf0 / 255 / 2, 9);
+      expect(hsl.h).toBe(0);
+      expect(hsl.s).toBeCloseTo(1, 9);
+      expect(hsl.l).toBeCloseTo(0.5, 9);
+      // And it matches the #-prefixed parse exactly.
+      expect(hexToHsl("ff0000")).toEqual(hexToHsl("#ff0000"));
     });
 
     it("does not throw on any malformed input", () => {
@@ -253,39 +250,46 @@ describe("shiftColor", () => {
     });
   });
 
-  describe("DEFECT D4 (zero-pad): hslToHex omits per-channel zero padding", () => {
-    it("a channel < 16 yields a malformed hex shorter than 7 chars", () => {
-      // Darkening pure red drops g/b channels (already 0) and shrinks r below
-      // 0x10, so toString(16) emits single nibbles -> "#1900" not "#190000".
+  describe("DEFECT D4 (zero-pad, FIXED Notidian-0rj): hslToHex pads each channel", () => {
+    it("a channel < 16 still yields a well-formed 7-char hex", () => {
+      // Darkening pure red shrinks r below 0x10; each channel is now padded so
+      // the output is "#190000", not the old short "#1900".
       const out = shiftColor("#ff0000", 0, -0.45);
-      expect(out).toBe("#1900");
-      expect(out.length).toBeLessThan(7);
+      expect(out).toBe("#190000");
+      expect(out.length).toBe(7);
     });
 
-    it("the green round-trip is also malformed (5 chars)", () => {
-      // hexToHsl's hue bug routes green oddly, but the OUTPUT length defect is
-      // what we lock here: round-tripping green yields a 5-char string.
+    it("the green round-trip is well-formed (with the corrected hue, returns green)", () => {
+      // With D1 fixed, green round-trips to itself; with D4 fixed it stays a
+      // well-formed 7-char string.
       const out = shiftColor("#00ff00", 0, 0);
-      expect(out).toBe("#0ffff");
-      expect(out.length).toBe(6); // '#' + 5 nibbles
+      expect(out).toBe("#00ff00");
+      expect(out.length).toBe(7);
     });
 
-    it("when all channels happen to be >= 16 the output IS well-formed (7 chars)", () => {
-      // Gray near 0.5 keeps every channel two-nibble, so the bug is INVISIBLE
-      // here — which is exactly why it survived: it only bites near the edges.
+    it("a gray base also produces a well-formed 7-char hex", () => {
       const out = shiftColor("#808080", 0, 0);
       expect(out).toMatch(/^#[0-9a-f]{6}$/);
       expect(out.length).toBe(7);
     });
+
+    it("every shiftColor output is a well-formed 7-char hex across a sweep", () => {
+      const bases = ["#ff0000", "#00ff00", "#0000ff", "#00ffff", "#ff00ff", "#ffff00", "#808080", "#123456"];
+      for (const base of bases) {
+        for (const dl of [-0.45, -0.2, 0, 0.2, 0.45]) {
+          const out = shiftColor(base, 0, dl);
+          expect(out).toMatch(/^#[0-9a-f]{6}$/);
+        }
+      }
+    });
   });
 
-  describe("malformed input round-trips to a NaN hex (DEFECT D2 -> D4)", () => {
-    it("garbage in -> '#NaNNaNNaN' (NaN.toString(16))", () => {
-      // hexToHsl emits NaN s/l (D2); hslToHex's Math.round(NaN) -> NaN, and
-      // NaN.toString(16) -> "NaN", so the whole pipeline degrades to a literal
-      // "#NaNNaNNaN" rather than throwing. Locked as the current contract.
-      expect(shiftColor("garbage", 0, 0)).toBe("#NaNNaNNaN");
-      expect(shiftColor("", 0, 0)).toBe("#NaNNaNNaN");
+  describe("malformed input degrades safely (DEFECT D2 -> D4, FIXED)", () => {
+    it("garbage in -> '#000000' (guarded hexToHsl -> {0,0,0} -> black hex)", () => {
+      // hexToHsl now returns {0,0,0} for non-hex input (D2 fix), so the round
+      // trip yields a well-formed black hex instead of the old "#NaNNaNNaN".
+      expect(shiftColor("garbage", 0, 0)).toBe("#000000");
+      expect(shiftColor("", 0, 0)).toBe("#000000");
     });
 
     it("never throws on malformed input", () => {
