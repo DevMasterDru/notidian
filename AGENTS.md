@@ -1,5 +1,79 @@
 # Notidian Agent Guardrails
 
+## Autonomous Implementation Mode (standing authorization)
+
+The repository owner has authorized an **autonomous, multi-agent implementation
+drive** on the `autonomous/notion-parity-2026-06-12` branch: implement as much of
+Notidian as possible, at the highest quality, draining available quota. This mode
+is **active** — a session enters it when the owner says "continue" / "go" /
+"drain quota" / "autonomous mode". Once active, the rules below override the
+conservative default in the Beads block; **do not request approval or consent**
+for in-scope work (a *current, explicit* owner instruction in the live session
+still wins).
+
+**How to run it.** Prefer the saved engine:
+
+```
+Workflow({ name: "autonomous-beads" })   # .claude/workflows/autonomous-beads.js
+```
+
+If the engine is unavailable or errors, orchestrate the same loop manually with
+the Agent tool per the contract below.
+
+**The orchestration loop** (the main session is the orchestrator; it spawns
+implementer + reviewer subagents — it does not implement directly):
+
+1. **Plan.** `bd ready`. Choose the highest-value implementable bead. When the
+   ready list is thin, decompose the Notion-parity roadmap (`bd show
+   Notidian-2w0`) into 2–4 concrete, scoped beads with `bd create` and continue —
+   this mode is open-ended; keep building Notidian toward Notion parity.
+2. **Implement.** Spawn **one Claude Opus subagent per bead** (sequential — they
+   share the working tree). Its prompt MUST include: *"Deeply contemplate with
+   maximum reasoning and unlimited effort to reach the most optimal solution. You
+   are authorized to decide and act without asking for approval."* The subagent:
+   claims the bead, implements, runs the gates, commits, pushes, and `bd close`s.
+3. **Adversarially verify.** Spawn **2–3 independent Opus reviewer subagents**
+   (read-only) on each committed change, each prompted to *refute / find the
+   defect*. Real must-fix findings → a follow-up Opus fix subagent. (This codebase's
+   quality bar: prior adversarial review caught real bugs in >15 fixes.)
+4. **Repeat** until no implementable beads remain, a per-bead failure recurs, or
+   quota is exhausted.
+
+**Subagent model & reasoning.** All implementer/reviewer/fix subagents run on
+**Claude Opus** (explicit owner directive — overrides the Atlas `Configs/Model
+Routing.md` default). Every subagent carries the max-reasoning directive above; it
+is the subagent's responsibility to contemplate deeply and reach the optimal
+solution on its own.
+
+**Quality bar (non-negotiable, gate before every commit):**
+
+```bash
+npm test -- --runInBand        # all green
+npx tsc -noEmit -skipLibCheck  # exit 0
+npm run build                  # clean
+```
+
+- Commit **per bead**, message `type(scope): summary — Notidian-<id>`, ending with
+  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`; then push.
+- `bd close` the bead with an evidence-bearing reason; `bd remember` durable
+  insights; file follow-up beads for discovered work.
+
+**Authority & safety invariants (never violate, even autonomously):**
+
+- Respect the authority-partitioned model (ADR 0001/0014/0017): file + frontmatter
+  are canonical; durable MDB ownership requires an explicit `source: "notidian"`.
+- Route every new vault-content `innerHTML`/`dangerouslySetInnerHTML`/SVG/iframe
+  sink through `src/shared/utils/sanitize.ts` (ADR 0017 memory).
+- **Live-verification beads** (core render-path changes that cannot be verified by
+  tsc/jest/build — e.g. `Notidian-vke` frame sinks, `Notidian-8h9` virtualization):
+  implement **behind a default-OFF setting flag** with comprehensive unit/jsdom
+  tests and a `needs live verification` note in the commit — never ship an
+  untested core-render change that is not flag-gated. If a bead truly cannot be
+  done safely without live testing and cannot be flag-gated, leave it open with a
+  `bd` note and move on.
+- If a bead fails its gates twice, stop on it, `bd update` a note (or `bd human`),
+  and move to the next — do not thrash.
+
 ## Current Architecture
 
 Use [docs/current-state.md](docs/current-state.md) and [ADR 0014](docs/adr/0014-notidian-only-personal-database-engine.md) as the current source of truth.
