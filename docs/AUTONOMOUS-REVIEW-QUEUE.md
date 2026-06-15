@@ -662,6 +662,54 @@ queueing more and pivots to safe work — so this list stays reviewable.
   until you pick.
 - **Bead status:** Notidian-0id stays **OPEN**, awaiting your direction.
 
+### Notidian-37m — `filterReturnForCol` fail-open for unknown/undefined filter `fn`
+
+- **ADR:** [docs/adr/0034-predicate-unknown-fn-fail-open-contract.md](adr/0034-predicate-unknown-fn-fail-open-contract.md)
+  (Proposed). The `decide` note that ADR 0032 filed **separately** (P3, undecided).
+- **The behavior:** `filterReturnForCol` (`filter.ts:140-159`) initializes
+  `result = true` (line 144) and only overrides it when `filterFnTypes[filter?.fn]`
+  resolves a **known** operator (line 145). So a `null` filter, a missing `fn`, or
+  an unknown `fn` (e.g. emitted by a newer schema version) makes the row **stay
+  visible** — a corrupt/unrecognized predicate silently disables filtering rather
+  than hiding rows or throwing. Pinned as characterization in `filter.test.ts`
+  (Notidian-3fs) at lines 526 ("unknown fn"), 532 ("missing fn"), 591 ("null
+  filter").
+- **Already-guarded upstream:** `validatePredicate`→`cleanPredicateType`
+  (`predicate.tsx:38`, applied at `:57-59`) **strips** any filter whose `fn` is not
+  a known operator at write/load (`ContextEditorContext.tsx:1153, :1189`), so an
+  unknown fn never reaches the dispatcher in normal operation. Fail-open here is the
+  **defensive backstop** for the un-validated edge (in-memory pre-validate
+  predicates, programmatic filters). Every call site also fails open already
+  (`linkContextRow.ts:372/:378`, `ContextEditorContext.tsx:681`,
+  `treeHelpers.ts:214` — all `col ? … : true` / `reduce(…, true)`).
+- **Why a decision, not a blind fix:** keep-visible vs hide vs throw changes **which
+  rows the owner sees** (or, for throw, can crash the per-row render pass) — a
+  safety/UX call about the worst failure mode for a single-user vault, which
+  tsc/jest/build cannot decide. Current behavior locked as characterization.
+- **Recommendation:** **Option A** — keep fail-open + **document the contract**
+  (comment on `filterReturnForCol` + ADR), paired with a **one-time upstream
+  validate-loud warning** in `cleanPredicateType`/`validatePredicate` so an unknown
+  fn is surfaced once at validation, not silently. Over **B** (fail-closed: hides
+  the owner's own data with no signal — for a single-user vault, vanishing data is
+  the worse failure than an under-constrained table the user can see and fix) or
+  **C** (throw/log at the per-row dispatcher: render-crash on a throw, console-spam
+  on a log, plus hot-path cost — its valid intent is preserved by moving the warning
+  upstream).
+- **Relationship to ADR 0032 (Notidian-qbr):** same family of question (what should
+  a malformed predicate input do?) but **defensibly resolves oppositely** — ADR
+  0032(b) recommends **fail-closed** for a malformed **date value** (a bad value
+  must not silently *satisfy* a real constraint), while this recommends **fail-open**
+  for an unknown **operator** (an *unreadable constraint* must not silently *delete
+  data*). Value-level vs operator-level. You **may** fold the two into one
+  predicate-contract decision, but they need not match.
+- **No build / no spike shipped.** Logic/contract change (no render-path/`innerHTML`/
+  authority surface), and the recommended A + validate-loud companion changes **no
+  visible row set** and is fully jest-provable — so **no default-OFF flag** and **no
+  eyes-on check** needed; it needs your **decision** (ratify the contract). The
+  pinned `filter.test.ts` assertions (526/532/591) are untouched-as-locked until you
+  pick (A keeps them green; B flips them).
+- **Bead status:** Notidian-37m stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
