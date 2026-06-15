@@ -765,6 +765,59 @@ queueing more and pivots to safe work — so this list stays reviewable.
   untouched-as-locked until you pick.
 - **Bead status:** Notidian-sp5 stays **OPEN**, awaiting your direction.
 
+### Notidian-2zs — `stripFrontmatterFromString` greedy/unanchored regex: fix, replace, or delete a dead helper
+
+- **ADR:** [docs/adr/0036-stripfrontmatterfromstring-greedy-regex-dead-helper.md](adr/0036-stripfrontmatterfromstring-greedy-regex-dead-helper.md)
+  (Proposed). Defect confirmed + characterized by Notidian-bey (commit `c61b8ac`),
+  pinned in `fm.stripFrontmatterFromString.test.ts`.
+- **The defect:** `stripFrontmatterFromString` (`fm.ts:30`) uses
+  `/---(.|\n)*---/` — **greedy** (`*`) + **unanchored** (no `^`). The greedy `*`
+  spans from the **first** `---` to the **last** `---` anywhere in the doc, so a
+  real leading frontmatter block followed by a body horizontal-rule `---`
+  over-strips the intervening prose (`"---\ntitle: Hi\n---\nIntro\n\n---\n\nAfter
+  rule"` -> `"\n\nAfter rule"`, **`Intro` LOST**); multiple fences collapse to the
+  last one; and a non-leading frontmatter-like block is matched too. Behavior
+  pinned as characterization (test green, 11 pins).
+- **Why a decision, not a build:** two reasons. (1) A non-greedy/anchored rewrite
+  **changes what is removed from a note body** — frontmatter is the canonical
+  owner of editable properties (ADR 0014/0017) and this is the "body without the
+  property fence" view, so the strip semantics are a behavior call, locked as
+  characterization so a change is a conscious flip. (2) **The decisive audit
+  finding: the helper has ZERO production callers** (full-repo symbol grep =
+  definition + its own test only). Its only historical caller — a **commented-out**
+  preview reader doing `stripFrontmatterFromString(await
+  app.vault.cachedRead(file))` (commit `58bc881`) — was **deleted** in `b38b417`.
+  So "fix the regex" silently ratifies keeping a redundant defective stripper; the
+  honest choice set includes **delete**, which is a scoping call only the owner can
+  make.
+- **What the investigation found (grounds the recommendation):** the repo does NOT
+  need this helper to strip frontmatter — it already does it **correctly, twice, on
+  live paths**: `stripFrontmatter` (`src/core/utils/spaceNoteBody.ts:4`) is
+  `^`-anchored, `*?` lazy, CRLF-aware, single-block, trailing-newline-consuming
+  (used by `isNoteBodyEmpty`, Notidian-7oj; tested); and the Obsidian
+  `frontmatterPosition` offset slice (`markdownAdapter.ts:335`, `Explorer.tsx:322`)
+  uses Obsidian's own authoritative YAML-boundary parse. `stripFrontmatterFromString`
+  is a third, defective, **unused** duplicate of a solved problem.
+- **The one decision you need to make:** **delete the dead helper, or fix it in
+  place?** — **recommended C: delete** `stripFrontmatterFromString` + its
+  characterization test (removes the over-strip hazard outright, cannot regress
+  since nothing observes its output, collapses three strippers to the two correct
+  in-use ones). Over **A** (fix in place to the anchored/lazy form and re-point the
+  pinned test — choose only if an out-of-tree fork/plugin importer must keep the
+  export) or leaving it as a known copy-paste trap (not recommended). If you want
+  the export retained for safety, fall back to A so any importer gets the *correct*
+  behavior rather than a missing symbol. For any *future* body-minus-frontmatter
+  need, the recipe is `frontmatterPosition` (when a cache is in hand) else
+  `stripFrontmatter` — not a new bespoke regex.
+- **No build / no spike shipped.** This is a dead-code / logic change (no
+  render-path `innerHTML`, no authority write surface, no currently-observable
+  output), so **no default-OFF flag** and **no eyes-on check** — both C (delete)
+  and A (fix) are fully jest/tsc/build-provable and change no vault-observable
+  behavior (the function never runs on a note body in the current codebase). It
+  needs your **decision** (scope: delete vs fix). `fm.ts` and the pinned
+  `fm.stripFrontmatterFromString.test.ts` are untouched until you pick.
+- **Bead status:** Notidian-2zs stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
