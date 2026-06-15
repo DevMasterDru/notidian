@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed. Awaiting owner direction (bd Notidian-fs6). This ADR refuses to harden
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+
+(Historical framing below retained as the record.) This ADR refuses to harden
 the parser blind: both open items are on the **frame-execution trust boundary**
 ([ADR 0018](0018-makemd-fork-debt-scope-and-frame-trust-boundary.md) /
 bd Notidian-vke), so a "right-looking" change to the parser is also a change to

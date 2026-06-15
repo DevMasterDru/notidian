@@ -55,8 +55,15 @@ export const ButtonSubmenu: React.FC<ButtonSubmenuProps> = ({
       const trimmedValue = value.trim();
       // Only parse if it looks like a JSON object
       if (trimmedValue.startsWith("{") && trimmedValue.endsWith("}")) {
-        // Use the new JSON parser that handles unquoted fields
-        const { value: parsed } = parseJsonWithUnquoted(value);
+        // Use the new JSON parser that handles unquoted fields. Pass the
+        // hardenFrameExecution flag (ADR 0026 2a): when ON, the tolerant
+        // tokenizer recovers action payloads with embedded ,/}/] instead of
+        // silently degrading to {}; when OFF, legacy regex behavior is preserved
+        // — this rides the existing default-OFF vke flag, no new flag.
+        const { value: parsed } = parseJsonWithUnquoted(
+          value,
+          superstate.settings?.hardenFrameExecution
+        );
         if (parsed && typeof parsed === "object") {
           // Handle both old format (action/params) and new format (command/parameters)
           if (parsed.command) {

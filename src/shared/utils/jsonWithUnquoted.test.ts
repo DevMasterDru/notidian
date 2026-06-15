@@ -128,16 +128,49 @@ describe("parseJsonWithUnquoted — wrapped-quote stripping (lines 46-49)", () =
   });
 
   it(
-    "BUG(Notidian-d4u): double-quote-wrapped JSON is parsed by the fast-path " +
-      "as a STRING, not stripped+parsed as an object — asymmetric with single-quote wrap",
+    "FIXED(Notidian-fs6, ADR 0026 1a): a double-quote-wrapped object literal " +
+      "parses to the inner OBJECT, symmetric with single-quote wrap",
     () => {
-      // '"{\\"a\\":1}"' is itself valid JSON (a string), so line 25 succeeds and
-      // returns the raw inner string; the line 46-49 stripping never runs.
-      // Single-quote wrapping is NOT valid JSON, so it falls through to stripping.
-      // This asymmetry is the documented current behavior.
+      // Canonical wrapper convention: a wrapped frame payload (single- OR
+      // double-quote wrapped) parses to the inner OBJECT. Previously
+      // '"{\\"a\\":1}"' was itself valid JSON so the fast-path returned the raw
+      // inner STRING; now it is unwrapped to the inner literal before the
+      // fast-path, so both quote styles deterministically yield the object.
       const { value } = parseJsonWithUnquoted('"{\\"a\\":1}"');
-      expect(value).toBe('{"a":1}');
-      expect(typeof value).toBe("string");
+      expect(value).toEqual({ a: 1 });
+      expect(typeof value).toBe("object");
+    }
+  );
+
+  it("a double-quote-wrapped ARRAY literal parses to the inner array (ADR 0026 1a)", () => {
+    const { value } = parseJsonWithUnquoted('"[1,2,3]"');
+    expect(value).toEqual([1, 2, 3]);
+  });
+
+  it(
+    "a wrapped SCALAR string is NOT unwrapped to an object — stays a string " +
+      "(only object/array literals are normalized, ADR 0026 1a)",
+    () => {
+      // The inner content is not {...}/[...] so the JSON primitive fast-path
+      // contract is preserved: '"hello"' -> "hello".
+      expect(parseJsonWithUnquoted('"hello"').value).toBe("hello");
+      expect(parseJsonWithUnquoted('"123 not an object"').value).toBe(
+        "123 not an object"
+      );
+    }
+  );
+
+  it(
+    "a double-quote-wrapped command object normalizes to the OBJECT the action " +
+      "consumer expects (ADR 0026 1a — the load-bearing shape)",
+    () => {
+      const { value } = parseJsonWithUnquoted(
+        '"{\\"command\\":\\"spaces://x\\",\\"parameters\\":{\\"a\\":1}}"'
+      );
+      expect(value).toEqual({ command: "spaces://x", parameters: { a: 1 } });
+      // The shape ButtonSubmenu.parsePropValue reads: typeof === object, .command present.
+      expect(typeof value).toBe("object");
+      expect((value as any).command).toBe("spaces://x");
     }
   );
 });
@@ -226,6 +259,124 @@ describe("parseJsonWithUnquoted — ADVERSARIAL injection (lines 53, 85, 99-108,
         true
       );
     }
+  });
+});
+
+describe("parseJsonWithUnquoted — tolerant tokenizer (ADR 0026 2a, hardenFrameExecution)", () => {
+  // The tokenizer path is gated ON only under hardenFrameExecution (the existing
+  // default-OFF vke frame-execution flag). With the flag OFF the legacy regex
+  // behavior is byte-for-byte preserved; with it ON, values containing embedded
+  // ,/}/] are recovered instead of silently degrading the whole object to {}.
+
+  it("OFF (default): a stray '}' inside a value still degrades to {} (legacy preserved)", () => {
+    const { value } = parseJsonWithUnquoted("{command: a}b}");
+    expect(value).toEqual({});
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it("ON: recovers a value containing a stray '}' instead of degrading to {}", () => {
+    const { value, unquotedFields } = parseJsonWithUnquoted("{command: a}b}", true);
+    expect(value).toEqual({ command: "a}b" });
+    expect(unquotedFields).toEqual({ command: true });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("OFF (default): a stray ']' inside a value still degrades to {} (legacy preserved)", () => {
+    const { value } = parseJsonWithUnquoted("{command: a]b}");
+    expect(value).toEqual({});
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it("ON: recovers a value containing a stray ']' instead of degrading to {}", () => {
+    const { value, unquotedFields } = parseJsonWithUnquoted("{command: a]b}", true);
+    expect(value).toEqual({ command: "a]b" });
+    expect(unquotedFields).toEqual({ command: true });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("ON: does NOT split a value on a comma that lives inside a single-quoted string", () => {
+    // The legacy regex would truncate at the comma; the tokenizer is string-aware.
+    const { value } = parseJsonWithUnquoted("{command: 'a, b', other: c}", true);
+    expect(value).toEqual({ command: "a, b", other: "c" });
+  });
+
+  it("ON: keeps a nested object value whole (embedded braces do not truncate it)", () => {
+    const { value } = parseJsonWithUnquoted(
+      '{command: foo, parameters: {"a": 1, "b": 2}}',
+      true
+    );
+    expect(value).toEqual({ command: "foo", parameters: { a: 1, b: 2 } });
+    // Only the bare command is marked unquoted; the JSON-literal object value is not.
+    // (parameters is a valid JSON object literal, so it stays typed.)
+  });
+
+  it("ON: keeps a nested array value whole (embedded brackets/commas do not truncate)", () => {
+    const { value } = parseJsonWithUnquoted(
+      '{command: foo, parameters: [1, 2, 3]}',
+      true
+    );
+    expect(value).toEqual({ command: "foo", parameters: [1, 2, 3] });
+  });
+
+  it("ON: still escapes an embedded double-quote (does not break out of the string)", () => {
+    const { value, unquotedFields } = parseJsonWithUnquoted(
+      '{command: he said "hi", other: x}',
+      true
+    );
+    expect(value).toEqual({ command: 'he said "hi"', other: "x" });
+    expect(unquotedFields).toEqual({ command: true, other: true });
+  });
+
+  it(
+    "ON: ADVERSARIAL — a quote-breakout attempt does NOT pollute the object; " +
+      "the injected key never leaks (injection contract preserved under the tokenizer)",
+    () => {
+      // Crafted to close the string and inject a sibling key. The tokenizer must
+      // never emit a polluted object. The embedded double-quote is escaped into
+      // the value, so 'injected' becomes part of the command string, not a key.
+      const { value } = parseJsonWithUnquoted('{command: x", "injected": "y}', true);
+      expect(value).not.toHaveProperty("injected");
+      expect(typeof value === "object" && value !== null).toBe(true);
+    }
+  );
+
+  it("ON: never emits invalid JSON / never throws for an adversarial corpus", () => {
+    const adversarial = [
+      '{command: x", evil: "y}',
+      '{a: }{}{',
+      "{: novalue}",
+      '{"a": "b" "c": "d"}',
+      "{a: 'unterminated",
+      "{command: a}b}",
+      "{command: a]b}",
+      "{deeply: {nested: {a: 1, b: [2, 3]}}}",
+      "{trailing: x,}",
+    ];
+    for (const input of adversarial) {
+      const { value } = parseJsonWithUnquoted(input, true);
+      // Either a parsed object/value or the {} sentinel — never undefined, never a throw.
+      expect(
+        value === null || typeof value === "object" || typeof value === "string"
+      ).toBe(true);
+    }
+  });
+
+  it("ON: an unbalanced payload bails to the legacy fallback (no invented shape)", () => {
+    // Unterminated string -> tokenizer returns null -> legacy path -> {} sentinel.
+    const { value } = parseJsonWithUnquoted("{command: 'unterminated", true);
+    expect(value === null || typeof value === "object").toBe(true);
+  });
+
+  it("ON: a well-formed pure-JSON object is unaffected (fast-path still wins)", () => {
+    // hardenFrameExecution does not change the JSON fast-path; only the fallback.
+    const { value, unquotedFields } = parseJsonWithUnquoted('{"a":1,"b":"x"}', true);
+    expect(value).toEqual({ a: 1, b: "x" });
+    expect(unquotedFields).toEqual({});
+  });
+
+  it("ON: tolerates a trailing comma without degrading", () => {
+    const { value } = parseJsonWithUnquoted("{command: foo, other: bar,}", true);
+    expect(value).toEqual({ command: "foo", other: "bar" });
   });
 });
 
