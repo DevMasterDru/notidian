@@ -412,6 +412,42 @@ queueing more and pivots to safe work — so this list stays reviewable.
 - **Bead status:** Notidian-nir stays **OPEN** (owner/upstream action item),
   awaiting your direction; it blocks Notidian-osf.
 
+### Notidian-e29 — Per-database row-create templates: wire them into the table create path
+
+- **ADR:** [docs/adr/0028-per-database-row-create-templates.md](adr/0028-per-database-row-create-templates.md) (Status: **Proposed**).
+- **What the loop found:** templates are **already file-canonical and already work
+  from the sidebar** — the storage question is answered, only the wiring is missing.
+  A space's templates are ordinary `.md` notes under
+  `{space}/{spaceSubFolder}/templates/`, copied whole (frontmatter + body) via
+  `copyPath` in `newTemplateInSpace` (`spaces.ts`). The MDB holds only a *pointer*
+  to the default (`space.metadata.template`) — view config, not row data, exactly
+  the ADR 0001/0014/0017 partition. The navigator `+` (`ui.tsx defaultAdd`,
+  `showSpaceAddMenu`) already applies the default **and** offers a per-DB picker
+  over `space.templates`. The gap epic item (2) names is narrow: the **three
+  in-table/in-context row-create chokepoints** (`TableView.tsx newRow`,
+  `api.ts insert`, `ContextCell.tsx`) call `newPathInSpace` directly and always make
+  an **empty file** — so a default template set for a database is honored from the
+  sidebar but **not** when you add a row in the table (the most common gesture).
+- **The one decision you need to make:** **confirm the recommended contract so the
+  thin wiring can ship — (a) keep templates as file-canonical `.md` (never an MDB
+  blob without `source:notidian`); (b) seed frontmatter + body (frontmatter-only is
+  already served by Type Profile defaults); (c) auto-apply the single default +
+  keep the existing optional picker (no forced prompt); (d) template wins wholesale,
+  Type Profile `newPropertyDefaults` only seeds the no-template path (the precedent
+  `applyNewRowTypeProfileDefaults` already documents — "the template wins").** The
+  load-bearing part is (d): it keeps exactly one writer per row create and a clean
+  division of labor (Type Profile = property defaults for plain rows; templates =
+  full authored new-row scaffold). If you instead want schema defaults to fill gaps
+  the template leaves absent, that is the deferred per-DB opt-in (D2), not the
+  default.
+- **No build is pending.** No code changed. An **optional default-OFF spike** is
+  offered in the ADR (extract one shared `createRowInSpace` helper, route the three
+  chokepoints through it, gate table/context template-honoring behind a default-OFF
+  `applyRowTemplateOnTableCreate` flag so your vault is byte-for-byte unchanged
+  until you flip it) — **not built**, it presupposes you pick the recommended
+  contract and is the first task of the follow-up implementation bead.
+- **Bead status:** Notidian-e29 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
