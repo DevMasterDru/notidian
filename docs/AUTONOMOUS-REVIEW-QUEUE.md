@@ -1069,6 +1069,60 @@ queueing more and pivots to safe work — so this list stays reviewable.
   renders empty (not an error) and a fully-configured one is unchanged.
 - **Bead status:** Notidian-drp stays **OPEN**, awaiting your direction.
 
+### Notidian-jlb5 — Control-byte source guard (regression insurance for Notidian-5qq)
+
+- **ADR:** [docs/adr/0039-control-byte-source-guard.md](adr/0039-control-byte-source-guard.md)
+  (Proposed). The regression-guard follow-up to Notidian-5qq (which removed raw
+  NUL/`0x1f` bytes that had silently binarized three sanitize test files).
+- **Why a decision, not a build:** the *what* is clear — no raw NUL/C0 control
+  bytes in tracked source (a NUL makes `file(1)` say `data` and makes `grep`/audit
+  tools treat the file as **binary** and silently **skip** it, the exact
+  false-negative trap that produced the bogus "no fixedPoint coverage" premise in
+  Notidian-2lg) — but the *where to hook* and *which mechanism* are open and touch
+  dev-workflow shape, and the investigation found a concrete trap a naive guard
+  would trip on (below).
+- **LOW value — this is insurance, not a fix.** Verified: a sweep of **all** tracked
+  files (`git ls-files` → `LC_ALL=C grep -P '[\x00-\x08\x0b\x0c\x0e-\x1f]'`) hits
+  **exactly one file — `main.js`** — and **no** `.ts`/`.tsx`/`.js` source under
+  `src/`/`scripts/` carries a raw control byte. The repo is clean; the guard only
+  prevents regression.
+- **The decisive nuance (why a naive guard is wrong):** `main.js` is **tracked and
+  NOT gitignored** — it is the committed esbuild bundle (`esbuild.config.mjs` writes
+  `outputDir+'/main.js'`), and it **legitimately** carries C0 bytes `0x01`-`0x06`
+  from the minifier (but **no NUL**, so `file(1)` still calls it `ASCII text`). A
+  naive "scan all tracked text files for bytes `<0x20`" guard would **false-positive
+  on `main.js` on every commit.** Any guard MUST scope/allowlist the build bundle.
+  This sharpens the rule: **NUL is the byte that matters** (it binarizes the file and
+  breaks audits); other C0 bytes in a known build artifact are tolerated.
+- **Where a hook can land (grounded):** there is **no CI** (`.github/workflows/`
+  does not exist) and **no pre-commit infra** (no `.husky/`, no `lint-staged`, no
+  `prepare`). But `npm run verify:source` (`scripts/notidianVerify.js`) is the
+  existing source-verification harness (runs jest/`tsc`/`npm audit`/build/whitespace
+  check) — the natural, already-run place to attach a scan without standing up CI or
+  requiring a per-clone hook install. ESLint's `no-control-regex` is already ON
+  (`eslint:recommended`) with **two local disables** (`sanitize.ts:347`,
+  `sanitizePrimitives.property.dom.test.ts:139`) — both on the **correct** `\xNN`
+  escape form, which is exactly why they need a disable; that fragility is itself
+  evidence ESLint is the wrong tool.
+- **The one decision you need to make:** pick **A / B / C** — **recommended A**: a
+  tiny ~30-line Node byte-scanner (`scripts/notidianControlByteScan.js`, NUL-fatal,
+  allow tab/nl/cr, **allowlist `main.js` + binary assets**) wired as a step in
+  `createSourceVerificationSteps` so `npm run verify:source` fails on a raw control
+  byte in scoped source, plus an **optional** `.husky/pre-commit` shim (convenience;
+  `verify:source` is the authoritative gate). Over **B** (escalate `no-control-regex`
+  to error — JS/TS-and-regex-only, blind to a NUL in a string/comment/fixture/non-JS
+  file, and bypassable via the local-disable two live sites already use) or **C**
+  (`.gitattributes` text coercion — normalizes line endings only, does **not**
+  detect/block control bytes; cosmetic).
+- **No build / no spike shipped.** This is build/dev tooling, fully offline-provable
+  (no render-path/`innerHTML`/authority surface), so **no default-OFF flag** and
+  **no eyes-on-vault step** — on a pick of A the implementing session adds the
+  scanner + a `scripts/*.test.js` for it (clean passes / embedded-NUL fails /
+  tab-nl-cr passes / allowlisted `main.js` passes), wires the step, and the gate is a
+  green `verify:source` on the current clean tree. `verify:source`, `.eslintrc.js`,
+  and `.gitattributes` are **untouched** until you pick.
+- **Bead status:** Notidian-jlb5 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
