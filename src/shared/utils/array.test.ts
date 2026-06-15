@@ -26,16 +26,15 @@ import {
 //
 // Everything here is pure / offline — no vault, no DOM, no I/O.
 //
-// IMPORTANT — characterization, not correction. The two comparators
-// (array.ts:49-90) are NON-REFLEXIVE and NON-TRANSITIVE: the `else` branch
-// returns -1 even when A === B (so cmp(x, x) === -1), and two items both absent
-// from `order` compare via that same branch. The observable consequences below
-// (e.g. absent items emerging in REVERSED input order, in-place mutation of the
-// caller's array) are therefore *latent defects*. We LOCK current behavior so a
-// future change is a conscious, reviewed decision — callers (cacheParsers,
-// superstate) may depend on the present output. See follow-up beads filed by
-// Notidian-u3u for the comparator-correctness and uniqCaseInsensitive-casing
-// defects.
+// CORRECTED (ADR 0025, Option B — accepted). The two comparators were formerly
+// NON-REFLEXIVE and NON-TRANSITIVE (the `else` branch returned -1 even when
+// A === B, and two items both absent from `order` compared via that same branch),
+// mutated the caller's array in place, and emitted absent items in REVERSED input
+// order as an artifact of V8 TimSort. They are now a stable, reflexive, total
+// order and NON-MUTATING: present items first by order-index, absent items kept
+// in INPUT order (stable-sort tie-break on a 0 comparison), returning a NEW
+// array. The present-first invariant callers actually depend on is unchanged and
+// property-tested below. Closes Notidian-e8e (folds in Notidian-9v6).
 // ---------------------------------------------------------------------------
 
 // --- tiny deterministic PRNG (no external dep) -----------------------------
@@ -219,20 +218,20 @@ describe("uniq", () => {
 // uniqCaseInsensitive
 // =========================================================================
 describe("uniqCaseInsensitive", () => {
-  // CHARACTERIZATION: the bead description (and PropertiesView intent) expected
-  // "first-seen casing", but `new Map(...).values()` overwrites the VALUE on a
-  // duplicate key while preserving first-insertion POSITION. Net effect:
-  // first-seen POSITION, LAST-seen CASING. Locked here as a latent defect; see
-  // the follow-up bead from Notidian-u3u.
+  // CORRECTED (ADR 0025 / Notidian-9v6): dedup keeps the FIRST-seen casing,
+  // matching the PropertiesView intent and mirroring `uniq`'s first-seen
+  // semantics. (Previously `new Map(...).values()` overwrote the value on a
+  // duplicate key and kept the LAST-seen casing — that latent defect is now
+  // fixed.)
   it("dedupes case-insensitively, keeping first-seen POSITION", () => {
     const out = uniqCaseInsensitive(["Abc", "abc", "ABC", "def"]);
     expect(out.length).toBe(2);
     expect(out[1]).toBe("def");
   });
-  it("keeps the LAST-seen casing for a collision (characterization, not intent)", () => {
-    expect(uniqCaseInsensitive(["Abc", "abc", "ABC"])).toEqual(["ABC"]);
-    expect(uniqCaseInsensitive(["a", "A"])).toEqual(["A"]);
-    expect(uniqCaseInsensitive(["A", "a"])).toEqual(["a"]);
+  it("keeps the FIRST-seen casing for a collision (corrected, the intended behavior)", () => {
+    expect(uniqCaseInsensitive(["Abc", "abc", "ABC"])).toEqual(["Abc"]);
+    expect(uniqCaseInsensitive(["a", "A"])).toEqual(["a"]);
+    expect(uniqCaseInsensitive(["A", "a"])).toEqual(["A"]);
   });
   it("leaves already-distinct casings untouched", () => {
     expect(uniqCaseInsensitive(["alpha", "beta", "gamma"])).toEqual([
@@ -320,9 +319,9 @@ describe("uniqueNameFromString", () => {
 // orderStringArrayByArray  (column ordering)
 // =========================================================================
 describe("orderStringArrayByArray", () => {
-  it("places items that appear in `order` first, in order-sequence", () => {
+  it("places items that appear in `order` first, in order-sequence; absent items keep input order", () => {
     expect(orderStringArrayByArray(["x", "b", "a", "y"], ["a", "b", "c"]))
-      .toEqual(["a", "b", "y", "x"]);
+      .toEqual(["a", "b", "x", "y"]);
   });
   it("orders a fully-ordered set exactly by `order`", () => {
     expect(orderStringArrayByArray(["c", "a", "b"], ["a", "b", "c"])).toEqual([
@@ -348,32 +347,34 @@ describe("orderStringArrayByArray", () => {
     expect(orderStringArrayByArray(["a"], ["x"])).toEqual(["a"]);
   });
 
-  // --- CHARACTERIZATION of the non-reflexive / non-transitive comparator ---
-  it("mutates the input array IN PLACE and returns the same reference (latent defect, locked)", () => {
+  // --- CORRECTED behavior of the stable, reflexive, non-mutating comparator ---
+  it("does NOT mutate the input array and returns a NEW reference (corrected)", () => {
     const input = ["b", "a"];
     const out = orderStringArrayByArray(input, ["a", "b"]);
-    expect(out).toBe(input);
-    expect(input).toEqual(["a", "b"]);
+    expect(out).not.toBe(input);
+    expect(input).toEqual(["b", "a"]); // input untouched
+    expect(out).toEqual(["a", "b"]);
   });
-  it("emits items ABSENT from `order` in REVERSED input order (consequence of else-branch -1)", () => {
-    // Empty order => every item takes the else branch; result is input reversed.
+  it("emits items ABSENT from `order` in INPUT order (stable tie-break on equal-rank)", () => {
+    // Empty order => every item is absent and compares as equal (0); a stable
+    // sort therefore preserves the original input order.
     expect(orderStringArrayByArray(["b", "a", "c"], [])).toEqual([
-      "c",
-      "a",
       "b",
+      "a",
+      "c",
     ]);
     expect(
       orderStringArrayByArray(["1", "2", "3", "4", "5"], [])
-    ).toEqual(["5", "4", "3", "2", "1"]);
+    ).toEqual(["1", "2", "3", "4", "5"]);
   });
-  it("mixed case: ordered items in order-sequence, absent items reversed after them", () => {
+  it("mixed case: ordered items in order-sequence, absent items in input order after them", () => {
     expect(
       orderStringArrayByArray(["z1", "b", "z2", "a", "z3", "c", "z4"], [
         "a",
         "b",
         "c",
       ])
-    ).toEqual(["a", "b", "c", "z4", "z3", "z2", "z1"]);
+    ).toEqual(["a", "b", "c", "z1", "z2", "z3", "z4"]);
   });
   it("does NOT dedupe duplicates already present in the input", () => {
     expect(orderStringArrayByArray(["a", "a", "b", "b"], ["b", "a"])).toEqual([
@@ -451,10 +452,10 @@ describe("orderArrayByArrayWithKey", () => {
   const k = (ids: string[]) => ids.map((id) => ({ id }));
   const ids = (objs: { id: string }[]) => objs.map((o) => o.id);
 
-  it("orders objects by the `order` of their key, ordered-first", () => {
+  it("orders objects by the `order` of their key, ordered-first; absent keys in input order", () => {
     expect(
       ids(orderArrayByArrayWithKey(k(["x", "b", "a", "y"]), ["a", "b", "c"], "id"))
-    ).toEqual(["a", "b", "y", "x"]);
+    ).toEqual(["a", "b", "x", "y"]);
   });
   it("orders a fully-ordered set exactly", () => {
     expect(
@@ -465,17 +466,18 @@ describe("orderArrayByArrayWithKey", () => {
     expect(orderArrayByArrayWithKey([], ["a"], "id")).toEqual([]);
     expect(() => orderArrayByArrayWithKey(k(["a"]), [], "id")).not.toThrow();
   });
-  it("mutates IN PLACE and returns the same reference (latent defect, locked)", () => {
+  it("does NOT mutate the input and returns a NEW reference (corrected)", () => {
     const input = k(["b", "a"]);
     const out = orderArrayByArrayWithKey(input, ["a", "b"], "id");
-    expect(out).toBe(input);
-    expect(ids(input)).toEqual(["a", "b"]);
+    expect(out).not.toBe(input);
+    expect(ids(input)).toEqual(["b", "a"]); // input untouched
+    expect(ids(out)).toEqual(["a", "b"]);
   });
-  it("emits absent-key items in reversed input order", () => {
+  it("emits absent-key items in input order (stable tie-break on equal-rank)", () => {
     expect(ids(orderArrayByArrayWithKey(k(["b", "a", "c"]), [], "id"))).toEqual([
-      "c",
-      "a",
       "b",
+      "a",
+      "c",
     ]);
   });
 

@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+
+Implemented per the recommended Option B (stable, reflexive, non-mutating
+comparators) plus the folded-in `uniqCaseInsensitive` first-seen-casing fix.
 
 Awaiting an owner decision. Tracked by bd `Notidian-e8e` (folds in `Notidian-9v6`);
 queued in [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR
