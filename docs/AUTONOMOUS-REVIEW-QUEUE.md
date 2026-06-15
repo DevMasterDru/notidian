@@ -342,6 +342,40 @@ queueing more and pivots to safe work — so this list stays reviewable.
 - **Bead status:** Notidian-e8e stays **OPEN** (folds in Notidian-9v6), awaiting
   your direction.
 
+### Notidian-fs6 — `jsonWithUnquoted` frame-payload parsing: wrapper convention + tolerant tokenizer
+
+- **ADR:** [docs/adr/0026-jsonwithunquoted-frame-payload-parsing.md](adr/0026-jsonwithunquoted-frame-payload-parsing.md) (Status: **Proposed**).
+- **Why a decision, not a build:** `src/shared/utils/jsonWithUnquoted.ts` is the
+  boundary between **stored frame-action text and executable code** — `ButtonSubmenu`
+  serializes the action into `node.actions[propName]`, and `runner.ts` later compiles
+  that string via `new Function` with `$api` (actions are user-triggered, so they keep
+  `$api`). So "parse better" is also "accept more executable payloads" on the
+  **Notidian-vke frame-execution trust boundary** (ADR 0018). Both open items were
+  deferred from Notidian-d4u for exactly this reason and pinned as characterization in
+  `jsonWithUnquoted.test.ts`.
+- **The one decision you need to make:** approve the recommended pair —
+  **(1)** make the **OBJECT-returning wrapper convention canonical** and normalize the
+  double-quote-wrapped case (`"{...}"`) to it, so a wrapped payload returns a
+  deterministic object regardless of quote style (every real caller wants the object;
+  a returned string is dropped as "not a JSON object"). This is offline-provable and
+  needs **no flag** — it flips the d4u characterization assertion from STRING to
+  OBJECT. **(2)** implement the **tolerant tokenizer** (replacing the lossy regex
+  `/(\w+)\s*:\s*([^,}\]]+)/` that silently degrades to `{}` on embedded `,`/`}`/`]`)
+  as a later implement-bead **gated behind the existing default-OFF
+  `hardenFrameExecution` flag** — regex behavior preserved when OFF — so it rides the
+  *same* vke flag + live-verify and adds **no new runtime flag**. Ruled out:
+  string-canonical convention (loses real payloads); a dedicated `tolerantFrameParser`
+  flag (breaches the review-queue flag-cap, splits one trust decision into two); an
+  unconditional always-on tokenizer (widens the executable-payload set with no owner
+  opt-in); a JSON5/relaxed-JSON dependency (maximally widens the accepted shape +
+  supply-chain surface on a security sink).
+- **No build / no spike shipped.** Per the bead, the parser code is untouched and
+  **no new runtime flag was added** (the flag-cap is already at its working limit). A
+  throwaway spike can't de-risk a semantics call (the wrapper convention is a contract,
+  not a measurement) and the tokenizer's whole risk is the vke boundary it must
+  live-verify under the existing flag anyway.
+- **Bead status:** Notidian-fs6 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
