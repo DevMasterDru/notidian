@@ -73,6 +73,7 @@ export const parseSpaceMetadata = (metadata: Record<string, any>, settings: Make
       defaultColor: ensureString(metadata.defaultColor),
       readMode: ensureBoolean(metadata.readMode),
       fullWidth: ensureBoolean(metadata.fullWidth),
+      noteBodyCollapsed: ensureBoolean(metadata.noteBodyCollapsed),
     }
 }
 

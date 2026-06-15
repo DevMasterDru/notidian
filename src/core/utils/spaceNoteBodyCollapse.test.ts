@@ -4,6 +4,9 @@
 // shrink-to-fit and the React render are the live-verify part (see
 // docs/AUTONOMOUS-REVIEW-QUEUE.md); the collapse *decision logic* and the
 // persisted-state contract are proven here, DOM-free.
+import { spaceDefinitionFrontmatter } from "core/types/space";
+import { parseSpaceMetadata } from "core/superstate/utils/spaces";
+import { MakeMDSettings } from "shared/types/settings";
 import { SpaceDefinition } from "shared/types/spaceDef";
 import {
   isCollapsibleNoteBodyEnabled,
@@ -125,5 +128,53 @@ describe("persistence roundtrip — toggle -> store -> resolve (Notidian-8sl)", 
       readMode: true,
       noteBodyCollapsed: true,
     });
+  });
+});
+
+describe("definition disk round-trip — serialize -> parse over the REAL write/read path (Notidian-8sl)", () => {
+  // Exercises the actual on-disk allowlist (spaceDefinitionFrontmatter, the
+  // serializer saveSpace writes to the def frontmatter) paired with the actual
+  // read parser (parseSpaceMetadata). The earlier in-memory Store test could
+  // not catch the original defect: noteBodyCollapsed was missing from BOTH the
+  // write allowlist and the parser, so it was silently dropped on disk and
+  // never reloaded. This test fails if either side drops the field again.
+  const settings = {} as MakeMDSettings;
+  const roundTrip = (def: SpaceDefinition): SpaceDefinition =>
+    parseSpaceMetadata(spaceDefinitionFrontmatter(def), settings);
+
+  it("a collapsed space survives serialize -> frontmatter -> parse", () => {
+    expect(
+      resolveNoteBodyCollapsed(roundTrip({ noteBodyCollapsed: true }))
+    ).toBe(true);
+  });
+
+  it("an expanded space survives the round-trip as expanded", () => {
+    expect(
+      resolveNoteBodyCollapsed(roundTrip({ noteBodyCollapsed: false }))
+    ).toBe(false);
+    // A space that never toggled (no key) also resolves to expanded.
+    expect(resolveNoteBodyCollapsed(roundTrip({}))).toBe(false);
+  });
+
+  it("noteBodyCollapsed is in the write allowlist (regression guard)", () => {
+    // The exact gap the reviewer flagged: the key must be a serialized property,
+    // not silently dropped. Object.keys proves it is emitted, not just falsy.
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        spaceDefinitionFrontmatter({ noteBodyCollapsed: true }),
+        "noteBodyCollapsed"
+      )
+    ).toBe(true);
+  });
+
+  it("round-trips collapse alongside other durable view-state fields", () => {
+    const parsed = roundTrip({
+      fullWidth: true,
+      readMode: true,
+      noteBodyCollapsed: true,
+    });
+    expect(parsed.fullWidth).toBe(true);
+    expect(parsed.readMode).toBe(true);
+    expect(parsed.noteBodyCollapsed).toBe(true);
   });
 });

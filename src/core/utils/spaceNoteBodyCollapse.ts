@@ -18,6 +18,12 @@
 // not row data. Its correct home is the space metadata (SpaceDefinition), saved
 // via saveSpaceMetadataValue(superstate, path, "noteBodyCollapsed", v) — there is
 // NO durable-MDB ownership and therefore NO `source: "notidian"` requirement.
+//
+// DURABILITY: the value is written to the canonical space-definition frontmatter
+// (via spaceDefinitionFrontmatter, the single serializer saveSpace uses) and read
+// back by parseSpaceMetadata, so it survives reload — not just in-memory. An
+// earlier revision dropped it from both the write allowlist and the parser; the
+// real serialize->parse round-trip is now covered in the test file.
 
 import { SpaceDefinition } from "shared/types/spaceDef";
 
