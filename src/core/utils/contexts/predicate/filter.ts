@@ -171,6 +171,31 @@ export const isSameDayAsToday: FilterFunction = (value: string) : boolean => {
   return inputDate.getMonth() === currentDate.getMonth() && inputDate.getDate() === currentDate.getDate();
 }
 
+// FAIL-OPEN CONTRACT (ADR 0034, ratified — RECOMMENDED Option A).
+// The per-row filter dispatcher returns `true` (row stays VISIBLE) whenever it
+// cannot interpret the predicate: a null `col`, a null `filter`, a missing
+// `filter.fn`, or an `fn` that is not a key in `filterFnTypes`. Only a KNOWN
+// operator runs and can narrow the row set; an UNREADABLE constraint degrades to
+// a no-op rather than hiding data.
+//
+// Why fail-open (not fail-closed) for an *unknown operator*: this is a
+// single-user vault. Hiding the owner's own rows on an unrecognizable operator
+// is the strictly worse failure mode — the user cannot tell "correctly filtered
+// out" from "my notes vanished" — and it is forward-incompatible with a newer
+// schema that emits an operator this build does not yet know. (Contrast ADR 0032:
+// a malformed *value* inside a *known* date filter fails CLOSED, because there
+// the constraint's intent is real and a garbage value must not silently satisfy
+// it. Operator-level unknown != value-level malformed — they resolve oppositely
+// by design.)
+//
+// This is the DEFENSIVE BACKSTOP, not the primary guard: `validatePredicate`
+// (predicate.tsx, via `cleanPredicateType`) already STRIPS unknown fns at
+// write/load time and now warns once when it does so. Every production call site
+// also fails open of its own accord (`col ? … : true`, `reduce(…, true)`), so
+// keeping the dispatcher fail-open is consistent end-to-end. The three
+// characterization assertions in filter.test.ts (unknown fn / missing fn / null
+// filter all return true) pin this contract; flipping them is a deliberate,
+// reviewed decision, not an accident.
 export const filterReturnForCol = (
   col: SpaceTableColumn,
   filter: Filter,
@@ -180,7 +205,7 @@ export const filterReturnForCol = (
   if (!col) return true;
 
   const filterType = filterFnTypes[filter?.fn];
-  let result = true;
+  let result = true; // ADR 0034 fail-open default: visible until a KNOWN fn narrows.
   if (filterType && filterType.fn) {
     const value = (filter.fType == 'property') ? properties[filter.value] : filter.value;
     const rowValue = col.type == 'flex' ? parseFlexValue(row[filter.field])?.value : row[filter.field];

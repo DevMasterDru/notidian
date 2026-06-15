@@ -1,5 +1,8 @@
 import { defaultPredicate } from "shared/schemas/predicate";
-import { validatePredicate } from "./predicate";
+import { cleanPredicateType, validatePredicate } from "./predicate";
+import { filterFnTypes } from "./filterFns/filterFnTypes";
+import { sortFnTypes } from "./sort";
+import { Filter } from "shared/types/predicate";
 
 describe("validatePredicate", () => {
   it("preserves a valid frozen column count", () => {
@@ -58,5 +61,99 @@ describe("validatePredicate", () => {
     const result = validatePredicate(defaultPredicate, defaultPredicate);
     expect(result.chart).toBeUndefined();
     expect(result.subItems).toBeUndefined();
+  });
+
+  it("strips a filter with an unknown fn (validate-loud primary guard, ADR 0034)", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          filters: [
+            { fn: "is", field: "Title", value: "x" } as Filter,
+            { fn: "noSuchFn", field: "Title", value: "x" } as Filter,
+          ],
+        },
+        defaultPredicate
+      );
+      // The unknown fn never survives to become an active filter — so it never
+      // reaches the fail-open dispatcher in normal operation.
+      expect(result.filters.map((f) => f.fn)).toEqual(["is"]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      // The warning names the operator that was dropped (validate-loud, C-lite).
+      expect(warn.mock.calls[0][0]).toContain("noSuchFn");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+// ADR 0034 "C-lite": cleanPredicateType is the write/load-time primary guard
+// that strips unknown operators before they reach the fail-open per-row
+// dispatcher. It must do so LOUDLY (once, off the hot path) but WITHOUT changing
+// which entries survive — the warning is observability only.
+describe("cleanPredicateType (validate-loud, ADR 0034)", () => {
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it("does NOT warn when every fn is known", () => {
+    const filters = [
+      { fn: "is", field: "Title", value: "x" } as Filter,
+      { fn: "include", field: "Title", value: "y" } as Filter,
+    ];
+    const kept = cleanPredicateType(filters, filterFnTypes) as Filter[];
+    expect(kept).toHaveLength(2);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("drops unknown fns and warns exactly once, naming each dropped operator", () => {
+    const filters = [
+      { fn: "is", field: "Title", value: "x" } as Filter,
+      { fn: "bogusOne", field: "Title", value: "x" } as Filter,
+      { fn: "bogusTwo", field: "Title", value: "x" } as Filter,
+    ];
+    const kept = cleanPredicateType(filters, filterFnTypes) as Filter[];
+    expect(kept.map((f) => f.fn)).toEqual(["is"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const msg = warn.mock.calls[0][0] as string;
+    expect(msg).toContain("bogusOne");
+    expect(msg).toContain("bogusTwo");
+    expect(msg).toContain("ADR 0034");
+  });
+
+  it("de-duplicates repeated unknown fns in the warning (single message)", () => {
+    const filters = [
+      { fn: "dupBogus", field: "A", value: "x" } as Filter,
+      { fn: "dupBogus", field: "B", value: "y" } as Filter,
+    ];
+    cleanPredicateType(filters, filterFnTypes);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const msg = warn.mock.calls[0][0] as string;
+    // "dupBogus" appears once in the de-duplicated list, plus prose; assert the
+    // list portion does not repeat it.
+    expect(msg.split("dupBogus").length - 1).toBe(1);
+  });
+
+  it("labels a missing fn as (missing) rather than 'undefined'", () => {
+    const filters = [{ field: "Title", value: "x" } as Filter];
+    cleanPredicateType(filters, filterFnTypes);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("(missing)");
+  });
+
+  it("applies the same validate-loud guard to sorts", () => {
+    const sorts = [
+      { fn: "alphabetical", field: "Title" } as any,
+      { fn: "noSuchSort", field: "Title" } as any,
+    ];
+    const kept = cleanPredicateType(sorts, sortFnTypes);
+    expect(kept).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("noSuchSort");
   });
 });

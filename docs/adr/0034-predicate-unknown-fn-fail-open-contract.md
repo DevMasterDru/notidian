@@ -8,9 +8,9 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-37m`; queued in
+Tracked by bd `Notidian-37m`; queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of changing the dispatcher blind**. `filterReturnForCol` is on
 the **table-view row-visibility path**, its current fail-open output is

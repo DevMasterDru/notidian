@@ -539,6 +539,15 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
   // ----------------------------------------------------------------------- //
   // filterReturnForCol — the dispatcher: null col -> true; unknown fn ->     //
   // true (passthrough); property-vs-literal fType branch; flex parseFlexValue //
+  //                                                                          //
+  // FAIL-OPEN CONTRACT (ADR 0034, ratified Option A). The three cases below   //
+  // (unknown fn / missing fn / null filter -> true) are NOT latent defects;   //
+  // they are the documented, intended contract: an UNREADABLE constraint      //
+  // degrades to a no-op and keeps the owner's rows visible, rather than       //
+  // hiding data the user cannot distinguish from loss. They are pinned as     //
+  // characterization so any flip is a deliberate, reviewed decision. The      //
+  // primary guard (cleanPredicateType) strips unknown fns at write/load time  //
+  // and warns once (validate-loud); this dispatcher is the defensive backstop.//
   // ----------------------------------------------------------------------- //
   describe("filterReturnForCol", () => {
     const textCol = { name: "Title", schemaId: "s", type: "text" } as any;
@@ -553,13 +562,13 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
       ).toBe(true);
     });
 
-    it("DEFECT-PIN: an unknown filter fn passes through as visible (returns true)", () => {
+    it("CONTRACT (ADR 0034): an unknown filter fn fails open -> visible (returns true)", () => {
       expect(
         filterReturnForCol(textCol, { fn: "noSuchFn", field: "Title", value: "x" } as any, { Title: "abc" } as any, {})
       ).toBe(true);
     });
 
-    it("DEFECT-PIN: a missing/undefined fn passes through as visible (returns true)", () => {
+    it("CONTRACT (ADR 0034): a missing/undefined fn fails open -> visible (returns true)", () => {
       expect(
         filterReturnForCol(textCol, { field: "Title", value: "x" } as any, { Title: "abc" } as any, {})
       ).toBe(true);
@@ -618,7 +627,7 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
       ).toBe(false);
     });
 
-    it("DEFECT-PIN: filter.fn undefined keyed against filterFnTypes is a passthrough, not a throw", () => {
+    it("CONTRACT (ADR 0034): filter.fn undefined keyed against filterFnTypes fails open, not a throw", () => {
       // filter is null -> filter?.fn is undefined -> filterType undefined -> result stays true
       expect(filterReturnForCol(textCol, null as any, { Title: "abc" } as any, {})).toBe(true);
     });
@@ -658,6 +667,12 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
  *     dateAfter and dateBefore (and to isSameDay when the filter is bad).
  *  5. NaN-producing numeric/length inputs silently evaluate to false rather
  *     than surfacing an error or being treated as no-op filters.
- *  6. filterReturnForCol returns true (row visible) for unknown/undefined fns,
- *     so a corrupt predicate silently disables filtering rather than failing.
+ *  6. [RESOLVED in Notidian-37m / ADR 0034] filterReturnForCol returns true
+ *     (row visible) for unknown/undefined fns. This is now the RATIFIED fail-open
+ *     contract, not a defect: an unreadable operator-level constraint must not
+ *     hide the owner's own rows (a single-user vault cannot tell "filtered out"
+ *     from "lost"), and it stays forward-compatible with newer-schema operators.
+ *     No longer "silent": cleanPredicateType (predicate.tsx) is the write/load
+ *     primary guard that strips unknown fns AND warns once (validate-loud), so the
+ *     dispatcher fail-open is the documented defensive backstop. See ADR 0034.
  */

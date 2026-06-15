@@ -31,11 +31,43 @@ export const predicateFnsForType = (
   return fnTypes;
 };
 
+// Validate-loud companion to the dispatcher's fail-open contract (ADR 0034,
+// "C-lite"). `cleanPredicateType` strips any filter/sort whose `fn` is not a
+// known operator (the write/load-time primary guard that keeps unknown fns from
+// ever reaching the fail-open `filterReturnForCol` dispatcher). Previously it
+// dropped them SILENTLY, so a corrupt/forward-version predicate would lose a
+// constraint with no signal. We now surface the dropped operator(s) ONCE here —
+// at validation time, off the per-row render hot path — instead of either
+// silently dropping them or warning per-row (the latter would spam thousands of
+// identical logs and cost work on the hot path; ADR 0034 Option C is ruled out
+// for the per-row pass for exactly that reason). The return value is unchanged:
+// this only adds an observable, deduplicated dev-console warning; it does not
+// alter which filters/sorts survive validation, so visibility is untouched.
 export const cleanPredicateType = (
   type: Sort[] | Filter[],
   definedTypes: FilterFunctionType | SortFunctionType
 ) => {
-  return type.filter((f) => Object.keys(definedTypes).find((g) => g == f.fn));
+  const knownFns = Object.keys(definedTypes);
+  const kept = type.filter((f) => knownFns.some((g) => g == f.fn));
+  if (kept.length !== type.length) {
+    // Name the unrecognized operators that were dropped, de-duplicated, once.
+    const droppedFns = Array.from(
+      new Set(
+        type
+          .filter((f) => !knownFns.some((g) => g == f.fn))
+          .map((f) => (f.fn == null ? "(missing)" : String(f.fn)))
+      )
+    );
+    console.warn(
+      `[Notidian] validatePredicate dropped ${
+        droppedFns.length
+      } unrecognized predicate operator(s): ${droppedFns.join(
+        ", "
+      )}. The filter/sort is ignored (no-op) rather than applied. ` +
+        `If a constraint disappeared, this is why. (ADR 0034)`
+    );
+  }
+  return kept;
 };
 
 export const validatePredicate = (
