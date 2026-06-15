@@ -21,6 +21,31 @@ export const valueContainsLink = (link: string, value: string) => {
     return serializeMultiString(parseMultiString(value).filter(f => parseLinkString(f) != link))
   }
 
+  // Build the frontmatter-shaped payload for a single (link/context) column from
+  // the rewritten row value.
+  //
+  // The row value produced by remove/replaceLinkInValue is ALWAYS a
+  // serializeMultiString JSON array (the durable multi-string form). For a
+  // `-multi` column parseMDBStringValue(frontmatter=true) maps over that array
+  // and wraps each entry -> a clean wikilink array, which is correct.
+  //
+  // For a SINGULAR link/context column, however, parseMDBStringValue does NOT
+  // take the `-multi` branch: it wraps the WHOLE string in `[[...]]`. Feeding it
+  // the JSON-array string yields corrupt double-wrapped YAML, e.g.
+  // `[[["New.md","Other.md"]]]`. A singular column holds one link, so we must
+  // collapse the rewritten array to its sole entry's bare identity and let
+  // parseMDBStringValue wrap that once -> `[[New.md]]`. (Defensive: if a singular
+  // column somehow holds >1 value, keep the first — a singular frontmatter link
+  // cannot represent a list.)
+  const frontmatterLinkPayload = (type: string, newValue: string) => {
+    if (type.includes("-multi")) {
+      return parseMDBStringValue(type, newValue, true);
+    }
+    const entries = parseMultiString(newValue);
+    const single = entries.length > 0 ? parseLinkString(entries[0]) : "";
+    return parseMDBStringValue(type, single, true);
+  }
+
   export const linkColumns = (cols: SpaceProperty[]) => {
     return cols.filter(f => f.type.startsWith('link') || f.type.startsWith('context'))
   }
@@ -37,7 +62,7 @@ export const valueContainsLink = (link: string, value: string) => {
         // Notidian-owned (context/relation) columns update the row delta so the
         // caller can persist them through context-table persistence instead.
         if (shouldWriteAuthorityValueToFrontmatter(c)) {
-          manager.saveProperties(row[PathPropertyName], {[c.name]: parseMDBStringValue(c.type, newValue, true)})
+          manager.saveProperties(row[PathPropertyName], {[c.name]: frontmatterLinkPayload(c.type, newValue)})
         }
 
       return {...p, [c.name]: newValue}
@@ -58,7 +83,7 @@ export const valueContainsLink = (link: string, value: string) => {
         // Notidian-owned (context/relation) columns update the row delta so the
         // caller can persist them through context-table persistence instead.
         if (shouldWriteAuthorityValueToFrontmatter(c)) {
-          manager.saveProperties(row[PathPropertyName], {[c.name]: parseMDBStringValue(c.type, newValue, true)})
+          manager.saveProperties(row[PathPropertyName], {[c.name]: frontmatterLinkPayload(c.type, newValue)})
         }
 
       return {...p, [c.name]: newValue}
@@ -67,4 +92,3 @@ export const valueContainsLink = (link: string, value: string) => {
     }, {})
     return {...row, ...deltaRow}
   }
-  

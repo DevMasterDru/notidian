@@ -317,22 +317,46 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
     expect(out.fmNoMatch).toBe(multi("[[Unrelated.md]]"));
   });
 
-  it("frontmatter saveProperties payload is parsed via parseMDBStringValue(frontmatter=true)", () => {
-    // The file write must carry the frontmatter-shaped value, not the raw row
-    // string. For a link-type column parseMDBStringValue wraps in [[...]].
+  it("frontmatter payload for a SINGULAR link column is a single clean wikilink (not the JSON array)", () => {
+    // Regression guard for the singular-`link` frontmatter corruption: the row
+    // value carried by remove/replaceLinkInValue is ALWAYS a serializeMultiString
+    // JSON array, but a SINGULAR link column's frontmatter form is one wikilink.
+    // The write must collapse to `[[Renamed.md]]`, NOT the double-wrapped
+    // `[[["Renamed.md", ...]]]` JSON-array-in-brackets that parseMDBStringValue
+    // produces when handed the raw array string. Mirrors production callers
+    // (context.ts renameLinkInContexts), which pass a BARE newPath as newLink.
     const { manager, calls } = makeSpyManager();
     const row: DBRow = {
       [PathPropertyName]: PATH,
-      fmLink: multi("[[Target.md]]", "[[Other.md]]"),
+      // A singular link column holds a single bare-path value in the row.
+      fmLink: "Target.md",
     };
-    renameLinksInRow(manager, row, "Target.md", "[[Renamed.md]]", [
+    renameLinksInRow(manager, row, "Target.md", "Renamed.md", [
       fmLinkCol("fmLink"),
     ]);
     expect(calls).toHaveLength(1);
-    // link type, value still a JSON multistring -> frontmatter wrap [[ ... ]]
-    expect(calls[0].payload.fmLink).toBe(
-      `[[${serializeMultiString(["[[Renamed.md]]", "[[Other.md]]"])}]]`
-    );
+    // Single clean wikilink — exactly one [[...]] wrap, no JSON array, no
+    // double-wrapping. This is the value YAML actually needs for a link prop.
+    expect(calls[0].payload.fmLink).toBe("[[Renamed.md]]");
+    // Defensive: never the corrupt double-wrapped JSON-array shape.
+    expect(calls[0].payload.fmLink).not.toContain('["');
+    expect(calls[0].payload.fmLink).not.toBe("[[[Renamed.md]]]");
+  });
+
+  it("frontmatter payload for a link-MULTI column is a clean wikilink array", () => {
+    // The multi case takes parseMDBStringValue's `-multi` branch, wrapping each
+    // entry once -> a clean wikilink array. This matches the project's
+    // established-correct shape in codex-yaml-fidelity.audit.test.ts.
+    const { manager, calls } = makeSpyManager();
+    const row: DBRow = {
+      [PathPropertyName]: PATH,
+      related: multi("Target.md", "Other.md"),
+    };
+    renameLinksInRow(manager, row, "Target.md", "Renamed.md", [
+      fmLinkMultiCol("related"),
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].payload.related).toEqual(["[[Renamed.md]]", "[[Other.md]]"]);
   });
 
   it("NO-MATCH row: no saveProperties call, row returned unchanged", () => {
