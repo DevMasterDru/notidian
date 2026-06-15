@@ -527,6 +527,50 @@ queueing more and pivots to safe work — so this list stays reviewable.
   edit and flips the locked assertions.
 - **Bead status:** Notidian-od7 stays **OPEN**, awaiting your direction.
 
+### Notidian-5zc — `parseCsvToRecords`: duplicate CSV headers silently clobber (last-write-wins) on import
+
+- **ADR:** [docs/adr/0031-csv-import-duplicate-header-contract.md](adr/0031-csv-import-duplicate-header-contract.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the contract is **caller-dependent**. In
+  `parseCsvToRecords` (`tableCsv.ts:128`), `headers.forEach((h,i) => record[h] = cells[i] ?? '')`
+  keys each cell by header **NAME**, so two same-named columns collapse — the later one
+  overwrites the earlier in the per-row record (last-write-wins), the first column's data
+  is **silently dropped**, and `headers[]` still lists the duplicate (the returned shape
+  is internally inconsistent). Pinned as current behavior in `tableCsv.test.ts:462`
+  (`'a,a,b\n1,2,3'` -> `headers ['a','a','b']`, `rows [{a:'2',b:'3'}]` — `1` lost). This
+  is the Notion-parity import path (roadmap item 6); a real CSV with two same-named
+  columns loses a whole column on import with no warning.
+- **What the investigation found (grounds the recommendation):** the parser does not stand
+  alone. Its output feeds `planCsvImport` (`tableCsvImport.ts:54,77-81`) and
+  `executeCsvImport` (`tableCsvImportRuntime.ts:30,48`), **both name-keyed**, and the final
+  frontmatter sink is a name-keyed YAML map — so two truly-identical header names cannot
+  produce two distinct columns downstream **regardless of the parser**; the collision is
+  structural. The project already has the house answer: `uniqueNameFromString`
+  (`shared/utils/array.ts:23`, tested in `array.test.ts:268-313`) backs column/schema/
+  file-name dedup at ~10 sites; duplicate **import** columns are the same problem as
+  duplicate **created** columns. Notion's own CSV import auto-suffixes duplicate column
+  names rather than dropping data.
+- **Where uniquification belongs (the cross-layer call the bead asks for):** **in the
+  parser**. It is the only layer that sees the raw header row positionally before names
+  become keys; deduping there keeps `headers[]` and every record's keys 1:1 by
+  construction, and all consumers (preview + frontmatter materialization) inherit the fix
+  with no per-caller change. The caller's only job is preview honesty —
+  `CsvImportModal` already renders `planCsvImport(parseCsvToRecords(text))`, so the
+  suffixed name (`a1`) shows in the column-mapping preview **before any write**.
+- **The one decision you need to make:** pick **A / B / C** — **recommended B**:
+  auto-uniquify duplicate headers in the parser via `uniqueNameFromString` (`a,a,b` ->
+  `headers ['a','a1','b']`, `rows [{a:'1',a1:'2',b:'3'}]`). Lossless, consistent with the
+  existing column-dedup convention, matches Notion, keeps `headers[]`/row keys consistent,
+  no hard failure on a real-world CSV. Ruled out: **A** (reject/warn) — a hard failure on
+  input the user often can't easily fix, heavier than a mechanically-repairable problem
+  warrants; **C** (keep last-write-wins) — silent column loss on a data-import path, the
+  one contract that gives the user no signal at all.
+- **No build / no spike shipped.** The fix is a **pure parser function**, fully
+  offline-provable (no vault read), so a default-OFF flag adds nothing — the only gate is
+  the owner choosing repair (B) vs reject (A) vs accept (C). On a pick, the implementing
+  session applies it and **deliberately flips** the pinned characterization at
+  `tableCsv.test.ts:462` (guarded by the existing `uniqueNameFromString` property net).
+- **Bead status:** Notidian-5zc stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
