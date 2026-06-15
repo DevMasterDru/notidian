@@ -1,24 +1,16 @@
 import MakeBasicsPlugin from "basics/basics";
 import React, { forwardRef, useEffect, useRef, useState } from "react";
 import i18n from "shared/i18n";
+// Single source of truth for path->display-name reduction. The previous local
+// copy was a verbatim clone of the PRE-FIX pathToString and carried the
+// dotted-parent + extensionless-leaf substring arg-swap defect (Notidian-uuco,
+// fixed canonically in commit 27a3a1b): the slash branch stripped an
+// "extension" whenever ANY "." existed in the path, so pathToString("a.b/c")
+// called substring(start>end), which String.substring SWAPS, leaking a
+// "/"-bearing garbage display name (".b/"). Importing the canonical guarded
+// version kills the duplicate and the defect together (Notidian-eakd).
+import { pathToString } from "utils/path";
 
-const removeLeadingSlash = (path: string) =>
-  path.charAt(0) == "/" ? path.substring(1) : path;
-
-const pathToString = (path: string) => {
-  if (path.lastIndexOf("/") != -1) {
-    if (path.lastIndexOf(".") != -1)
-      return removeLeadingSlash(
-        path.substring(path.lastIndexOf("/") + 1, path.lastIndexOf("."))
-      );
-    return path.substring(path.lastIndexOf("/") + 1);
-  }
-  if (path.lastIndexOf(".") != -1) {
-    return path.substring(0, path.lastIndexOf("."));
-  }
-
-  return path;
-};
 export interface NoteViewProps {
   plugin: MakeBasicsPlugin;
   source?: string;
