@@ -29,7 +29,12 @@ export const lengthEquals: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  return value.length == parseInt(filterValue);
+  // Nullish-guard the value like every sibling text predicate ((value ?? "")) so
+  // an empty cell measures as length 0 instead of throwing on value.length. NaN
+  // contract: a non-numeric filterValue parses to NaN and length == NaN is always
+  // false, so a non-numeric operand makes every length fail (fail-closed) — mirrors
+  // the NaN convention documented on lessThan/greaterThan.
+  return (value ?? "").length == parseInt(filterValue);
 }
 
 export const listEquals: FilterFunction = (

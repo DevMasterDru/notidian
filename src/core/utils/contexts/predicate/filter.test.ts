@@ -89,8 +89,8 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
   });
 
   // ----------------------------------------------------------------------- //
-  // lengthEquals — derefs value.length with NO nullish guard, and compares   //
-  // with `==` against parseInt(filterValue).                                 //
+  // lengthEquals — guards value via (value ?? "") like every sibling text    //
+  // predicate, and compares with `==` against parseInt(filterValue).         //
   // ----------------------------------------------------------------------- //
   describe("lengthEquals", () => {
     it("matches when string length equals the parsed integer", () => {
@@ -104,14 +104,30 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
       expect(lengthEquals("abcd", "4.9")).toBe(true); // parseInt('4.9') -> 4
     });
 
-    it("DEFECT-PIN: NaN filterValue makes every length fail (length == NaN is false)", () => {
+    it("NaN filterValue makes every length fail (length == NaN is false — fail-closed)", () => {
+      // parseInt('notanumber') / parseInt('') -> NaN, and `length == NaN` is
+      // always false, so a non-numeric filterValue makes every length fail. This
+      // is the intended fail-closed contract (Notidian-0lo), mirroring the NaN
+      // convention on lessThan/greaterThan.
       expect(lengthEquals("abc", "notanumber")).toBe(false);
       expect(lengthEquals("abc", "")).toBe(false);
+      // Even an empty/null value fails a non-numeric length filter (length 0 == NaN -> false).
+      expect(lengthEquals("", "notanumber")).toBe(false);
+      expect(lengthEquals(null as any, "notanumber")).toBe(false);
     });
 
-    it("DEFECT-PIN: null/undefined value throws (no nullish guard on value.length)", () => {
-      expect(() => lengthEquals(null as any, "0")).toThrow(TypeError);
-      expect(() => lengthEquals(undefined as any, "0")).toThrow(TypeError);
+    it("treats null/undefined value as length 0 — no throw (Notidian-0lo nullish guard)", () => {
+      // Previously value.length threw a TypeError on an empty cell; the (value ??
+      // "") guard now measures null/undefined/"" as length 0, like every sibling
+      // text predicate, so the table-view filter pass survives an empty cell.
+      expect(() => lengthEquals(null as any, "0")).not.toThrow();
+      expect(() => lengthEquals(undefined as any, "0")).not.toThrow();
+      expect(lengthEquals(null as any, "0")).toBe(true);
+      expect(lengthEquals(undefined as any, "0")).toBe(true);
+      expect(lengthEquals("", "0")).toBe(true);
+      // A null/undefined value is length 0, so a non-zero length filter fails.
+      expect(lengthEquals(null as any, "3")).toBe(false);
+      expect(lengthEquals(undefined as any, "1")).toBe(false);
     });
   });
 
@@ -594,8 +610,12 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
 /*
  * FOLLOW-UP DEFECTS pinned by this net (candidates for separate fix beads;
  * src deliberately unchanged in Notidian-3fs):
- *  1. lengthEquals throws TypeError on null/undefined value (no nullish guard
- *     on value.length) — every other text predicate guards with `?? ""`.
+ *  1. [FIXED in Notidian-0lo] lengthEquals threw TypeError on null/undefined
+ *     value (no nullish guard on value.length); it now guards with `(value ??
+ *     "")` like every other text predicate, so an empty cell measures as length
+ *     0 instead of crashing the filter pass. NaN contract preserved: a
+ *     non-numeric filterValue parses to NaN and `length == NaN` is always false,
+ *     so every length fails (fail-closed).
  *  2. [FIXED in Notidian-a7k] greaterThan(parseFloat) vs lessThan(parseInt)
  *     asymmetry: lessThan was standardized on parseFloat so decimals and radix
  *     prefixes are now interpreted identically by both operators and by the
