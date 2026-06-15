@@ -237,7 +237,13 @@ describe("parseProperty (type coercion)", () => {
   // --- date ----------------------------------------------------------------
   describe("date", () => {
     it("formats a Date instance to yyyy-MM-dd", () => {
-      expect(parseProperty("d", new Date("2024-03-05T12:00:00Z"), "date")).toBe(
+      // NOTE: parseProperty -> date-fns format() renders in the runner's LOCAL
+      // timezone. Construct the Date as LOCAL midnight (new Date(year, monthIndex,
+      // day); monthIndex is 0-based, so 2 = March) so the expected calendar day
+      // cannot drift across timezones. A UTC instant like
+      // new Date("2024-03-05T12:00:00Z") would roll to 2024-03-06 under UTC+12
+      // and east (e.g. Pacific/Auckland), making this assertion TZ-fragile.
+      expect(parseProperty("d", new Date(2024, 2, 5), "date")).toBe(
         "2024-03-05"
       );
     });
