@@ -153,10 +153,22 @@ const HTML_URL_ATTRS = new Set([
 
 // A URL whose scheme can execute script or smuggle markup. Unlike an icon, rendered
 // markdown legitimately links to / embeds remote http(s) resources, so those are
-// allowed; only executable/markup schemes are blocked. Whitespace is stripped first
-// so `java\tscript:` cannot slip past (the parser has already decoded entities).
+// allowed; only executable/markup schemes are blocked.
+//
+// Normalisation mirrors (a strict superset of) what the WHATWG URL parser does
+// before it reads the scheme, so an attacker cannot hide a dangerous scheme behind
+// characters the browser discards at navigation time. The parser strips ALL leading
+// (and trailing) C0 control chars (U+0000-U+001F) or space, and every ASCII tab/
+// newline throughout, BEFORE reading the scheme: so `\u0001javascript:` parses (and
+// executes) as plain `javascript:`. The old `\s`-only strip was a real bypass here
+// because `\s` matches \t\n\v\f\r, space, NBSP and Unicode whitespace but NOT the
+// C0 controls \u0001-\u0008 / \u000e-\u001f. We strip every whitespace char (\s) AND
+// the whole C0 control range globally -- a superset that can only over-block (an
+// interior control char breaks a real scheme, so dropping it is harmless), never
+// under-block. Entities were already decoded by the HTML parser (Notidian-b81).
 const hasDangerousUrlScheme = (raw: string): boolean => {
-  const value = (raw ?? "").replace(/\s+/g, "").toLowerCase();
+  // eslint-disable-next-line no-control-regex
+  const value = (raw ?? "").replace(/[\s\u0000-\u001f]+/g, "").toLowerCase();
   if (value.startsWith("javascript:") || value.startsWith("vbscript:")) {
     return true;
   }
