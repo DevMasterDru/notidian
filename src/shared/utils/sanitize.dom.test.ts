@@ -568,7 +568,7 @@ describe("re-injection fixed point (Notidian-b81)", () => {
         Array.from(el.attributes).forEach((attr) => {
           expect(attr.name.toLowerCase().startsWith("on")).toBe(false);
           const v = attr.value
-            .replace(/[\s -]+/g, "")
+            .replace(/[\s\x00-\x1f]+/g, "")
             .toLowerCase();
           expect(v.startsWith("javascript:")).toBe(false);
           expect(v.startsWith("vbscript:")).toBe(false);
