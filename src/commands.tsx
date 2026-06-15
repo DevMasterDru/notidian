@@ -1,4 +1,3 @@
-import { moveSpaceFiles } from "adapters/obsidian/filesystem/spaceFileOps";
 import { openPathFixer } from "adapters/obsidian/fileSystemPathFixer";
 import { FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidian/ui/explorer/ContextExplorerLeafView";
 import { showWarningsModal } from "core/react/components/Navigator/SyncWarnings";
@@ -7,7 +6,6 @@ import {
   newSpaceModal,
 } from "core/react/components/UI/Menus/navigator/showSpaceAddMenu";
 import { HiddenPaths } from "core/react/components/UI/Modals/HiddenFiles";
-import { openInputModal } from "core/react/components/UI/Modals/InputModal";
 import { addPathToSpaceAtIndex } from "core/superstate/utils/spaces";
 import { eventTypes } from "core/types/types";
 import { isPhone } from "core/utils/ui/screen";
@@ -69,29 +67,10 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
       openPathFixer(plugin);
     },
   });
-  plugin.addCommand({
-    id: "move-space-folder",
-    name: i18n.commandPalette.moveSpaceDataFolder,
-    callback: () => {
-      const win = windowFromDocument(
-        plugin.app.workspace.getLeaf()?.containerEl.ownerDocument
-      );
-      openInputModal(
-        plugin.superstate,
-        i18n.commandPalette.moveSpaceDataFolder,
-        plugin.superstate.settings.spaceSubFolder,
-        (path) => {
-          moveSpaceFiles(
-            plugin,
-            plugin.superstate.settings.spaceSubFolder,
-            path
-          );
-        },
-        i18n.buttons.move,
-        win
-      );
-    },
-  });
+  // The move-space-folder command was removed to lock runtime storage to
+  // `.notidian` (ADR 0017/0018; bd Notidian-409). spaceSubFolder is normalized
+  // to the plugin storage root on load (main.ts), so allowing it to be relocated
+  // off `.notidian` was governance debt with no Notidian-only use case.
   if (plugin.superstate.settings.spacesEnabled) {
     plugin.addCommand({
       id: "mk-new-space",

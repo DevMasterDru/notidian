@@ -83,6 +83,11 @@ export interface MakeMDSettings {
   cacheIndex: boolean;
   enhancedLogs: boolean;
   basics: boolean;
+  // Off-thesis Make.md-era .mkit installer (imports untrusted kits: frame defs,
+  // context MDB tables, spaces). Disabled by default — it is an untrusted-input
+  // surface feeding the frame execution sink and unused in a Notidian-only,
+  // folder-backed engine (ADR 0018; bd Notidian-409).
+  mkitInstallerEnabled: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

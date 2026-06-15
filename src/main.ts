@@ -262,9 +262,13 @@ loadViews () {
     this.registerView(HTML_FILE_VIEWER_TYPE, (leaf) => {
       return new HTMLFileViewer(leaf, this);
     });
-    this.registerView(MKIT_FILE_VIEWER_TYPE, (leaf) => {
-      return new MKitFileViewer(leaf, this);
-    });
+    // .mkit installer disabled by default — untrusted-kit import surface, off
+    // the Notidian-only thesis (ADR 0018; bd Notidian-409).
+    if (this.superstate.settings.mkitInstallerEnabled) {
+      this.registerView(MKIT_FILE_VIEWER_TYPE, (leaf) => {
+        return new MKitFileViewer(leaf, this);
+      });
+    }
   }
 }
 
@@ -431,10 +435,12 @@ loadViews () {
       this.registerExtensions(["html", "htm"], HTML_FILE_VIEWER_TYPE);
       } catch (e) {
               }
-      try {
-      this.registerExtensions(["mkit"], MKIT_FILE_VIEWER_TYPE);
-      } catch (e) {
-              }
+      if (this.superstate.settings.mkitInstallerEnabled) {
+        try {
+        this.registerExtensions(["mkit"], MKIT_FILE_VIEWER_TYPE);
+        } catch (e) {
+                }
+      }
       this.app.workspace.onLayoutReady(async () => {
 
         if (this.superstate.settings.autoOpenFileContext) {

@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed — awaiting the product owner's direction (bd Notidian-409). The analysis
-and recommendation below are settled; the chosen option is not yet ratified.
+Accepted. The product owner delegated the decision; the recommended split below
+is ratified. The safe, build-verifiable steps landed immediately; the render-path
+sink hardening is tracked for live-verified implementation (see Outcome).
 
 ## Date
 
@@ -101,6 +102,40 @@ saved settings persist, so it does not silently break the current setup.
 - A frames trust boundary adds a trusted-source concept to the frame loader.
 - Tradeoff: a default-off gate on user frame code means a user who authored a
   dynamic custom frame must opt in to run it.
+
+## Outcome
+
+Landed now (safe, build-verifiable, no core-render-path risk):
+
+- **MKit/`.mkit` installer disabled by default** — new `mkitInstallerEnabled`
+  setting (default `false`) gates the `.mkit` view + extension registration
+  (`main.ts`). Closes the primary untrusted-frame *delivery* vector. The
+  space-template path (`kits.ts:26` → `installSpaceKit`) is deliberately
+  untouched (in-vault, trusted).
+- **`spaceSubFolder` locked** — the `move-space-folder` command was removed
+  (`commands.tsx`); storage is normalized to the plugin root on load, so it can
+  no longer be relocated off `.notidian`.
+
+Kept (no change):
+
+- **Frames runtime** — load-bearing for core view rendering; not removable.
+- **Basics/Flow editor** — a UX feature (inline flow editing) with no security
+  stake and uncertain usage; flipping its default is also complicated by the
+  legacy `makerMode`→`basics` derivation (`main.ts:664`). Left enabled pending
+  confirmation it is unused.
+
+Deferred to dedicated beads (NOT done autonomously — they change the core frame
+render path and need live vault verification, the same reason the ebz sweep
+deferred them):
+
+- **Frame-execution sink hardening** (bd Notidian-vke, P2): the `new Function`
+  trust boundary (default frames *require* code execution, so a blanket gate
+  breaks rendering — needs a trusted-source boundary or `$api`-out-of-prop-scope
+  design) and the `TextNodeView` frame-text sink (needs a DOM HTML *sanitizer*,
+  not `escapeHtml`, because `onBlur` reads `innerHTML` and the text carries
+  formatting).
+- **HTML export disable + staged removal** of the disabled subsystems
+  (bd Notidian-ala, P3).
 
 ## Implementation Notes (on ratification)
 

@@ -85,6 +85,7 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   skipFolderNames: [],
   enhancedLogs: false,
   basics: true,
+  mkitInstallerEnabled: false,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,
