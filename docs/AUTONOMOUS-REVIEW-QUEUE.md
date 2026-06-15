@@ -894,6 +894,70 @@ queueing more and pivots to safe work — so this list stays reviewable.
   you pick.
 - **Bead status:** Notidian-jko stays **OPEN**, awaiting your direction.
 
+### Notidian-drp — `AreaChartTransformer` throws on a missing x encoding (alone among the six transformers)
+
+- **ADR:** [docs/adr/0038-areachart-missing-x-encoding-contract.md](adr/0038-areachart-missing-x-encoding-contract.md)
+  (Proposed). Divergence discovered + **LOCKED as a `KNOWN DEFECT`**
+  characterization by the orchestrator net `Notidian-kxq`
+  (`AreaChartTransformer.test.ts`). Same Visualization subtree as ADR
+  0033/0035/0037.
+- **The defect (verified offline):** `AreaChartTransformer.transform([{a:1}],
+  cfg-with-no-x-encoding)` **THROWS** `TypeError: Cannot read properties of
+  undefined (reading 'type')` instead of returning the documented empty contract
+  `{data:[],series:[],xDomain:[],yExtent:[0,0],stacked:false}` (same for `x:[]`).
+  Root cause: with `config.encoding.x===undefined`, `xEncodings=[undefined]`, and
+  the **main-body temporal-fill block** dereferences `xEncodings[0].type`
+  **un-guarded** at `AreaChartTransformer.ts:154` — while its **own** sibling check
+  at `:108` is guarded (`xEncodings[0]?.type`) and all three per-branch helpers
+  guard correctly (`:240/:343/:461`). It is a single missing `?.`.
+- **Area alone diverges:** all **five** other transformers return the safe empty
+  contract for a missing-x encoding — **Bar** (early-return `{data:[],categories:[]}`,
+  `:119`), **Line** (its **architectural twin** — wraps the *same* temporal-fill
+  block in `if (xEncodings[0])` at `:86`, so a missing x just skips fill), **Radar**
+  (early-return, `:51`), **Pie** (early-return, `:27`), **Scatter** (default-field
+  fallback). Area is the only one that throws. The recommended repair is literally
+  "match your own twin's guard."
+- **What the owner actually sees (sharper than "throw vs empty"):** the throw does
+  **not** crash unhandled — `DataTransformationPipeline.transform` wraps the
+  dispatch in a try/catch (`:127-181`) and returns `{type:'area',data:null,error:…}`,
+  i.e. an **error-state render** (error string / no chart). The five siblings'
+  empty contract (`data:[]`) renders an **empty chart** (axes/frame, no series). And
+  it **is reachable**: `normalizeConfig` does **not** synthesize a missing x
+  (`:37` normalizes only if `encoding.x` exists), so an area chart configured
+  **before the user picks an X field** (a common authoring intermediate, or a saved
+  config whose x field was removed) hits the throw — where Bar/Line/Pie/Radar/Scatter
+  render an empty chart for that same half-configured state.
+- **Why a decision, not a blind fix:** the throw is **explicitly locked** as
+  `KNOWN DEFECT` characterization (two `toThrow(TypeError)` pins at
+  `AreaChartTransformer.test.ts:84/:90`), and the repair changes **owner-visible**
+  render output for a half-configured area chart (error message → empty frame).
+  `tsc`/`jest`/`build` prove the transform now returns the empty contract, but
+  *which presentation is correct* is a product call — so it is routed as a decision,
+  not a silent flip of a locked test (the house posture of ADR 0025/0030/0032/0033/0035).
+- **The one decision you need to make:** pick **A / B / C** — **recommended A**:
+  add the sibling-style early-return of the empty `AreaChartData` contract when
+  `!xEncodings[0]?.field` (mirroring the twin Line / Bar / Radar / Pie), so all six
+  transformers share one uniform missing-encoding contract and the render-path
+  crash is removed, then **flip the two locked `KNOWN DEFECT` `toThrow` assertions**
+  to expect the empty contract. Over **B** (keep the throw and make **all five**
+  siblings throw too — a loud-fail contract; large blast radius, inverts five
+  working contracts + their tests to match the one defect, turns every
+  half-configured chart into an error state) or **C** (keep as-is; document the
+  divergence + that the throw is caught into an error render).
+- **Ruled out:** blind autonomous adoption of A (empty-vs-throw is owner-visible
+  and the characterization deliberately pins the throw); a **default-OFF spike** is
+  **not warranted** — it is a 1-line guard on pure, offline-provable transform
+  logic with **no** security/authority/`innerHTML` sink, already contained by the
+  pipeline try/catch, so nothing a runtime flag de-risks that the test-flip + one
+  eyes-on chart check don't (the no-flag posture of ADR 0025/0030/0032/0033/0035).
+- **No build / no spike shipped.** `AreaChartTransformer.ts` and the locked
+  `AreaChartTransformer.test.ts` assertions are **untouched** until you pick. On a
+  pick of **A**, the implementing session adds the guard, flips the two locked
+  `toThrow` pins in the same commit (the other 16 characterization tests stay
+  green), and confirms with **one small eyes-on check** that a no-X-field area chart
+  renders empty (not an error) and a fully-configured one is unchanged.
+- **Bead status:** Notidian-drp stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
