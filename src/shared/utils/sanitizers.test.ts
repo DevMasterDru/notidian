@@ -634,3 +634,251 @@ describe("path sanitizers — shared invariants (property)", () => {
     expect(sanitizeFileName(cruft)).toBe("+$#^");
   });
 });
+
+// ===========================================================================
+// UNIVERSAL CROSS-SANITIZER PROPERTY NET (Notidian-yrx)
+// ---------------------------------------------------------------------------
+// The blocks above pin each export's invariants PER FUNCTION, and the
+// cross-function block pins the path-identity pair. This block locks the three
+// post-fix invariant FAMILIES the D1/D2/D3 fixes established (Notidian-hsd /
+// Notidian-wtz / Notidian-80m) UNIVERSALLY — as one table-driven contract over
+// ALL SIX exports at FIXED SEEDS — so a future refactor of ANY single sanitizer
+// that silently re-breaks idempotency, the nullish contract, or an output-charset
+// guarantee turns THIS file red, not just the function-local suite.
+//
+//   (1) IDEMPOTENCE     — sanitize(sanitize(x)) === sanitize(x) for every
+//                         name-cleansing sanitizer (the two formerly
+//                         non-idempotent NAME cleansers, sanitizeFolderName/
+//                         sanitizeColumnName, now hold; D1/D3). The two ESCAPERS
+//                         (sanitizeSQLStatement, quoteIdent) re-escape their
+//                         output and are intentionally excluded from (1) — their
+//                         by-design non-idempotence is characterized in (1b).
+//   (2) NULLISH CONTRACT — the unified D2 contract holds for BOTH null and
+//                         undefined on EVERY export (no throw, no stray
+//                         undefined; nullish === the '' result for each).
+//   (3) OUTPUT-CHARSET   — folder/file output has no illegal/control char and
+//                         (folder) never begins with a reserved sigil; column
+//                         output has no double-quote and never begins with _/$;
+//                         table output is allow-list-only; quoteIdent always
+//                         emits a balanced doubled-quote identifier.
+//
+// DETERMINISM / NO NEW DEPENDENCY: the bead brief suggested fast-check "already a
+// dep", but it is NOT in package.json and NO test in this repo uses it — the
+// established deterministic property pattern (sibling DEPTH nets Notidian-7sj
+// `sanitizePrimitives.property.dom.test.ts` and Notidian-709 above) is the
+// seeded `mulberry32` generator with FIXED seeds. That already delivers the
+// brief's stated requirement ("a fixed seed for determinism") with zero install,
+// zero lockfile churn, and a pure/offline transform surface — the correct choice
+// for a Q1 offline test-hardening bead. Each net below runs at its own fixed seed
+// over the same richer adversarial generator (`adversarialString`), which, unlike
+// the token-bag `fuzzString`, deliberately COMPOSES the exact hostile shapes the
+// bead enumerates: leading sigils _/$/+/#/^, leading AND embedded double-quotes,
+// C0/C1 control ranges, path separators, windows-reserved device names, and
+// dotted/pure-dot names — so the universal assertions are stressed on inputs that
+// specifically target each function's coupling/ordering hazards.
+// ===========================================================================
+describe("UNIVERSAL cross-sanitizer property net (Notidian-yrx)", () => {
+  // Structured adversarial-string generator. It builds each input from a random
+  // mix of (a) a leading-shape prefix that targets the order-sensitive peels
+  // (sigils / leading quotes / leading dots), and (b) a body drawn from a hostile
+  // alphabet, so the generated corpus reliably exercises the leading-context
+  // coupling that the D1/D3 fixed-point fixes resolve — not just random noise.
+  const LEADING_SHAPES: string[] = [
+    "", "_", "$", "+", "#", "^", "__", "$$", "+#^", "_$_$",
+    `"`, `""`, `"_`, `"$`, `"$"_`, `_"`, `$"_`,
+    ".", "..", "...", "./", "../",
+    "con", "CON", "nul", "com0", "lpt9", "+con", "$nul.txt", "$#con",
+  ];
+  const BODY_TOKENS: string[] = [
+    "a", "Z", "7", "name", "title", "-", " ", "_", "$", "+", "#", "^", ".",
+    `"`, `'`, `/`, `?`, `<`, `>`, `\\`, `:`, `*`, `|`, ";",
+    "\x00", "\x07", "\x1f", "\x80", "\x85", "\x9f",
+    "é", "名", "🙂", "con", "lpt1", ".txt", "..",
+  ];
+  const adversarialString = (rng: () => number): string => {
+    let out = LEADING_SHAPES[randInt(rng, 0, LEADING_SHAPES.length - 1)];
+    const bodyParts = randInt(rng, 0, 6);
+    for (let i = 0; i < bodyParts; i++) {
+      out += BODY_TOKENS[randInt(rng, 0, BODY_TOKENS.length - 1)];
+    }
+    return out;
+  };
+
+  // The six exports, with metadata describing each one's contract. `nameClean`
+  // marks the four name/identity-cleansing sanitizers for which idempotence is a
+  // hard guarantee (removal-only / allow-list cleansers). The other two are
+  // ESCAPERS that intentionally RE-ESCAPE their output and so are NOT idempotent
+  // by design — sanitizeSQLStatement doubles every `'` (a 2nd pass doubles them
+  // again: `''` -> `''''`) and quoteIdent re-wraps + re-doubles `"` — both are
+  // asserted via their own round-trip structural nets in family (3), never via
+  // the idempotence net (family 1). The idempotence guarantee the bead pins is
+  // the name/identity contract (ADR 0014/0016: a re-saved NAME must not drift),
+  // which an escaper applied to already-escaped SQL is outside of.
+  const ALL_SANITIZERS: {
+    name: string;
+    fn: (s: string) => string;
+    nameClean: boolean;
+  }[] = [
+    { name: "sanitizeSQLStatement", fn: sanitizeSQLStatement, nameClean: false },
+    { name: "sanitizeColumnName", fn: sanitizeColumnName, nameClean: true },
+    { name: "sanitizeTableName", fn: sanitizeTableName, nameClean: true },
+    { name: "sanitizeFolderName", fn: sanitizeFolderName, nameClean: true },
+    { name: "sanitizeFileName", fn: sanitizeFileName, nameClean: true },
+    { name: "quoteIdent", fn: quoteIdent, nameClean: false },
+  ];
+
+  // Characterize the two escapers' INTENTIONAL non-idempotence so a future
+  // "idempotency fix" cannot silently flip them and corrupt SQL escaping.
+  it("(1b) the two ESCAPERS are intentionally NON-idempotent (re-escape on a 2nd pass)", () => {
+    expect(sanitizeSQLStatement("a'b")).toBe("a''b");
+    expect(sanitizeSQLStatement(sanitizeSQLStatement("a'b"))).toBe("a''''b");
+    expect(quoteIdent("col")).toBe(`"col"`);
+    expect(quoteIdent(quoteIdent("col"))).toBe(`"""col"""`);
+  });
+
+  // -----------------------------------------------------------------------
+  // (1) UNIVERSAL IDEMPOTENCE — sanitize(sanitize(x)) === sanitize(x) for every
+  //     name-cleansing sanitizer, over the adversarial corpus at a fixed seed.
+  //     This is the post-D1/D3 invariant: NO name sanitizer may drift its result
+  //     on a second application (a re-save must never relocate row identity —
+  //     ADR 0014/0016). sanitizeSQLStatement and sanitizeTableName were always
+  //     idempotent; sanitizeColumnName (D3) and sanitizeFolderName (D1) now are.
+  // -----------------------------------------------------------------------
+  describe("(1) IDEMPOTENCE — every name-cleansing sanitizer is a fixed point", () => {
+    for (const { name, fn, nameClean } of ALL_SANITIZERS) {
+      if (!nameClean) continue;
+      it(`${name}: sanitize(sanitize(x)) === sanitize(x) over the adversarial corpus`, () => {
+        const rng = makeRng(0x1de_a + name.length); // fixed, function-specific seed
+        for (let i = 0; i < PROPERTY_RUNS; i++) {
+          const input = adversarialString(rng);
+          const once = fn(input);
+          expect(fn(once)).toBe(once);
+        }
+      });
+    }
+
+    // The exact former-defect cases, pinned at the universal layer so they can
+    // never silently regress regardless of which function-local suite changes.
+    it("the formerly non-idempotent cases now settle in ONE application (D1 + D3)", () => {
+      // D3 (sanitizeColumnName): a quote-masked leading sigil.
+      expect(sanitizeColumnName(`"$x`)).toBe("x");
+      expect(sanitizeColumnName(sanitizeColumnName(`"$x`))).toBe("x");
+      // D1 (sanitizeFolderName): an illegal-masked leading sigil, and the reverse
+      // (a leading sigil masking an anchored device name) — both settle at once.
+      expect(sanitizeFolderName("/+")).toBe("");
+      expect(sanitizeFolderName(sanitizeFolderName("/+"))).toBe("");
+      expect(sanitizeFolderName("+con")).toBe("");
+      expect(sanitizeFolderName(sanitizeFolderName("+con"))).toBe("");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // (2) UNIVERSAL NULLISH CONTRACT — the unified D2 contract holds for BOTH null
+  //     AND undefined on EVERY export. Generalises the point check in the
+  //     CROSS-FUNCTION block: rather than hand-listing examples we assert, for
+  //     every export, that null and undefined are each treated IDENTICALLY to the
+  //     empty-string input (no throw, no stray `undefined`). quoteIdent's empty
+  //     case is the wrapped empty identifier `'""'`; the other five are `''`.
+  // -----------------------------------------------------------------------
+  describe("(2) NULLISH CONTRACT — null and undefined === the '' result on every export", () => {
+    for (const { name, fn } of ALL_SANITIZERS) {
+      it(`${name}: null -> fn(''), undefined -> fn(''), neither throws`, () => {
+        const empty = fn("");
+        expect(() => fn(null as unknown as string)).not.toThrow();
+        expect(() => fn(undefined as unknown as string)).not.toThrow();
+        expect(fn(null as unknown as string)).toBe(empty);
+        expect(fn(undefined as unknown as string)).toBe(empty);
+        // No export may emit the literal stray `undefined` text on nullish input.
+        expect(fn(null as unknown as string)).not.toContain("undefined");
+        expect(fn(undefined as unknown as string)).not.toContain("undefined");
+      });
+    }
+    it("the concrete empty results are the documented D2 values", () => {
+      expect(sanitizeSQLStatement("")).toBe("");
+      expect(sanitizeColumnName("")).toBe("");
+      expect(sanitizeTableName("")).toBe("");
+      expect(sanitizeFolderName("")).toBe("");
+      expect(sanitizeFileName("")).toBe("");
+      expect(quoteIdent("")).toBe(`""`);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // (3) UNIVERSAL OUTPUT-CHARSET INVARIANTS — each export's output-shape
+  //     guarantee, asserted over the adversarial corpus at fixed seeds.
+  // -----------------------------------------------------------------------
+  describe("(3) OUTPUT-CHARSET invariants over the adversarial corpus", () => {
+    const ILLEGAL_CHARS = `/?<>\\:*|"`;
+    const hasControl = (s: string) => /[\x00-\x1f\x80-\x9f]/.test(s);
+
+    it("sanitizeFolderName: no illegal/control char, and never begins with a reserved sigil +/$/#/^", () => {
+      const rng = makeRng(0xf01de7);
+      for (let i = 0; i < PROPERTY_RUNS; i++) {
+        const out = sanitizeFolderName(adversarialString(rng));
+        for (const ch of ILLEGAL_CHARS) expect(out).not.toContain(ch);
+        expect(hasControl(out)).toBe(false);
+        if (out.length > 0) {
+          expect(/[+$#^]/.test(out.charAt(0))).toBe(false);
+        }
+      }
+    });
+
+    it("sanitizeFileName: no illegal/control char in output", () => {
+      const rng = makeRng(0xf11e5);
+      for (let i = 0; i < PROPERTY_RUNS; i++) {
+        const out = sanitizeFileName(adversarialString(rng));
+        for (const ch of ILLEGAL_CHARS) expect(out).not.toContain(ch);
+        expect(hasControl(out)).toBe(false);
+      }
+    });
+
+    it("sanitizeColumnName: output has NO double-quote and never begins with _/$", () => {
+      const rng = makeRng(0xc01);
+      for (let i = 0; i < PROPERTY_RUNS; i++) {
+        const out = sanitizeColumnName(adversarialString(rng));
+        expect(out).not.toContain(`"`);
+        if (out.length > 0) {
+          expect(out.charAt(0) === "_" || out.charAt(0) === "$").toBe(false);
+        }
+      }
+    });
+
+    it("sanitizeTableName: output is allow-list-only [A-Za-z0-9+]", () => {
+      const rng = makeRng(0x7ab);
+      for (let i = 0; i < PROPERTY_RUNS; i++) {
+        const out = sanitizeTableName(adversarialString(rng));
+        expect(/^[A-Za-z0-9+]*$/.test(out)).toBe(true);
+      }
+    });
+
+    it("sanitizeSQLStatement: output has no lone single-quote (every `'` is part of a `''` pair)", () => {
+      const rng = makeRng(0x59c);
+      for (let i = 0; i < PROPERTY_RUNS; i++) {
+        const input = adversarialString(rng);
+        const out = sanitizeSQLStatement(input);
+        // Removing every doubled pair leaves no stray single quote, and
+        // un-escaping recovers the input exactly (no breakout, no loss).
+        expect(out.replace(/''/g, "")).not.toContain("'");
+        expect(out.replace(/''/g, "'")).toBe(input);
+      }
+    });
+
+    it("quoteIdent: output is always a balanced double-quoted identifier with internal quotes doubled (no breakout)", () => {
+      const rng = makeRng(0x9d7);
+      for (let i = 0; i < PROPERTY_RUNS; i++) {
+        const input = adversarialString(rng);
+        const out = quoteIdent(input);
+        // Wrapped, length >= 2.
+        expect(out.length).toBeGreaterThanOrEqual(2);
+        expect(out.startsWith(`"`)).toBe(true);
+        expect(out.endsWith(`"`)).toBe(true);
+        // Interior contains ONLY doubled quotes (even count): stripping `""`
+        // pairs leaves no stray `"`, so the identifier cannot be terminated early.
+        const interior = out.slice(1, -1);
+        expect(interior.replace(/""/g, "")).not.toContain(`"`);
+        // Round-trip: a parser un-escaping `""`->`"` recovers the exact input.
+        expect(interior.replace(/""/g, `"`)).toBe(input);
+      }
+    });
+  });
+});
