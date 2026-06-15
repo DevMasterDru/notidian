@@ -540,6 +540,34 @@ describe("buildRepeatRRuleOptions", () => {
         )!.interval
       ).toBe(1);
     });
+
+    // Regression (Notidian-l8l): a negative interval from untrusted frontmatter
+    // makes rrule's `.between()` enter a synchronous infinite loop, freezing the
+    // render thread. The builder must clamp to the rrule default of 1, never let
+    // interval <= 0 reach the RRule sink.
+    it("clamps a negative interval to 1 (would otherwise hang rrule.between)", () => {
+      expect(
+        buildRepeatRRuleOptions(
+          { freq: "DAILY", interval: -1 },
+          { dtstart }
+        )!.interval
+      ).toBe(1);
+      expect(
+        buildRepeatRRuleOptions(
+          { freq: "WEEKLY", interval: "-2", byweekday: ["MO"] },
+          { dtstart }
+        )!.interval
+      ).toBe(1);
+    });
+
+    it("clamps a zero interval to 1", () => {
+      expect(
+        buildRepeatRRuleOptions(
+          { freq: "DAILY", interval: 0 },
+          { dtstart }
+        )!.interval
+      ).toBe(1);
+    });
   });
 
   describe("until (caller-clamped, included only when valid)", () => {

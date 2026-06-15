@@ -84,8 +84,9 @@ export type RepeatDefinition = {
 
 /**
  * Validated, ready-to-spread option object for `new RRule(...)`. Every key is
- * guaranteed safe for rrule: there are no `undefined`/`null`/`NaN` values, and
- * `byweekday`/`wkst` only ever contain known weekday integers.
+ * guaranteed safe for rrule: there are no `undefined`/`null`/`NaN` values,
+ * `interval` is always >= 1 (a negative interval makes `.between()` loop
+ * forever), and `byweekday`/`wkst` only ever contain known weekday integers.
  */
 export type RRuleOptions = {
   dtstart: Date;
@@ -118,7 +119,9 @@ export type RRuleOptions = {
  *    omitted entirely (rrule treats this as "no weekday restriction") rather
  *    than passed as `[undefined]`.
  *  - `count` is parsed and capped at <= 100 (the existing cap).
- *  - `interval` is `parseInt`-ed with a fallback to 1.
+ *  - `interval` is `parseInt`-ed and clamped to >= 1 (fallback 1). A
+ *    non-positive interval is rejected because a negative one makes rrule's
+ *    `.between()` loop forever (a render-thread DoS from untrusted frontmatter).
  *  - `until` is taken verbatim from the caller (each caller owns its own window
  *    clamping); it is included only when it is a valid Date.
  *
@@ -143,8 +146,13 @@ export const buildRepeatRRuleOptions = (
 
   // interval: parseInt with a fallback to 1 (matches DayView; parity for
   // MonthWeekRow, whose bare parseInt(NaN) was filtered out -> rrule default 1).
+  // Must be >= 1: a negative interval (e.g. untrusted frontmatter
+  // `{"freq":"DAILY","interval":-1}`) makes `new RRule(...).between(...)` enter a
+  // synchronous infinite loop, freezing the render thread (verified against the
+  // project's rrule). NaN, 0, and negatives all keep the default of 1.
   const parsedInterval = parseInt(repeatDef.interval as string, 10);
-  if (!isNaN(parsedInterval)) options.interval = parsedInterval;
+  if (!isNaN(parsedInterval) && parsedInterval >= 1)
+    options.interval = parsedInterval;
 
   // count: parse + cap at 100. Omitted when absent / unparseable.
   if (repeatDef.count !== undefined && repeatDef.count !== null) {
