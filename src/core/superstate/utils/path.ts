@@ -13,7 +13,21 @@ export const resolvePath = (path: string, source: string, isSpace?: (path: strin
         if (isSpace?.(source)) {
             return source + path.slice(1);
         }
-        return source.slice(0, source.lastIndexOf('/')) + path.slice(1);
+        // Resolve './x' against the parent directory of a non-space source file.
+        // When the source is a bare basename (no '/'), its parent directory is
+        // the vault root (''), so lastIndexOf('/') === -1. The old
+        // `source.slice(0, -1)` silently DROPPED the source's last character
+        // (e.g. './a.md' vs 'Note.md' -> 'Note.m/a.md'), producing a corrupt,
+        // non-existent path that becomes a wrong row-identity lookup key into
+        // paths/spacesIndex (ADR 0014/0016). Guard the -1 case to yield a
+        // root-relative 'a.md' (no leading '/', matching the repo-wide invariant
+        // that resolved paths never carry a leading slash).
+        const lastSlash = source.lastIndexOf('/');
+        if (lastSlash === -1) {
+            // path is './…'; drop the leading './' so the result is rootless.
+            return path.slice(2);
+        }
+        return source.slice(0, lastSlash) + path.slice(1);
     } else if (path.indexOf('../') == 0 && source) {
         const sourceParts = source.split('/');
         const pathParts = path.split('/');

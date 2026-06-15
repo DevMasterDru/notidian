@@ -176,15 +176,29 @@ describe("resolvePath", () => {
     });
 
     /**
-     * CHARACTERIZATION (BUG): the non-space branch is
-     *   source.slice(0, source.lastIndexOf('/')) + path.slice(1)
-     * When a non-space source has NO '/', lastIndexOf('/') === -1, so
-     * source.slice(0, -1) DROPS THE LAST CHARACTER of the source instead of
-     * yielding ''. The result is a corrupt, non-existent path.
+     * FIXED (Notidian-2i5k): a non-space source with NO '/' is a top-level
+     * (bare basename) file whose parent directory is the vault root. The old
+     * branch was `source.slice(0, source.lastIndexOf('/')) + path.slice(1)`;
+     * with no slash lastIndexOf('/') === -1, so source.slice(0, -1) DROPPED the
+     * source's last character ('Note.md' -> 'Note.m'), yielding the corrupt
+     * 'Note.m/a.md'. The -1 case is now guarded to resolve to a root-relative
+     * 'a.md' (no leading '/', per the repo-wide no-leading-slash invariant the
+     * property tests enforce and the '../' over-pop characterization shares).
      */
-    it("CHARACTERIZATION(bug): a non-space source with no '/' drops its last char (slice(0,-1))", () => {
-      // 'Note.md'.slice(0,-1) === 'Note.m', then + '/a.md'
-      expect(resolvePath("./a.md", "Note.md", noSpace)).toBe("Note.m/a.md");
+    it("resolves './x' against a bare-basename source to the root-relative 'x' (no last-char drop)", () => {
+      // 'Note.md' is a top-level file: parent dir is '' (vault root) -> 'a.md'.
+      expect(resolvePath("./a.md", "Note.md", noSpace)).toBe("a.md");
+    });
+
+    it("resolves a nested './sub/x' tail against a bare-basename source rootless", () => {
+      // No source slash -> root dir '' ; the './' is dropped, the tail is kept.
+      expect(resolvePath("./sub/x.md", "Single", noSpace)).toBe("sub/x.md");
+    });
+
+    it("resolves './x' against a single-character bare-basename source (no underflow)", () => {
+      // The old slice(0,-1) would have produced 'a.md' from '' too, but for the
+      // wrong reason ('S'.slice(0,-1) === ''); pin the corrected derivation.
+      expect(resolvePath("./a.md", "S", noSpace)).toBe("a.md");
     });
 
     it("CHARACTERIZATION: a source ending in '/' resolves to the segment before the trailing slash", () => {
@@ -349,6 +363,22 @@ describe("resolvePath", () => {
           expect(out).not.toContain("//");
           // append semantics: result starts with the space source path
           expect(out.startsWith(src + "/")).toBe(true);
+        }
+      }
+    });
+
+    it("'./' resolution against a non-space source never yields a leading '/' (incl. bare basenames)", () => {
+      // Regression guard for Notidian-2i5k: a bare-basename source (no '/') must
+      // resolve to a rootless path, never '/x' and never a char-dropped dir.
+      for (const tail of tails) {
+        for (const src of sources) {
+          const out = resolvePath("./" + tail, src, noSpace);
+          expect(out.startsWith("/")).toBe(false);
+          expect(out).not.toContain("//");
+          if (src.indexOf("/") === -1) {
+            // bare basename -> root dir '' -> exactly the rootless tail
+            expect(out).toBe(tail);
+          }
         }
       }
     });
