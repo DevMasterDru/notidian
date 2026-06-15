@@ -68,47 +68,61 @@ function parseWithUnquotedStrings(jsonString: string): {
       if (!isQuoted && !isJsonLiteral) {
         // This is an unquoted string
         unquotedFields[cleanKey] = true;
-        
-        // Check if it's a template literal or expression
-        if (cleanValue.startsWith('$') || cleanValue.includes('.')) {
-          // Keep the original value but quote it for JSON parsing
-          return `"${cleanKey}": "${cleanValue}"`;
-        }
-        
-        // Quote the value for valid JSON
-        return `"${cleanKey}": "${cleanValue}"`;
+
+        // Escape any embedded double-quotes so the value cannot break out of
+        // the JSON string it is being wrapped in (defect 2: previously a value
+        // like `he said "hi"` produced invalid JSON and was silently dropped).
+        // This single rewrite covers both the $-/dotted expression case and the
+        // ordinary bare-value case — both are wrapped identically.
+        const escapedValue = cleanValue.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return `"${cleanKey}": "${escapedValue}"`;
       }
-      
+
       // Already quoted or a JSON literal
       if (isQuoted && cleanValue.startsWith("'")) {
+        // A single-quoted value is, by this module's convention, an unquoted
+        // frame string (the value was authored without JSON quotes); mark it so
+        // a re-stringify can reproduce the unquoted intent (defect 3 — the
+        // bare-value path at line 70 already does this).
+        unquotedFields[cleanKey] = true;
         // Convert single quotes to double quotes
         cleanValue = '"' + cleanValue.slice(1, -1).replace(/"/g, '\\"') + '"';
       }
-      
+
       return `"${cleanKey}": ${cleanValue}`;
     }
   );
-  
+
   try {
     const parsed = JSON.parse(processedStr);
     return { value: parsed, unquotedFields };
   } catch (e) {
     // If still fails, try more aggressive processing
     try {
-      // Handle nested objects and special cases
+      // Handle nested objects and special cases. Track unquoted fields here too
+      // and merge them with the primary pass: the aggressive fallback is the
+      // path that handles the re-stringified `{"command": $abc}` form (the key
+      // is already quoted, so the primary key:value regex never matched it), and
+      // it must NOT discard the unquoted intent (defect 1 — previously this
+      // returned `unquotedFields: {}`, so a stringify -> parse round-trip lost
+      // the marker and a subsequent re-stringify would re-quote the expression).
+      const aggressiveUnquoted: Record<string, boolean> = { ...unquotedFields };
       const aggressiveStr = processedStr
         .replace(/(\w+):/g, '"$1":') // Quote all keys
-        .replace(/:\s*'([^']*)'/g, ': "$1"') // Convert single quotes to double
-        .replace(/:\s*([^",\s{}[\]]+)/g, (match, value) => {
-          // Quote unquoted values
+        .replace(/:\s*'([^']*)'/g, (_m, inner) => `: "${inner.replace(/"/g, '\\"')}"`) // single -> double quotes
+        .replace(/("(\w+)"\s*:\s*)([^",\s{}[\]]+)/g, (match, prefix, key, value) => {
+          // Quote unquoted values, recording the field as unquoted so the marker
+          // survives the round-trip.
           if (!/^(true|false|null|\d+(\.\d+)?|\[.*\]|\{.*\})$/.test(value)) {
-            return `: "${value}"`;
+            aggressiveUnquoted[key] = true;
+            const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            return `${prefix}"${escaped}"`;
           }
           return match;
         });
-      
+
       const parsed = JSON.parse(aggressiveStr);
-      return { value: parsed, unquotedFields };
+      return { value: parsed, unquotedFields: aggressiveUnquoted };
     } catch (e2) {
       // Return empty object if all parsing fails
       console.error('Failed to parse JSON with unquoted values:', e2);
@@ -287,13 +301,19 @@ export function wrapQuotes(value: string): string {
  */
 export function unwrapQuotes(value: string): string {
   if (!value) return '';
-  
-  // Check if wrapped in quotes
-  if ((value.startsWith("'") && value.endsWith("'")) ||
-      (value.startsWith('"') && value.endsWith('"')) ||
+
+  // Single-quote wrapped: reverse wrapQuotes' line-281 escaping so the two are
+  // true inverses (defect 4: previously `slice(1, -1)` left the `\'` escape
+  // backslash, so unwrapQuotes(wrapQuotes("it's")) was "it\\'s", not "it's").
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/\\'/g, "'");
+  }
+
+  // Double-quote / backtick wrapped: strip the outer pair as before.
+  if ((value.startsWith('"') && value.endsWith('"')) ||
       (value.startsWith('`') && value.endsWith('`'))) {
     return value.slice(1, -1);
   }
-  
+
   return value;
 }

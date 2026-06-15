@@ -154,16 +154,18 @@ describe("parseJsonWithUnquoted — ADVERSARIAL injection (lines 53, 85, 99-108,
   });
 
   it(
-    "BUG(Notidian-d4u): an unquoted value containing an embedded double-quote " +
-      "is SILENTLY LOST (degrades to {}), rather than escaped",
+    "escapes (does not drop) an unquoted value containing an embedded " +
+      "double-quote (Notidian-d4u defect 2)",
     () => {
       const { value, unquotedFields } = parseJsonWithUnquoted(
         '{command: he said "hi"}'
       );
-      // No breakout, no invalid JSON — but the data is gone.
-      expect(value).toEqual({});
-      expect(unquotedFields).toEqual({});
-      expect(errorSpy).toHaveBeenCalled();
+      // The embedded double-quote is escaped into the JSON string rather than
+      // breaking out (which previously produced invalid JSON and silently
+      // degraded to {}). The data now survives and the field is marked unquoted.
+      expect(value).toEqual({ command: 'he said "hi"' });
+      expect(unquotedFields).toEqual({ command: true });
+      expect(errorSpy).not.toHaveBeenCalled();
     }
   );
 
@@ -178,13 +180,14 @@ describe("parseJsonWithUnquoted — ADVERSARIAL injection (lines 53, 85, 99-108,
   });
 
   it(
-    "BUG(Notidian-d4u): a single-quoted (therefore already-string) value does " +
-      "NOT get an unquoted marker, unlike a bare unquoted value",
+    "marks a single-quoted value as unquoted, like a bare unquoted value " +
+      "(Notidian-d4u defect 3)",
     () => {
-      // The line 62-63 isQuoted branch skips the unquotedFields[...] = true
-      // assignment, so single-quoting a value loses the round-trip marker.
+      // The single-quoted-value branch now sets unquotedFields[cleanKey] = true,
+      // matching the bare-value path, so single-quoting a value preserves the
+      // round-trip marker.
       const { unquotedFields } = parseJsonWithUnquoted("{command: 'foo'}");
-      expect(unquotedFields).toEqual({});
+      expect(unquotedFields).toEqual({ command: true });
     }
   );
 
@@ -310,18 +313,21 @@ describe("ROUND-TRIP property: stringify -> parse", () => {
   });
 
   it(
-    "BUG(Notidian-d4u): the UNQUOTED MARKER is lost on the $-expression " +
-      "round-trip — stringify emits it unquoted but parse reports unquotedFields {}",
+    "preserves the UNQUOTED MARKER on the $-expression round-trip so a " +
+      "re-stringify keeps the expression unquoted (Notidian-d4u defect 1)",
     () => {
       const obj = { command: "$abc" };
       const str = stringifyJsonWithUnquoted(obj, { command: true });
-      const { unquotedFields } = parseJsonWithUnquoted(str);
-      // EXPECTED contract would be { command: true } so a round-trip preserves
-      // the unquoted intent. Current behavior LOSES the marker: re-parsing
-      // '{"command": $abc}' succeeds via the aggressive fallback (lines 99-108),
-      // which returns unquotedFields:{} (line 111) rather than the line-53
-      // tracked map. Pinned as the buggy current behavior.
-      expect(unquotedFields).toEqual({});
+      const { value, unquotedFields } = parseJsonWithUnquoted(str);
+      // Re-parsing '{"command": $abc}' goes through the aggressive fallback (the
+      // key is already quoted, so the primary key:value regex never matches it).
+      // That fallback now records the field it quotes, so the unquoted intent
+      // survives the round-trip (defect 1 fixed).
+      expect(value).toEqual({ command: "$abc" });
+      expect(unquotedFields).toEqual({ command: true });
+      // And a full round-trip is now idempotent: re-stringify reproduces the
+      // unquoted expression rather than re-quoting it.
+      expect(stringifyJsonWithUnquoted(value, unquotedFields)).toBe(str);
     }
   );
 
@@ -440,16 +446,23 @@ describe("wrapQuotes / unwrapQuotes", () => {
   });
 
   it(
-    "BUG(Notidian-d4u): wrap/unwrap is NOT inverse for values containing a " +
-      "single quote — the escape backslash leaks back out",
+    "wrap/unwrap is a true inverse for values containing a single quote " +
+      "(Notidian-d4u defect 4)",
     () => {
-      // wrapQuotes("it's") => "'it\\'s'"; unwrapQuotes strips the outer quotes
-      // only (slice(1,-1)), leaving the escape: "it\\'s". Genuine round-trip defect.
+      // wrapQuotes("it's") => "'it\\'s'"; unwrapQuotes now reverses the line-281
+      // escaping (\\' -> ') instead of only stripping the outer quotes, so the
+      // two are genuine inverses.
       const wrapped = wrapQuotes("it's");
       expect(wrapped).toBe("'it\\'s'");
-      expect(unwrapQuotes(wrapped)).toBe("it\\'s");
-      // The faithful inverse WOULD be "it's"; this asserts the buggy current value.
-      expect(unwrapQuotes(wrapped)).not.toBe("it's");
+      expect(unwrapQuotes(wrapped)).toBe("it's");
     }
   );
+
+  it("unwrap(wrap(x)) === x for values WITH embedded single quotes (inverse property)", () => {
+    // Note: a value that is ALREADY quote-wrapped (e.g. "''") is short-circuited
+    // by wrapQuotes and is intentionally outside this inverse contract.
+    for (const x of ["it's", "y'all can't", "a'", "'b", "don't $ref"]) {
+      expect(unwrapQuotes(wrapQuotes(x))).toBe(x);
+    }
+  });
 });
