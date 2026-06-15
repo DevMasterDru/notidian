@@ -129,12 +129,45 @@ const neutralizeCssFetches = (css: string): string => {
 // DOM, where the cleaner's normal element/attribute strip catches it. The transform
 // is monotone (it only removes elements/attributes and neutralises CSS — it never
 // adds executable surface) and the serialiser is deterministic, so the iteration
-// converges to a fixed point quickly (<=3 passes for every known payload). We cap
-// iterations defensively: if no fixed point is reached within the cap (a parser
-// oscillation we have never observed), we fail safe to "" rather than emit a
-// possibly-still-dangerous string. A second pass over already-clean markup is itself
-// the fixed point, so this preserves the documented idempotency contract and adds
-// no cost for benign content (1 extra confirming pass).
+// converges to a fixed point quickly (<=3 passes for every known payload).
+//
+// ONE exception breaks naive convergence: the obsolete <plaintext> element is the
+// only HTML element whose parse->serialise round-trip is itself non-idempotent. Its
+// content model swallows the rest of the input as raw text to EOF, but the
+// serialiser still emits a `</plaintext>` close tag; that close tag is re-consumed
+// as literal text by the next parse, which re-serialises it AGAIN — so each pass
+// appends another `</plaintext>` and the string grows without bound. Pre-Notidian-y3h
+// (single pass) preserved such content; the fixed-point loop, left unguarded, would
+// hit the cap and destroy the WHOLE input (incl. benign neighbours) to "". <plaintext>
+// is not dangerous (no handlers/URLs, everything after it is inert text in every
+// parse), so the fix is in the per-pass cleaner: it rewrites each <plaintext> to a
+// text node of its rendered content (exactly how a browser renders it), which is both
+// idempotent and lossless. With that, an exhaustive scan of every HTML element name
+// finds NO remaining non-idempotent construct, so the loop always converges fast.
+//
+// We still cap iterations defensively: if some future parser quirk fails to reach a
+// fixed point within the cap, we fail safe by ESCAPING the original input to inert
+// literal text (escapeHtml) rather than returning "" — that keeps the content
+// visible (no silent data loss) while guaranteeing it carries no executable surface.
+// A second pass over already-clean markup is itself the fixed point, so this
+// preserves the documented idempotency contract and adds no cost for benign content
+// (1 extra confirming pass).
+
+// Replace every <plaintext> element in a parsed fragment with a text node of its
+// rendered content. <plaintext> is the lone HTML element with a non-idempotent
+// parse/serialise round-trip (see sanitizeToFixedPoint above): left intact it makes
+// the fixed-point loop diverge and destroy benign content. It is not dangerous —
+// browsers render everything after the tag as literal preformatted text, and that
+// text stays inert through any number of re-parses — so collapsing it to its text
+// node is BOTH faithful to how a browser shows it AND idempotent (a plain text node
+// has no <plaintext> to rewrite on the next pass). Operates on the parsed
+// template.content so it is consistent across both DOM-sink cleaners.
+const collapsePlaintextElements = (root: DocumentFragment): void => {
+  root.querySelectorAll("plaintext").forEach((el) => {
+    el.replaceWith(root.ownerDocument.createTextNode(el.textContent ?? ""));
+  });
+};
+
 const FIXED_POINT_MAX_PASSES = 6;
 const sanitizeToFixedPoint = (
   html: string,
@@ -146,9 +179,12 @@ const sanitizeToFixedPoint = (
     if (next === current) return current; // stable: re-parsing changes nothing
     current = next;
   }
-  // One more pass that STILL differs means we never reached a fixed point within
-  // the cap; the output cannot be trusted as fully neutralised, so fail safe.
-  return onePass(current) === current ? current : "";
+  // One more pass that STILL differs means we never reached a fixed point within the
+  // cap. The serialised output cannot be trusted as fully neutralised, so fall back
+  // to escaping the ORIGINAL input to inert literal text: safe by construction and,
+  // unlike "", non-destructive — the user still sees their content (Notidian-DEPTH-
+  // sanitize-rendered-frame-adversarial).
+  return onePass(current) === current ? current : escapeHtml(html);
 };
 
 // Sanitize a vault-supplied SVG icon (custom iconsets) before it is injected as
@@ -167,6 +203,10 @@ const sanitizeToFixedPoint = (
 const sanitizeIconSVGPass = (svg: string): string => {
   const template = document.createElement("template");
   template.innerHTML = svg;
+  // Collapse the non-idempotent <plaintext> element to inert text first, so a
+  // malformed icon carrying a top-level <plaintext> cannot diverge the fixed-point
+  // loop (inside <svg> it is harmless foreign content and converges anyway).
+  collapsePlaintextElements(template.content);
   // Static snapshot of all descendants; safe to mutate while iterating.
   template.content.querySelectorAll("*").forEach((el) => {
     const tag = el.tagName.toLowerCase();
@@ -292,6 +332,10 @@ const hasDangerousUrlScheme = (raw: string): boolean => {
 const sanitizeHtmlSinkPass = (html: string): string => {
   const template = document.createElement("template");
   template.innerHTML = html;
+  // Collapse the non-idempotent <plaintext> element to inert text BEFORE the
+  // element/attribute strip so the fixed-point loop converges (see
+  // collapsePlaintextElements / sanitizeToFixedPoint).
+  collapsePlaintextElements(template.content);
   template.content.querySelectorAll("*").forEach((el) => {
     const tag = el.tagName.toLowerCase();
     if (HTML_DANGEROUS_TAGS.has(tag)) {
