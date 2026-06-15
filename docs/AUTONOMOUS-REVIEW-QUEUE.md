@@ -269,6 +269,38 @@ queueing more and pivots to safe work — so this list stays reviewable.
   by a throwaway flag without committing to the design choice this ADR defers to you.
 - **Bead status:** Notidian-n2t stays **OPEN**, awaiting your direction.
 
+### Notidian-2uz — Sub-items + back-relations UX: who owns the link, and is creation two-way?
+
+- **ADR:** [docs/adr/0024-sub-items-back-relations-ux.md](adr/0024-sub-items-back-relations-ux.md) (Status: **Proposed**).
+- **What the loop found:** the engine + render for sub-items and back-relations are
+  **already shipped and tested** (`tableRowTree.ts`, `tableBackRelations*.ts`,
+  `relationResolver.ts`; beads gg9/pv4/s9m/ahk/9ln). Building more blind would gamble
+  on the wrong product contract. Concretely, today: the parent column is chosen
+  **per view** (any link property, no reserved name); the tree runs **after sort**
+  so **hierarchy wins row order, sort orders siblings**; creating a row writes
+  **no link at all** (empty file — the user types `[[parent]]` into the parent
+  column); the relation is **strictly one-way** (child names parent; the parent file
+  is never touched; "linked from" is the read-only computed inverse); cycles are
+  **broken silently** with no user-visible signal.
+- **The one decision you need to make:** **when a user creates/nests a sub-item,
+  should Notidian write only the child→parent link (one-way, child owns) or also the
+  parent's reciprocal child link (two-way)?** This is the load-bearing call — it
+  decides whether we ever write to a file the user didn't target and whether two
+  competing authorities exist for the same fact. **Recommended: one-way, child owns**
+  (Option B1) — the inverse already exists for free as read-only computed
+  back-relations, so two-way storage only duplicates a derivable fact and adds a
+  second authority + rename/delete reconciliation for no new information. Ship a
+  row-context "Add sub-item" action that pre-fills the new child's parent link;
+  leave two-way as an explicit per-DB opt-in (B3) only if you ask for it.
+  - Secondary recommendations in the ADR (lower-stakes): keep per-view parent-column
+    designation (A1, status quo); add a passive cycle indicator, no edit-time block
+    (C2); keep the shipped sort/filter/groupBy rules with a documented groupBy
+    adjacency caveat (D1–D4).
+- **No build is pending.** No spike was added: the open question is product
+  authority, not something a throwaway flag de-risks — building either creation flow
+  commits to the very choice this ADR defers to you.
+- **Bead status:** Notidian-2uz stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
