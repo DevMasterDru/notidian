@@ -234,18 +234,17 @@ describe("appendPathMetaData — multi-display link/tag branches (inlinks/outlin
     expect(appendPathMetaData("spaces", ps)).toBe("Space/One, Space/Two");
   });
 
-  it("escapes the FIRST comma inside a member (serializeMultiDisplayString uses non-global replace)", () => {
-    // serializeMultiDisplayString = arr.map(f=>f.replace(',', '\\,')).join(', ')
-    // String.replace(',', ...) is non-global: only the first comma per member is
-    // escaped. Pinned so the round-trip contract with parseMultiDisplayString is
-    // visible.
+  it("escapes EVERY comma inside a member (ADR 0030: serializeMultiDisplayString global replace)", () => {
+    // serializeMultiDisplayString = arr.map(f=>f.replace(/,/g, '\\,')).join(', ')
+    // The replace is now global: every comma per member is escaped, so the
+    // round-trip with parseMultiDisplayString is lossless (ADR 0030, Notidian-od7).
     expect(
       appendPathMetaData("tags", makePathState({ tags: ["a,b"] }))
     ).toBe("a\\,b");
-    // A member with TWO commas: only the first is escaped (documented quirk).
+    // A member with TWO commas: BOTH are escaped (was 'a\\,b,c' pre-fix).
     expect(
       appendPathMetaData("tags", makePathState({ tags: ["a,b,c"] }))
-    ).toBe("a\\,b,c");
+    ).toBe("a\\,b\\,c");
   });
 
   it("=> '' for an empty array (nothing to join)", () => {

@@ -24,12 +24,17 @@ import { parseMultiDisplayString, parseMultiString } from "./parsers";
 //
 // Everything here is pure / offline — no vault, no DOM, no I/O.
 //
-// IMPORTANT — this is a CHARACTERIZATION net, not a correction. We LOCK the
-// present behaviour (including a confirmed data-loss defect) so that a future
-// fix becomes a deliberate, reviewable FLIP rather than a silent regression.
-// DO NOT change serializers.ts to make a test pass — the behaviour change lives
-// in the separate decision bead Notidian-od7. Each empirical assertion below
-// was verified against the live functions before being pinned.
+// HISTORY — this began as a CHARACTERIZATION net that LOCKED the present
+// behaviour (including a confirmed first-comma-only data-loss defect) so a fix
+// would be a deliberate, reviewable FLIP. ADR 0030 (Option A, Notidian-od7) has
+// now landed that fix: serializeMultiDisplayString escapes EVERY comma and
+// parseMultiDisplayString un-escapes EVERY '\,' after the split, so the display
+// form round-trips losslessly for all values. The assertions that pinned the
+// defect have been deliberately flipped below to assert the corrected behaviour;
+// the comma-free-identity property net remains the regression guard for the
+// common path, and the flipped assertions guard the parser-order subtlety
+// (un-escape MUST happen after the split). Each assertion was verified against
+// the live functions.
 // ---------------------------------------------------------------------------
 
 // --- tiny deterministic PRNG (no external dep) -----------------------------
@@ -92,18 +97,19 @@ describe("serializeMultiDisplayString", () => {
     expect(serializeMultiDisplayString(["  x  "])).toBe("  x  ");
   });
 
-  // --- CHARACTERIZATION: the first-comma-only escape (Notidian-od7) ---------
-  // `f.replace(',', '\\,')` passes a STRING pattern, so only the FIRST comma in
-  // each element is escaped. These pins document the present, defective output
-  // so the eventual fix is a conscious flip.
-  it("escapes only the FIRST comma per element (string-pattern replace, locked defect)", () => {
+  // --- FIXED (ADR 0030 Option A, Notidian-od7) ------------------------------
+  // `f.replace(/,/g, '\\,')` now escapes EVERY comma in each element (was a
+  // string-pattern replace that touched only the first). These assertions were
+  // the locked characterization of the defect; they are the deliberate FLIP that
+  // accompanies the fix — they now assert correct, complete escaping.
+  it("escapes EVERY comma per element (global replace, ADR 0030 fix)", () => {
     // single element with one comma -> escaped once
     expect(serializeMultiDisplayString(["a,b"])).toBe("a\\,b");
-    // single element with TWO commas -> only the first is escaped
-    expect(serializeMultiDisplayString(["a,b,c"])).toBe("a\\,b,c");
+    // single element with TWO commas -> BOTH are escaped (was 'a\\,b,c' pre-fix)
+    expect(serializeMultiDisplayString(["a,b,c"])).toBe("a\\,b\\,c");
   });
-  it("the canonical data-loss example serializes to the documented string", () => {
-    // ['a,b','c'] -> 'a\,b, c' (first comma escaped, ', ' separator added)
+  it("the canonical example serializes with each comma escaped", () => {
+    // ['a,b','c'] -> 'a\,b, c' (the embedded comma escaped, ', ' separator added)
     expect(serializeMultiDisplayString(["a,b", "c"])).toBe("a\\,b, c");
   });
 });
@@ -139,19 +145,28 @@ describe("serializeMultiDisplayString <-> parseMultiDisplayString round-trip", (
     expect(rt(["a", "  spaced  ", "b"])).toEqual(["a", "spaced", "b"]);
   });
 
-  // --- THE DATA-LOSS HOLE (Notidian-od7), pinned as current behaviour -------
-  it("CHARACTERIZE the multi-comma data-loss hole: ['a,b','c'] round-trips to ['a','b','c']", () => {
-    // One element splits into THREE. This is the defect Notidian-od7 will fix;
-    // when it does, this assertion must be the deliberate flip.
-    expect(rt(["a,b", "c"])).toEqual(["a", "b", "c"]);
+  // --- THE DATA-LOSS HOLE, NOW CLOSED (ADR 0030 Option A, Notidian-od7) ------
+  // These were the pinned characterization of the data-loss defect. They are the
+  // deliberate FLIP that lands with the fix: comma-bearing elements now round-trip
+  // to identity instead of fracturing.
+  it("FIXED: ['a,b','c'] round-trips to identity (was ['a','b','c'] pre-fix)", () => {
+    expect(rt(["a,b", "c"])).toEqual(["a,b", "c"]);
   });
-  it("CHARACTERIZE: a single multi-comma element ['a,b,c'] also fractures to ['a','b','c']", () => {
-    expect(rt(["a,b,c"])).toEqual(["a", "b", "c"]);
+  it("FIXED: a single multi-comma element ['a,b,c'] round-trips to identity (was fractured)", () => {
+    expect(rt(["a,b,c"])).toEqual(["a,b,c"]);
   });
-  it("CHARACTERIZE: parse un-escapes only the FIRST '\\,' too (mirror of serialize defect)", () => {
-    // Direct parse of a manually-multi-escaped element: only the first escape is
-    // restored; the remainder keeps its backslash.
-    expect(parseMultiDisplayString("a\\,b\\,c")).toEqual(["a", "b\\,c"]);
+  it("FIXED: comma-bearing elements survive round-trip (multiple, with separators)", () => {
+    expect(rt(["a,b", "c,d"])).toEqual(["a,b", "c,d"]);
+    expect(rt(["x,y,z"])).toEqual(["x,y,z"]);
+    expect(rt(["alias, with, commas", "plain"])).toEqual([
+      "alias, with, commas",
+      "plain",
+    ]);
+  });
+  it("FIXED: parse un-escapes EVERY '\\,' (was first-only, mirror of serialize fix)", () => {
+    // Direct parse of a manually-multi-escaped element: ALL escapes restored to
+    // a single literal element (was ['a','b\\,c'] pre-fix).
+    expect(parseMultiDisplayString("a\\,b\\,c")).toEqual(["a,b,c"]);
   });
 
   it("property: every comma-free element array round-trips to its trimmed, empty-dropped projection", () => {
@@ -177,6 +192,32 @@ describe("serializeMultiDisplayString <-> parseMultiDisplayString round-trip", (
       const input = Array.from(
         { length: len },
         () => cleanPool[randInt(rng, 0, cleanPool.length - 1)]
+      );
+      expect(rt(input)).toEqual(input);
+    }
+  });
+
+  // --- ADR 0030 regression net: comma-BEARING values now round-trip too ------
+  // The whole point of Option A. Pool includes single- and multi-comma elements;
+  // each element is trimmed and non-empty so the only transform is the comma
+  // escape/un-escape (no whitespace stripping or empty-drop to confound it).
+  it("property: comma-bearing element arrays round-trip to identity (ADR 0030 fix)", () => {
+    const rng = makeRng(0xc0117a99);
+    const commaPool = [
+      "a,b",
+      "x,y,z",
+      "alias, with, commas",
+      "p,q,r,s",
+      "plain",
+      "with space",
+      "one,two",
+      "Tag",
+    ];
+    for (let run = 0; run < PROPERTY_RUNS; run++) {
+      const len = randInt(rng, 1, 8);
+      const input = Array.from(
+        { length: len },
+        () => commaPool[randInt(rng, 0, commaPool.length - 1)]
       );
       expect(rt(input)).toEqual(input);
     }

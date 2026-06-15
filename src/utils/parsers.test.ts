@@ -21,27 +21,31 @@ import { PathPropertyName } from "shared/types/context";
 //
 // Co-located concerns split so this file does not duplicate
 // serializers.test.ts (Notidian-a3s), which already pins the
-// serialize<->parse multi-string ROUND-TRIPS and the element-level
-// first-comma escape. Here we pin, with empirically-verified expectations:
+// serialize<->parse multi-string ROUND-TRIPS and the element-level comma
+// escape (now global per ADR 0030). Here we pin, with empirically-verified
+// expectations:
 //   - the JSON-vs-display BRANCH of parseMultiString, incl. malformed-JSON
 //     fall-through and non-string JSON element coercion (ensureString);
-//   - the ADVERSARIAL whole-string `.replace('\\,', ',')` quirk of
-//     parseMultiDisplayString (single, first-occurrence, applied to the WHOLE
-//     string BEFORE the regex split — distinct from the per-element mirror
-//     pinned in serializers.test.ts);
+//   - the per-element, after-split global `.replace(/\\,/g, ',')` un-escape of
+//     parseMultiDisplayString as fixed by ADR 0030 (Option A, Notidian-od7):
+//     escaped commas are restored to literal commas WITHIN their element and the
+//     element stays atomic (was a whole-string first-occurrence-only un-escape
+//     applied BEFORE the split, which fractured escaped values — that defect is
+//     now closed and the assertions below are the deliberate FLIP);
 //   - the full parseProperty type-coercion switch (every branch);
 //   - parsePropString / parseLinkString / parseObject edge behaviour;
 //   - parse/serialize inverse cross-checks where an inverse is actually claimed.
 //
 // Everything here is pure / offline — no vault, no DOM, no I/O.
 //
-// IMPORTANT — this is a CHARACTERIZATION net, not a correction. Confirmed
-// quirks (whole-string first-escape-only, the indexOfCharElseEOS `> 0` edge,
-// boolean/date narrowing) are LOCKED as present behaviour so any future change
-// is a deliberate, reviewable FLIP rather than a silent regression. DO NOT
-// edit parsers.ts to make a test pass; the multi-comma display behaviour
-// change lives in the separate decision bead Notidian-od7. Each empirical
-// assertion below was verified against the live functions before being pinned.
+// HISTORY — this was a CHARACTERIZATION net. The escape-quirk assertions
+// (whole-string first-escape-only un-escape) pinned a confirmed defect so its
+// fix would be a deliberate FLIP. ADR 0030 (Option A, Notidian-od7) has landed
+// that fix; those assertions are flipped below to assert the corrected
+// per-element global un-escape. The other locked quirks (the indexOfCharElseEOS
+// `> 0` edge, boolean/date narrowing) remain pinned as present behaviour so any
+// future change stays a deliberate, reviewable FLIP. Each empirical assertion
+// was verified against the live functions.
 // ---------------------------------------------------------------------------
 
 // =========================================================================
@@ -121,12 +125,11 @@ describe("parseMultiDisplayString (direct)", () => {
     expect(parseMultiDisplayString(",,")).toEqual([]);
   });
 
-  it("CHARACTERIZE: the FIRST '\\,' is un-escaped to a real comma BEFORE the split, so it FRACTURES", () => {
-    // 'a\,b' — the single .replace('\\,', ',') restores the first (here only)
-    // escape to a literal ',', which the regex then splits on → ["a","b"].
-    // This is the inverse of serialize's first-comma-escape defect: a value
-    // the user escaped to KEEP joined is still broken apart on the parse side.
-    expect(parseMultiDisplayString("a\\,b")).toEqual(["a", "b"]);
+  it("FIXED (ADR 0030): an escaped comma '\\,' stays INSIDE its element (no longer fractures)", () => {
+    // 'a\,b' — the regex split keeps '\,' inside one match (the (\\.|[^,])+ atom),
+    // then the per-element global un-escape restores it to a literal ',' → ["a,b"].
+    // Was ["a","b"] pre-fix (whole-string un-escape ran BEFORE the split).
+    expect(parseMultiDisplayString("a\\,b")).toEqual(["a,b"]);
   });
 
   it("a non-comma backslash escape (e.g. '\\n') is preserved verbatim as one token", () => {
@@ -135,25 +138,22 @@ describe("parseMultiDisplayString (direct)", () => {
     expect(parseMultiDisplayString("a\\nb")).toEqual(["a\\nb"]);
   });
 
-  // --- THE ADVERSARIAL QUIRK (Notidian-od7 inverse) -------------------------
-  // `.replace('\\,', ',')` uses a STRING pattern, so it replaces only the
-  // FIRST occurrence — and it is applied to the WHOLE string BEFORE the regex
-  // split. Net effect: only the first escaped comma in the entire string is
-  // restored; every later escaped comma keeps its backslash and stays atomic.
-  it("CHARACTERIZE: only the FIRST '\\,' in the WHOLE string is un-escaped (whole-string, single replace)", () => {
-    // 'a\,b\,c' → first '\,' restored → 'a,b\,c' → regex tokens: 'a' | 'b\,c'.
-    expect(parseMultiDisplayString("a\\,b\\,c")).toEqual(["a", "b\\,c"]);
+  // --- FIXED (ADR 0030 Option A, Notidian-od7) ------------------------------
+  // The un-escape is now `.replace(/\\,/g, ',')` applied PER ELEMENT, AFTER the
+  // regex split. EVERY escaped comma in an element is restored to a literal comma
+  // and the element stays atomic — was a whole-string, first-occurrence-only
+  // un-escape run BEFORE the split, which fractured later escaped commas.
+  it("FIXED: EVERY '\\,' in an element is un-escaped, element stays atomic", () => {
+    // 'a\,b\,c' → split keeps it one atom → un-escape both → ["a,b,c"].
+    // Was ["a","b\\,c"] pre-fix.
+    expect(parseMultiDisplayString("a\\,b\\,c")).toEqual(["a,b,c"]);
   });
-  it("CHARACTERIZE: the first-escape consumption can leak ACROSS elements", () => {
-    // 'x\,y, p\,q' → the WHOLE-string replace fires on element ONE's escape:
-    // → 'x,y, p\,q' → split: 'x' | 'y' (element-1 fractured) and 'p\,q'
-    // (element-2 escape survives, stays joined). A vivid demonstration that the
-    // un-escape is positional/global, not per-element.
-    expect(parseMultiDisplayString("x\\,y, p\\,q")).toEqual([
-      "x",
-      "y",
-      "p\\,q",
-    ]);
+  it("FIXED: escaped commas no longer leak across elements (per-element un-escape)", () => {
+    // 'x\,y, p\,q' → split on the bare ', ' separator into 'x\,y' | 'p\,q', then
+    // un-escape each → ["x,y","p,q"]. Was ["x","y","p\\,q"] pre-fix (whole-string
+    // un-escape fractured element one before the split). This is the round-trip
+    // image of serializeMultiDisplayString(["x,y","p,q"]) → 'x\,y, p\,q'.
+    expect(parseMultiDisplayString("x\\,y, p\\,q")).toEqual(["x,y", "p,q"]);
   });
 });
 
@@ -169,13 +169,17 @@ describe("parse <-> serialize inverse (parsers side)", () => {
     expect(rt(["  pad  "])).toEqual(["  pad  "]); // no trim on the JSON path
   });
 
-  it("serializeMultiDisplayString → parseMultiDisplayString is the identity ONLY in the comma-free, trimmed regime", () => {
+  it("serializeMultiDisplayString → parseMultiDisplayString is the identity in the trimmed regime, INCLUDING embedded commas (ADR 0030)", () => {
     const rt = (v: string[]) =>
       parseMultiDisplayString(serializeMultiDisplayString(v));
     expect(rt(["a", "b", "c"])).toEqual(["a", "b", "c"]);
     expect(rt(["alpha"])).toEqual(["alpha"]);
-    // outside that regime the inverse breaks — already pinned in
-    // serializers.test.ts; here we just confirm the safe-regime claim holds.
+    // ADR 0030 (Option A): comma-bearing values now round-trip too — the display
+    // form is lossless across the comma regime (was a data-loss hole pre-fix).
+    expect(rt(["a,b", "c"])).toEqual(["a,b", "c"]);
+    expect(rt(["x,y,z"])).toEqual(["x,y,z"]);
+    // The remaining non-identity cases are whitespace-trim/empty-drop, not the
+    // comma defect — pinned in serializers.test.ts.
   });
 });
 

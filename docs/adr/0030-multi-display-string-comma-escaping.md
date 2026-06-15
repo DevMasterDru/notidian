@@ -2,9 +2,15 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-od7` (related-dep on the
+Implemented as **Option A** (recommended): both comma replaces made global and the
+parser un-escape moved to after the split; the locked Notidian-a3s characterization
+assertions (in `serializers.test.ts`, `parsers.test.ts`, `lookup.test.ts`) were
+deliberately flipped to assert correct round-tripping. The original record below is
+preserved.
+
+Originally written instead of changing the serializers blind. Tracked by bd `Notidian-od7` (related-dep on the
 characterization net `Notidian-a3s`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written instead of changing the serializers blind. The escape contract is

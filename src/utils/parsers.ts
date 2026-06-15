@@ -7,7 +7,13 @@ import { serializeMultiDisplayString, serializeMultiString } from "./serializers
 
 export const parseMultiString = (str: string): string[] => ensureString(str).startsWith("[") ? ensureArray(safelyParseJSON(str)).map(f => ensureString(f)) : parseMultiDisplayString(str)
   
-  export const parseMultiDisplayString = (str: string):string[] => (ensureString(str).replace('\\,', ',')?.match(/(\\.|[^,])+/g) ?? []).map(f => f.trim());
+  // ADR 0030 (Option A): un-escape EVERY '\,' (global /\\,/g) and do it AFTER the
+  // split, per-element. Un-escaping before the split would turn '\,' back into ','
+  // and the comma-split regex would then treat it as an element boundary again
+  // (re-introducing the data loss). The `(\\.|[^,])+` regex keeps an escaped comma
+  // inside a single match, so restoring the literal comma per-element after the split
+  // is the correct order. Pairs with the global escape in serializeMultiDisplayString.
+  export const parseMultiDisplayString = (str: string):string[] => (ensureString(str).match(/(\\.|[^,])+/g) ?? []).map(f => f.trim().replace(/\\,/g, ','));
   const stringifyPropertyValue = (value: any): string => {
     if (value == null) return "";
     if (typeof value === "string") return value;
