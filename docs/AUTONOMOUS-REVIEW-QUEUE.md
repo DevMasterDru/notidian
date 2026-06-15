@@ -1432,6 +1432,46 @@ queueing more and pivots to safe work — so this list stays reviewable.
   pinned nets — neither a measurement a flag yields.
 - **Bead status:** Notidian-k778 stays **OPEN**, awaiting your direction.
 
+### Notidian-p5qt — `insertIntoDB`/`updateDB` batched-statement seam (leading space + `;;  ` double-semicolon): clean it up?
+
+- **ADR:** [docs/adr/0046-sql-batch-statement-seam-cleanup.md](adr/0046-sql-batch-statement-seam-cleanup.md) (Status: Proposed).
+- **Why a decision, not a build:** the bead itself says "any fix must be a deliberate
+  flip of those assertions," and the change has **zero functional value**, so the open
+  question is genuinely *whether/when to spend the review*, not how to fix it. Verified in
+  `db.ts`: `insertIntoDB` (`db.ts:357-363`) and `updateDB` (`db.ts:383-389`) build each
+  table's `rowsQuery` with a `reduce` **seeded with `""`** and a `${prev} ` template — so
+  every statement carries a **leading space** — and each per-table `rowsQuery` also ends
+  in `;`, then `serializeSQLStatements` (`src/utils/serializers.ts:4`, `value.join('; ')`)
+  joins them, so the two-table seam is `;` + `; ` + leading-space = **`;;  `** (double
+  semicolon + two spaces; pinned exactly at `db.sql-builders.test.ts:300-317`). **Benign:**
+  an empty statement is a SQLite no-op (proven harmless end-to-end by the real-engine net
+  `db.realengine.roundtrip.test.ts`, `Notidian-0jtp`), idents stay quoted, values stay
+  single-quote-doubled — **no security or correctness impact**. The shape is **pinned as
+  characterization** in ~11 `db.sql-builders.test.ts` cases (every `insertIntoDB`/`updateDB`
+  `toBe` carries the leading space; `:316` pins the `;;  ` seam), so any cleanup
+  deliberately re-blesses all of them. NOTE `replaceDB` does **not** have this seam — it
+  `.map()`+`push`es rows and execs one-at-a-time (no seed-reduce, no `serializeSQLStatements`
+  join), so this is **orthogonal** to ADR 0045's `replaceDB` count/position-alignment
+  decision; they share only the file and the flip-a-pin posture.
+- **The one decision you need to make:** pick **A / B / C** —
+  **recommended Option C *if* you accept `Notidian-k778` (ADR 0045)**: fold the cleanup
+  (build rows as an array and `.join('; ')`, dropping the seed-space and the trailing-`;`
+  double-up) into the **same** k778 SQL-builder pass, so the ~11 pinned assertions are
+  re-blessed in **one** reviewed round alongside k778's flip — cheaper than two separate
+  rounds on the same file. **Otherwise recommended Option A** (leave as-is): the change has
+  zero functional value, so don't spend an isolated assertion-flip review on aesthetics; the
+  pins already document the seam as intentional-and-benign.
+  **Ruled out: B** as a *standalone* change — the fix is small and safe, but doing it on its
+  own spends a deliberate re-bless of ~11 pinned cosmetic assertions on zero functional
+  value (review-debt churn for aesthetics); it is just C-without-a-carrier, acceptable only
+  if you specifically want the tidy SQL now and there is no k778 carrier to fold into. A
+  default-OFF flag adds nothing — the seam's harmlessness is already empirically captured
+  against the real sql.js engine (empty-statement no-op, no parse break, no dropped row),
+  and the open question is the **review posture** (A/B/C), not a measurement a flag yields.
+- **No build / no spike shipped.** No `db.ts` or `db.sql-builders.test.ts` change is made
+  and the leading-space + `;;  ` pins are **not** flipped.
+- **Bead status:** Notidian-p5qt stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
