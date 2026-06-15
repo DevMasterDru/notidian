@@ -38,12 +38,18 @@ import {
 // any future change is a conscious, reviewed decision — including the latent
 // defects we surfaced and explicitly pin (and filed follow-ups for):
 //
-//   (D1) sanitizeFolderName is NOT idempotent. Its leading-sigil strip
-//        (folderReservedRe `^[+$#^]+`) runs BEFORE the illegal/control strips;
-//        removing an illegal char can EXPOSE a new leading sigil that the first
-//        pass already skipped, so a 2nd call strips more.
-//        e.g. sanitizeFolderName("/+") -> "+" -> "". sanitizeFileName, which has
-//        no leading-sigil pass, IS idempotent. We pin BOTH facts.
+//   (D1) sanitizeFolderName IS idempotent (FIXED in Notidian-hsd; was a latent
+//        ordering defect surfaced here by Notidian-709). The five strips are
+//        MUTUALLY coupling: removing an illegal/control char can expose a new
+//        leading sigil that folderReservedRe `^[+$#^]+` already passed, AND
+//        stripping a leading sigil can expose a now-leading Windows device name
+//        / pure-dot run that the anchored windowsReservedRe / reservedRe already
+//        passed. No single linear pass in any order reaches a fixed point, so
+//        sanitizeFolderName now runs the pipeline TO A FIXED POINT. We therefore
+//        pin idempotency: sanitize(sanitize(x)) === sanitize(x), incl. the
+//        former defect case sanitizeFolderName("/+") -> "" (was "+" -> "").
+//        sanitizeFileName, which has no leading-sigil pass, was already
+//        idempotent. We pin BOTH facts.
 //   (D2) The null/undefined contract is INCONSISTENT across the six functions:
 //        quoteIdent is null-safe ('""'); sanitizeSQLStatement / sanitizeColumnName
 //        / sanitizeTableName return `undefined` (via `?.`) on nullish input;
@@ -385,8 +391,10 @@ describe("sanitizeTableName", () => {
 //   Shared strips (both): illegal path chars /?<>\:*|" , C0/C1 control range,
 //   pure-dot reserved names (^\.+$), Windows device names
 //   (con/prn/aux/nul/com[0-9]/lpt[0-9], case-insensitive, with-or-without ext).
-//   sanitizeFolderName ADDITIONALLY strips a LEADING run of +/$/#/^ — and does
-//   so FIRST, which is the source of its non-idempotency (D1).
+//   sanitizeFolderName ADDITIONALLY strips a LEADING run of +/$/#/^. Because
+//   that sigil strip and the anchored device-name/pure-dot strips mutually
+//   expose each other (D1), it runs the whole pipeline TO A FIXED POINT so the
+//   result is idempotent (Notidian-hsd).
 // =========================================================================
 describe("sanitizeFileName", () => {
   it("leaves a clean name untouched", () => {
@@ -453,7 +461,7 @@ describe("sanitizeFolderName", () => {
     expect(sanitizeFolderName("CON.txt")).toBe("");
     expect(sanitizeFolderName("a\x00b\x85c")).toBe("abc");
   });
-  it("a leading sigil in front of a device name: sigil stripped THEN device name stripped", () => {
+  it("a leading sigil in front of a device name collapses to empty (sigil + exposed device name both stripped at the fixed point)", () => {
     expect(sanitizeFolderName("+con")).toBe("");
     expect(sanitizeFolderName("$nul.txt")).toBe("");
   });
@@ -465,18 +473,36 @@ describe("sanitizeFolderName", () => {
     expect(() => sanitizeFolderName(undefined as unknown as string)).toThrow();
   });
 
-  // ---- D1: documented NON-idempotency (latent ordering defect, LOCKED) ----
-  it("CHARACTERIZATION (D1): is NOT idempotent — leading-sigil strip runs before illegal-char strip, so removing an illegal char can expose a new leading sigil", () => {
-    // "/+" : 1st pass — folderReservedRe sees leading '/', not a sigil, skips;
-    // then illegalRe removes '/', leaving "+". A 2nd pass NOW strips the '+'.
-    expect(sanitizeFolderName("/+")).toBe("+");
-    expect(sanitizeFolderName(sanitizeFolderName("/+"))).toBe("");
-    expect(sanitizeFolderName("/+")).not.toBe(
-      sanitizeFolderName(sanitizeFolderName("/+")),
+  // ---- D1: IDEMPOTENCY (was a latent ordering defect; FIXED in Notidian-hsd) --
+  it("D1 (FIXED): is IDEMPOTENT — sanitize(sanitize(x)) === sanitize(x), so re-saving a name can never drift identity (ADR 0014/0016)", () => {
+    // Former defect: "/+" used to yield "+" (a leading illegal char masked the
+    // sigil), so a 2nd call stripped more. The fixed-point pipeline now strips
+    // '/' (illegal) then the now-leading '+' (sigil) in one settled result.
+    expect(sanitizeFolderName("/+")).toBe("");
+    expect(sanitizeFolderName(sanitizeFolderName("/+"))).toBe(
+      sanitizeFolderName("/+"),
     );
-    // ":$#" behaves the same way.
-    expect(sanitizeFolderName(":$#")).toBe("$#");
-    expect(sanitizeFolderName(sanitizeFolderName(":$#"))).toBe("");
+    // ":$#" — same illegal-masks-sigil shape.
+    expect(sanitizeFolderName(":$#")).toBe("");
+    // The REVERSE coupling (a leading sigil masking an anchored device name /
+    // pure-dot run) is also resolved by the fixed point, which a mere reorder
+    // could NOT do. Each of these reaches its final value in one settled call.
+    for (const x of [
+      "/+",
+      ":$#",
+      "+con",
+      "$nul.txt",
+      "$#con",
+      "+lpt3.x",
+      "$..",
+      "++con.txt",
+      "+$#^name",
+      "a+b#c",
+      "../etc",
+    ]) {
+      const once = sanitizeFolderName(x);
+      expect(sanitizeFolderName(once)).toBe(once);
+    }
   });
 });
 
@@ -509,7 +535,7 @@ describe("path sanitizers — shared invariants (property)", () => {
     }
   });
 
-  it("INVARIANT: sanitizeFileName IS idempotent (no out-of-order leading-sigil pass) — contrast D1", () => {
+  it("INVARIANT: sanitizeFileName IS idempotent", () => {
     const rng = makeRng(0x606060);
     for (let i = 0; i < PROPERTY_RUNS; i++) {
       const input = fuzzString(rng);
@@ -518,18 +544,26 @@ describe("path sanitizers — shared invariants (property)", () => {
     }
   });
 
-  it("INVARIANT: the folder/file DIFFERENCE is exactly the leading-sigil strip — applying the folder sigil strip first makes them agree", () => {
-    const rng = makeRng(0x707070);
-    const stripLeadingSigils = (s: string) => s.replace(/^[+$#^]+/, "");
+  it("INVARIANT: sanitizeFolderName IS idempotent too (fixed-point pipeline — Notidian-hsd, D1 fix)", () => {
+    const rng = makeRng(0x616161);
     for (let i = 0; i < PROPERTY_RUNS; i++) {
       const input = fuzzString(rng);
-      // sanitizeFolderName(x) === sanitizeFileName(stripLeadingSigils(x))
-      // because folder = stripSigils -> (illegal,control,reserved,device) and
-      // file = (illegal,control,reserved,device); the only delta is that first
-      // pass operating on the same downstream pipeline.
-      expect(sanitizeFolderName(input)).toBe(
-        sanitizeFileName(stripLeadingSigils(input)),
-      );
+      const once = sanitizeFolderName(input);
+      expect(sanitizeFolderName(once)).toBe(once);
+    }
+  });
+
+  it("INVARIANT: folder cleansing DOMINATES file cleansing — folder(file(x)) === folder(x) AND folder output is already file-clean (file(folder(x)) === folder(x))", () => {
+    const rng = makeRng(0x707070);
+    for (let i = 0; i < PROPERTY_RUNS; i++) {
+      const input = fuzzString(rng);
+      const folder = sanitizeFolderName(input);
+      // folder is a strict superset of the file pipeline run to a fixed point,
+      // so pre-cleaning with file changes nothing...
+      expect(sanitizeFolderName(sanitizeFileName(input))).toBe(folder);
+      // ...and the folder output already satisfies the file pipeline (no
+      // residual illegal/control/dot/device-name fragment is left behind).
+      expect(sanitizeFileName(folder)).toBe(folder);
     }
   });
 
@@ -538,14 +572,17 @@ describe("path sanitizers — shared invariants (property)", () => {
     expect(sanitizeFolderName(cruft)).toBe("");
     expect(sanitizeFileName(cruft)).toBe("");
   });
-  it("CHARACTERIZATION (D1): leading illegal chars BEFORE the sigils make sanitizeFolderName leave the sigils behind (they were not leading at pass time)", () => {
+  it("D1 (FIXED): leading illegal chars BEFORE the sigils no longer leave the sigils behind — the fixed-point pipeline strips the now-leading sigils in the same call", () => {
     // The sigils `+$#^` follow illegal chars, so they are NOT leading when
-    // folderReservedRe runs; once the illegal prefix is stripped they ARE
-    // leading, but the sigil pass has already gone by. A 2nd call would peel
-    // them — see the D1 non-idempotency characterization above.
+    // folderReservedRe runs in the first sub-pass; once the illegal prefix is
+    // stripped they ARE leading, and the fixed-point loop re-runs the sigil
+    // strip on the settled string — so they are peeled in ONE call (was "+$#^"
+    // before Notidian-hsd, requiring a 2nd call). Idempotent.
     const cruft = `/?<>\\:*|"+$#^\x00\x1f\x85`;
-    expect(sanitizeFolderName(cruft)).toBe("+$#^");
-    expect(sanitizeFolderName(sanitizeFolderName(cruft))).toBe("");
+    expect(sanitizeFolderName(cruft)).toBe("");
+    expect(sanitizeFolderName(sanitizeFolderName(cruft))).toBe(
+      sanitizeFolderName(cruft),
+    );
     // sanitizeFileName has no sigil pass, so the sigils survive (by design).
     expect(sanitizeFileName(cruft)).toBe("+$#^");
   });
