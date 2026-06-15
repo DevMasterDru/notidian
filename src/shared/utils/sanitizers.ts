@@ -11,14 +11,27 @@ export const quoteIdent = (name: string): string => {
   return `"${(name ?? "").replace(/"/g, `""`)}"`;
 };
 
-// Data rule for stored column names: strip double quotes (kept out of persisted
-// identifiers). SQL escaping of identifiers happens at construction time via
-// quoteIdent, NOT here — escaping here would persist `""` into the name.
+// IDEMPOTENT data rule for stored column names (Notidian-80m). Two cleansing
+// rules apply: (a) strip ALL double-quotes (kept out of persisted identifiers),
+// and (b) strip a LEADING run of `_`/`$` sigils. These rules COUPLE: a leading
+// double-quote masks a following sigil, so the order matters. The former code
+// peeled the leading sigil FIRST and quote-stripped LAST (terminal branch), so a
+// quote-masked sigil (`"$x`) survived ONE application (`"$x` -> `$x`) and was
+// only peeled on a SECOND call — non-idempotent. We now strip ALL quotes FIRST
+// (which can EXPOSE a previously-masked leading sigil), THEN peel the leading
+// sigil run to a fixed point. Both passes are removal-only so the loop strictly
+// shrinks and terminates. Idempotency matters because the persisted name feeds
+// SQL identity (m_fields rows) and the alias decision in propertyNameValue.ts; a
+// non-idempotent sanitizer could drift the stored name on re-save.
+// SQL escaping of identifiers happens at construction time via quoteIdent, NOT
+// here — escaping here would persist `""` into the name. Nullish input
+// short-circuits to `undefined` via optional chaining (locked D2 contract).
 export const sanitizeColumnName = (name: string): string => {
-  if (name?.charAt(0) == "_" || name?.charAt(0) == "$") {
-    return sanitizeColumnName(name.substring(1));
+  let result = name?.replace(/"/g, ``);
+  while (result?.charAt(0) == "_" || result?.charAt(0) == "$") {
+    result = result.substring(1);
   }
-  return name?.replace(/"/g, ``);
+  return result;
 };
 export const sanitizeTableName = (name: string) => {
   return name?.replace(/[^a-z0-9+]+/gi, "");

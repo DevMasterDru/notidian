@@ -56,14 +56,17 @@ import {
 //        sanitizeFolderName / sanitizeFileName THROW on null/undefined (no
 //        optional chaining). We pin each branch so a future refactor can't
 //        silently flip the contract under a caller that depends on it.
-//   (D3) sanitizeColumnName is also NOT idempotent, for the SAME class of reason
-//        as D1: the leading `_`/`$` recursion peels FIRST, then the quote-strip
-//        branch is TERMINAL (no re-recursion). So a leading quote in front of a
-//        sigil (`"$x`) survives the recursion guard, the quote is removed, and a
-//        leading `$` is left behind — a 2nd call then peels it.
-//        e.g. sanitizeColumnName("\"$x") -> "$x" -> "x". Consequently the output
-//        CAN start with `_`/`$`; only the no-double-quote guarantee is absolute.
-//        (Applying it TWICE does reach a fixed point.)
+//   (D3) sanitizeColumnName IS idempotent (FIXED in Notidian-80m; was a latent
+//        ordering defect of the SAME class as D1). The former code peeled the
+//        leading `_`/`$` run FIRST, then quote-stripped in a TERMINAL branch (no
+//        re-peel). So a leading quote in front of a sigil (`"$x`) survived the
+//        peel guard, the quote was removed, and a leading `$` was left behind —
+//        a 2nd call then peeled it (sanitizeColumnName("\"$x") -> "$x" -> "x").
+//        The fix strips ALL quotes FIRST (exposing any quote-masked sigil), THEN
+//        peels the leading sigil run to a fixed point, so `"$x` -> "x" in ONE
+//        call. We therefore pin BOTH the no-double-quote guarantee AND the no-
+//        leading-`_`/`$` guarantee in a single application, plus idempotency:
+//        sanitizeColumnName(sanitizeColumnName(x)) === sanitizeColumnName(x).
 //
 // See follow-up beads filed by Notidian-709 for the folder-idempotency (D1) and
 // column-name (D3) ordering fixes and the nullish-contract (D2) unification.
@@ -235,10 +238,11 @@ describe("sanitizeSQLStatement", () => {
 });
 
 // =========================================================================
-// sanitizeColumnName — persisted column-name cleansing
-//   - recursively strips a LEADING run of `_` / `$`
-//   - removes ALL double-quotes (NOT SQL-escaping — that is quoteIdent's job
-//     at construction; escaping here would persist `""` into the name)
+// sanitizeColumnName — persisted column-name cleansing (IDEMPOTENT, Notidian-80m)
+//   - removes ALL double-quotes FIRST (NOT SQL-escaping — that is quoteIdent's
+//     job at construction; escaping here would persist `""` into the name)
+//   - THEN peels a LEADING run of `_` / `$` to a fixed point (quote-strip-first
+//     so a quote-masked leading sigil is exposed and peeled in ONE application)
 // =========================================================================
 describe("sanitizeColumnName", () => {
   it("leaves a clean name untouched", () => {
@@ -272,7 +276,8 @@ describe("sanitizeColumnName", () => {
     expect(sanitizeColumnName("a__b__")).toBe("a__b__");
   });
   it("does NOT strip a sigil that follows a non-sigil leading char", () => {
-    // Recursion only peels while the FIRST char is _/$, so `a_` stops at `a`.
+    // The peel only runs while the FIRST char is _/$; once quotes are stripped
+    // `a"_` -> `a_`, whose leading char is `a`, so the trailing `_` stays.
     expect(sanitizeColumnName(`a"_`)).toBe("a_");
   });
   it("returns undefined on nullish input (via `?.` — D2)", () => {
@@ -280,24 +285,31 @@ describe("sanitizeColumnName", () => {
     expect(sanitizeColumnName(undefined as unknown as string)).toBeUndefined();
   });
 
-  // ---- D3: a LEADING quote in front of a sigil leaves the sigil exposed,
-  //          because the quote-strip branch is terminal (no re-recursion). ----
-  it("CHARACTERIZATION (D3): a leading double-quote masks a following sigil — the quote is removed but the now-leading sigil survives", () => {
-    // 1st pass: charAt(0) is `"` (not _/$), so the recursion guard is skipped
-    // and the terminal quote-strip runs: `"$x` -> `$x` (leading `$` remains).
-    expect(sanitizeColumnName(`"$x`)).toBe("$x");
-    expect(sanitizeColumnName(`"_x`)).toBe("_x");
-    // A 2nd pass NOW peels the exposed sigil — so it is NOT idempotent.
-    expect(sanitizeColumnName(sanitizeColumnName(`"$x`))).toBe("x");
-    expect(sanitizeColumnName(`"$x`)).not.toBe(
-      sanitizeColumnName(sanitizeColumnName(`"$x`)),
+  // ---- D3 (FIXED in Notidian-80m): a LEADING quote in front of a sigil no
+  //      longer leaves the sigil exposed. The former code peeled the leading
+  //      sigil FIRST and quote-stripped LAST (terminal branch), so a quote-
+  //      masked sigil (`"$x`) survived ONE application (`"$x` -> `$x`). Now we
+  //      strip ALL quotes FIRST — which EXPOSES the previously-masked sigil —
+  //      THEN peel the leading sigil run to a fixed point, so it is reached in
+  //      ONE application and the function is idempotent. ----
+  it("D3 (FIXED): a leading double-quote no longer masks a following sigil — quotes are stripped FIRST, then the now-leading sigil is peeled in ONE call", () => {
+    // Quote-strip first: `"$x` -> `$x`, then the now-leading `$` is peeled -> `x`.
+    expect(sanitizeColumnName(`"$x`)).toBe("x");
+    expect(sanitizeColumnName(`"_x`)).toBe("x");
+    // A run of quote-masked sigils all collapse in one call.
+    expect(sanitizeColumnName(`"$"_"$x`)).toBe("x");
+    // IDEMPOTENT: a second application is a no-op (the D3 fix).
+    expect(sanitizeColumnName(sanitizeColumnName(`"$x`))).toBe(
+      sanitizeColumnName(`"$x`),
     );
+    expect(sanitizeColumnName(sanitizeColumnName(`"$x`))).toBe("x");
   });
-  it("CHARACTERIZATION (D3): a leading sigil in front of a quote DOES recurse past the quote", () => {
-    // Here charAt(0) is the sigil, so recursion fires on the remainder `"x`,
-    // whose quote-strip yields `x`.
+  it("D3 (FIXED): a leading sigil in front of a quote also collapses fully in one call", () => {
+    // `_"x` -> (strip quotes) `_x` -> (peel) `x`.
     expect(sanitizeColumnName(`_"x`)).toBe("x");
-    expect(sanitizeColumnName(`$"_x`)).toBe("_x");
+    // `$"_x` -> (strip quotes) `$_x` -> (peel `$` then `_`) `x` — the former
+    // terminal-branch code stopped at `_x`; the fixed-point peel reaches `x`.
+    expect(sanitizeColumnName(`$"_x`)).toBe("x");
   });
 
   // ---- INVARIANTS (property) ----
@@ -309,19 +321,24 @@ describe("sanitizeColumnName", () => {
       expect(out).not.toContain(`"`);
     }
   });
-  it("INVARIANT: applying sanitizeColumnName TWICE reaches a fixed point (despite the D3 single-pass non-idempotency)", () => {
+  it("INVARIANT (D3 FIX): sanitizeColumnName IS idempotent — sanitize(sanitize(x)) === sanitize(x), so a re-saved column name can never drift identity", () => {
     const rng = makeRng(0xbead);
     for (let i = 0; i < PROPERTY_RUNS; i++) {
       const input = fuzzString(rng);
-      const twice = sanitizeColumnName(sanitizeColumnName(input) as string);
-      expect(sanitizeColumnName(twice as string)).toBe(twice);
+      const once = sanitizeColumnName(input);
+      expect(sanitizeColumnName(once as string)).toBe(once);
     }
+    // The exact former-defect case, pinned: `"$x` settles to `x` in ONE call.
+    expect(sanitizeColumnName(`"$x`)).toBe("x");
+    expect(sanitizeColumnName(sanitizeColumnName(`"$x`))).toBe(
+      sanitizeColumnName(`"$x`),
+    );
   });
-  it("INVARIANT: the twice-applied output has NO double-quotes AND no leading _/$ (the intended cleansing, reached only at fixed point)", () => {
+  it("INVARIANT (D3 FIX): a SINGLE application has NO double-quotes AND no leading _/$ (the intended cleansing, now reached in one pass)", () => {
     const rng = makeRng(0xb0a);
     for (let i = 0; i < PROPERTY_RUNS; i++) {
       const input = fuzzString(rng);
-      const out = sanitizeColumnName(sanitizeColumnName(input) as string) ?? "";
+      const out = sanitizeColumnName(input) ?? "";
       expect(out).not.toContain(`"`);
       if (out.length > 0) {
         expect(out.charAt(0) === "_" || out.charAt(0) === "$").toBe(false);
