@@ -1,11 +1,10 @@
-import { API, APISpaceManager } from "core/superstate/api";
+import { APISpaceManager } from "core/superstate/api";
 import {
   linkContextRow,
   propertyDependencies,
 } from "core/utils/contexts/linkContextRow";
 import { formulas } from "core/utils/formula/formulas";
 import { Superstate } from "makemd-core";
-import i18n from "shared/i18n";
 import * as math from "mathjs";
 import { all } from "mathjs";
 import React, { createContext, useCallback, useContext, useMemo } from "react";
@@ -18,7 +17,7 @@ import {
   SpaceTables,
   SpaceTableSchema,
 } from "shared/types/mdb";
-import { MDBFrame, MDBFrames } from "shared/types/mframe";
+import { FrameSchema, MDBFrame, MDBFrames } from "shared/types/mframe";
 import { URI } from "shared/types/path";
 import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
@@ -26,8 +25,64 @@ import { SpaceDefinition } from "shared/types/spaceDef";
 import { SpaceInfo } from "shared/types/spaceInfo";
 import { SpaceManagerInterface } from "shared/types/spaceManager";
 import { ContextState } from "shared/types/superstate";
-import { parseURI } from "shared/utils/uri";
-import { useMKitPreviewContext } from "./MKitContext";
+
+/**
+ * Inert MKit-preview context (bd Notidian-bnb / ADR 0018).
+ *
+ * Background: the MKit *installer* (MKitFileViewer) was the only thing that ever
+ * mounted a real MKitProvider, and it was removed in Notidian-ala. With no
+ * provider mounted, the old `useMKitPreviewContext()` (a `useContext` read of
+ * MKitContext) returned the `createContext` default on every core render — an
+ * object whose `isPreviewMode` is `false` and whose helpers are no-ops, so every
+ * `mkitContext?.isPreviewMode && …` branch in SpaceManagerProvider was already
+ * dead at runtime.
+ *
+ * This const reproduces that exact runtime default *locally*, which lets us
+ * delete MKitContext.tsx + MKitSpaceManagerProvider (breaking a circular import:
+ * SpaceManagerContext imported useMKitPreviewContext; MKitContext imported
+ * MKitSpaceManagerProvider) WITHOUT changing what the core provider observes.
+ * The public SpaceManager context value still carries `isPreviewMode`/
+ * `isMKitPath`/`convertMKitPath` (external consumers — SpaceContext, PathCrumb,
+ * SpaceFragmentView — read `spaceManager.isPreviewMode`), all evaluating to the
+ * same inert values as before.
+ */
+// The subset of the old ProcessedSpaceData that the (now-dead) mkit branches in
+// SpaceManagerProvider read off a space lookup. Reproduced locally so the dead
+// branches keep their ORIGINAL element typing (e.g. frameSchemas: FrameSchema[],
+// contextTables: SpaceTables) instead of degrading to `any` after MKitContext.tsx
+// was deleted — preserving the file's type-check surface exactly.
+interface InertProcessedSpaceData {
+  contextTables: SpaceTables;
+  frameData: MDBFrames;
+  frameSchemas?: FrameSchema[];
+  contextSchemas?: SpaceTableSchema[];
+  pathState: PathState;
+}
+
+interface InertMKitPreviewContext {
+  isPreviewMode: boolean;
+  rootPath: string;
+  getContextsIndexMap: () => Map<string, ContextState>;
+  getPathsIndexMap: () => Map<string, PathState>;
+  getPathState: (path: string) => PathState | null;
+  resolvePath: (path: string, source?: string) => string;
+  getSpaceByFullPath: (path: string) => InertProcessedSpaceData | undefined;
+  getSpaceByRelativePath: (path: string) => InertProcessedSpaceData | undefined;
+}
+
+const INERT_MKIT_PREVIEW_CONTEXT: InertMKitPreviewContext = {
+  // isPreviewMode is the dead-branch guard; it is always false (no provider is
+  // ever mounted), but its STATIC type stays `boolean` so the mkit branches
+  // remain type-checked as reachable code rather than being narrowed away.
+  isPreviewMode: false,
+  rootPath: "",
+  getContextsIndexMap: () => new Map<string, ContextState>(),
+  getPathsIndexMap: () => new Map<string, PathState>(),
+  getPathState: () => null,
+  resolvePath: (path: string) => path,
+  getSpaceByFullPath: () => undefined,
+  getSpaceByRelativePath: () => undefined,
+};
 
 /**
  * Enhanced SpaceManager interface that handles both regular and MKit operations
@@ -138,17 +193,21 @@ interface SpaceManagerProviderProps {
   children: React.ReactNode;
 }
 
-interface MKitSpaceManagerProviderProps {
-  mkitContext: any;
-  superstate: Superstate;
-  children: React.ReactNode;
-}
-
 export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
   superstate,
   children,
 }) => {
-  const mkitContext = useMKitPreviewContext();
+  // MKit preview runtime is dead post-installer-removal (bd Notidian-bnb / ADR
+  // 0018). Default-OFF: feed the now-orphaned mkit branches the LOCAL inert
+  // default — identical to the value the deleted useMKitPreviewContext()
+  // returned, so runtime behavior is byte-for-byte unchanged. Flag ON: force it
+  // null so the branches short-circuit (the clean state for live verification).
+  // Either way no real MKit provider exists, so isPreviewMode is always false.
+  const removeMKitPreviewRuntime =
+    superstate?.settings?.removeMKitPreviewRuntime === true;
+  const mkitContext = removeMKitPreviewRuntime
+    ? null
+    : INERT_MKIT_PREVIEW_CONTEXT;
 
   // Create formula context for regular provider
   const formulaContext = useMemo(() => {
@@ -1057,678 +1116,5 @@ export const useSpaceManager = (): SpaceManagerContextType => {
   return context;
 };
 
-/**
- * MKit-specific SpaceManagerProvider that operates in isolation using only MKit data
- * This provider creates a SpaceManager interface that works entirely with MKit context
- * without requiring a superstate instance
- */
-export const MKitSpaceManagerProvider: React.FC<
-  MKitSpaceManagerProviderProps
-> = ({ mkitContext, superstate, children }) => {
-  // Create formula context for MKit
-  const formulaContext = useMemo(() => {
-    const config: math.ConfigOptions = {
-      matrix: "Array",
-    };
-    const runContext = math.create(all, config);
-    runContext.import(formulas, { override: true });
-    return runContext;
-  }, []);
-
-  // MKit path utilities
-  const isMKitPath = useCallback((path: string): boolean => {
-    return path?.startsWith("mkit://preview/") || false;
-  }, []);
-
-  const convertMKitPath = useCallback(
-    (path: string): string => {
-      if (!isMKitPath(path)) {
-        return path;
-      }
-
-      const pathAfterPrefix = path.replace("mkit://preview/", "");
-      const kitId = mkitContext?.rootPath?.replace("mkit://preview/", "") || "";
-
-      if (pathAfterPrefix === kitId || pathAfterPrefix === "") {
-        return ".";
-      } else if (pathAfterPrefix.startsWith(kitId + "/")) {
-        let relativePath = pathAfterPrefix.slice((kitId + "/").length);
-        // Remove trailing slashes
-        relativePath = relativePath.replace(/\/+$/, "");
-        return relativePath || ".";
-      }
-
-      // Remove trailing slashes from the result
-      let result = pathAfterPrefix.replace(/\/+$/, "");
-      return result || ".";
-    },
-    [mkitContext?.rootPath]
-  );
-
-  // MKit-only implementations of SpaceManager methods
-  const readTable = useCallback(
-    async (path: string, schema: string): Promise<SpaceTable | null> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      if (spaceData?.contextTables?.[schema]) {
-        const table = spaceData.contextTables[schema];
-
-        // Apply linkContextRow to calculate formulas and aggregates
-        if (table.rows && table.cols && table.cols.length > 0) {
-          // Use getPathsIndexMap and getContextsIndexMap from MKit context
-          const pathsMap = mkitContext?.getPathsIndexMap
-            ? mkitContext.getPathsIndexMap()
-            : new Map<string, PathState>();
-          const contextsMap = mkitContext?.getContextsIndexMap
-            ? mkitContext.getContextsIndexMap()
-            : new Map<string, ContextState>();
-          const spacesMap = new IndexMap();
-
-          // Calculate dependencies once
-          const dependencies = propertyDependencies(table.cols);
-
-          // Default settings (can be extended if needed)
-          const settings: MakeMDSettings = {} as MakeMDSettings;
-
-          // Apply linkContextRow to each row
-          const processedRows = table.rows.map((row: any) =>
-            linkContextRow(
-              formulaContext,
-              pathsMap,
-              contextsMap,
-              spacesMap,
-              row,
-              table.cols,
-              spaceData.pathState,
-              settings,
-              dependencies
-            )
-          );
-
-          return {
-            ...table,
-            rows: processedRows,
-          };
-        }
-
-        return table;
-      }
-
-      return null;
-    },
-    [mkitContext, convertMKitPath, formulaContext]
-  );
-
-  const saveTable = useCallback(
-    async (
-      path: string,
-      table: SpaceTable,
-      force?: boolean
-    ): Promise<boolean> => {
-      // MKit preview is read-only
-      return false;
-    },
-    []
-  );
-
-  const readFrame = useCallback(
-    async (path: string, schema: string): Promise<MDBFrame | null> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      if (spaceData?.frameData?.[schema]) {
-        return spaceData.frameData[schema];
-      }
-
-      return null;
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const saveFrame = useCallback(
-    async (path: string, frame: MDBFrame): Promise<void> => {
-      // MKit preview is read-only
-    },
-    []
-  );
-
-  const tablesForSpace = useCallback(
-    async (path: string): Promise<SpaceTableSchema[]> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      if (spaceData?.contextSchemas) {
-        return spaceData.contextSchemas;
-      }
-
-      return [];
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const framesForSpace = useCallback(
-    async (path: string): Promise<SpaceTableSchema[]> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      if (spaceData?.frameSchemas) {
-        return spaceData.frameSchemas;
-      }
-
-      return [];
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const resolvePath = useCallback(
-    (path: string, source?: string): string => {
-      if (mkitContext?.resolvePath) {
-        return mkitContext.resolvePath(path, source);
-      }
-
-      return path;
-    },
-    [mkitContext]
-  );
-
-  const uriByString = useCallback(
-    (uri: string, source?: string): URI => {
-      if (source) {
-        uri = mkitContext?.resolvePath(uri, source) || uri;
-      }
-      return parseURI(uri);
-    },
-    [mkitContext]
-  );
-
-  const pathExists = useCallback(
-    async (path: string): Promise<boolean> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      return !!spaceData;
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const contextForSpace = useCallback(
-    async (path: string): Promise<SpaceTable> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      if (spaceData?.contextTables) {
-        // Return the first available table or create a default one
-        const tables = Object.values(spaceData.contextTables);
-        if (tables.length > 0) {
-          return tables[0] as SpaceTable;
-        }
-      }
-
-      // Return empty table
-      return {
-        schema: { id: "default", name: i18n.labels.default, type: "db" },
-        cols: [],
-        rows: [],
-      } as SpaceTable;
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const spaceInfoForPath = useCallback(
-    (path: string): SpaceInfo => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      if (spaceData) {
-        return {
-          name: spaceData.spaceKit.name || i18n.labels.unknown,
-          path: path,
-          readOnly: true,
-          isRemote: false,
-          defPath: path,
-          notePath: path,
-        };
-      }
-
-      return {
-        name: i18n.labels.unknown,
-        path: path,
-        readOnly: true,
-        isRemote: false,
-        defPath: path,
-        notePath: path,
-      };
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  // Read-only / No-op implementations for other methods
-  const createSpace = useCallback(
-    (name: string, parentPath: string, definition: SpaceDefinition): void => {
-      // Read-only in MKit
-    },
-    []
-  );
-
-  const deleteSpace = useCallback((path: string): void => {
-    // Read-only in MKit
-  }, []);
-
-  const addSpaceProperty = useCallback(
-    async (path: string, property: SpaceProperty): Promise<boolean> => {
-      return false; // Read-only in MKit
-    },
-    []
-  );
-
-  const saveProperties = useCallback(
-    async (path: string, properties: Record<string, any>): Promise<boolean> => {
-      return false; // Read-only in MKit
-    },
-    []
-  );
-
-  const deleteProperty = useCallback((path: string, property: string): void => {
-    // Read-only in MKit
-  }, []);
-
-  const renameProperty = useCallback(
-    (path: string, property: string, newProperty: string): void => {
-      // Read-only in MKit
-    },
-    []
-  );
-
-  const createTable = useCallback(
-    (path: string, schema: SpaceTableSchema): void => {
-      // Read-only in MKit - no table creation allowed
-    },
-    []
-  );
-
-  const createItemAtPath = useCallback(
-    async (
-      parent: string,
-      type: string,
-      name: string,
-      content?: any
-    ): Promise<string> => {
-      return ""; // Read-only in MKit
-    },
-    []
-  );
-
-  const deletePath = useCallback((path: string): void => {
-    // Read-only in MKit
-  }, []);
-
-  const readPath = useCallback(async (path: string): Promise<string> => {
-    return "";
-  }, []);
-
-  const writeToPath = useCallback(
-    async (path: string, content: any, binary?: boolean): Promise<void> => {
-      // Read-only in MKit
-    },
-    []
-  );
-
-  const parentPathForPath = useCallback(
-    (path: string): string => {
-      if (path === "." || path === mkitContext?.rootPath) {
-        return "";
-      }
-
-      const parts = path.split("/");
-      if (parts.length > 1) {
-        return parts.slice(0, -1).join("/") || ".";
-      }
-
-      return ".";
-    },
-    [mkitContext?.rootPath]
-  );
-
-  // Additional methods with basic implementations
-  const allSpaces = useCallback((): SpaceInfo[] => {
-    const allPaths = mkitContext?.getAllRelativePaths() || [];
-    return allPaths.map((path: string) => ({
-      name: path || i18n.labels.root,
-      path: path,
-      readOnly: true,
-      isRemote: false,
-      defPath: path,
-      notePath: path,
-    }));
-  }, [mkitContext]);
-
-  const childrenForSpace = useCallback(
-    (path: string): string[] => {
-      const convertedPath = convertMKitPath(path);
-      const children = mkitContext?.getChildSpaces(convertedPath) || [];
-      return children.map((child: any) => child.relativePath);
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const spaceInitiated = useCallback(
-    async (path: string): Promise<boolean> => {
-      return await pathExists(path);
-    },
-    [pathExists]
-  );
-
-  const contextInitiated = useCallback(
-    async (path: string): Promise<boolean> => {
-      return await pathExists(path);
-    },
-    [pathExists]
-  );
-
-  const readAllTables = useCallback(
-    async (path: string): Promise<SpaceTables> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      return spaceData?.contextTables || {};
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  const readAllFrames = useCallback(
-    async (path: string): Promise<MDBFrames> => {
-      const convertedPath = convertMKitPath(path);
-      const spaceData =
-        mkitContext?.getSpaceByFullPath(convertedPath) ||
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-
-      return spaceData?.frameData || {};
-    },
-    [mkitContext, convertMKitPath]
-  );
-
-  // No-op implementations for other methods
-  const saveSpace = useCallback(
-    (
-      path: string,
-      definition: (def: SpaceDefinition) => SpaceDefinition,
-      properties?: Record<string, any>
-    ): void => {},
-    []
-  );
-  const renameSpace = useCallback(
-    async (path: string, newPath: string): Promise<string> => {
-      return "";
-    },
-    []
-  );
-  const spaceDefForSpace = useCallback(
-    async (path: string): Promise<SpaceDefinition> => {
-      return null;
-    },
-    []
-  );
-  const allPaths = useCallback(
-    (type?: string[]): string[] => {
-      return mkitContext?.getAllRelativePaths() || [];
-    },
-    [mkitContext]
-  );
-  const renamePath = useCallback(
-    async (oldPath: string, newPath: string): Promise<string> => {
-      return "";
-    },
-    []
-  );
-  const copyPath = useCallback(
-    async (
-      source: string,
-      destination: string,
-      newName?: string
-    ): Promise<string> => {
-      return "";
-    },
-    []
-  );
-  const getPathInfo = useCallback(
-    async (path: string): Promise<Record<string, any>> => {
-      return {};
-    },
-    []
-  );
-  const readPathCache = useCallback(
-    async (path: string): Promise<PathCache> => {
-      return null;
-    },
-    []
-  );
-  const getPathState = useCallback(
-    (path: string): PathState | null => {
-      // Use MKit context's getPathState if available
-      if (mkitContext?.getPathState) {
-        const convertedPath = convertMKitPath(path);
-        return mkitContext.getPathState(convertedPath) || null;
-      }
-
-      // Fallback to direct lookup
-      const convertedPath = convertMKitPath(path);
-      const spaceDataByFullPath =
-        mkitContext?.getSpaceByFullPath(convertedPath);
-      const spaceDataByRelativePath =
-        mkitContext?.getSpaceByRelativePath(convertedPath);
-      const spaceData = spaceDataByFullPath || spaceDataByRelativePath;
-
-      if (spaceData?.pathState) {
-        return spaceData.pathState;
-      }
-
-      return null;
-    },
-    [mkitContext, convertMKitPath]
-  );
-  const childrenForPath = useCallback(
-    async (path: string, type?: string): Promise<string[]> => {
-      return [];
-    },
-    []
-  );
-  const saveFrameSchema = useCallback(
-    async (
-      path: string,
-      schemaId: string,
-      saveSchema: (prev: SpaceTableSchema) => SpaceTableSchema
-    ): Promise<void> => {
-      // Read-only in MKit
-    },
-    []
-  );
-  const deleteFrame = useCallback(
-    async (path: string, name: string): Promise<void> => {
-      // Read-only in MKit
-    },
-    []
-  );
-
-  const getContextsIndexMap = useCallback((): Map<string, ContextState> => {
-    // Use the MKit context's getContextsIndexMap if available
-    if (mkitContext?.getContextsIndexMap) {
-      return mkitContext.getContextsIndexMap();
-    }
-    // Fallback to empty map if not available
-    return new Map<string, ContextState>();
-  }, [mkitContext]);
-
-  const getPathsIndexMap = useCallback((): Map<string, PathState> => {
-    // Use the MKit context's getPathsIndexMap if available
-    if (mkitContext?.getPathsIndexMap) {
-      return mkitContext.getPathsIndexMap();
-    }
-    // Fallback to empty map if not available
-    return new Map<string, PathState>();
-  }, [mkitContext]);
-
-  const contextValue = useMemo<SpaceManagerContextType>(() => {
-    const spaceManagerContextValue = {
-      // Core data operations
-      readTable,
-      saveTable,
-      readFrame,
-      saveFrame,
-
-      // Schema operations
-      tablesForSpace,
-      framesForSpace,
-
-      // Path operations
-      resolvePath,
-      uriByString,
-      pathExists,
-
-      // Space operations
-      createSpace,
-      deleteSpace,
-      spaceInfoForPath,
-      contextForSpace,
-
-      // Property operations
-      addSpaceProperty,
-      saveProperties,
-      deleteProperty,
-      renameProperty,
-
-      // Table operations
-      createTable,
-
-      // File operations
-      createItemAtPath,
-      deletePath,
-      readPath,
-      writeToPath,
-      parentPathForPath,
-
-      // Additional space operations
-      allSpaces,
-      childrenForSpace,
-      spaceInitiated,
-      contextInitiated,
-      readAllTables,
-      readAllFrames,
-      saveSpace,
-      renameSpace,
-      spaceDefForSpace,
-
-      // Additional path operations
-      allPaths,
-      renamePath,
-      copyPath,
-      getPathInfo,
-      readPathCache,
-      getPathState,
-      getPathsIndexMap,
-      childrenForPath,
-
-      // Frame schema operations
-      saveFrameSchema,
-      deleteFrame,
-
-      // MKit utilities
-      isPreviewMode: true,
-      convertMKitPath,
-      isMKitPath,
-
-      // Context access map
-      getContextsIndexMap,
-
-      // API reference - will be set below
-      api: null as IAPI,
-
-      // No fallback - MKit operates in isolation
-      spaceManager: null as SpaceManagerInterface,
-    };
-
-    // Create API for MKit preview using the provided superstate
-    if (superstate) {
-      spaceManagerContextValue.api = new API(
-        superstate,
-        spaceManagerContextValue
-      );
-    }
-
-    return spaceManagerContextValue;
-  }, [
-    readTable,
-    saveTable,
-    readFrame,
-    saveFrame,
-    tablesForSpace,
-    framesForSpace,
-    resolvePath,
-    uriByString,
-    pathExists,
-    createSpace,
-    deleteSpace,
-    spaceInfoForPath,
-    contextForSpace,
-    addSpaceProperty,
-    saveProperties,
-    deleteProperty,
-    renameProperty,
-    createItemAtPath,
-    deletePath,
-    readPath,
-    writeToPath,
-    parentPathForPath,
-    allSpaces,
-    childrenForSpace,
-    spaceInitiated,
-    contextInitiated,
-    readAllTables,
-    readAllFrames,
-    saveSpace,
-    renameSpace,
-    spaceDefForSpace,
-    allPaths,
-    renamePath,
-    copyPath,
-    getPathInfo,
-    readPathCache,
-    getPathState,
-    getPathsIndexMap,
-    childrenForPath,
-    saveFrameSchema,
-    deleteFrame,
-    convertMKitPath,
-    isMKitPath,
-    getContextsIndexMap,
-    superstate,
-    formulaContext,
-  ]);
-  const api = useMemo(() => {
-    const kitAPI = new API(superstate, contextValue);
-    return kitAPI;
-  }, [contextValue]);
-  return (
-    <SpaceManagerContext.Provider value={{ ...contextValue, api: api }}>
-      {children}
-    </SpaceManagerContext.Provider>
-  );
-};
 
 export { SpaceManagerContext };

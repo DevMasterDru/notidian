@@ -89,6 +89,11 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // render-path change; needs live vault verification before the owner enables
   // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
   hardenFrameExecution: false,
+  // Default-OFF dead-MKit-preview-runtime removal (bd Notidian-bnb / ADR 0018).
+  // Core render-path change; file deletion is behavior-preserving, but the
+  // branch short-circuit needs live vault verification before the owner enables
+  // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
+  removeMKitPreviewRuntime: false,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,

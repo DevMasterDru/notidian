@@ -97,6 +97,24 @@ export interface MakeMDSettings {
   // vault (see docs/AUTONOMOUS-REVIEW-QUEUE.md). Existing saved settings are not
   // mutated; only fresh/unset state defaults to false.
   hardenFrameExecution: boolean;
+  // Remove the dead MKit *preview* runtime from the core SpaceManagerContext
+  // (bd Notidian-bnb, post-installer-removal cleanup / ADR 0018). The .mkit
+  // installer — the only thing that ever mounted MKitProvider — was removed in
+  // Notidian-ala, so at runtime the non-MKit SpaceManagerProvider always sees
+  // the inert MKit default (isPreviewMode:false) and every mkit://preview/
+  // branch is already dead. The file deletion (MKitContext.tsx +
+  // MKitSpaceManagerProvider, which broke a circular import) is unconditional
+  // and behavior-preserving; this flag only controls whether the core provider
+  // still routes through those now-orphaned-but-inert mkit branches.
+  //   false (default): keep the dead branches present, fed by a LOCAL inert
+  //     MKit default — byte-for-byte the same runtime values the deleted
+  //     useMKitPreviewContext() returned, so the owner's vault is unchanged.
+  //   true: force the MKit context null and short-circuit the branches (the
+  //     clean end state the owner live-verifies before the residue is pruned).
+  // DEFAULT-OFF: this edits a core render-path context with no offline render
+  // coverage, so it ships gated (docs/AUTONOMOUS-REVIEW-QUEUE.md). Existing
+  // saved settings are not mutated; only fresh/unset state defaults to false.
+  removeMKitPreviewRuntime: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

@@ -71,6 +71,63 @@ queueing more and pivots to safe work — so this list stays reviewable.
   default (Notidian-409 / ADR 0018), so untrusted frame *delivery* is already
   blocked; this bead hardens the *execution* sink as defence-in-depth.
 
+### Notidian-bnb — Remove dead MKit preview runtime from core SpaceManagerContext
+
+- **Setting:** `removeMKitPreviewRuntime` (default `false`) —
+  `src/shared/types/settings.ts`, defaulted in `src/core/schemas/settings.ts`.
+- **Why gated:** `SpaceManagerContext` is a core render-path context (consumed by
+  `SpaceView`, `MDBFileViewer`, `inlineContextLoader`, `NavigatorView`,
+  `EverLeafView`, `ContextExplorerLeafView`, `SpaceFragmentViewComponent`,
+  `FileView`, `markdownPost`) with no offline render coverage, so a deletion's
+  render-correctness cannot be proven by tsc/jest/build. Shipped OFF so the
+  owner's vault is byte-for-byte unchanged until enabled and live-verified.
+- **What changed (unconditional, behavior-preserving):** deleted
+  `src/core/react/context/MKitContext.tsx` (~645 LOC) and the
+  `MKitSpaceManagerProvider` it mounted. These were a **circular import**
+  (`SpaceManagerContext` imported `useMKitPreviewContext`; `MKitContext`
+  imported `MKitSpaceManagerProvider`). The only thing that ever mounted a real
+  `MKitProvider` was the `.mkit` installer (`MKitFileViewer`), **already removed
+  in Notidian-ala** — so with no provider mounted, `useMKitPreviewContext()`
+  always returned the inert `createContext` default (`isPreviewMode:false`) and
+  **every `mkit://preview/` branch in the non-MKit `SpaceManagerProvider` was
+  already dead at runtime.** The core provider now reads a **local inert MKit
+  default** (`INERT_MKIT_PREVIEW_CONTEXT`) that reproduces those exact runtime
+  values, so the deletion changes nothing the provider observes. The public
+  SpaceManager value still carries `isPreviewMode`/`isMKitPath`/
+  `convertMKitPath`/`getContextsIndexMap` (external consumers — `SpaceContext`,
+  `PathCrumb`, `SpaceFragmentView` — read `spaceManager.isPreviewMode`), all
+  evaluating to the same inert non-preview values as before.
+- **What the flag controls:** only whether the now-orphaned-but-inert mkit
+  branches are still *present* in the core provider.
+  - `false` (default): branches present, fed by the local inert default —
+    identical runtime values to today.
+  - `true`: the MKit context is forced `null` and the branches short-circuit
+    (functionally identical, since the branches were already dead; this is the
+    clean end state to live-verify before the residual branches are pruned in a
+    follow-up).
+- **How to enable:** set `removeMKitPreviewRuntime: true` in the plugin's
+  data.json (Notidian settings), reload, and live-verify in the vault.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - With the flag **ON**, open several spaces in **list, card/column, calendar,
+    and detail views** — rendering must be **unchanged** (covers/stickers/colors,
+    context tables, frame data, inline contexts, path crumbs, embedded space
+    fragments all still resolve through the normal `superstate.spaceManager`
+    path).
+  - Toggle the flag **OFF → ON → OFF** on the same spaces — behavior must be
+    indistinguishable in all three states (the offline tests assert this for the
+    SpaceManager API; the eyes-on check confirms the rendered output).
+  - Confirm navigation/context-menus still work (`PathCrumb` no longer suppresses
+    them, since `isPreviewMode` is false either way).
+- **Offline evidence already in place:**
+  `src/core/react/context/SpaceManagerContext.deadMKit.dom.test.tsx` (jsdom,
+  renders the real provider under both flag states: full API shape stable,
+  `isPreviewMode` false, read/resolve/pathState delegate to
+  `superstate.spaceManager`, OFF/ON observable-equivalence) and
+  `src/core/react/context/deadMKitRemoval.guard.test.ts` (static: `MKitContext.tsx`
+  is deleted; no source imports `./MKitContext` or references the removed symbols
+  in code — the circular import cannot return). Full suite (1142 tests) + tsc +
+  build green.
+
 ## Pending — decisions (pick a direction)
 
 ### Notidian-o4w — Select-to-comment: anchor format + AI-review comment channel
