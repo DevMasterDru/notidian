@@ -1382,6 +1382,56 @@ queueing more and pivots to safe work — so this list stays reviewable.
   be re-routed.)
 - **Bead status:** Notidian-2yh stays **OPEN**, awaiting your direction.
 
+### Notidian-k778 — `replaceDB` CREATE/REPLACE column alignment: how to align the row VALUES with the de-duped CREATE column list?
+
+- **ADR:** [docs/adr/0045-replacedb-create-replace-column-alignment.md](adr/0045-replacedb-create-replace-column-alignment.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the bead itself says "Decision/cleanup, not an
+  autonomous blind fix — flip the pinned assertion if changed," and three credible
+  directions exist (correct-by-construction vs. minimal-count-fix vs.
+  document-the-invariant). Verified in `db.ts:433-475`: `replaceDB` builds the CREATE
+  column list from `uniq(cols).filter(f=>f)` (de-duped + falsy-dropped, `db.ts:439-440`)
+  but maps each row's `REPLACE INTO ... VALUES` over the **full, un-deduped** `cols`
+  (`db.ts:452-453`) — so `cols=['a','a','','b']` yields a 2-column CREATE `("a","b")`
+  fed a **4-value** REPLACE. **Real-engine ground truth** (`db.realengine.roundtrip.test.ts:552-614`,
+  sql.js 1.8.0): DIRECT it **throws** `table t has 2 columns but 4 values were supplied`;
+  via `replaceDB` the throw is **swallowed** by its try/catch → returns `false`,
+  `selectDB`→`null` (the row is **silently dropped** for that save), and the table
+  survives as a 2-column table. **Latent today** because production `cols` come from
+  `mdbTablesToDBTables` (`db.ts:293-305`, `field.name` projection — normally unique and
+  non-empty); the `CONTRAST` case proves a normal `cols` array round-trips cleanly. The
+  asymmetry is **pinned as characterization** in **two** nets — the pure builder net
+  (`db.sql-builders.test.ts:363-387`) and the empirical engine net — so any change
+  deliberately re-blesses **both**.
+- **The one decision you need to make:** pick **A / B / C** —
+  **recommended Option A**: emit an **EXPLICIT column list** in the REPLACE —
+  `REPLACE INTO t ("a","b") VALUES (...)` — derived from the **same**
+  `uniq(cols).filter(f=>f)` list the CREATE uses, and map the VALUES over that same
+  list. It makes the statement **correct by construction** for any dup, empty, or
+  **reordered** `cols` — the **only** option robust to both dedup AND positional drift —
+  and a genuine dup/empty-name `cols` array now **stores the row** instead of silently
+  dropping the save.
+  **Ruled out: B** (map VALUES over the same `uniq+filter` list but keep the bare
+  `VALUES (...)` form) — fixes the count mismatch and the silent write-loss with the
+  smallest diff, but stays **positional**: a future column-order drift mis-maps values
+  silently with no count error to catch it (acceptable fallback if you want the minimal
+  change, not the correct-by-construction one); **C** (keep + document the latent
+  asymmetry) — defensible only while the implicit, unenforced `mdbTablesToDBTables`
+  uniqueness invariant holds; leaves a footgun that fails by **silently dropping a
+  table's save** the moment the invariant breaks, invisible at the call site.
+  `insertIntoDB` is **out of scope** (positional, owns no CREATE — a follow-up bead if
+  you want the treatment applied uniformly).
+- **No build / no spike shipped.** No `db.ts`, `db.sql-builders.test.ts`, or
+  `db.realengine.roundtrip.test.ts` change is made and the two locked characterizations
+  are **not** flipped. A default-OFF flag adds nothing — the engine failure is **already
+  empirically captured** against the real sql.js engine (throw → swallowed → `false` →
+  row dropped, table survives), and the change is pure, deterministic SQL-string
+  construction over a sanitized/quoted path with no render / `innerHTML` / eyes-on-vault
+  surface; correctness is fully offline-provable by flipping the two existing jest nets
+  to assert the corrected statement + a successful real-engine round-trip. The open
+  question is the **alignment posture** (A/B/C) plus the deliberate re-bless of two
+  pinned nets — neither a measurement a flag yields.
+- **Bead status:** Notidian-k778 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
