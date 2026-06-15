@@ -828,6 +828,72 @@ queueing more and pivots to safe work — so this list stays reviewable.
   `fm.stripFrontmatterFromString.test.ts` are untouched until you pick.
 - **Bead status:** Notidian-2zs stays **OPEN**, awaiting your direction.
 
+### Notidian-jko — `DataTransformationPipeline.normalizeConfig` impurity (mutates caller `config.encoding`) + `validateConfig` throws on undefined `encoding`
+
+- **ADR:** [docs/adr/0037-datapipeline-normalizeconfig-purity-and-validate-guard.md](adr/0037-datapipeline-normalizeconfig-purity-and-validate-guard.md)
+  (Proposed). Two surprises discovered + LOCKED as characterization by the
+  orchestrator net `Notidian-34e` (`DataTransformationPipeline.test.ts`). Same
+  Visualization subtree as ADR 0033/0035.
+- **The two surprises:** (1) `normalizeConfig` (`DataTransformationPipeline.ts:34`)
+  does `const normalizedConfig = { ...config }` — a **shallow** copy — so
+  `normalizedConfig.encoding` **is** `config.encoding`; writing the inferred
+  encodings back **mutates the caller's `config` in place** (locked:
+  `out.encoding === original.encoding`, `original.x.type` flips `undefined`→inferred,
+  test lines 211-227/419-424). (2) `validateConfig` (`:265`) dereferences
+  `config.encoding.x` with **no guard**, so it **throws** on `encoding===undefined`
+  (locked, lines 807-815) — but it has **ZERO production callers** (the live path is
+  `transform`→`applyRenderingTransformations`), so the throw is currently
+  unreachable.
+- **The decisive finding (why the bead's "deep-clone is behavior-preserving"
+  premise is wrong for the render path):** `D3VisualizationEngine.tsx` runs two
+  sibling `useMemo`s over the **same** `config` — `transformedData` (`:100-104`,
+  calls `transform`→`normalizeConfig`, which **mutates** `config.encoding.*.type`)
+  and `scales` (`:133-456`, reads `config.encoding.*.type` **directly**). The
+  `scales` memo only **re-derives** the type for the **X** path of
+  scatter/line/bar/area (`:178-181`) and the **Y** path of scatter (`:326-330`);
+  for the **Y** path of bar/line/area/pie/radar and the **X** path of pie/radar it
+  switches on `config.encoding.*.type` **with no re-derive**. So that type is
+  populated **only** by the in-place mutation. Empirically verified (Node,
+  2026-06-15): with a deep-clone in `normalizeConfig` and **no other change**, the
+  transform **output** is correct but `original.encoding.y.type` stays `undefined`,
+  the `scales` Y switch falls through every case, and **the chart loses its Y axis**.
+  The mutation is **load-bearing in the live render path** — exactly the
+  "downstream identity assumption in D3VisualizationEngine" the bead flagged.
+- **Why a decision, not a blind fix:** `out.encoding === original.encoding` is a
+  **LOCKED** characterization assertion encoding a render-path contract two memos
+  silently rely on; flipping it without making the engine self-sufficient renders
+  charts with no Y axis, and even the paired change touches the live render path
+  (no offline render coverage) so it needs an **eyes-on-vault** confirm.
+  `tsc`/`jest`/`build` prove the unit output but not the live D3 render.
+- **The one decision you need to make:** pick **A / B / C1** — **recommended A**:
+  deep-clone the `encoding` subtree to make `normalizeConfig` **pure** **and**
+  make `D3VisualizationEngine` **self-sufficient** (re-derive Y types for **all**
+  chart types and X types for pie/radar — the pattern the X path already uses for
+  the other four) **in the same change**, **plus** add the `validateConfig`
+  early-guard returning `{valid:false, errors:['No encoding configured']}`; flip
+  the three locked assertions (211-227/419-424/807-815) in the same commit and
+  confirm with **one eyes-on chart check** that bar/line/area/pie/radar charts with
+  type-less encodings still render their axes. The load-bearing sub-call: **a safe
+  purity fix is the *paired* change (clone + engine), never the clone alone.**
+  Ruled out: **C2 (clone-only, no engine change)** — empirically breaks the render
+  path, so the bead's "(c) clone but don't guard" is not a safe partial; **a blind
+  autonomous fix** — flips a locked identity assertion the render path depends on.
+  If you want only the free, render-safe half now, pick **C1** (guard
+  `validateConfig` — independent, no live caller, no eyes-on step, flips only
+  807-815). If you judge the cross-memo coupling stable and the unused method's
+  throw acceptable, pick **B** (document both contracts incl. the
+  load-bearing-mutation warning; change nothing).
+- **No build / no spike shipped.** The `normalizeConfig`/engine half is
+  render-path-coupled (no offline render test) so it needs an eyes-on confirm, but
+  **no default-OFF flag** is proposed — it is not a security/authority sink and the
+  coupling is fully understood + locally fixable, so the characterization-test flip
+  + a single eyes-on chart check is the right gate (consistent with ADR
+  0025/0030/0032/0033/0035). The `validateConfig` half (C1) is fully offline-provable
+  with no live caller and needs no eyes-on step. `DataTransformationPipeline.ts`,
+  `D3VisualizationEngine.tsx`, and the pinned test assertions are untouched until
+  you pick.
+- **Bead status:** Notidian-jko stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
