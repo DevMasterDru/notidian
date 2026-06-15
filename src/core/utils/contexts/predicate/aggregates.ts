@@ -115,8 +115,14 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     avg: {
         type: "number",
+        // Empty / all-non-numeric set -> 0/0 -> NaN -> "NaN" footer: floor to ''
+        // (Notion-parity blank, matching the percentage family + median's
+        // caught-throw '' — Notidian-lac / DEFECT D4). The number valueType
+        // post-pass parseProperty('', '', 'number') keeps '' blank, so nothing
+        // downstream resurrects the NaN.
         fn: (v) => {
             const filtered = v.map(f => parseFloat(f)).filter((f) => !isNaN(f));
+            if (filtered.length == 0) return '';
             return filtered.reduce((a, b) => a + b, 0) / filtered.length
         },
         valueType: "number",
@@ -160,12 +166,25 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     min: {
         type: "number",
-        fn: (v) => Math.min(...v.map(f => parseFloat(f)).filter(f => !isNaN(f))),
+        // Empty / all-non-numeric set -> Math.min() = +Infinity -> "Infinity"
+        // footer: floor to '' (Notion-parity blank — Notidian-lac / DEFECT D4),
+        // paralleling avg/range and the percentage family.
+        fn: (v) => {
+            const nums = v.map(f => parseFloat(f)).filter(f => !isNaN(f));
+            if (nums.length == 0) return '';
+            return Math.min(...nums);
+        },
         valueType: "number",
     },
     max: {
         type: "number",
-        fn: (v) => Math.max(...v.map(f => parseFloat(f)).filter(f => !isNaN(f))),
+        // Empty / all-non-numeric set -> Math.max() = -Infinity -> "-Infinity"
+        // footer: floor to '' (Notion-parity blank — Notidian-lac / DEFECT D4).
+        fn: (v) => {
+            const nums = v.map(f => parseFloat(f)).filter(f => !isNaN(f));
+            if (nums.length == 0) return '';
+            return Math.max(...nums);
+        },
         valueType: "number",
     },
     range: {
@@ -183,6 +202,10 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
         // (Notidian-7yh / DEFECT D1.)
         fn: (v) => {
             const nums = v.map(f => parseFloat(f)).filter(f => !isNaN(f));
+            // Empty / all-non-numeric set -> (-Infinity)-(Infinity) = -Infinity ->
+            // "-Infinity" footer: floor to '' (Notion-parity blank — Notidian-lac /
+            // DEFECT D4), paralleling avg/min/max and the percentage family.
+            if (nums.length == 0) return '';
             return Math.max(...nums) - Math.min(...nums);
         },
         valueType: "number",

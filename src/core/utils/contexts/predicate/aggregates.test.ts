@@ -166,11 +166,14 @@ describe("aggregateFnTypes.fn — pure math (numeric)", () => {
       // filtered = [10, 30]; (10+30)/2 = 20 — the 'x' affects neither side.
       expect(avg(["10", "x", "30"], "number")).toBe(20);
     });
-    it("EDGE: empty input is 0/0 -> NaN (div-by-zero)", () => {
-      expect(avg([], "number")).toBeNaN();
+    it("EDGE: empty input is floored to '' (no 0/0 -> NaN leak — Notidian-lac / D4)", () => {
+      // Pre-fix: 0/0 -> NaN -> "NaN" footer. Now floored to '' inside the fn
+      // (Notion-parity blank, matching the percentage family + median's
+      // caught-throw '').
+      expect(avg([], "number")).toBe("");
     });
-    it("EDGE: all-non-numeric input filters to [] -> NaN", () => {
-      expect(avg(["a", "b"], "number")).toBeNaN();
+    it("EDGE: all-non-numeric input filters to [] -> floored to ''", () => {
+      expect(avg(["a", "b"], "number")).toBe("");
     });
   });
 
@@ -212,13 +215,15 @@ describe("aggregateFnTypes.fn — pure math (numeric)", () => {
       expect(min(["x", "5", "2"], "number")).toBe(2);
       expect(max(["x", "5", "2"], "number")).toBe(5);
     });
-    it("EDGE: empty numeric subset -> Math.min()=Infinity, Math.max()=-Infinity", () => {
-      // Math.min()/Math.max() with no args are the additive identities; this is
-      // what the table footer would render via .toString().
-      expect(min([], "number")).toBe(Infinity);
-      expect(max([], "number")).toBe(-Infinity);
-      expect(min(["a"], "number")).toBe(Infinity);
-      expect(max(["a"], "number")).toBe(-Infinity);
+    it("EDGE: empty / all-non-numeric subset floors to '' (no Infinity leak — Notidian-lac / D4)", () => {
+      // Pre-fix: Math.min()=+Infinity, Math.max()=-Infinity rendered the math
+      // identities verbatim via .toString(). Now each fn detects the empty
+      // filtered set and returns '' (Notion-parity blank, matching avg/range +
+      // the percentage family).
+      expect(min([], "number")).toBe("");
+      expect(max([], "number")).toBe("");
+      expect(min(["a"], "number")).toBe("");
+      expect(max(["a"], "number")).toBe("");
     });
   });
 
@@ -256,8 +261,11 @@ describe("aggregateFnTypes.fn — pure math (numeric)", () => {
       // (isNaN('1.5e') true) -> 10 - 4 = 6 (wrong).
       expect(range(["1.5e", "10", "4"], "number")).toBeCloseTo(8.5);
     });
-    it("EDGE: empty subset -> (-Infinity) - (Infinity) = -Infinity", () => {
-      expect(range([], "number")).toBe(-Infinity);
+    it("EDGE: empty / all-non-numeric subset floors to '' (no -Infinity leak — Notidian-lac / D4)", () => {
+      // Pre-fix: (-Infinity) - (Infinity) = -Infinity rendered verbatim. Now the
+      // fn detects the empty filtered set and returns '' (Notion-parity blank).
+      expect(range([], "number")).toBe("");
+      expect(range(["a", "b"], "number")).toBe("");
     });
   });
 });
@@ -394,16 +402,25 @@ describe("calculateAggregate — numeric rollups (end to end)", () => {
     expect(calculateAggregate(settings, ["3", "1", "7"], "max", col("number"))).toBe("7");
     expect(calculateAggregate(settings, ["3", "1", "7"], "range", col("number"))).toBe("6");
   });
-  it("EDGE: avg of [] propagates NaN to the footer string 'NaN'", () => {
-    expect(calculateAggregate(settings, [], "avg", col("number"))).toBe("NaN");
+  it("EDGE: avg of [] renders blank end-to-end (no 'NaN' leak — Notidian-lac / D4)", () => {
+    // Pre-fix the fn produced NaN -> "NaN" footer; the fn now floors [] to ''
+    // (Notion-parity blank). The number valueType post-pass keeps '' blank.
+    expect(calculateAggregate(settings, [], "avg", col("number"))).toBe("");
   });
-  it("EDGE: avg of all-non-numeric propagates 'NaN'", () => {
-    expect(calculateAggregate(settings, ["a", "b"], "avg", col("number"))).toBe("NaN");
+  it("EDGE: avg of all-non-numeric renders blank (filters to [] -> '')", () => {
+    expect(calculateAggregate(settings, ["a", "b"], "avg", col("number"))).toBe("");
   });
-  it("EDGE: min/max/range of [] render the Infinity identities as strings", () => {
-    expect(calculateAggregate(settings, [], "min", col("number"))).toBe("Infinity");
-    expect(calculateAggregate(settings, [], "max", col("number"))).toBe("-Infinity");
-    expect(calculateAggregate(settings, [], "range", col("number"))).toBe("-Infinity");
+  it("EDGE: min/max/range of [] render blank (no Infinity-identity leak — Notidian-lac / D4)", () => {
+    // Pre-fix these rendered the Math.min/Math.max([]) identities verbatim
+    // ('Infinity', '-Infinity', '-Infinity'); now each fn floors the empty
+    // filtered set to '' so the whole pipeline shows nothing.
+    expect(calculateAggregate(settings, [], "min", col("number"))).toBe("");
+    expect(calculateAggregate(settings, [], "max", col("number"))).toBe("");
+    expect(calculateAggregate(settings, [], "range", col("number"))).toBe("");
+    // all-non-numeric inputs filter to the empty set too -> blank.
+    expect(calculateAggregate(settings, ["a", "b"], "min", col("number"))).toBe("");
+    expect(calculateAggregate(settings, ["a", "b"], "max", col("number"))).toBe("");
+    expect(calculateAggregate(settings, ["a", "b"], "range", col("number"))).toBe("");
   });
   it("EDGE: median of [] is caught (mathjs throw) and rendered blank", () => {
     expect(calculateAggregate(settings, [], "median", col("number"))).toBe("");
@@ -541,10 +558,11 @@ describe("calculateAggregate — flex column unwrapping", () => {
     const flexVals = [JSON.stringify({ value: "10" }), JSON.stringify({ value: "20" })];
     expect(calculateAggregate(settings, flexVals, "avg", col("flex"))).toBe("15");
   });
-  it("flex unwrap of malformed JSON yields undefined inner -> NaN avg", () => {
+  it("flex unwrap of malformed JSON yields undefined inner -> blank avg", () => {
     // safelyParseJSON('not json') -> undefined -> .value undefined -> parseFloat
-    // -> NaN -> filtered out -> avg of [] -> NaN.
-    expect(calculateAggregate(settings, ["not json", "also not"], "avg", col("flex"))).toBe("NaN");
+    // -> NaN -> filtered out -> avg of [] -> '' (Notion-parity blank, Notidian-lac
+    // / D4; pre-fix this rendered "NaN").
+    expect(calculateAggregate(settings, ["not json", "also not"], "avg", col("flex"))).toBe("");
   });
 });
 
@@ -588,11 +606,18 @@ describe("calculateAggregate — flex column unwrapping", () => {
  *     to a zero span by msToDurationValue, so it renders '' (no -Infinity leak),
  *     independent of the duration-branch throw that previously swallowed it.
  *
- * D4. Empty-set edge values leak math identities into the rendered footer:
- *     avg -> 'NaN', min -> 'Infinity', max/range -> '-Infinity' instead of a
- *     blank/dash. (median is the only empty-safe numeric one, because its throw
- *     is caught -> ''. dateRange is now ALSO empty-safe: its -Infinity span is
- *     floored to a zero duration by msToDurationValue -> '' — see D3.)
+ * D4. [FIXED — Notidian-lac] Empty-set (or all-non-numeric) edge values leaked
+ *     math identities into the rendered footer: avg -> 'NaN' (0/0), min ->
+ *     'Infinity' (Math.min() of []), max/range -> '-Infinity'. The decided
+ *     convention is BLANK '' for empty sets (Notion-parity, matching the
+ *     percentage family + median's caught-throw '' + dateRange's floored span —
+ *     NOT '-'). Fix: avg/min/max/range each detect the empty filtered numeric
+ *     set and return '' before formatting, so the whole pipeline shows blank.
+ *     Non-empty finite results are unchanged. Pinned by the Layer-1 'EDGE: ...
+ *     floored to' tests and the Layer-2 'render blank' tests above. (median was
+ *     already empty-safe — its mathjs throw is caught -> ''; dateRange's
+ *     -Infinity span is floored to a zero duration by msToDurationValue -> '',
+ *     see D3.)
  *
  *     PERCENTAGE FAMILY [FIXED — Notidian-wis]: percentageEmpty/percentageNotEmpty/
  *     percentageComplete divide by v.length, so an empty column was #/0 -> NaN ->
