@@ -230,21 +230,31 @@ describe("aggregateFnTypes.fn — pure math (numeric)", () => {
       expect(range([3, 1, 7], "number")).toBe(6);
       expect(range([5], "number")).toBe(0);
     });
-    it("DEFECT-PIN: min side filters RAW values without parseFloat-mapping", () => {
-      // max side: Math.max(...v.map(parseFloat).filter(!isNaN))
-      // min side: Math.min(...v.filter(f => !isNaN(f)))   <-- no parseFloat map.
-      // For pure numeric strings the two value sets coincide (Math.min coerces),
-      // so ['1','2','3'] => max 3, min 1 => 2 (looks correct):
-      expect(range(["1", "2", "3"], "number")).toBe(2);
-      // But a unit-suffixed string parseFloat's to a number on the MAX side yet
-      // is DROPPED on the MIN side (isNaN('10px') === true), so the min set is
-      // [3] only: max 10 - min 3 = 7, NOT max(10,3)-min(10,3)=7... it coincides
-      // here, but diverges when the suffixed value is the minimum:
-      expect(range(["10px", "3"], "number")).toBe(7);
-      // Divergence made visible: '2x' parses to 2 (would be the min), but is
-      // dropped from the min set, so min becomes 5 instead of 2:
-      // max set = [parseFloat('2x')=2, 5, 9] -> 9; min set = ['5','9'] -> 5.
-      expect(range(["2x", "5", "9"], "number")).toBe(4); // 9 - 5, NOT 9 - 2 (=7)
+    it("FIXED (was DEFECT D1): min and max share one parseFloat-mapped set", () => {
+      // Notidian-7yh: previously the max side mapped values with parseFloat
+      // (Math.max(...v.map(parseFloat).filter(!isNaN))) but the min side filtered
+      // RAW values (Math.min(...v.filter(f => !isNaN(f)))) — no parseFloat map. A
+      // numeric-string with a suffix (parseFloat ok, raw isNaN true) was kept in
+      // the max set but DROPPED from the min set, so the two extremes ran over
+      // DIVERGENT value sets and range was wrong when such a value was the
+      // minimum. Fixed: both extremes use one shared `nums = v.map(parseFloat)
+      // .filter(!isNaN)`.
+      //
+      // Pure numeric strings (the sets always coincided): unchanged.
+      expect(range(["1", "2", "3"], "number")).toBe(2); // 3 - 1
+      // Suffixed value as the MAX (coincided pre-fix too): unchanged.
+      expect(range(["10px", "3"], "number")).toBe(7); // parseFloat('10px')=10 - 3
+      // REGRESSION GUARD — the case the bug got wrong: '2x' parseFloat's to 2 and
+      // is now correctly the minimum on BOTH sides, so range = 9 - 2 = 7. Pre-fix
+      // '2x' was dropped from the min set, giving the wrong 9 - 5 = 4.
+      expect(range(["2x", "5", "9"], "number")).toBe(7); // 9 - 2 (was wrongly 4)
+      // Suffixed value as the minimum, two-element set: range = 7 - 3 = 4.
+      // Pre-fix the min set was ['7'] only -> 7 - 7 = 0 (wrong).
+      expect(range(["3km", "7"], "number")).toBe(4); // parseFloat('3km')=3 -> 7 - 3
+      // Suffixed value strictly the minimum among many parseFloat-valid strings:
+      // nums = [1.5, 10, 4] -> 10 - 1.5 = 8.5. Pre-fix '1.5e' dropped from min set
+      // (isNaN('1.5e') true) -> 10 - 4 = 6 (wrong).
+      expect(range(["1.5e", "10", "4"], "number")).toBeCloseTo(8.5);
     });
     it("EDGE: empty subset -> (-Infinity) - (Infinity) = -Infinity", () => {
       expect(range([], "number")).toBe(-Infinity);
@@ -542,13 +552,17 @@ describe("calculateAggregate — flex column unwrapping", () => {
  * ----------------------------------------------------------------------------
  * DEFECT LEDGER (pinned, NOT fixed here — Q1 characterization only)
  * ----------------------------------------------------------------------------
- * D1. `range` min-side bug: the min subexpression filters RAW values with
- *     `isNaN` WITHOUT a `parseFloat` map, while the max side maps with
- *     parseFloat. For numeric strings that lose their numeric-ness under raw
- *     isNaN (e.g. '2x', '10px'), the min and max operate on DIVERGENT value
- *     sets, so `range` can be wrong. Masked in the normal pipeline only because
- *     number cols are pre-mapped to real numbers. Pinned in the range
- *     DEFECT-PIN test.
+ * D1. [FIXED — Notidian-7yh] `range` min-side bug: the min subexpression filtered
+ *     RAW values with `isNaN` WITHOUT a `parseFloat` map, while the max side
+ *     mapped with parseFloat. For numeric strings that lose their numeric-ness
+ *     under raw isNaN (e.g. '2x', '10px'), the min and max operated on DIVERGENT
+ *     value sets, so `range` was wrong whenever such a value was the minimum
+ *     (e.g. ['2x','5','9'] gave 9-5=4 instead of 9-2=7). Masked in the normal
+ *     pipeline only because number cols are pre-mapped to real numbers, but wrong
+ *     when range.fn is called directly. Fix: both extremes now share one
+ *     parseFloat-mapped, NaN-filtered set (`nums = v.map(parseFloat).filter
+ *     (!isNaN)`), so Math.max and Math.min run over identical values. See the
+ *     'FIXED (was DEFECT D1)' regression test above.
  *
  * D2. [FIXED — Notidian-wis] parseProperty post-pass BLANKED footers whose
  *     `valueType` is 'none' or 'string' (values, empty, notEmpty,

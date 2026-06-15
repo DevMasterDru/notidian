@@ -170,7 +170,21 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     range: {
         type: "number",
-        fn: (v) => Math.max(...v.map(f => parseFloat(f)).filter(f => !isNaN(f))) - Math.min(...v.filter(f => !isNaN(f))),
+        // Both extremes MUST be computed over the SAME numeric set. Previously the
+        // max side mapped values with parseFloat before filtering NaN, but the min
+        // side filtered RAW values with isNaN (no parseFloat map), so a string that
+        // parseFloat's to a number yet is NaN under raw isNaN (e.g. '2x' -> 2,
+        // '10px' -> 10) was kept in the max set but DROPPED from the min set —
+        // giving max and min DIVERGENT value sets and a wrong range whenever such a
+        // value is the minimum (e.g. ['2x','5','9'] wrongly yielded 9-5=4 instead
+        // of 9-2=7). Masked in the normal calculateAggregate pipeline only because
+        // number cols are pre-mapped to real numbers, but wrong when range.fn is
+        // called directly. Share one parseFloat-mapped set for both extremes.
+        // (Notidian-7yh / DEFECT D1.)
+        fn: (v) => {
+            const nums = v.map(f => parseFloat(f)).filter(f => !isNaN(f));
+            return Math.max(...nums) - Math.min(...nums);
+        },
         valueType: "number",
     },
     empty: {
