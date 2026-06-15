@@ -331,6 +331,46 @@ describe("ROUND-TRIP property: stringify -> parse", () => {
     }
   );
 
+  it(
+    "preserves $-expression/bare values under non-word keys (hyphen, dot) " +
+      "in the aggressive fallback — never degrades to {} (Notidian-d4u defect 1 regression)",
+    () => {
+      // The aggressive fallback's value-quoting regex must match ANY quoted key,
+      // not just barewords. Hyphen/dot/space keys are valid JSON and realistic
+      // command/frame parameter names; narrowing the key class to \w+ silently
+      // dropped their unquoted values and degraded the whole object to {}.
+      const cases: Array<[string, Record<string, any>, Record<string, boolean>]> = [
+        ['{"my-key": $abc}', { "my-key": "$abc" }, { "my-key": true }],
+        ['{"content-type": $h}', { "content-type": "$h" }, { "content-type": true }],
+        ['{"my.key": $abc}', { "my.key": "$abc" }, { "my.key": true }],
+        ['{"api-key": user.token}', { "api-key": "user.token" }, { "api-key": true }],
+      ];
+      for (const [input, expectedValue, expectedMarkers] of cases) {
+        const { value, unquotedFields } = parseJsonWithUnquoted(input);
+        expect(value).toEqual(expectedValue);
+        expect(unquotedFields).toEqual(expectedMarkers);
+      }
+    }
+  );
+
+  it(
+    "keeps a mixed word/non-word-key $-expression object intact and " +
+      "does not quote real JSON literals (Notidian-d4u defect 1)",
+    () => {
+      const { value, unquotedFields } = parseJsonWithUnquoted(
+        '{"command": $abc, "api-key": $h, "n": 5, "ok": true}'
+      );
+      expect(value).toEqual({
+        command: "$abc",
+        "api-key": "$h",
+        n: 5,
+        ok: true,
+      });
+      // Only the two unquoted $-expression fields are marked; the literals are not.
+      expect(unquotedFields).toEqual({ command: true, "api-key": true });
+    }
+  );
+
   it("a fast-path round-trip preserves arrays and nested objects exactly", () => {
     const obj = { command: "c", parameters: { list: [1, 2, 3], nested: { k: "v" } } };
     const str = stringifyJsonWithUnquoted(obj, {});

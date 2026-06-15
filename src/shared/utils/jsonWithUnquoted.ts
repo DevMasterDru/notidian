@@ -110,7 +110,14 @@ function parseWithUnquotedStrings(jsonString: string): {
       const aggressiveStr = processedStr
         .replace(/(\w+):/g, '"$1":') // Quote all keys
         .replace(/:\s*'([^']*)'/g, (_m, inner) => `: "${inner.replace(/"/g, '\\"')}"`) // single -> double quotes
-        .replace(/("(\w+)"\s*:\s*)([^",\s{}[\]]+)/g, (match, prefix, key, value) => {
+        // Capture ANY quoted key (escape-aware), not just a bareword \w+ key.
+        // An earlier narrowing to "(\w+)" regressed every non-word key — a
+        // hyphen, dot, or space (content-type, api-key, my.key are all valid
+        // JSON keys and realistic frame/command parameter names): their bare
+        // $-expression/dotted values stopped being quoted, so JSON.parse threw
+        // and the whole object degraded to {} (total data loss). Group 2 = key,
+        // group 3 = value; the JSON-literal guard and escape logic are unchanged.
+        .replace(/("((?:[^"\\]|\\.)*)"\s*:\s*)([^",\s{}[\]]+)/g, (match, prefix, key, value) => {
           // Quote unquoted values, recording the field as unquoted so the marker
           // survives the round-trip.
           if (!/^(true|false|null|\d+(\.\d+)?|\[.*\]|\{.*\})$/.test(value)) {
