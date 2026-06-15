@@ -710,6 +710,61 @@ queueing more and pivots to safe work — so this list stays reviewable.
   pick (A keeps them green; B flips them).
 - **Bead status:** Notidian-37m stays **OPEN**, awaiting your direction.
 
+### Notidian-sp5 — `inferEncodingType` value-path: numeric data infers `temporal`, shadowing `quantitative`
+
+- **ADR:** [docs/adr/0035-inferencodingtype-numeric-vs-temporal-value-inference.md](adr/0035-inferencodingtype-numeric-vs-temporal-value-inference.md)
+  (Proposed). Discovered by the characterization net `Notidian-5hs`. Same bug
+  family as ADR 0033 (`intelligentCompare`): a date heuristic that swallows numbers.
+- **The behavior:** the no-property-metadata value path in `inferEncodingType.ts`
+  (`38-62`) runs `areDates` **before** `areNumbers`, and `new Date(String(n))`
+  returns a **valid** Date for stringified real numbers **and** bare numeric
+  strings (verified 2026-06-15: `String(1)`→`2000-12-31...`, `String(2.5)`,
+  `String(-3)`, `"2024"`→`2024-01-01` are all valid Dates; `"true"`/`"apple"`/
+  `"2024-01-01"` give `Number(String(v))===NaN`). So `[1, 2.5, -3]` and
+  `["2024","2025"]` infer **`temporal`**, shadowing `quantitative`; the only
+  value-path that reaches `quantitative` is non-date-parseable numbers (booleans).
+- **Blast radius:** **metadata-less inference only.** An explicit `SpaceProperty`
+  of type `number` returns `quantitative` from the property switch before the value
+  path runs (pinned: property metadata always wins over values). The hazard bites
+  only a **type-less chart encoding** on a **property-less numeric field**. Fed via
+  `ensureCorrectEncodingType` into D3 axis/scale typing across
+  `D3VisualizationEngine.tsx`, `DataTransformationPipeline.ts`, and every
+  transformer (Scatter/Line/Area/Bar) — such a numeric column renders on a **time
+  axis** instead of a continuous quantitative scale.
+- **Why a decision, not a blind fix:** it changes **owner-visible** chart axis
+  typing (a heuristic-**quality** product call, not a crash), and the current
+  numeric→`temporal` output is **explicitly locked as characterization** in
+  `inferEncodingType.test.ts` (Notidian-5hs ADVERSARIAL block, lines 122-145 +
+  79-85). `tsc`/`jest`/`build` can prove *which branch fires* but not *which axis
+  type is the right product choice* for ambiguous numeric data.
+- **Recommendation:** **Option C/A hybrid** — in the value path treat a value as a
+  date candidate **only when `Number(String(v))` is `NaN`** (or `v` is a `Date`
+  instance), so numbers/numeric-strings short-circuit to `quantitative` while
+  genuine ISO/date-string and `Date` detection are preserved (the empirically clean
+  discriminator: finite for `1`/`2.5`/`"2024"`, NaN for `"2024-01-01"`/`"true"`).
+  Over **A** (bare reorder mishandles years-as-numbers the other way; a heavyweight
+  date-pattern regex is a larger bespoke surface) or **B** (leave as-is, rely on
+  property metadata — keeps a surprising `[1,2.5,-3]`-on-a-time-axis default,
+  documents a foot-gun instead of removing it).
+- **Named ambiguity (not hidden):** no value-only heuristic perfectly separates
+  `[2020,2021,2022]` meant as **years** (temporal) from the same values meant as
+  **counts** (quantitative). C types year-like numbers **quantitative**; temporal
+  intent for years is expressed via a `date` property or an explicit encoding type.
+- **The one decision you need to make:** **should metadata-less numeric values
+  default to `quantitative` (C, recommended) or stay `temporal` (B)?** On a pick of
+  **C/A**, the implementing session applies the one-predicate guard and **flips the
+  locked numeric `temporal` assertions in `inferEncodingType.test.ts` in the same
+  commit** (the genuine-date and boolean-quantitative pins stay green); one eyes-on
+  chart check confirms the axis-type delta for year-like numeric columns. On a pick
+  of **B**, the session adds a contract comment documenting the numeric→temporal
+  default + metadata escape hatch; the locked assertions stay green.
+- **No build / no spike shipped.** Pure, offline-provable heuristic logic (no
+  render-path/`innerHTML`/authority surface), so **no default-OFF flag** — the only
+  un-gate-able aspect is the one-time visible axis-type delta a single eyes-on chart
+  check settles. `inferEncodingType.ts` and the pinned test assertions are
+  untouched-as-locked until you pick.
+- **Bead status:** Notidian-sp5 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
