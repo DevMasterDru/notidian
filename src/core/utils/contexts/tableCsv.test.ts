@@ -459,13 +459,38 @@ describe("DEPTH adversarial — BOM (C2)", () => {
 });
 
 describe("DEPTH adversarial — parseCsvToRecords mapping (C3, C4)", () => {
-  it("CHARACTERIZE: duplicate headers — later column clobbers earlier (last-write-wins)", () => {
-    // 'a' appears twice; the record keeps the SECOND 'a' (value 2), losing 1.
-    // headers[] still lists the duplicate. Caller-dependent; NOT changed here.
-    // Follow-up: Notidian-5zc.
+  // FIX (ADR 0031, Option B, Notidian-5zc): duplicate headers are now
+  // auto-uniquified IN THE PARSER via `uniqueNameFromString` — the canonical
+  // column/schema/file-name dedup helper — so the import is LOSSLESS (no
+  // last-write-wins clobber) and matches Notion's CSV auto-suffix behaviour.
+  // This deliberately FLIPS the prior pinned characterization (which asserted
+  // the silent-data-loss defect: headers `['a','a','b']`, row `{a:'2',b:'3'}`).
+  it("FIX: duplicate headers are auto-uniquified (a,a,b -> a,a1,b) — no column lost", () => {
     const result = parseCsvToRecords("a,a,b\n1,2,3");
-    expect(result.headers).toEqual(["a", "a", "b"]);
-    expect(result.rows).toEqual([{ a: "2", b: "3" }]);
+    expect(result.headers).toEqual(["a", "a1", "b"]);
+    expect(result.rows).toEqual([{ a: "1", a1: "2", b: "3" }]);
+  });
+
+  it("FIX: three identical headers suffix incrementally (a,a,a -> a,a1,a2)", () => {
+    const result = parseCsvToRecords("a,a,a\n1,2,3");
+    expect(result.headers).toEqual(["a", "a1", "a2"]);
+    expect(result.rows).toEqual([{ a: "1", a1: "2", a2: "3" }]);
+  });
+
+  it("FIX: headers[] and per-row keys stay 1:1 by construction", () => {
+    const result = parseCsvToRecords("Notes,Notes,Notes\nx,y,z");
+    expect(result.headers).toEqual(["Notes", "Notes1", "Notes2"]);
+    for (const row of result.rows) {
+      expect(Object.keys(row).length).toBe(result.headers.length);
+      expect(Object.keys(row)).toEqual(result.headers);
+    }
+  });
+
+  it("FIX: a duplicate produced by trimming collapses to the same name and is suffixed", () => {
+    // '  a  ' and 'a' both trim to 'a' -> the second becomes 'a1'.
+    const result = parseCsvToRecords("  a  ,a\n1,2");
+    expect(result.headers).toEqual(["a", "a1"]);
+    expect(result.rows).toEqual([{ a: "1", a1: "2" }]);
   });
 
   it("ragged SHORT row: missing trailing cells become '' (cells[index] ?? '')", () => {

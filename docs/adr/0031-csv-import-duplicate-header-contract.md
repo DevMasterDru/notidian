@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
 Awaiting an owner decision. Tracked by bd `Notidian-5zc` (surfaced +
 characterized by the CSV import/export net `Notidian-9g8`); queued in

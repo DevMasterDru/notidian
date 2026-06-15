@@ -10,6 +10,8 @@
 //   vault is single-user and trusted (same threat model as the password field),
 //   and prefix-escaping would corrupt the user's own values on re-import.
 
+import { uniqueNameFromString } from "shared/utils/array";
+
 const needsQuoting = (cell: string): boolean =>
   cell.includes(",") || cell.includes('"') || cell.includes("\n") || cell.includes("\r");
 
@@ -117,10 +119,28 @@ export type CsvImport = {
 
 // Parse a CSV into header-keyed records, skipping fully-empty rows. The caller
 // maps headers to columns and turns each record into a file + frontmatter.
+//
+// Duplicate-header contract (ADR 0031, Notidian-5zc): a CSV with two columns
+// sharing a header name (e.g. `a,a,b`) is auto-uniquified IN THE PARSER via
+// `uniqueNameFromString` — the same canonical dedup helper column/schema/
+// file-name creation uses — so `a,a,b` -> headers `['a','a1','b']` and the
+// record keeps every column (`{ a:'1', a1:'2', b:'3' }`). This is lossless
+// (no column silently dropped, last-write-wins) and matches Notion's own CSV
+// import (auto-suffix duplicate names). The parser is the only layer that sees
+// the raw header row positionally before names become object keys; both callers
+// (`planCsvImport`, `executeCsvImport`) and the frontmatter sink are name-keyed,
+// so distinctness must be created here or it is lost. The suffixed name surfaces
+// in the CsvImportModal preview (it renders `planCsvImport(parseCsvToRecords)`)
+// before any write, so the rename is visible, not hidden. By construction
+// `headers.length === Object.keys(record).length`.
 export const parseCsvToRecords = (text: string): CsvImport => {
   const grid = parseCsv(text);
   if (grid.length == 0) return { headers: [], rows: [] };
-  const headers = grid[0].map((h) => h.trim());
+  // Build a de-duplicated header list, preserving column order. Each name is
+  // uniquified against the names already accepted, so duplicates become
+  // `a`, `a1`, `a2`, … (uniqueNameFromString) and every column survives.
+  const headers: string[] = [];
+  for (const h of grid[0]) headers.push(uniqueNameFromString(h.trim(), headers));
   const rows: Record<string, string>[] = [];
   for (const cells of grid.slice(1)) {
     if (cells.every((cell) => cell.trim().length == 0)) continue;
