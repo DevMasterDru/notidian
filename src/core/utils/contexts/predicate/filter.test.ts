@@ -361,52 +361,75 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
   });
 
   // ----------------------------------------------------------------------- //
-  // dateAfter (>= inclusive) vs dateBefore (< exclusive) — boundary + NaN.   //
-  // Uses noon-local instants / unambiguous dates for TZ-robustness.          //
+  // dateAfter / dateBefore — DAY-granular, BOTH-INCLUSIVE (ADR 0032 A1).     //
+  // Both operands are truncated to their local calendar day before compare,  //
+  // so "on the boundary day" matches both operators regardless of the        //
+  // time-of-day stored in the row. Uses noon-local instants / unambiguous    //
+  // dates for TZ-robustness. Malformed values stay invisible to both (B1).   //
   // ----------------------------------------------------------------------- //
-  describe("dateAfter (inclusive >=)", () => {
-    it("is true strictly after", () => {
+  describe("dateAfter (day-granular, on-or-after)", () => {
+    it("is true strictly after (later day)", () => {
       expect(dateAfter("2024-06-02T12:00:00", "2024-06-01T12:00:00")).toBe(true);
     });
 
-    it("DEFECT-PIN: equal instants are AFTER (inclusive boundary)", () => {
+    it("equal days are AFTER (inclusive boundary)", () => {
       expect(dateAfter("2024-06-01T12:00:00", "2024-06-01T12:00:00")).toBe(true);
     });
 
-    it("is false strictly before", () => {
+    it("is false strictly before (earlier day)", () => {
       expect(dateAfter("2024-06-01T12:00:00", "2024-06-02T12:00:00")).toBe(false);
     });
 
+    it("ADR 0032 A1: a same-day value is AFTER regardless of stored time-of-day", () => {
+      // A date-only filter parses to local midnight; before A1 a midnight row was
+      // 'after' but an afternoon row was also 'after' (the >= still held), yet
+      // 'before' disagreed. With day-truncation, every June-1 instant is on the
+      // June-1 day, so dateAfter is true for the whole day, not just from midnight.
+      expect(dateAfter("2024-06-01T00:00:00", "2024-06-01")).toBe(true);
+      expect(dateAfter("2024-06-01T15:00:00", "2024-06-01")).toBe(true);
+      expect(dateAfter("2024-06-01T23:59:59", "2024-06-01")).toBe(true);
+    });
+
     it("falls back to new Date(parseInt(value)) when not a parseable date", () => {
-      // epoch ms strings are not Date.parse-able, so the numeric fallback runs
-      const later = String(Date.UTC(2024, 5, 2));
-      const earlier = String(Date.UTC(2024, 5, 1));
+      // epoch ms strings are not Date.parse-able, so the numeric fallback runs;
+      // distinct days survive day-truncation.
+      const later = String(Date.UTC(2024, 5, 2, 12));
+      const earlier = String(Date.UTC(2024, 5, 1, 12));
       expect(dateAfter(later, earlier)).toBe(true);
     });
   });
 
-  describe("dateBefore (exclusive <)", () => {
-    it("is true strictly before", () => {
+  describe("dateBefore (day-granular, on-or-before)", () => {
+    it("is true strictly before (earlier day)", () => {
       expect(dateBefore("2024-06-01T12:00:00", "2024-06-02T12:00:00")).toBe(true);
     });
 
-    it("DEFECT-PIN: equal instants are NOT before (exclusive boundary, asymmetric with dateAfter)", () => {
-      expect(dateBefore("2024-06-01T12:00:00", "2024-06-01T12:00:00")).toBe(false);
-      // The exclusive-vs-inclusive split means an equal instant satisfies
-      // dateAfter but not dateBefore — both filters disagree on the boundary.
+    it("ADR 0032 A1: equal days are BEFORE — symmetric with dateAfter at the boundary", () => {
+      // The old half-open >= / < split made an equal instant satisfy dateAfter but
+      // NOT dateBefore. Day-granular both-inclusive makes the boundary day satisfy
+      // BOTH operators consistently — the load-bearing UX fix.
+      expect(dateBefore("2024-06-01T12:00:00", "2024-06-01T12:00:00")).toBe(true);
       expect(dateAfter("2024-06-01T12:00:00", "2024-06-01T12:00:00")).toBe(true);
     });
 
-    it("is false strictly after", () => {
+    it("is false strictly after (later day)", () => {
       expect(dateBefore("2024-06-02T12:00:00", "2024-06-01T12:00:00")).toBe(false);
     });
 
-    it("DEFECT-PIN: an unparseable value yields NaN-valued date; all comparisons false", () => {
-      // isNaN(Date.parse('garbage')) -> new Date(parseInt('garbage')) -> Invalid Date
-      // NaN < anything is false.
+    it("ADR 0032 A1: a same-day value is BEFORE regardless of stored time-of-day", () => {
+      // Before A1, an afternoon row 'on June 1' was NOT before a 'June 1' (midnight)
+      // filter, so whether a same-day row matched 'before June 1' depended on the
+      // invisible stored time. Day-truncation makes the whole day match.
+      expect(dateBefore("2024-06-01T00:00:00", "2024-06-01")).toBe(true);
+      expect(dateBefore("2024-06-01T15:00:00", "2024-06-01")).toBe(true);
+      expect(dateBefore("2024-06-01T23:59:59", "2024-06-01")).toBe(true);
+    });
+
+    it("ADR 0032 B1: an unparseable value is fail-closed — invisible to BOTH filters", () => {
+      // isNaN(Date.parse('garbage')) -> new Date(parseInt('garbage')) -> Invalid
+      // Date -> NaN day. Every NaN comparison is false, so a malformed date never
+      // silently satisfies a date filter (fail-closed, never visible-to-both).
       expect(dateBefore("garbage", "2024-06-01T12:00:00")).toBe(false);
-      // dateAfter likewise false (NaN >= x is false), so a garbage value is
-      // invisible to BOTH date filters.
       expect(dateAfter("garbage", "2024-06-01T12:00:00")).toBe(false);
     });
   });
@@ -440,13 +463,20 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
   });
 
   // ----------------------------------------------------------------------- //
-  // isSameDay(value, filterValue) — compares getMonth()+getDate() of two     //
-  // dates, IGNORING year; value has a `.`->`:` substitution applied.         //
+  // isSameDay(value, filterValue) — compares the FULL calendar date          //
+  // (year + month + day) of two dates (ADR 0032 C1); value has a `.`->`:`    //
+  // substitution applied. The year-agnostic anniversary case lives in        //
+  // isSameDayAsToday by design.                                              //
   // ----------------------------------------------------------------------- //
   describe("isSameDay", () => {
-    it("is true for the same month+day (year ignored)", () => {
-      // Different years, same calendar month/day -> true (year is not compared).
-      expect(isSameDay("2024-03-15T12:00:00", "1999-03-15T12:00:00")).toBe(true);
+    it("is true for the exact same calendar date (year + month + day)", () => {
+      expect(isSameDay("2024-03-15T12:00:00", "2024-03-15T12:00:00")).toBe(true);
+    });
+
+    it("ADR 0032 C1: same month+day but DIFFERENT year does NOT match", () => {
+      // Pre-C1 this returned true (year ignored); 15 Mar 2024 matched 15 Mar 1999.
+      // An explicit 'is this date' filter compares the full date including year.
+      expect(isSameDay("2024-03-15T12:00:00", "1999-03-15T12:00:00")).toBe(false);
     });
 
     it("is false for a different day", () => {

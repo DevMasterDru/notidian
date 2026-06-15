@@ -2,9 +2,11 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
-Awaiting an owner decision. Tracked by bd `Notidian-qbr`; queued in
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+
+Tracked by bd `Notidian-qbr`; queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written instead of changing the date predicates blind. The three date filter
 functions are on the **table-view row-visibility path**, their current output is

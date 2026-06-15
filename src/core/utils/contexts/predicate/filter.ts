@@ -88,22 +88,47 @@ export const lessThan: FilterFunction = (
   // false, so a non-numeric value never satisfies a numeric < (or >).
   return parseFloat(value) < parseFloat(filterValue);
 };
+// Parse a stored date string into a Date the same way both date predicates
+// historically did: Date.parse-able strings parse directly; otherwise fall back
+// to an epoch-ms integer (e.g. a numeric timestamp string). Returns an Invalid
+// Date (NaN-valued) for anything unparseable.
+const parseDateOperand = (raw: string): Date =>
+  isNaN(Date.parse(raw)) ? new Date(parseInt(raw)) : new Date(raw);
+
+// Truncate a Date to the local-midnight start of its calendar day, so date
+// filters compare at DAY granularity rather than instant granularity. Returns
+// NaN for an Invalid Date (the NaN propagates, keeping malformed dates
+// fail-closed in the comparisons below). ADR 0032 (Option A1).
+const startOfDayValue = (d: Date): number => {
+  const t = d.valueOf();
+  if (isNaN(t)) return NaN;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).valueOf();
+};
+
+// ADR 0032 (A1 + B1): date filters are DAY-granular and BOTH-INCLUSIVE.
+// "after" matches a value whose calendar day is on-or-after the filter day;
+// "before" matches a value whose calendar day is on-or-before the filter day.
+// A row "on the boundary day" therefore satisfies both operators consistently,
+// independent of any time-of-day stored in the row value. An unparseable value
+// truncates to NaN, and every NaN comparison is false, so a malformed date stays
+// invisible to both filters (fail-closed — never silently satisfies a date
+// filter), matching the documented NaN convention on lessThan/greaterThan.
 export const dateAfter: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  const dateValue = isNaN(Date.parse(value)) ? new Date(parseInt(value)) : new Date(value);
-  const dateFilterValue = isNaN(Date.parse(filterValue)) ? new Date(parseInt(filterValue)) : new Date(filterValue);
-  return dateValue.valueOf() >= dateFilterValue.valueOf();
+  const valueDay = startOfDayValue(parseDateOperand(value));
+  const filterDay = startOfDayValue(parseDateOperand(filterValue));
+  return valueDay >= filterDay;
 };
 
 export const dateBefore: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  const dateValue = isNaN(Date.parse(value)) ? new Date(parseInt(value)) : new Date(value);
-  const dateFilterValue = isNaN(Date.parse(filterValue)) ? new Date(parseInt(filterValue)) : new Date(filterValue);
-  return dateValue.valueOf() < dateFilterValue.valueOf();
+  const valueDay = startOfDayValue(parseDateOperand(value));
+  const filterDay = startOfDayValue(parseDateOperand(filterValue));
+  return valueDay <= filterDay;
 };
 
 export const listIncludes: FilterFunction = (
@@ -117,14 +142,23 @@ export const listIncludes: FilterFunction = (
   return strings.some((f) => valueList.some((g) => g == f));
 };
 
+// ADR 0032 (C1): "is this date" matches the same FULL calendar date — year,
+// month and day. (Year was previously ignored, so e.g. 15 Mar 2024 matched
+// 15 Mar 1999; that cross-year match was almost certainly unintended for an
+// explicit date filter.) The intentionally year-agnostic "anniversary / same
+// day-of-year as today" behavior remains in isSameDayAsToday by design. An
+// unparseable operand yields NaN from a getter comparison (NaN === NaN is
+// false), so a bad date still fails closed.
 export const isSameDay: FilterFunction = (value: string, filterValue: string) : boolean => {
   if (!value) return false;
   const inputDate = new Date(`${value.toString().replace(".", ':')}`);
 
-  // Get the current date
+  // Get the filter date
   const currentDate = new Date(`${filterValue}`);
-  // Compare the month and date
-  return inputDate.getMonth() === currentDate.getMonth() && inputDate.getDate() === currentDate.getDate();
+  // Compare the full calendar date: year, month and day.
+  return inputDate.getFullYear() === currentDate.getFullYear()
+    && inputDate.getMonth() === currentDate.getMonth()
+    && inputDate.getDate() === currentDate.getDate();
 }
 
 export const isSameDayAsToday: FilterFunction = (value: string) : boolean => {
