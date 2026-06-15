@@ -21,7 +21,7 @@ export const en = {
   "aggregates": {
     "values": "Values",
     "sum": "Sum",
-    "average": "Average",
+    "avg": "Average",
     "median": "Median",
     "count": "Count",
     "countValues": "Count Values",
