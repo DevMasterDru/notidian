@@ -21,38 +21,34 @@ import {
 //
 // Everything here is pure / offline — no vault, no DOM, no I/O.
 //
-// IMPORTANT — characterization, NOT correction. `intelligentCompare` is the
-// SAME bug class as Notidian-e8e / ADR-0025 (array.ts comparators) on an
-// untested surface. It is reflexive and antisymmetric over MOST of the domain,
-// but has TWO locked strict-weak-ordering defects:
-//   (1) **NON-TRANSITIVE** for cross-branch mixes (the headline defect, below);
-//   (2) **NON-REFLEXIVE on "Infinity"** — parseFloat("Infinity") === Infinity, so
-//       the numeric branch returns Infinity - Infinity === NaN (not 0). A NaN
-//       comparator return is its own SWO violation, strictly worse than (1)
-//       because it gives Array.prototype.sort an undefined contract. It is pinned
-//       by a dedicated KNOWN DEFECT test; the reflexivity/antisymmetry "law HOLDS"
-//       tests iterate LAW_DOMAIN (MIXED_DOMAIN minus "Infinity") so they assert
-//       only what is actually true. ("-Infinity" / "1e999" share defect (2).)
-// A value's branch (date vs number vs string) is chosen per-PAIR via
-// `isDateLike(aStr) || isDateLike(bStr)`, not per-value, so the same value is
-// classified differently depending on its partner — which breaks transitivity:
+// CORRECTNESS — `intelligentCompare` is now a real STRICT WEAK ORDERING (ADR
+// 0033 Option B, accepted 2026-06-15; Notidian-0id). It was the SAME bug class as
+// Notidian-e8e / ADR-0025 (array.ts comparators): the date/number/string branch
+// was chosen per-PAIR via `isDateLike(aStr) || isDateLike(bStr)`, so the same
+// value was classified differently depending on its partner. That produced TWO
+// strict-weak-ordering defects, BOTH now fixed:
+//   (1) NON-TRANSITIVITY for cross-branch mixes (the headline defect) — e.g.
+//         cmp("2024-01-01", "")  = -1   // "" was an invalid Date -> date path
+//         cmp("",          "10") = -1   // neither date-like -> string path
+//         cmp("2024-01-01","10") = +1   // "10" parsed as Date(year 2001) < 2024
+//         => a<b, b<c, but a>c  (a strict-weak-ordering violation)
+//   (2) NON-REFLEXIVITY on "Infinity" — parseFloat("Infinity") === Infinity, so
+//       the numeric branch returned Infinity - Infinity === NaN (not 0), giving
+//       Array.prototype.sort an UNDEFINED contract.
 //
-//   cmp("2024-01-01", "")   === -1   // "" is an invalid Date -> date sorts first
-//   cmp("",           "10") === -1   // neither date-like -> string path
-//   cmp("2024-01-01", "10") ===  1   // "10" parses as Date(year 2001) < 2024
-//   => a<b, b<c, but a>c  (a strict-weak-ordering violation)
+// THE FIX: classify each value ONCE into a stable bucket — dates(0) < numbers(1)
+// < strings(2) — and compare within-bucket; a value's bucket no longer depends on
+// its partner, so the relation is transitive by construction. The number bucket
+// admits only WHOLE-STRING FINITE-numeric tokens, so "Infinity"/"-Infinity"/
+// "1e999" fall to the string bucket and self-compare to 0 (reflexivity restored).
+// Single-type axes (all dates, all numbers, all text) render IDENTICALLY to
+// before; only genuinely mixed-type axes — where the old comparator was
+// incoherent — change order (the ADR 0033 worked example is the review picture).
 //
-// Array.prototype.sort assumes a strict weak ordering; a non-transitive
-// comparator yields V8-version-dependent / unstable / outright-wrong orderings.
-// FIXING it changes observable, owner-visible chart ordering (which deterministic
-// order is "correct" is a product call) AND would require deciding per-value
-// classification — exactly the situation ADR-0025 handled as a DECISION, not a
-// blind fix. So we LOCK the non-transitivity here as a known defect (the law
-// tests below ASSERT the violation exists) and route the fix to a follow-up
-// decision bead + ADR (Notidian-0id / docs/adr/0033). When that lands, the
-// `KNOWN DEFECT` blocks flip from "expect a violation" to "expect the law holds".
-// The pure robustness gaps (getOptionsOrder throw, falsy-value/0 data loss) are
-// pinned below and tracked by Notidian-dox.
+// The former `KNOWN DEFECT` blocks below now ASSERT THE LAWS HOLD (reflexivity,
+// antisymmetry, transitivity over the FULL domain incl. "Infinity"). The pure
+// robustness gaps (falsy-value/0 data loss) remain pinned below and tracked by
+// Notidian-dox (out of ADR 0033 scope).
 // ===========================================================================
 
 // --- tiny deterministic PRNG (no external dep) -----------------------------
@@ -130,22 +126,18 @@ const MIXED_DOMAIN = [
   "0x10",
   "  5  ",
   "NaN",
-  "Infinity", // KNOWN DEFECT: parseFloat -> Infinity, so cmp(x,x) = Infinity-Infinity = NaN
+  "Infinity", // post-ADR-0033: not whole-string finite -> string bucket -> cmp(x,x) = 0
   "Dec 2024",
 ];
 
-// The subset of MIXED_DOMAIN over which reflexivity and antisymmetry ACTUALLY
-// hold. "Infinity" is excluded ON PURPOSE: it takes the numeric branch
-// (parseFloat("Infinity") === Infinity passes the !isNaN guard) so
-// intelligentCompare("Infinity","Infinity") === Infinity - Infinity === NaN — a
-// genuine strict-weak-ordering violation that is NOT reflexive. That NaN return
-// is characterized as its own KNOWN DEFECT below; the "law HOLDS" tests must not
-// claim it. ("-Infinity" and overflow literals like "1e999" parseFloat to
-// +/-Infinity too and share the defect; they are not in the domain but the
-// dedicated NaN test pins representative cases.) Everything else in MIXED_DOMAIN
-// IS reflexive and antisymmetric (verified exhaustively), so this is the honest
-// domain for the green law locks.
-const LAW_DOMAIN = MIXED_DOMAIN.filter((v) => v !== "Infinity");
+// The domain over which the comparator laws hold. After ADR 0033 Option B the
+// laws hold over the ENTIRE MIXED_DOMAIN, INCLUDING "Infinity": it now falls to
+// the string bucket (the number bucket admits only whole-string FINITE tokens),
+// so intelligentCompare("Infinity","Infinity") === 0 (localeCompare of equal
+// strings) — reflexive, no more NaN return. ("-Infinity" / "1e999" likewise.)
+// LAW_DOMAIN === MIXED_DOMAIN; the alias is kept so the law-test bodies read
+// unchanged and the intent ("the domain the laws are asserted over") stays clear.
+const LAW_DOMAIN = MIXED_DOMAIN;
 
 // =========================================================================
 // isDateLike — regex shape detector (NOT a validity check)
@@ -228,22 +220,33 @@ describe("intelligentCompare", () => {
     expect(intelligentCompare("café", "cafe")).toBe(0); // accent-insensitive
   });
 
-  // ---- NaN-Date ordering (isNaN -> push to end), with symmetry ----------
-  it("NaN-Date ordering: a date-shaped-but-invalid value sorts AFTER a valid date", () => {
-    // "1234-56-78" is date-like (regex) but Date() -> NaN; valid date wins.
-    expect(intelligentCompare("1234-56-78", "2024-01-01")).toBe(1); // a invalid -> after
-    expect(intelligentCompare("2024-01-01", "1234-56-78")).toBe(-1); // b invalid -> a before
+  // ---- date-shaped-but-invalid ordering, with symmetry -----------------
+  // Post-ADR-0033: a date-SHAPED-but-INVALID value (Date() -> NaN) does NOT enter
+  // the date bucket — it falls to the STRING bucket (dates < numbers < strings),
+  // so it sorts AFTER every valid date. Same observable outcome as the legacy
+  // "invalid date pushed to the end", now via a STABLE per-value bucket instead of
+  // the per-pair NaN-Date branch (use `sign`, since cross-bucket deltas are not
+  // normalized to ±1).
+  it("date-shaped-but-invalid value sorts AFTER a valid date (string bucket)", () => {
+    // "1234-56-78" is date-like (regex) but Date() -> NaN -> string bucket (2);
+    // "2024-01-01" is a valid date -> date bucket (0); 0 < 2 so valid wins.
+    expect(sign(intelligentCompare("1234-56-78", "2024-01-01"))).toBe(1); // a after
+    expect(sign(intelligentCompare("2024-01-01", "1234-56-78"))).toBe(-1); // a before
   });
 
-  it("NaN-Date ordering is SYMMETRIC (one-NaN flips sign; both-NaN === 0)", () => {
+  it("date-shaped-but-invalid ordering is SYMMETRIC; two invalids compare as strings", () => {
     const validDate = "2024-06-15";
-    const nanDate = "99/99/9999"; // date-like, Date() -> NaN
+    const nanDate = "99/99/9999"; // date-like, Date() -> NaN -> string bucket
     expect(sign(intelligentCompare(nanDate, validDate))).toBe(
       inv(sign(intelligentCompare(validDate, nanDate)))
     );
-    // both-NaN -> 0 (the `isNaN(a) && isNaN(b)` early return)
-    expect(intelligentCompare("1234-56-78", "99/99/9999")).toBe(0);
-    expect(intelligentCompare("99/99/9999", "1234-56-78")).toBe(0);
+    // both invalid -> both string bucket -> ordered by NUMERIC-AWARE localeCompare,
+    // NOT collapsed to 0 (the legacy both-NaN === 0 conflated two distinct values).
+    // numeric:true compares the leading runs 1234 vs 99 NUMERICALLY -> 1234 > 99.
+    // Reflexive + antisymmetric, which is what a strict weak ordering requires.
+    expect(sign(intelligentCompare("1234-56-78", "99/99/9999"))).toBe(1); // 1234 > 99
+    expect(sign(intelligentCompare("99/99/9999", "1234-56-78"))).toBe(-1);
+    expect(intelligentCompare("1234-56-78", "1234-56-78")).toBe(0); // reflexive
   });
 
   it("nullish / NaN inputs are String()-coerced (no throw); cmp(x,x)===0", () => {
@@ -254,21 +257,19 @@ describe("intelligentCompare", () => {
     expect(typeof intelligentCompare(null, "x")).toBe("number");
   });
 
-  // ---- LAW: reflexivity (HOLDS over LAW_DOMAIN; "Infinity" is a KNOWN DEFECT) --
-  // Iterates LAW_DOMAIN (MIXED_DOMAIN minus "Infinity"), NOT the full domain:
-  // cmp("Infinity","Infinity") === NaN (numeric branch, Infinity - Infinity), a
-  // genuine non-reflexive case characterized by its own KNOWN DEFECT test below.
-  // `sign` throws on NaN, so this would FAIL (not silently pass) if "Infinity"
-  // were included — which is the point: the green lock asserts only what holds.
+  // ---- LAW: reflexivity (HOLDS over the FULL domain post-ADR-0033) ------
+  // LAW_DOMAIN === MIXED_DOMAIN now: every value (including "Infinity", which falls
+  // to the string bucket) self-compares to 0. `sign` still THROWS on NaN, so if a
+  // regression reintroduced a NaN return anywhere this would fail loud, not pass.
   it("LAW reflexivity: cmp(x, x) === 0 for every value in LAW_DOMAIN", () => {
     for (const x of LAW_DOMAIN) {
       expect(sign(intelligentCompare(x, x))).toBe(0);
     }
   });
 
-  // ---- LAW: antisymmetry (HOLDS over LAW_DOMAIN) -----------------------
-  // Also over LAW_DOMAIN: the only NaN-returning pair in the exhaustive double
-  // loop is ("Infinity","Infinity") (verified), and `sign` refuses to launder it.
+  // ---- LAW: antisymmetry (HOLDS over the FULL domain) ------------------
+  // Exhaustive double loop over LAW_DOMAIN (=== MIXED_DOMAIN); no pair returns NaN
+  // post-ADR-0033, so `sign` (NaN-throwing) is safe and the law holds everywhere.
   it("LAW antisymmetry: sign(cmp(a,b)) === -sign(cmp(b,a)) over LAW_DOMAIN", () => {
     for (const a of LAW_DOMAIN) {
       for (const b of LAW_DOMAIN) {
@@ -290,47 +291,43 @@ describe("intelligentCompare", () => {
     }
   });
 
-  // ---- LAW: reflexivity (KNOWN DEFECT — NaN return on "Infinity") -------
-  // The comparator is NOT reflexive for "Infinity": parseFloat("Infinity") ===
-  // Infinity passes the numeric guard, so it returns Infinity - Infinity === NaN,
-  // not 0. A NaN comparator return is a strict-weak-ordering violation (and gives
-  // Array.prototype.sort an UNDEFINED contract — strictly worse than the
-  // non-transitivity locked below). We assert the RAW comparator output (not
-  // through `sign`, which now throws on NaN) so the defect is pinned honestly.
-  // When ADR 0033's per-value-classification fix lands (so "Infinity" buckets as a
-  // finite-failing number/string and cmp("Infinity","Infinity") === 0), flip these
-  // to assert reflexivity holds and fold "Infinity" back into LAW_DOMAIN.
-  it("KNOWN DEFECT: cmp returns NaN (not 0) for an Infinity self-compare", () => {
-    expect(Number.isNaN(intelligentCompare("Infinity", "Infinity"))).toBe(true);
-    // shared root cause: anything parseFloat maps to +/-Infinity self-compares to NaN
-    expect(Number.isNaN(intelligentCompare("-Infinity", "-Infinity"))).toBe(true);
-    expect(Number.isNaN(intelligentCompare("1e999", "1e999"))).toBe(true); // overflow -> Infinity
-    // and `sign` REFUSES to launder it (the masking that previously hid this defect)
-    expect(() => sign(intelligentCompare("Infinity", "Infinity"))).toThrow(/NaN/);
+  // ---- LAW: reflexivity on ±Infinity / overflow literals (FIXED) -------
+  // Was a KNOWN DEFECT: parseFloat("Infinity") === Infinity passed the legacy
+  // numeric guard, so cmp returned Infinity - Infinity === NaN. ADR 0033 Option B
+  // admits only WHOLE-STRING FINITE tokens to the number bucket, so "Infinity" /
+  // "-Infinity" / "1e999" fall to the STRING bucket and self-compare to 0. No more
+  // NaN return; `sign` (NaN-throwing) no longer trips on them.
+  it("FIXED: ±Infinity / overflow literals self-compare to 0 (string bucket, no NaN)", () => {
+    expect(intelligentCompare("Infinity", "Infinity")).toBe(0);
+    expect(intelligentCompare("-Infinity", "-Infinity")).toBe(0);
+    expect(intelligentCompare("1e999", "1e999")).toBe(0); // overflow -> string bucket
+    expect(Number.isNaN(intelligentCompare("Infinity", "Infinity"))).toBe(false);
+    // `sign` no longer throws (the comparator never returns NaN here anymore)
+    expect(() => sign(intelligentCompare("Infinity", "Infinity"))).not.toThrow();
+    // ordered as plain strings against finite numbers (numbers < strings)
+    expect(sign(intelligentCompare("5", "Infinity"))).toBe(-1); // number bucket < string
   });
 
-  // ---- LAW: transitivity (KNOWN DEFECT — LOCKED) -----------------------
-  // The e8e / ADR-0025 bug class on this surface. We assert that a transitivity
-  // violation EXISTS so it is pinned and visible; a conscious fix (decision bead
-  // + ADR) flips this to "no violations found". DO NOT silently relax this — if
-  // it starts passing, the comparator was changed and the locked assertions must
-  // be updated as part of that reviewed decision.
-  it("KNOWN DEFECT: a concrete non-transitive triple (date vs blank vs number)", () => {
-    const a = "2024-01-01";
-    const b = "";
-    const c = "10";
-    expect(sign(intelligentCompare(a, b))).toBe(-1); // a < b
-    expect(sign(intelligentCompare(b, c))).toBe(-1); // b < c
-    // transitivity would demand a < c, but:
-    expect(sign(intelligentCompare(a, c))).toBe(1); // a > c  (VIOLATION)
+  // ---- LAW: transitivity (FIXED — per-value classification) ------------
+  // Was the e8e / ADR-0025 bug class on this surface. ADR 0033 Option B classifies
+  // each value ONCE (dates < numbers < strings), so the relation is transitive by
+  // construction. These flip from "a violation EXISTS" to "the law HOLDS".
+  it("FIXED: the formerly non-transitive triple now obeys transitivity", () => {
+    const a = "2024-01-01"; // date bucket (0)
+    const b = ""; // string bucket (2)
+    const c = "10"; // number bucket (1)
+    // buckets: a(0) < c(1) < b(2)
+    expect(sign(intelligentCompare(a, b))).toBe(-1); // a(0) < b(2)
+    expect(sign(intelligentCompare(b, c))).toBe(1); // b(2) > c(1)
+    expect(sign(intelligentCompare(a, c))).toBe(-1); // a(0) < c(1)
+    // transitivity now holds: a < c and a < b and c < b are mutually consistent.
+    expect(sign(intelligentCompare(c, b))).toBe(-1); // c(1) < b(2)
   });
 
-  it("KNOWN DEFECT: transitivity violations are detectable across the mixed domain", () => {
-    // Uses `sortSign` (NaN-tolerant), NOT `sign` (which throws on NaN): this loop
-    // runs over the FULL MIXED_DOMAIN, which includes "Infinity" whose self-compare
-    // returns NaN (its own KNOWN DEFECT). Here a NaN-bearing triple is simply not
-    // counted as a transitivity violation rather than crashing — the NaN return is
-    // characterized by its dedicated test, not conflated with non-transitivity.
+  it("LAW transitivity: ZERO violations across the full mixed domain", () => {
+    // Exhaustive triple scan over the FULL MIXED_DOMAIN (incl. "Infinity"). Post
+    // ADR-0033 no pair returns NaN, so `sortSign` and `sign` agree; we keep
+    // `sortSign` (the same counter the lock used) and assert the count is exactly 0.
     let violations = 0;
     for (const a of MIXED_DOMAIN) {
       for (const b of MIXED_DOMAIN) {
@@ -343,9 +340,7 @@ describe("intelligentCompare", () => {
         }
       }
     }
-    // LOCKED: the comparator is currently non-transitive. When the fix lands,
-    // change this to `toBe(0)` as part of the reviewed decision (see follow-up).
-    expect(violations).toBeGreaterThan(0);
+    expect(violations).toBe(0);
   });
 
   // ---- A self-consistent sub-domain DOES obey the laws ------------------
@@ -413,12 +408,16 @@ describe("intelligentCompare", () => {
     ]);
   });
 
-  it("KNOWN DEFECT: a malformed-comparator array sort is engine-defined, not contract", () => {
-    // With a non-transitive comparator the SORTED ORDER is undefined-contract
-    // (V8 TimSort artifact). We assert only that sort() (a) terminates without
-    // throwing and (b) returns a permutation of the input — never that the order
-    // is "correct", because for this mixed domain there is no defined correct
-    // order until the comparator is fixed. This pins the safety floor.
+  it("FIXED: a mixed-type array sort is now WELL-DEFINED and idempotent", () => {
+    // Post ADR-0033 the comparator is a real strict weak ordering, so the FULL
+    // mixed domain has a DEFINED sorted order (no longer a V8/TimSort artifact).
+    // NOTE: sensitivity:'base' makes case/accent variants (e.g. "abc"/"ABC") an
+    // EQUIVALENCE CLASS (cmp === 0) — a legitimate strict-weak-ordering feature —
+    // so a STABLE sort preserves their relative INPUT order. We therefore assert
+    // determinism on a SORTED-KEY basis (each input permutation produces the same
+    // SEQUENCE OF COMPARISON KEYS), plus idempotence and cross-bucket grouping —
+    // never a single byte-exact order across reversed inputs, which would falsely
+    // claim equivalent-but-distinct strings have a defined relative order.
     const input = [...MIXED_DOMAIN];
     let out: string[] = [];
     expect(() => {
@@ -426,6 +425,24 @@ describe("intelligentCompare", () => {
     }).not.toThrow();
     expect(out).toHaveLength(input.length);
     expect([...out].sort()).toEqual([...input].sort()); // same multiset
+    // idempotence: sorting the sorted output is a no-op (stable + total order)
+    expect([...out].sort(intelligentCompare)).toEqual(out);
+    // determinism up to equivalence: any starting permutation yields a result that
+    // is pairwise non-decreasing AND identical to `out` after collapsing each value
+    // to its comparison position (so equivalence-class members may swap but nothing
+    // crosses a real boundary).
+    const reversed = [...MIXED_DOMAIN].reverse().sort(intelligentCompare);
+    for (let i = 1; i < out.length; i++) {
+      expect(sign(intelligentCompare(out[i - 1], out[i]))).toBeLessThanOrEqual(0);
+      expect(sign(intelligentCompare(reversed[i - 1], reversed[i]))).toBeLessThanOrEqual(0);
+      // same value at each rank up to equivalence (cmp === 0)
+      expect(intelligentCompare(out[i], reversed[i])).toBe(0);
+    }
+    // cross-bucket grouping holds: every valid date precedes every finite number
+    // which precedes every string (dates < numbers < strings).
+    const idx = (v: string) => out.indexOf(v);
+    expect(idx("2024-01-01")).toBeLessThan(idx("10")); // date < number
+    expect(idx("10")).toBeLessThan(idx("abc")); // number < string
   });
 });
 

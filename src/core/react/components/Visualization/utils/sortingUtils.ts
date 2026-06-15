@@ -37,37 +37,91 @@ export const isDateLike = (val: string): boolean => {
 };
 
 /**
- * Intelligent comparison function for sorting mixed data types
- * Handles dates, numbers, and strings with numeric awareness
+ * Whole-string finite-numeric token recognizer (ADR 0033 Option B predicate).
+ *
+ * A value qualifies for the NUMBER bucket only when its ENTIRE trimmed string is
+ * a finite decimal/scientific literal — not "10abc", not a date-shaped token, and
+ * NOT "Infinity" / "-Infinity" / overflow literals like "1e999" (which parseFloat
+ * maps to ±Infinity). Excluding non-finite tokens is what closes the legacy
+ * NaN-reflexivity defect: "Infinity" falls to the string bucket, so its
+ * self-compare is a localeCompare === 0 rather than `Infinity - Infinity === NaN`.
+ */
+const FINITE_NUMERIC = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+type SortBucket = 0 | 1 | 2; // 0 = valid date, 1 = finite number, 2 = string
+
+interface Classified {
+  bucket: SortBucket;
+  str: string; // original String()-coerced value (string-bucket localeCompare)
+  date: number; // valid epoch ms when bucket === 0
+  num: number; // finite numeric value when bucket === 1
+}
+
+/**
+ * Classify a value into a STABLE per-value bucket (ADR 0033 Option B).
+ *
+ * The classification depends ONLY on the value itself — never on a comparison
+ * partner — which is the whole point: it makes `intelligentCompare` a real strict
+ * weak ordering (transitive by construction) instead of the legacy per-PAIR branch
+ * selection that was V8/TimSort-order-dependent for mixed-type axis data.
+ *
+ * Cross-bucket order is fixed: dates (0) < numbers (1) < strings (2). This mirrors
+ * the legacy intent (date path first, numeric second, string fallback last) so
+ * single-type axes — all dates, all numbers, or all text — render identically to
+ * before; only genuinely mixed-type axes (where the old comparator was incoherent)
+ * change order.
+ */
+const classifyForSort = (value: any): Classified => {
+  const str = String(value);
+
+  // Date bucket: date-SHAPED *and* parses to a real time. Date-shaped-but-invalid
+  // (e.g. "1234-56-78") falls through so it lands in a stable lower bucket rather
+  // than poisoning the date bucket with a NaN time.
+  if (isDateLike(str)) {
+    const t = new Date(str).getTime();
+    if (!isNaN(t)) return { bucket: 0, str, date: t, num: NaN };
+  }
+
+  // Number bucket: whole-string finite-numeric only.
+  const trimmed = str.trim();
+  if (trimmed !== "" && FINITE_NUMERIC.test(trimmed)) {
+    const n = parseFloat(trimmed);
+    if (isFinite(n)) return { bucket: 1, str, date: NaN, num: n };
+  }
+
+  // String bucket: everything else (including "Infinity", "0x10", free text, "").
+  return { bucket: 2, str, date: NaN, num: NaN };
+};
+
+/**
+ * Intelligent comparison function for sorting mixed data types.
+ *
+ * Handles dates, numbers, and strings with numeric awareness. Implements a real
+ * strict weak ordering (reflexive, antisymmetric, transitive) per ADR 0033 by
+ * classifying each value ONCE into a stable bucket (dates < numbers < strings) and
+ * comparing within-bucket; the legacy per-PAIR branch selection was non-transitive
+ * and non-reflexive on ±Infinity. Fed directly to Array.prototype.sort to order D3
+ * chart axes/categories, so a real total order removes the V8/TimSort hazard.
  */
 export const intelligentCompare = (a: any, b: any): number => {
-  const aStr = String(a);
-  const bStr = String(b);
-  
-  // Try date sorting first
-  if (isDateLike(aStr) || isDateLike(bStr)) {
-    const dateA = new Date(aStr);
-    const dateB = new Date(bStr);
-    
-    if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0;
-    if (isNaN(dateA.getTime())) return 1;
-    if (isNaN(dateB.getTime())) return -1;
-    
-    if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
-      return dateA.getTime() - dateB.getTime();
-    }
+  const ca = classifyForSort(a);
+  const cb = classifyForSort(b);
+
+  // Cross-bucket: fixed deterministic order dates < numbers < strings.
+  if (ca.bucket !== cb.bucket) return ca.bucket - cb.bucket;
+
+  // Within-bucket: type-appropriate ordering.
+  switch (ca.bucket) {
+    case 0:
+      return ca.date - cb.date; // both valid epoch ms
+    case 1:
+      return ca.num - cb.num; // both finite numbers
+    default:
+      return ca.str.localeCompare(cb.str, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
   }
-  
-  // Try numeric sorting
-  const numA = parseFloat(aStr);
-  const numB = parseFloat(bStr);
-  
-  if (!isNaN(numA) && !isNaN(numB)) {
-    return numA - numB;
-  }
-  
-  // Fallback to string sorting with numeric awareness
-  return aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
 };
 
 /**

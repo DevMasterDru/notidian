@@ -2,7 +2,16 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+
+Implemented the RECOMMENDED Option B (per-value classification into a real strict
+weak ordering: dates < numbers < strings, whole-string finite-numeric predicate) in
+`src/core/react/components/Visualization/utils/sortingUtils.ts`; the `KNOWN DEFECT`
+locks in `sortingUtils.test.ts` were flipped to assert the comparator laws
+(reflexivity, antisymmetry, transitivity over the full domain) now hold, closing
+both the non-transitivity and the `"Infinity"`/`"1e999"` NaN-reflexivity defects in
+one change. Gates green (158 suites / 4470 tests, tsc 0, build clean). The original
+decision record below is retained as the rationale.
 
 Awaiting an owner decision. Tracked by bd `Notidian-0id` (the decision bead;
 defect first characterized by the net `Notidian-dx5`, which pre-wrote this ADR);
