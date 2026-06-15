@@ -95,6 +95,38 @@ queueing more and pivots to safe work — so this list stays reviewable.
   Atlasidian parser work, so it is settled here before either side builds.
 - **Bead status:** Notidian-o4w stays **OPEN**, awaiting your direction.
 
+### Notidian-5io — Date reminders + recurring events: delivery + recurrence materialization
+
+- **ADR:** [docs/adr/0020-date-reminders-and-recurring-events.md](adr/0020-date-reminders-and-recurring-events.md) (Status: Proposed).
+- **Why a decision, not a build:** both halves are runtime/render/notification
+  concerns no offline gate can prove correct, and the bead itself says "these are
+  design decisions for the user." A blind build risks notification spam, coupling to
+  a third-party plugin, or exploding the vault with one file per occurrence — all
+  expensive to undo.
+- **The one decision you need to make:** approve the recommended pair —
+  **(a)** deliver reminders via a **default-OFF load-time + coarse-interval scan that
+  fires `superstate.ui.notify` (Obsidian Notice)**, fired-once-on-next-open for
+  reminders that came due while Obsidian was closed, **no external reminders
+  plugin**; **(b)** materialize recurrence as a **single canonical row carrying an
+  rrule-shaped `repeat` frontmatter rule, expanded at render time** (generalizing the
+  expander the calendar views *already* run — `RRule.between` over `freq`/`interval`/
+  `byweekday`/`count`/`until`/`wkst`), **never generated rows**. Both keep `due`/
+  `repeat`/`reminder` file-canonical per ADR 0014/0017. Ruled out: delegating to an
+  external reminders plugin; edit-time-only Notice; one-file-per-occurrence rows.
+  Deferred (not rejected): sparse exception/override rows for per-occurrence edits.
+- **Also decide (minor, can defer):** the exact frontmatter key names/shape (proposed
+  in the ADR — `repeat:` with rrule keys + `reminder: { before: PT30M }`), and where
+  the ephemeral "already-fired" marker lives (recommended: Notidian view-state, not
+  frontmatter, since it is runtime delivery state, not portable content).
+- **Also decide:** whether to land the **default-OFF, read-only `dateReminders`
+  reminder-scan spike** (scan frontmatter on `onLayoutReady`, toast due reminders via
+  `notify`, in-memory fired-set — no recurrence-aware reminders, no persisted state,
+  no editing UI) as the first implementation step, to de-risk the scan → due-compute
+  → Notice path against a real vault.
+- **Honest limitation surfaced (not hidden):** reminders fire only while Obsidian is
+  open — there is **no background/OS notification** (an Obsidian-plugin runtime fact).
+- **Bead status:** Notidian-5io stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
