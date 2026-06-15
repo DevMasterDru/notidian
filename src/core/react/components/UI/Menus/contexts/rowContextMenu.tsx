@@ -19,6 +19,20 @@ export const showRowContextMenu = async (
 ) => {
   e.preventDefault();
 
+  // Capture the anchor rect and owning window SYNCHRONOUSLY, before the first
+  // await below. After an await, React has returned from the handler and
+  // e.currentTarget is null; reading it then would throw. We anchor to the bound
+  // row (currentTarget) — not whichever child the click landed on — so the menu
+  // stays anchored to the row regardless of where inside it the pointer hit
+  // (Notidian-74n). e.currentTarget is the element the handler is bound to (the
+  // row); e.target was the clicked descendant. We fall back to e.target only if
+  // currentTarget is somehow unavailable.
+  const anchorEl = (e.currentTarget ?? e.target) as HTMLElement;
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const anchorWindow = windowFromDocument(
+    e.view?.document ?? anchorEl.ownerDocument
+  );
+
   // Validate index is a valid number
   if (isNaN(index) || index < 0) {
     console.warn("showRowContextMenu: Invalid index", index);
@@ -44,8 +58,8 @@ export const showRowContextMenu = async (
         superstate,
         row[PathPropertyName],
         contextPath,
-        (e.target as HTMLElement).getBoundingClientRect(),
-        windowFromDocument(e.view?.document ?? (e.target as HTMLElement).ownerDocument)
+        anchorRect,
+        anchorWindow
       );
       return;
     }
@@ -111,8 +125,8 @@ export const showRowContextMenu = async (
     },
   });
   superstate.ui.openMenu(
-    (e.target as HTMLElement).getBoundingClientRect(),
+    anchorRect,
     defaultMenu(superstate.ui, menuOptions),
-    windowFromDocument(e.view?.document ?? (e.target as HTMLElement).ownerDocument)
+    anchorWindow
   );
 };

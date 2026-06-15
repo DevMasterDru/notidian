@@ -9,7 +9,10 @@ export const Dropdown = (props: {
   selectValue?: (value: string) => void;
 }) => {
   const openMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound control (currentTarget), not the clicked child. The
+    // option item renders a collapse glyph via dangerouslySetInnerHTML SVG, so
+    // e.target can resolve to that child with a different rect (Notidian-74n).
+    const offset = e.currentTarget.getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       {

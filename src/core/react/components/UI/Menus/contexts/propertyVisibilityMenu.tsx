@@ -91,7 +91,9 @@ const PropertyVisibilityRow = (props: {
       <div
         className="mk-menu-options-inner"
         onClick={(e) =>
-          props.onEdit?.(col, (e.target as HTMLElement).getBoundingClientRect())
+          // Anchor the edit popup to the bound menu row (currentTarget), not the
+          // clicked child glyph within it (Notidian-74n).
+          props.onEdit?.(col, e.currentTarget.getBoundingClientRect())
         }
       >
         {col.name}
@@ -318,9 +320,9 @@ const PropertyVisibilityMenuComponent = (
             <div
               className="mk-menu-option"
               onClick={(e) =>
-                props.newProperty(
-                  (e.target as HTMLElement).getBoundingClientRect()
-                )
+                // Anchor to the bound new-property row (currentTarget), not the
+                // clicked SVG plus-sticker child within it (Notidian-74n).
+                props.newProperty(e.currentTarget.getBoundingClientRect())
               }
             >
               <div

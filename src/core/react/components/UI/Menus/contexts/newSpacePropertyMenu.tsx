@@ -140,7 +140,9 @@ const NewPropertyMenuComponent = (
   const selectPropertySource = (e: React.MouseEvent) => {
     e.stopPropagation();
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound menu row (currentTarget), not the clicked SVG
+      // sticker child within it (Notidian-74n). Synchronous read.
+      e.currentTarget.getBoundingClientRect(),
       {
         ui: props.superstate.ui,
         multi: false,
@@ -240,7 +242,9 @@ const NewPropertyMenuComponent = (
   const selectSource = (e: React.MouseEvent) => {
     e.stopPropagation();
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound menu row (currentTarget), not the clicked SVG
+      // sticker child within it (Notidian-74n). Synchronous read.
+      e.currentTarget.getBoundingClientRect(),
       {
         ui: props.superstate.ui,
         multi: false,
@@ -322,7 +326,10 @@ const NewPropertyMenuComponent = (
       return;
     }
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound add-existing-property row (currentTarget), not the
+      // clicked child within it (Notidian-74n). All work above is synchronous
+      // (no await), so currentTarget is still valid.
+      e.currentTarget.getBoundingClientRect(),
       {
         ui: props.superstate.ui,
         multi: false,

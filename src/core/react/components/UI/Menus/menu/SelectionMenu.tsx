@@ -13,7 +13,11 @@ export const showDisclosureMenu = (
   options: SelectOption[],
   saveOptions: (options: string[], value: string[]) => void
 ) => {
-  const offset = (e.target as HTMLElement).getBoundingClientRect();
+  // Anchor to the bound control (currentTarget), not whichever child the click
+  // landed on (icon buttons render SVG via dangerouslySetInnerHTML, so e.target
+  // can be a child with a different rect). Read is synchronous, so React 18's
+  // currentTarget is still valid here (Notidian-74n).
+  const offset = e.currentTarget.getBoundingClientRect();
   ui.openMenu(
     offset,
     {

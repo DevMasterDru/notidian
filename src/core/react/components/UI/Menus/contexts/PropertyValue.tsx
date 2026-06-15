@@ -38,7 +38,10 @@ export const PropertyValueComponent = (props: {
     canAdd?: boolean
   ) => {
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound menu row (currentTarget), not the clicked SVG
+      // sticker child within it (Notidian-74n). showOptions is invoked
+      // synchronously from each onClick, so currentTarget is still valid.
+      e.currentTarget.getBoundingClientRect(),
       {
         ui: props.superstate.ui,
         multi: false,
@@ -60,7 +63,9 @@ export const PropertyValueComponent = (props: {
   };
   const selectType = (e: React.MouseEvent) => {
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound menu row (currentTarget), not the clicked child
+      // (Notidian-74n). Synchronous read keeps currentTarget valid.
+      e.currentTarget.getBoundingClientRect(),
       {
         ui: props.superstate.ui,
         multi: false,
@@ -286,7 +291,10 @@ export const PropertyValueComponent = (props: {
     
     showFilterSelectorMenu(
       props.superstate.ui,
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound menu row (currentTarget), not the clicked child
+      // (Notidian-74n). selectAggregateFilter is synchronous, so currentTarget
+      // is still valid here.
+      e.currentTarget.getBoundingClientRect(),
       windowFromDocument(e.view.document),
       props.superstate,
       parsedValue.filters ?? [],
@@ -445,7 +453,9 @@ export const PropertyValueComponent = (props: {
       path: "",
     };
     props.superstate.ui.openCustomMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound menu row (currentTarget), not the clicked child
+      // (Notidian-74n). editFormula is synchronous, so currentTarget is valid.
+      e.currentTarget.getBoundingClientRect(),
       <FormulaEditor {..._props}></FormulaEditor>,
       { ..._props },
       windowFromDocument(e.view.document),

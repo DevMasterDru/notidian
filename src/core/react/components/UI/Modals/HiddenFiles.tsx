@@ -76,7 +76,10 @@ export const HiddenPaths = (props: {
   }, []);
 
   const addMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked child, so the
+    // menu stays anchored to the button regardless of where the click landed
+    // (Notidian-74n). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const options = props.superstate.spaceManager.allPaths().map((f) => ({
       name: pathNameToString(f),
       value: f,

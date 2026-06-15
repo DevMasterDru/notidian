@@ -80,7 +80,9 @@ const SortableOptionItem: React.FC<SortableOptionItemProps> = ({
     // Always show color picker menu regardless of color scheme
     showColorPickerMenu(
       superstate,
-      (e.target as HTMLElement).getBoundingClientRect(),
+      // Anchor to the bound color swatch (currentTarget), not the clicked child
+      // (Notidian-74n). Synchronous read keeps currentTarget valid.
+      e.currentTarget.getBoundingClientRect(),
       windowFromDocument(e.view.document),
       option.color || "var(--mk-color-none)",
       (color: string) => {
@@ -435,7 +437,9 @@ export const EditOptionsModal: React.FC<EditOptionsModalProps> = ({
             ];
             
             superstate.ui.openMenu(
-              (e.target as HTMLElement).getBoundingClientRect(),
+              // Anchor to the bound color-scheme button (currentTarget), not the
+              // clicked child (Notidian-74n). Synchronous read keeps it valid.
+              e.currentTarget.getBoundingClientRect(),
               defaultMenu(superstate.ui, menuOptions),
               windowFromDocument(e.view.document)
             );
