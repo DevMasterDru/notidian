@@ -619,6 +619,49 @@ queueing more and pivots to safe work — so this list stays reviewable.
   Filed separately (P3), **not** decided by this ADR.
 - **Bead status:** Notidian-qbr stays **OPEN**, awaiting your direction.
 
+### Notidian-0id — `intelligentCompare` (Visualization `sortingUtils.ts`): non-transitivity vs observable chart ordering
+
+- **ADR:** [docs/adr/0033-intelligentcompare-viz-comparator-non-transitivity.md](adr/0033-intelligentcompare-viz-comparator-non-transitivity.md)
+  (Proposed). Discovered by the characterization net `Notidian-dx5`.
+- **The defect:** `intelligentCompare` (`sortingUtils.ts:37-65`) is reflexive +
+  antisymmetric but **NON-TRANSITIVE** — the `Notidian-e8e`/ADR-0025 comparator bug
+  class on the chart-ordering surface. The date/number/string branch is chosen
+  **per comparison pair** (`isDateLike(aStr) || isDateLike(bStr)`), not by a stable
+  per-value classification, so the same value is treated as a different type
+  depending on its partner. Verified triple (locked as `KNOWN DEFECT` in
+  `sortingUtils.test.ts`): `cmp("2024-01-01","")=-1`, `cmp("","10")=-1`,
+  `cmp("2024-01-01","10")=+1` — because `new Date("10")` parses as year 2001 while
+  `""` is an invalid Date; `"10"` is a *number* vs `""` but a *Date* vs a real date.
+  295 violations over an 18-value mixed domain. Self-consistent sub-domains
+  (all-dates / all-numbers / all-strings) provably obey the full triad — so the
+  breakage is the cross-branch mixing, not the per-branch logic.
+- **Why it matters:** the comparator is fed **directly** to `Array.prototype.sort`
+  to order chart axes/categories (`D3VisualizationEngine.tsx:205,388`,
+  `LineChartUtility.ts:173,600`, Bar/Line/Area/Radar transformers). For
+  mixed-type category data the rendered axis order is a V8/TimSort artifact, not a
+  defined contract — a Node/V8 upgrade or input-size change can silently reorder it.
+- **Why a decision, not a blind fix:** no caller depends on the *broken* property,
+  but every caller renders **whatever order the comparator emits**, so a fix changes
+  **owner-visible** chart category order for mixed-type data. `tsc`/`jest`/`build`
+  can prove the *laws* hold but cannot decide which *product* ordering is correct.
+  Same posture as ADR-0025; current behavior pinned as characterization.
+- **Recommendation:** **Option B** — classify each value's type **once** (per-value
+  buckets with a fixed cross-bucket order) into a real strict weak ordering, then
+  flip the locked `KNOWN DEFECT` assertions to assert the laws hold. Over **A**
+  (keep + document the latent hazard) or **C** (flag-gate pure offline-provable
+  logic — over-engineering, ruled out as in ADR-0025). One eyes-on chart check
+  settles the category-order delta.
+- **Adjacent (not decided here):** **Notidian-dox** — `getOptionsOrder` throws on a
+  truthy non-array `options` (no `Array.isArray` guard; safe Q1 hardening, no
+  valid-data change); `getOptionsOrder` drops options with falsy value (`0`/`''`/
+  `false`); `getUniqueSortedValues` collapses a real `0` field value to `''` via
+  `|| ''`. All pinned in `sortingUtils.test.ts`.
+- **No build / no spike shipped.** Pure, offline-provable comparator logic — no
+  render-path/`innerHTML`/authority surface — so **no default-OFF flag**. The
+  characterization net (`sortingUtils.test.ts`, 51 tests) is untouched-as-locked
+  until you pick.
+- **Bead status:** Notidian-0id stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
