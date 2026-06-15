@@ -1472,6 +1472,75 @@ queueing more and pivots to safe work — so this list stays reviewable.
   and the leading-space + `;;  ` pins are **not** flipped.
 - **Bead status:** Notidian-p5qt stays **OPEN**, awaiting your direction.
 
+### Notidian-dgo6 — `db.exec(string)` cannot transport a NUL (0x00) in a value (whole-table silent save-loss)
+
+- **ADR:** [docs/adr/0047-db-nul-transport-limitation.md](adr/0047-db-nul-transport-limitation.md)
+  (Status: **Proposed**). Transport sibling of ADR 0045/0046 on the same SQL-builder
+  file — but a **transport/API** question, distinct from the escaping family.
+- **Why a decision, not a build:** the bead itself says "Decision, not a blind fix"
+  and offers three **structurally different** directions — change the write API
+  (cross-cutting seam), deliberately lose a byte (lossy sanitizer tweak), or do
+  nothing. Choosing among "change the architecture", "lose data on purpose", and
+  "accept it" is an owner call about product direction + acceptable data fidelity,
+  and (a)/(b) each **flip a pinned characterization**. So: a Proposed ADR, bead OPEN.
+- **The limitation, exactly (verified in source):** `sql.js` `db.exec`/`db.run`
+  hand the SQL **text** to the WASM C engine as a **NUL-terminated C string**. The
+  four builders interpolate each value into that text (`db.ts:361` insertIntoDB,
+  `:385` updateDB, `:453` replaceDB), so a `0x00` in a value **truncates the
+  statement at the NUL** — the engine throws, `replaceDB`'s try/catch (`db.ts:467-473`)
+  **swallows** it and returns **`false`**, and the **whole table's rows are lost for
+  that save** (the transaction rolls back), silently.
+- **Real-engine ground truth** (`db.realengine.roundtrip.test.ts:500-528`, the
+  pinned sql.js 1.8.0 WASM): DIRECT `db.exec(`...VALUES ('a\x00b')`)` **throws** a
+  parse error (`:501-510`); via `replaceDB` it **swallows → returns `false`**, stores
+  nothing (`:512-527`). The net's header explicitly pins this as an **engine/transport
+  limitation, NOT a `db.ts` escaping defect**.
+- **NOT a `quoteIdent`/`sanitizeSQLStatement` defect (important framing):** the same
+  net proves (`:94-174`) that **every other** byte — quotes, semicolons, comment
+  markers, unicode/astral, **and the entire `0x01`-`0x1f` C0 control range** (`:126-147`)
+  — round-trips **byte-for-byte**. NUL is singular: there is **no escape sequence**
+  that survives a C-string transport. Do **not** conflate this with the
+  injection/escaping family (ADR 0030/0043/0045) or the cosmetic seam (ADR 0046).
+- **Latent today:** row values come from **frontmatter/markdown** (file-canonical,
+  ADR 0001/0014/0017), where a literal NUL is **rare** (itself an upstream anomaly —
+  which ADR 0039 / `Notidian-jlb5` separately proposes guarding *at source*). This is
+  insurance against a malformed/pasted value, not an everyday break.
+- **The engine already supports the principled fix:** the pinned `sql-wasm.js` 1.8.0
+  exposes `Database.prototype.prepare` (`:514`), `Database.prototype.run(sql, params)`
+  (`:458`), and `Statement.prototype.bind` (`:256`) — a **bound parameter** is carried
+  as a typed value over the WASM ABI, *not* spliced into SQL text, so a NUL in a value
+  rides intact. Option A needs **no** new engine capability or dependency bump.
+- **The one decision you need to make:** pick **A / B / C** — **recommended Option B
+  (interim)**: strip **just** NUL in `sanitizeSQLStatement`
+  (`(name ?? "").replace(/\x00/g, "").replace(/'/g, "''")` — the one chokepoint every
+  value write passes through; NUL is the *only* byte that breaks transport, so the
+  strip is surgical and leaves `0x01`-`0x1f` untouched). It removes the **whole-table
+  silent-loss** footgun at the **smallest possible blast radius** (a few chars, one
+  pin to re-bless), **paired with a `bd remember` that Option A is the eventual correct
+  fix**. Over **Option A** — move row-value writes to the **parameter-bound API**
+  (`db.prepare`+`bind` / `db.run(sql, params)`, placeholders + bound params; idents stay
+  `quoteIdent`): the **byte-faithful, architecturally correct** answer, but a **larger
+  cross-cutting seam change** across all builders + `REPLACE`/transaction-shape rework +
+  a full real-engine re-verify, unjustified *now* for a **latent** case (sequence it as
+  a deliberate scoped refactor, optionally folding ADR 0045/0046, which touch the same
+  builders). Over **Option C** (accept+document) — leaves a *single* anomalous byte able
+  to silently roll back an **entire table's** save with **no signal**: strictly worse than
+  the near-free B; rejected as the resting state.
+- **Pairs with ADR 0039 / `Notidian-jlb5`** as defence-in-depth: 0039 keeps a raw NUL
+  out of tracked source; 0047(B) strips it at the SQL write chokepoint if one slips
+  through.
+- **No build / no spike shipped.** Pure SQL-construction/transport over an
+  already-sanitized, file-canonical write path — **no render / `innerHTML` / authority /
+  eyes-on-vault surface**; the behavior is **already empirically captured** against the
+  real engine, so **no default-OFF flag** and **no eyes-on step**. On a pick of **B**
+  the implementing session adds the NUL strip, **flips the `:512-527` pin** (from
+  "returns `false`, stores nothing" to "returns `true`, stores the NUL-stripped value"),
+  confirms the rest of the round-trip/injection/`0x01`-`0x1f` suite stays green, and
+  records the `bd remember` that A is the eventual fix; on **A**, rewrites the value
+  interpolation to bound params and re-verifies the full real-engine suite. No `db.ts` or
+  `sanitizers.ts` change and the `:500-528` NUL pins are **not** flipped until you pick.
+- **Bead status:** Notidian-dgo6 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
