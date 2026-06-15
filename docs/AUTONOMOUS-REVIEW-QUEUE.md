@@ -127,6 +127,32 @@ queueing more and pivots to safe work — so this list stays reviewable.
   open — there is **no background/OS notification** (an Obsidian-plugin runtime fact).
 - **Bead status:** Notidian-5io stays **OPEN**, awaiting your direction.
 
+### Notidian-2w0 (epic item 5) — In-table quick find: already shipped; one sequencing decision left
+
+- **ADR:** [docs/adr/0021-in-table-quick-find.md](adr/0021-in-table-quick-find.md) (Status: **Accepted** — records an already-shipped design).
+- **What the loop found:** epic item (5) ("in-table quick find with highlighted
+  match navigation vs current row-hide filter") was **already built and merged** as
+  child bead **Notidian-r20** (CLOSED 2026-06-12): Cmd/Ctrl+F highlight + navigate,
+  `n of m`, off-screen reveal, wraparound, password/hidden columns excluded,
+  Codex-reviewed, tests/tsc/build green. The four decisions you'd be asked to make
+  were already resolved in line with the recommended defaults: (a) additive find
+  that coexists with filters (searches only filtered-visible rows, never hides);
+  (b) matches rendered cell text (WYSIWYG); (c) **no new `innerHTML` sink** —
+  highlight is cell-level CSS classes, so the ADR 0017/sanitize invariant is met by
+  avoidance; (d) reveal off-screen matches by growing pagination + `scrollIntoView`.
+  Writing a "Proposed, build it" ADR would have been fiction, so the loop recorded
+  the accepted design instead.
+- **The one decision you need to make:** **sequencing of quick-find vs row
+  virtualization (Notidian-8h9).** The current off-screen-reveal mechanism is
+  coupled to pagination. When virtualization replaces pagination, reveal must
+  switch to `virtualizer.scrollToIndex`. **Recommended:** fold that change into the
+  Notidian-8h9 work as an acceptance criterion (one DOM concern, no regression
+  window) rather than shipping virtualization first and patching find after.
+- **No build is pending.** No spike was added; the feature is live. A child
+  implementation bead for the virtualization-reveal migration is filed (see below)
+  and blocks on the Notidian-8h9 direction.
+- **Bead status:** Notidian-2w0 stays **OPEN** (epic), awaiting your sequencing call.
+
 ## Cleared
 
 _(none yet)_
