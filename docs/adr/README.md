@@ -24,6 +24,7 @@ These records define the current Notidian architecture and implemented safety mo
 | [0015](0015-canonical-schema-planning.md) | Canonical schema planning | Defines frontmatter property discovery, create, rename, and delete previews before destructive schema UI/apply flows. |
 | [0017](0017-explicit-notidian-ownership.md) | Explicit Notidian ownership | Closes the silent authority fallback: durable MDB ownership requires an explicit `source: "notidian"` marker, and source-less file-backed columns default to frontmatter. Refines ADR 0001. |
 | [0018](0018-makemd-fork-debt-scope-and-frame-trust-boundary.md) | Make.md fork-debt scope + frame trust boundary | Scopes the Make.md-era subsystems. Landed: MKit installer disabled-by-default + `spaceSubFolder` locked. Frames kept (load-bearing); sink hardening tracked for live-verified work (bd Notidian-vke, -ala). |
+| [0019](0019-select-to-comment-anchoring-and-ai-review-channel.md) | Select-to-comment anchor + AI-review channel (**Proposed**) | Open product/UX decision: how a comment binds to a selection (recommends Obsidian `^block` id) and the AI-directed review comment format the Atlasidian parser consumes (recommends frontmatter `review.comments`). Awaiting owner direction (bd Notidian-o4w). |
 
 ## Historical Records
 

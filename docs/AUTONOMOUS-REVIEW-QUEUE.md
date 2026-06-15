@@ -73,7 +73,27 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ## Pending — decisions (pick a direction)
 
-_(none yet)_
+### Notidian-o4w — Select-to-comment: anchor format + AI-review comment channel
+
+- **ADR:** [docs/adr/0019-select-to-comment-anchoring-and-ai-review-channel.md](adr/0019-select-to-comment-anchoring-and-ai-review-channel.md) (Status: Proposed).
+- **Why a decision, not a build:** the product/UX is genuinely open and the chosen
+  format is a **cross-repo contract** — Notidian writes it, the Atlasidian-69c v2
+  parser must read it (Atlasidian ADR-206 review pages, Atlasidian-j0q v3 UI). A
+  wrong-format blind build would have to be redone across both repos.
+- **The one decision you need to make:** approve the recommended pair —
+  **(a)** anchor a comment with an Obsidian **block id (`^block`)**, reusing the
+  existing inline-styler "blocklink" path; **(b)** store AI-directed comments as a
+  frontmatter **`review.comments`** list keyed by that anchor (sibling of
+  `review.verdicts`), file-canonical per ADR 0014/0017. Ruled out: offset-range and
+  marker-pair anchors; sidecar-`.notidian` and free-text-bullet storage (the
+  current fallback you find inconvenient).
+- **Also decide:** whether to land a **default-OFF `selectToComment` spike** (a
+  Comment button that appends one `review.comments` entry via the authority-aware
+  frontmatter write — no read-back UI) as the first implementation step, to give
+  Atlasidian-69c a real sample to parse.
+- **If you pick a different anchor/format,** that choice propagates to the
+  Atlasidian parser work, so it is settled here before either side builds.
+- **Bead status:** Notidian-o4w stays **OPEN**, awaiting your direction.
 
 ## Cleared
 
