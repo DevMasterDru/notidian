@@ -755,3 +755,148 @@ describe("neutralizeCssFetches edge cases (Notidian-b81)", () => {
     expect(styleAttr).toContain("url(#g)");
   });
 });
+
+// Defence-in-depth: sanitizeIconSVG must sanitise content nested inside a
+// <template> too (Notidian-2s1). A vault SVG icon can carry a <template> (valid
+// HTML inside the parsed fragment); its children live in the template's own
+// .content fragment, which querySelectorAll('*') over the host does NOT visit, so
+// pre-fix a <script>/<image href=javascript:>/CSS-fetch nested in a template
+// survived. The per-pass cleaner now recurses into template.content. These tests
+// look INSIDE the template fragment (the host serialisation hides the inert
+// content); the FAILING STATE is any dangerous surface surviving there.
+describe("sanitizeIconSVG — nested <template> deep strip (Notidian-2s1)", () => {
+  // Recursively collect residual dangerous surface, descending into nested
+  // <template>.content (the fragments a flat querySelectorAll never crosses).
+  const SVG_DANGEROUS_TAGS = [
+    "script",
+    "foreignobject",
+    "iframe",
+    "object",
+    "embed",
+    "set",
+    "animate",
+    "animatetransform",
+  ];
+  const probeIconDeep = (
+    output: string
+  ): { tags: string[]; onHandlers: string[]; fetches: string[]; depth: number } => {
+    const tags: string[] = [];
+    const onHandlers: string[] = [];
+    const fetches: string[] = [];
+    let depth = 0;
+    const dangerSet = new Set(SVG_DANGEROUS_TAGS);
+    const walk = (root: DocumentFragment, d: number): void => {
+      depth = Math.max(depth, d);
+      root.querySelectorAll("*").forEach((el) => {
+        const tag = el.tagName.toLowerCase();
+        if (dangerSet.has(tag)) tags.push(tag);
+        if (tag == "style") {
+          const css = (el.textContent ?? "").toLowerCase();
+          if (css.includes("@import") || /url\(\s*['"]?https?:/.test(css)) {
+            fetches.push(`style:${css}`);
+          }
+        }
+        Array.from(el.attributes).forEach((attr) => {
+          const name = attr.name.toLowerCase();
+          if (name.startsWith("on")) onHandlers.push(name);
+          const v = attr.value.replace(/\s+/g, "").toLowerCase();
+          const isUrlAttr =
+            name == "href" || name == "xlink:href" || name == "src";
+          if (isUrlAttr && !(v.startsWith("#") || v.startsWith("data:image/")) && v != "") {
+            fetches.push(`${name}=${v}`);
+          }
+          if (name == "style") {
+            const css = v;
+            if (css.includes("@import") || /url\(['"]?https?:/.test(css)) {
+              fetches.push(`styleattr:${css}`);
+            }
+          }
+        });
+        if (tag == "template") {
+          const content = (el as HTMLTemplateElement).content;
+          if (content) walk(content, d + 1);
+        }
+      });
+    };
+    const host = document.createElement("template");
+    host.innerHTML = output;
+    walk(host.content, 0);
+    return { tags, onHandlers, fetches, depth };
+  };
+
+  const expectIconDeepInert = (output: string): void => {
+    const s = probeIconDeep(output);
+    expect(s.tags).toEqual([]);
+    expect(s.onHandlers).toEqual([]);
+    expect(s.fetches).toEqual([]);
+  };
+
+  it("the deep probe descends into nested template content (sanity)", () => {
+    const host = document.createElement("template");
+    host.innerHTML =
+      "<template><template><script>x()</script>" +
+      '<image href="javascript:y()"/></template></template>';
+    const s = probeIconDeep(host.innerHTML);
+    expect(s.depth).toBeGreaterThanOrEqual(2);
+    expect(s.tags).toContain("script");
+  });
+
+  const ICON_NESTED: Array<[string, string]> = [
+    ["script", "<svg><template><script>x()</script></template></svg>"],
+    [
+      "on* handler",
+      '<svg><template><rect onload="steal()"/></template></svg>',
+    ],
+    [
+      "remote <image href>",
+      '<svg><template><image href="https://evil.example/x.png"/></template></svg>',
+    ],
+    [
+      "javascript: <use href>",
+      '<svg><template><use href="javascript:alert(1)"/></template></svg>',
+    ],
+    [
+      "foreignObject",
+      "<svg><template><foreignObject><b>x</b></foreignObject></template></svg>",
+    ],
+    [
+      "CSS @import in nested <style>",
+      "<svg><template><style>@import url(http://evil.example/x.css)</style></template></svg>",
+    ],
+    [
+      "CSS url() fetch in nested <style>",
+      "<svg><template><style>.a{fill:url(http://evil.example/y.png)}</style></template></svg>",
+    ],
+    [
+      "two levels deep",
+      "<svg><template><template><script>x()</script>" +
+        '<image href="javascript:y()"/></template></template></svg>',
+    ],
+  ];
+
+  for (const [label, payload] of ICON_NESTED) {
+    it(`strips ${label} from a nested template inside an icon`, () => {
+      expectIconDeepInert(sanitizeIconSVG(payload));
+    });
+  }
+
+  it("benign nested template content (shapes) survives", () => {
+    const out = sanitizeIconSVG(
+      '<svg><template><path d="M0 0h4"/><use href="#g"/></template><rect/></svg>'
+    );
+    const host = document.createElement("template");
+    host.innerHTML = out;
+    const inner = host.content.querySelector("template");
+    const innerHtml = (inner ? inner.innerHTML : out).toLowerCase();
+    expect(innerHtml).toContain("<path");
+    expect(innerHtml).toContain('href="#g"');
+  });
+
+  it("nested-template icon payloads reach a fixed point AND are deeply inert", () => {
+    for (const [, payload] of ICON_NESTED) {
+      const once = sanitizeIconSVG(payload);
+      expect(sanitizeIconSVG(once)).toBe(once);
+      expectIconDeepInert(once);
+    }
+  });
+});

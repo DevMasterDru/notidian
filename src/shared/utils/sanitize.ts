@@ -200,6 +200,86 @@ const sanitizeToFixedPoint = (
 // executing payload is not. Deliberately NOT applied to the bundled lucide/ui
 // icons, only to untrusted custom-iconset SVG. Run to a fixed point (above) so a
 // parse-differential mXSS cannot survive the single parse/serialise round-trip.
+// Clean ONE element in place against the SVG-icon policy: drop it if its tag is
+// dangerous (caller treats a true return as "removed — stop"), neutralise <style>
+// CSS fetches, drop on* handlers, and restrict URL attributes to same-doc
+// fragments / inline raster data:image. Factored out so the recursive walker can
+// apply identical rules to elements in the light DOM AND inside nested
+// <template>.content fragments (see cleanFragmentDeep).
+const cleanIconElement = (el: Element): boolean => {
+  const tag = el.tagName.toLowerCase();
+  if (SVG_DANGEROUS_TAGS.has(tag)) {
+    el.remove();
+    return true;
+  }
+  // <style> CSS is kept (legit icons use it) but its remote fetches are
+  // neutralised; the element's own attributes (e.g. <style onload>) are still
+  // processed below.
+  if (tag == "style") {
+    el.textContent = neutralizeCssFetches(el.textContent ?? "");
+  }
+  Array.from(el.attributes).forEach((attr) => {
+    const name = attr.name.toLowerCase();
+    // Inline style attributes can fetch via url(); neutralise rather than drop
+    // so legitimate fills/gradients survive.
+    if (name == "style") {
+      el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+      return;
+    }
+    const value = attr.value.replace(/\s+/g, "").toLowerCase();
+    const isUrlAttr = name == "href" || name == "xlink:href" || name == "src";
+    // on* handlers are always dropped. For URL attributes (e.g. <use href>,
+    // <image href>) allow only same-doc fragments (#id) and raster data:image
+    // — this blocks javascript:, data:text/html, and remote http(s) fetches
+    // (an icon phoning home / SSRF / tracking beacon) while keeping legit
+    // symbol reuse and inline raster icons working.
+    if (name.startsWith("on")) {
+      el.removeAttribute(attr.name);
+    } else if (
+      isUrlAttr &&
+      !(value.startsWith("#") || value.startsWith("data:image/"))
+    ) {
+      el.removeAttribute(attr.name);
+    }
+  });
+  return false;
+};
+
+// Recursively clean a fragment to arbitrary depth, descending through nested
+// <template> content. Defence-in-depth (Notidian-2s1): a <template>'s children
+// live in its OWN .content DocumentFragment, which `querySelectorAll('*')` on the
+// host fragment does NOT visit (per the HTML spec, template content is an inert,
+// separate document fragment). So a single querySelectorAll('*') pass over the
+// host never sees a <script>/<img onerror>/javascript: nested inside a <template>
+// — it survives every sanitiser. That is currently INERT at the live innerHTML/
+// dangerouslySetInnerHTML sink (template content neither renders nor executes),
+// but it is a latent risk if downstream ever extracts template.content and
+// re-injects it into the light DOM. We close it here: clean every element in the
+// fragment with `cleanElement`, and for any element that is itself a <template>
+// (and survived the policy — for the HTML sink <template> is NOT in the dangerous
+// set), recurse into its .content so its descendants are sanitised too. The
+// recursion is structural and terminates (each call descends into strictly
+// smaller fragments), and a removed element's subtree is simply skipped.
+const cleanFragmentDeep = (
+  fragment: DocumentFragment,
+  cleanElement: (el: Element) => boolean
+): void => {
+  // Static snapshot of direct + descendant elements in THIS fragment; safe to
+  // mutate while iterating. Nested template content is reached via the recursion
+  // below, not by this query (it does not cross the template-content boundary).
+  fragment.querySelectorAll("*").forEach((el) => {
+    const removed = cleanElement(el);
+    if (removed) return; // its subtree (incl. any nested template) is gone too
+    if (
+      el.tagName.toLowerCase() == "template" &&
+      "content" in el &&
+      (el as HTMLTemplateElement).content
+    ) {
+      cleanFragmentDeep((el as HTMLTemplateElement).content, cleanElement);
+    }
+  });
+};
+
 const sanitizeIconSVGPass = (svg: string): string => {
   const template = document.createElement("template");
   template.innerHTML = svg;
@@ -207,45 +287,8 @@ const sanitizeIconSVGPass = (svg: string): string => {
   // malformed icon carrying a top-level <plaintext> cannot diverge the fixed-point
   // loop (inside <svg> it is harmless foreign content and converges anyway).
   collapsePlaintextElements(template.content);
-  // Static snapshot of all descendants; safe to mutate while iterating.
-  template.content.querySelectorAll("*").forEach((el) => {
-    const tag = el.tagName.toLowerCase();
-    if (SVG_DANGEROUS_TAGS.has(tag)) {
-      el.remove();
-      return;
-    }
-    // <style> CSS is kept (legit icons use it) but its remote fetches are
-    // neutralised; the element's own attributes (e.g. <style onload>) are still
-    // processed by the loop below.
-    if (tag == "style") {
-      el.textContent = neutralizeCssFetches(el.textContent ?? "");
-    }
-    Array.from(el.attributes).forEach((attr) => {
-      const name = attr.name.toLowerCase();
-      // Inline style attributes can fetch via url(); neutralise rather than drop
-      // so legitimate fills/gradients survive.
-      if (name == "style") {
-        el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
-        return;
-      }
-      const value = attr.value.replace(/\s+/g, "").toLowerCase();
-      const isUrlAttr =
-        name == "href" || name == "xlink:href" || name == "src";
-      // on* handlers are always dropped. For URL attributes (e.g. <use href>,
-      // <image href>) allow only same-doc fragments (#id) and raster data:image
-      // — this blocks javascript:, data:text/html, and remote http(s) fetches
-      // (an icon phoning home / SSRF / tracking beacon) while keeping legit
-      // symbol reuse and inline raster icons working.
-      if (name.startsWith("on")) {
-        el.removeAttribute(attr.name);
-      } else if (
-        isUrlAttr &&
-        !(value.startsWith("#") || value.startsWith("data:image/"))
-      ) {
-        el.removeAttribute(attr.name);
-      }
-    });
-  });
+  // Deep clean: also sanitise content nested inside any <template> (Notidian-2s1).
+  cleanFragmentDeep(template.content, cleanIconElement);
   return template.innerHTML;
 };
 
@@ -329,6 +372,33 @@ const hasDangerousUrlScheme = (raw: string): boolean => {
 // their input validation and the surrounding contract), so the per-pass work lives
 // here and both run it to a fixed point (sanitizeToFixedPoint) to defeat the
 // parse-differential mXSS documented above (Notidian-y3h).
+// Clean ONE element in place against the rendered-HTML / frame-text policy: drop it
+// if its tag is dangerous (caller treats a true return as "removed — stop"),
+// neutralise <style> CSS fetches, drop on* handlers / dangerous-scheme URL
+// attributes, and neutralise inline style. Factored out so the recursive walker
+// can apply identical rules inside nested <template>.content fragments too.
+const cleanHtmlElement = (el: Element): boolean => {
+  const tag = el.tagName.toLowerCase();
+  if (HTML_DANGEROUS_TAGS.has(tag)) {
+    el.remove();
+    return true;
+  }
+  if (tag == "style") {
+    el.textContent = neutralizeCssFetches(el.textContent ?? "");
+  }
+  Array.from(el.attributes).forEach((attr) => {
+    const name = attr.name.toLowerCase();
+    if (name.startsWith("on")) {
+      el.removeAttribute(attr.name);
+    } else if (name == "style") {
+      el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+    } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
+      el.removeAttribute(attr.name);
+    }
+  });
+  return false;
+};
+
 const sanitizeHtmlSinkPass = (html: string): string => {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -336,26 +406,9 @@ const sanitizeHtmlSinkPass = (html: string): string => {
   // element/attribute strip so the fixed-point loop converges (see
   // collapsePlaintextElements / sanitizeToFixedPoint).
   collapsePlaintextElements(template.content);
-  template.content.querySelectorAll("*").forEach((el) => {
-    const tag = el.tagName.toLowerCase();
-    if (HTML_DANGEROUS_TAGS.has(tag)) {
-      el.remove();
-      return;
-    }
-    if (tag == "style") {
-      el.textContent = neutralizeCssFetches(el.textContent ?? "");
-    }
-    Array.from(el.attributes).forEach((attr) => {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith("on")) {
-        el.removeAttribute(attr.name);
-      } else if (name == "style") {
-        el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
-      } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
-        el.removeAttribute(attr.name);
-      }
-    });
-  });
+  // Deep clean: also sanitise content nested inside any <template> (Notidian-2s1),
+  // which querySelectorAll('*') over the host fragment would otherwise never visit.
+  cleanFragmentDeep(template.content, cleanHtmlElement);
   return template.innerHTML;
 };
 
