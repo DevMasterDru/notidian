@@ -108,9 +108,21 @@ Working dir is the Notidian repo. Steps:
 
 If you cannot complete it safely, set committed=false with notes and ensure the working tree is CLEAN (revert your changes) so the next bead starts fresh. Return {beadId, committed, commitSha, gatesPassed, summary, notes}.`
 
-const reviewPrompt = (b, impl, idx) => `Adversarially review the latest commit (${impl.commitSha || 'HEAD'}) implementing Notidian bead ${b.id} ("${b.title}"). You are skeptic #${idx + 1}. ${REASON}
+// Cross-model (Codex) review is unavailable, so single-model review must NOT lean
+// on model diversity. Compensate with perspective diversity: give each reviewer a
+// DISTINCT lens rather than N identical skeptics — different lenses catch defects a
+// same-model reviewer would otherwise share a blind spot on. The objective gates
+// (test/tsc/build) remain the model-independent safety net underneath this.
+const LENSES = [
+  { key: 'correctness', focus: 'Correctness & logic: edge cases, off-by-one, async/await ordering and timing, error paths, null/undefined handling, data-integrity and round-trip fidelity.' },
+  { key: 'authority-security', focus: 'Authority & security model: file/frontmatter is canonical and durable context-MDB ownership requires an explicit source:"notidian" (ADR 0001/0014/0017); every vault-content innerHTML/dangerouslySetInnerHTML/SVG/iframe sink must route through src/shared/utils/sanitize.ts. Hunt for authority leaks, silent MDB persistence, and injection bypasses.' },
+  { key: 'regression-tests', focus: 'Regression & test adequacy: does it break existing behavior; are the gates genuinely green; are new/changed tests meaningful (not asserting buggy behavior, not over-mocked, flagged audit tests flipped to assert correct behavior); is coverage adequate.' },
+]
 
-Default to refuted: actively hunt for a real correctness bug, an authority/security-model violation (ADR 0001/0014/0017; sanitize.ts sinks), a broken or skipped gate, a missing test, or a regression. Inspect the diff with \`git show ${impl.commitSha || 'HEAD'}\` and read the surrounding code; you MAY run \`npm test -- --runInBand\` and \`npx tsc -noEmit -skipLibCheck\` (do NOT run the build and do NOT modify files). Report findings; set mustFix=true ONLY for a genuine defect you can back with evidence. If the change is sound, return findings:[].`
+const reviewPrompt = (b, impl, lens) => `Adversarially review the latest commit (${impl.commitSha || 'HEAD'}) implementing Notidian bead ${b.id} ("${b.title}"). ${REASON}
+
+YOUR LENS — ${lens.key}: ${lens.focus}
+Cross-model review is unavailable, so own this lens rigorously and independently; do not merely re-check what the implementer already would have. Default to refuted: assume there IS a defect within your lens and try to prove it. Inspect \`git show ${impl.commitSha || 'HEAD'}\` and read the surrounding code; you MAY run \`npm test -- --runInBand\` and \`npx tsc -noEmit -skipLibCheck\` (do NOT run the build and do NOT modify files). Set mustFix=true ONLY for a genuine defect you can back with evidence; if the change is sound within your lens, return findings:[].`
 
 const fixPrompt = (b, impl, findings) => `Independent reviewers flagged must-fix issues in Notidian bead ${b.id} (commit ${impl.commitSha || 'HEAD'}):\n${JSON.stringify(findings, null, 2)}\n\n${REASON}\n\nWorking dir is the Notidian repo. For each finding: verify it is real (a false positive needs no code change — note why). Fix the real ones, re-run ALL gates green (\`npm test -- --runInBand\`, \`npx tsc -noEmit -skipLibCheck\`, \`npm run build\`), then amend or add a commit (\`fix(...): ... — Notidian-${b.id}\` + the Co-Authored-By footer) and \`git push\`.`
 
@@ -150,8 +162,8 @@ while (round < MAX_ROUNDS) {
 
     phase('Verify')
     const reviews = await parallel(
-      [0, 1, 2].map((i) => () =>
-        agent(reviewPrompt(bead, impl, i), { model: MODEL, schema: REVIEW_SCHEMA, label: `review:${bead.id}:${i}`, phase: 'Verify' })
+      LENSES.map((lens) => () =>
+        agent(reviewPrompt(bead, impl, lens), { model: MODEL, schema: REVIEW_SCHEMA, label: `review:${bead.id}:${lens.key}`, phase: 'Verify' })
       )
     )
     const mustFix = reviews

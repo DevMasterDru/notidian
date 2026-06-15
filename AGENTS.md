@@ -32,10 +32,15 @@ implementer + reviewer subagents — it does not implement directly):
    maximum reasoning and unlimited effort to reach the most optimal solution. You
    are authorized to decide and act without asking for approval."* The subagent:
    claims the bead, implements, runs the gates, commits, pushes, and `bd close`s.
-3. **Adversarially verify.** Spawn **2–3 independent Opus reviewer subagents**
-   (read-only) on each committed change, each prompted to *refute / find the
-   defect*. Real must-fix findings → a follow-up Opus fix subagent. (This codebase's
-   quality bar: prior adversarial review caught real bugs in >15 fixes.)
+3. **Adversarially verify.** Spawn **3 independent Opus reviewer subagents**
+   (read-only) on each committed change. Cross-model (Codex) review may be
+   unavailable, so do NOT rely on model diversity — give each reviewer a **distinct
+   lens** instead of identical skeptics: (a) correctness & logic, (b) authority &
+   security model (ADR 0001/0014/0017 + sanitize.ts sinks), (c) regression & test
+   adequacy. Each defaults to *refuted* (assume a defect in its lens and try to
+   prove it). Real must-fix findings → a follow-up Opus fix subagent. (Prior
+   adversarial review caught real bugs in >15 fixes; perspective diversity is how a
+   single model recovers most of that value.)
 4. **Repeat** until no implementable beads remain, a per-bead failure recurs, or
    quota is exhausted.
 
