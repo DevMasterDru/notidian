@@ -571,6 +571,54 @@ queueing more and pivots to safe work — so this list stays reviewable.
   `tableCsv.test.ts:462` (guarded by the existing `uniqueNameFromString` property net).
 - **Bead status:** Notidian-5zc stays **OPEN**, awaiting your direction.
 
+### Notidian-qbr — Date-filter boundary + Invalid-Date semantics (`dateAfter`/`dateBefore`/`isSameDay`)
+
+- **ADR:** [docs/adr/0032-date-filter-boundary-and-invalid-date-semantics.md](adr/0032-date-filter-boundary-and-invalid-date-semantics.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the chosen boundary + malformed-input contract is
+  a **product/UX call** (what does "before/after a date" mean to a user, and should a
+  corrupt date be visible?), and every plausible fix changes **which rows the owner
+  sees** in a date-filtered table — observable vault behavior offline gates can't
+  prove correct, and the current behavior is **pinned as characterization** in
+  `filter.test.ts` (Notidian-3fs, lines 367-507) so any change is a deliberate flip.
+- **What the investigation found (all empirically verified):** `dateAfter` uses
+  inclusive `>=` (`filter.ts:97`) but `dateBefore` uses exclusive `<` (`filter.ts:106`),
+  so a boundary instant satisfies `dateAfter` but **not** `dateBefore`. Worse: the
+  comparison is at **instant** granularity while users pick a **date** (a date-only
+  filter parses to local midnight), so whether a row "on June 1" matches an
+  "after/before June 1" filter depends on the **time-of-day stored in the row** —
+  which the user usually never set and can't see. An unparseable value becomes
+  Invalid Date (NaN) and is **invisible to BOTH** filters (every NaN comparison is
+  false — fail-closed today). `isSameDay` compares only `getMonth()`+`getDate()`,
+  **ignoring the year**, so 15 Mar 2024 matches 15 Mar 1999 (the sibling
+  `isSameDayAsToday` is intentionally year-agnostic — an anniversary check — and is
+  a separate concern).
+- **The one decision you need to make:** approve the recommended trio (or pick per
+  axis) — **(a) boundary: A1** make `dateAfter`/`dateBefore` **day-granular + both
+  inclusive** so "on the boundary day" matches both operators consistently regardless
+  of the row's stored time (over A2 consistent-instant, which only patches the
+  `>=`/`<` disagreement, or A3 keep half-open + document); **(b) Invalid-Date: B1**
+  keep **invisible-to-both / fail-closed** (status quo, made explicit) — a malformed
+  date must **not** silently satisfy a date filter (over B2 visible-to-both/fail-open,
+  which lets garbage pass any date filter, or B3 treat-as-empty, which conflates blank
+  with typo'd — deferred not rejected); **(c) `isSameDay`: C1** **also compare the
+  year** — a real bug fix; cross-year same-day matching is almost certainly accidental
+  (over C2 keep year-agnostic + relabel as anniversary, redundant with
+  `isSameDayAsToday`).
+- **No build / no spike shipped.** This is pure, offline-provable predicate logic (no
+  render-path / `innerHTML` / authority surface), so **no default-OFF flag** was added
+  — the flag mechanism is for changes gates *can't* prove. The only un-gate-able
+  aspect is the one-time visible row-set delta on a date-filtered table, which the
+  existing characterization net plus a single eyes-on vault check settle. `filter.ts`
+  and the pinned `filter.test.ts` assertions are **untouched** until you pick.
+- **Adjacent decision you may want to fold in:** **Notidian-37m** —
+  `filterReturnForCol` returns `true` (row visible) for an unknown/undefined filter
+  `fn` (fail-open at the dispatcher level). Same family of question as (b) but at the
+  *operator* level rather than the *value* level; defensibly resolves differently
+  (fail-open is plausibly right for forward-compat with unknown fns from newer
+  schemas), but you may prefer to settle the whole predicate-contract posture at once.
+  Filed separately (P3), **not** decided by this ADR.
+- **Bead status:** Notidian-qbr stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
