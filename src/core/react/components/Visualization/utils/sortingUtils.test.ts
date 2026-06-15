@@ -23,7 +23,16 @@ import {
 //
 // IMPORTANT — characterization, NOT correction. `intelligentCompare` is the
 // SAME bug class as Notidian-e8e / ADR-0025 (array.ts comparators) on an
-// untested surface: it is reflexive and antisymmetric, but **NON-TRANSITIVE**.
+// untested surface. It is reflexive and antisymmetric over MOST of the domain,
+// but has TWO locked strict-weak-ordering defects:
+//   (1) **NON-TRANSITIVE** for cross-branch mixes (the headline defect, below);
+//   (2) **NON-REFLEXIVE on "Infinity"** — parseFloat("Infinity") === Infinity, so
+//       the numeric branch returns Infinity - Infinity === NaN (not 0). A NaN
+//       comparator return is its own SWO violation, strictly worse than (1)
+//       because it gives Array.prototype.sort an undefined contract. It is pinned
+//       by a dedicated KNOWN DEFECT test; the reflexivity/antisymmetry "law HOLDS"
+//       tests iterate LAW_DOMAIN (MIXED_DOMAIN minus "Infinity") so they assert
+//       only what is actually true. ("-Infinity" / "1e999" share defect (2).)
 // A value's branch (date vs number vs string) is chosen per-PAIR via
 // `isDateLike(aStr) || isDateLike(bStr)`, not per-value, so the same value is
 // classified differently depending on its partner — which breaks transitivity:
@@ -65,11 +74,40 @@ const pick = <T>(rng: () => number, arr: T[]): T =>
   arr[randInt(rng, 0, arr.length - 1)];
 const PROPERTY_RUNS = 400;
 
-// Normalize any comparator result to exactly {-1, 0, 1}. `|| 0` collapses any
-// -0 to +0 so the law assertions are clean under Jest's Object.is-based toBe.
-const sign = (n: number) => (n < 0 ? -1 : n > 0 ? 1 : 0) || 0;
+// Normalize any comparator result to exactly {-1, 0, 1}, FAILING LOUD on NaN.
+// `|| 0` collapses any -0 to +0 so the law assertions are clean under Jest's
+// Object.is-based toBe. The explicit NaN throw is load-bearing: a NaN comparator
+// return is itself a strict-weak-ordering violation (worse than non-transitivity —
+// it gives Array.prototype.sort an undefined contract), and the naive
+// `(n < 0 ? -1 : n > 0 ? 1 : 0)` would silently map NaN -> 0 and let a broken
+// comparator masquerade as reflexive/antisymmetric. So `sign` REFUSES to launder
+// NaN; the one known NaN-returning case (intelligentCompare("Infinity","Infinity"),
+// numeric branch -> Infinity - Infinity === NaN) is characterized explicitly as a
+// KNOWN DEFECT below, and the reflexivity/antisymmetry law domains exclude it on
+// purpose (see LAW_DOMAIN). If `sign` ever throws from a new call site, the
+// comparator started returning NaN somewhere new — investigate, do not silence.
+const sign = (n: number) => {
+  if (Number.isNaN(n)) {
+    throw new Error(
+      "sign() received NaN — the comparator returned NaN, a strict-weak-ordering " +
+        "violation. NaN must be characterized explicitly (see the KNOWN DEFECT " +
+        "NaN-return test), never laundered to 0."
+    );
+  }
+  return (n < 0 ? -1 : n > 0 ? 1 : 0) || 0;
+};
 // Negate a normalized sign, collapsing -0 back to +0.
 const inv = (s: number) => -s || 0;
+
+// A NaN-TOLERANT normalizer used ONLY by the broken-comparator characterization
+// loops (transitivity violation counting + the malformed-sort safety floor),
+// where the comparator is KNOWN non-conforming and a NaN return is a SEPARATE,
+// already-characterized defect (the Infinity self-compare). Here NaN deliberately
+// maps to 0 so a NaN-bearing triple is simply not counted as a transitivity
+// violation rather than crashing the loop — the NaN return is locked by its own
+// dedicated KNOWN DEFECT test, not by these triads. Distinct from `sign` so the
+// laundering is explicit and confined to where the comparator is already broken.
+const sortSign = (n: number) => (n < 0 ? -1 : n > 0 ? 1 : 0) || 0;
 
 // A representative mixed domain: real dates, regex false-positive "dates",
 // NaN-dates, bare numbers (which Date.parse misreads as years), numeric-aware
@@ -92,9 +130,22 @@ const MIXED_DOMAIN = [
   "0x10",
   "  5  ",
   "NaN",
-  "Infinity",
+  "Infinity", // KNOWN DEFECT: parseFloat -> Infinity, so cmp(x,x) = Infinity-Infinity = NaN
   "Dec 2024",
 ];
+
+// The subset of MIXED_DOMAIN over which reflexivity and antisymmetry ACTUALLY
+// hold. "Infinity" is excluded ON PURPOSE: it takes the numeric branch
+// (parseFloat("Infinity") === Infinity passes the !isNaN guard) so
+// intelligentCompare("Infinity","Infinity") === Infinity - Infinity === NaN — a
+// genuine strict-weak-ordering violation that is NOT reflexive. That NaN return
+// is characterized as its own KNOWN DEFECT below; the "law HOLDS" tests must not
+// claim it. ("-Infinity" and overflow literals like "1e999" parseFloat to
+// +/-Infinity too and share the defect; they are not in the domain but the
+// dedicated NaN test pins representative cases.) Everything else in MIXED_DOMAIN
+// IS reflexive and antisymmetric (verified exhaustively), so this is the honest
+// domain for the green law locks.
+const LAW_DOMAIN = MIXED_DOMAIN.filter((v) => v !== "Infinity");
 
 // =========================================================================
 // isDateLike — regex shape detector (NOT a validity check)
@@ -203,17 +254,24 @@ describe("intelligentCompare", () => {
     expect(typeof intelligentCompare(null, "x")).toBe("number");
   });
 
-  // ---- LAW: reflexivity (HOLDS) ----------------------------------------
-  it("LAW reflexivity: cmp(x, x) === 0 for every value in the mixed domain", () => {
-    for (const x of MIXED_DOMAIN) {
+  // ---- LAW: reflexivity (HOLDS over LAW_DOMAIN; "Infinity" is a KNOWN DEFECT) --
+  // Iterates LAW_DOMAIN (MIXED_DOMAIN minus "Infinity"), NOT the full domain:
+  // cmp("Infinity","Infinity") === NaN (numeric branch, Infinity - Infinity), a
+  // genuine non-reflexive case characterized by its own KNOWN DEFECT test below.
+  // `sign` throws on NaN, so this would FAIL (not silently pass) if "Infinity"
+  // were included — which is the point: the green lock asserts only what holds.
+  it("LAW reflexivity: cmp(x, x) === 0 for every value in LAW_DOMAIN", () => {
+    for (const x of LAW_DOMAIN) {
       expect(sign(intelligentCompare(x, x))).toBe(0);
     }
   });
 
-  // ---- LAW: antisymmetry (HOLDS) ---------------------------------------
-  it("LAW antisymmetry: sign(cmp(a,b)) === -sign(cmp(b,a)) over the full domain", () => {
-    for (const a of MIXED_DOMAIN) {
-      for (const b of MIXED_DOMAIN) {
+  // ---- LAW: antisymmetry (HOLDS over LAW_DOMAIN) -----------------------
+  // Also over LAW_DOMAIN: the only NaN-returning pair in the exhaustive double
+  // loop is ("Infinity","Infinity") (verified), and `sign` refuses to launder it.
+  it("LAW antisymmetry: sign(cmp(a,b)) === -sign(cmp(b,a)) over LAW_DOMAIN", () => {
+    for (const a of LAW_DOMAIN) {
+      for (const b of LAW_DOMAIN) {
         expect(sign(intelligentCompare(a, b))).toBe(
           inv(sign(intelligentCompare(b, a)))
         );
@@ -224,12 +282,31 @@ describe("intelligentCompare", () => {
   it("LAW antisymmetry (randomized stress, seeded)", () => {
     const rng = makeRng(0x5eed1);
     for (let i = 0; i < PROPERTY_RUNS; i++) {
-      const a = pick(rng, MIXED_DOMAIN);
-      const b = pick(rng, MIXED_DOMAIN);
+      const a = pick(rng, LAW_DOMAIN);
+      const b = pick(rng, LAW_DOMAIN);
       expect(sign(intelligentCompare(a, b))).toBe(
         inv(sign(intelligentCompare(b, a)))
       );
     }
+  });
+
+  // ---- LAW: reflexivity (KNOWN DEFECT — NaN return on "Infinity") -------
+  // The comparator is NOT reflexive for "Infinity": parseFloat("Infinity") ===
+  // Infinity passes the numeric guard, so it returns Infinity - Infinity === NaN,
+  // not 0. A NaN comparator return is a strict-weak-ordering violation (and gives
+  // Array.prototype.sort an UNDEFINED contract — strictly worse than the
+  // non-transitivity locked below). We assert the RAW comparator output (not
+  // through `sign`, which now throws on NaN) so the defect is pinned honestly.
+  // When ADR 0033's per-value-classification fix lands (so "Infinity" buckets as a
+  // finite-failing number/string and cmp("Infinity","Infinity") === 0), flip these
+  // to assert reflexivity holds and fold "Infinity" back into LAW_DOMAIN.
+  it("KNOWN DEFECT: cmp returns NaN (not 0) for an Infinity self-compare", () => {
+    expect(Number.isNaN(intelligentCompare("Infinity", "Infinity"))).toBe(true);
+    // shared root cause: anything parseFloat maps to +/-Infinity self-compares to NaN
+    expect(Number.isNaN(intelligentCompare("-Infinity", "-Infinity"))).toBe(true);
+    expect(Number.isNaN(intelligentCompare("1e999", "1e999"))).toBe(true); // overflow -> Infinity
+    // and `sign` REFUSES to launder it (the masking that previously hid this defect)
+    expect(() => sign(intelligentCompare("Infinity", "Infinity"))).toThrow(/NaN/);
   });
 
   // ---- LAW: transitivity (KNOWN DEFECT — LOCKED) -----------------------
@@ -249,13 +326,18 @@ describe("intelligentCompare", () => {
   });
 
   it("KNOWN DEFECT: transitivity violations are detectable across the mixed domain", () => {
+    // Uses `sortSign` (NaN-tolerant), NOT `sign` (which throws on NaN): this loop
+    // runs over the FULL MIXED_DOMAIN, which includes "Infinity" whose self-compare
+    // returns NaN (its own KNOWN DEFECT). Here a NaN-bearing triple is simply not
+    // counted as a transitivity violation rather than crashing — the NaN return is
+    // characterized by its dedicated test, not conflated with non-transitivity.
     let violations = 0;
     for (const a of MIXED_DOMAIN) {
       for (const b of MIXED_DOMAIN) {
         for (const c of MIXED_DOMAIN) {
-          const ab = sign(intelligentCompare(a, b));
-          const bc = sign(intelligentCompare(b, c));
-          const ac = sign(intelligentCompare(a, c));
+          const ab = sortSign(intelligentCompare(a, b));
+          const bc = sortSign(intelligentCompare(b, c));
+          const ac = sortSign(intelligentCompare(a, c));
           if (ab <= 0 && bc <= 0 && ac > 0) violations++;
           if (ab >= 0 && bc >= 0 && ac < 0) violations++;
         }

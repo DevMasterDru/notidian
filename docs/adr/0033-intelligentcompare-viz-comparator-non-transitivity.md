@@ -51,8 +51,19 @@ export const intelligentCompare = (a: any, b: any): number => {
 - transitive — `cmp(a,b) <= 0 && cmp(b,c) <= 0 => cmp(a,c) <= 0`
   (and the `==0` equivalence must itself be transitive)
 
-`intelligentCompare` is **reflexive** and **antisymmetric** (verified over a mixed
-domain in the test net) but **NON-TRANSITIVE**. The root cause is that the
+`intelligentCompare` is **reflexive** and **antisymmetric over most of the
+domain** (verified over a mixed domain in the test net) but has **two** locked
+strict-weak-ordering defects: it is **NON-TRANSITIVE** (the headline defect,
+below) and **NON-REFLEXIVE on `"Infinity"`** — `parseFloat("Infinity") ===
+Infinity` passes the numeric guard, so `cmp("Infinity","Infinity")` takes the
+numeric branch and returns `Infinity - Infinity === NaN`, not `0`. A NaN
+comparator return is itself an SWO violation and gives `Array.prototype.sort` an
+**undefined contract** (strictly worse than the non-transitivity). `"-Infinity"`
+and overflow literals like `"1e999"` (`parseFloat` -> `±Infinity`) share this
+defect. It is pinned by a dedicated `KNOWN DEFECT` test; the reflexivity /
+antisymmetry "law HOLDS" assertions iterate `LAW_DOMAIN` (`MIXED_DOMAIN` minus
+`"Infinity"`) and the test's `sign` helper now THROWS on NaN instead of
+laundering it to `0`. The transitivity root cause is that the
 date/number/string branch is selected **per comparison pair** —
 `isDateLike(aStr) || isDateLike(bStr)` — rather than by a stable per-value
 classification. The same value is therefore treated as a *different type*
@@ -71,10 +82,11 @@ cmp(a, c) = +1   // a is date-like -> date path. BOTH parse: new Date("10") = ye
 
 The bare string `"10"` is treated as the **number 10** when compared against `""`
 (numeric/string branch), but as the **Date "year 2001"** when compared against a
-date-like value. A 295-violation count over an 18-value mixed domain is pinned in
-the test net; a self-consistent sub-domain (all-dates, all-numbers, or
-all-strings) provably **does** obey the full triad — confirming the breakage is
-the cross-branch mixing, not the per-branch logic.
+date-like value. The test net pins that the violation count is `> 0` over the
+18-value mixed domain (it is 416 today, counted NaN-tolerantly — the exact figure
+is not load-bearing, only that it is nonzero); a self-consistent sub-domain
+(all-dates, all-numbers, or all-strings) provably **does** obey the full triad —
+confirming the breakage is the cross-branch mixing, not the per-branch logic.
 
 ### Why this matters (the harm)
 
@@ -110,10 +122,18 @@ offline-provable logic whose *fix* is a behavior decision.
 `sortingUtils.test.ts` (Notidian-dx5) characterizes and **deliberately locks** the
 present behavior so a change is a conscious, reviewed decision:
 
-- reflexivity + antisymmetry asserted **green** (they already hold);
+- reflexivity + antisymmetry asserted **green over `LAW_DOMAIN`** (`MIXED_DOMAIN`
+  minus `"Infinity"`) — they hold there; the `sign` helper THROWS on NaN so a
+  regression that introduces a new NaN return cannot pass silently;
+- the **`"Infinity"` NaN return** asserted as its own **`KNOWN DEFECT`** — the test
+  asserts `cmp("Infinity","Infinity")` (and `"-Infinity"`, `"1e999"`) returns NaN
+  (on the RAW comparator output, not via `sign`). When the fix lands this flips to
+  "reflexivity holds" and `"Infinity"` folds back into `LAW_DOMAIN`;
 - transitivity asserted as a **`KNOWN DEFECT`** — the test asserts a violation
-  *exists* (a concrete triple + a domain-wide violation count `> 0`). When the fix
-  lands these flip to "the law holds / violation count `=== 0`";
+  *exists* (a concrete triple + a domain-wide violation count `> 0`, counted with a
+  NaN-tolerant `sortSign` since the full domain includes the NaN-returning
+  `"Infinity"`). When the fix lands these flip to "the law holds / violation count
+  `=== 0`";
 - the self-consistent sub-domains are asserted to obey the full triad (proving the
   per-branch logic is sound);
 - a malformed-comparator `sort()` is asserted only to terminate and return a
