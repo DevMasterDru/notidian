@@ -376,6 +376,42 @@ queueing more and pivots to safe work — so this list stays reviewable.
   live-verify under the existing flag anyway.
 - **Bead status:** Notidian-fs6 stays **OPEN**, awaiting your direction.
 
+### Notidian-nir — Upstream bd embedded-dolt `export`/`stats` blind to issues: how to carry it + JSONL mirror policy
+
+- **ADR:** [docs/adr/0027-bd-embedded-dolt-export-stats-blind-and-jsonl-mirror-policy.md](adr/0027-bd-embedded-dolt-export-stats-blind-and-jsonl-mirror-policy.md) (Status: **Proposed**).
+- **Why a decision, not a build:** there is **no Notidian source on this code
+  path** — bd is an external binary and its embedded-dolt write/commit path is the
+  defect. Re-verified live (2026-06-15): `bd list --all` sees **113 issues** but
+  `bd stats` and `bd export` read the committed `issues` table, which is **empty at
+  every Dolt root** (committed HEAD/STAGED/WORKING/all-history + the Dolt backup),
+  so they report 0 and the passive `.beads/issues.jsonl` git mirror stays empty.
+  **Daily bd work is UNAFFECTED** (`list`/`show`/`update`/`ready`/`close`/`remember`
+  all use the working view); only the JSONL export mirror is blocked. We are
+  already on the newest bd (1.0.5, Homebrew stable, not in `brew outdated`); root
+  cause + every ruled-out fix is in Notidian-osf + bd memory key
+  `bd-105-embedded-dolt-export-stats-blind-to-issues-osf`.
+- **The one decision you need to make:** approve the recommended pair —
+  **(1a)** **file the bug upstream** (`github.com/steveyegge/beads`, or the
+  maintained fork `gastownhall/beads`) with the minimal repro in the ADR, and
+  **retest `bd export` on each new bd release**, closing the blocked mirror bead
+  Notidian-osf when a release re-exports the full graph; and **(2a)** keep
+  `.beads/issues.jsonl` **empty by design** until then, recorded as such — never
+  fabricate a mirror. Ruled out: pin/downgrade bd or switch backend
+  (server-mode/file-DB) — speculative, high blast radius (changes the repo's bd
+  model + Atlas Method `refs/dolt/data` sync contract for all contributors), risks
+  the healthy working data, to recover a mirror daily work does not need; do
+  nothing silently (bug goes unreported + empty file reads as unexplained data
+  loss); hand-build a JSONL from `bd list --json` (lossy — no comments/deps/labels
+  arrays, can't match bd's field-omission rules — and drift-prone, could be
+  mistaken for ground truth); partial mirror with a custom `partial` marker (bd
+  has no such convention; dead metadata, still drifts).
+- **No build / no spike shipped.** No Notidian code, config, branch, or backend
+  changed; `.beads/issues.jsonl` is intentionally left empty. A spike can't
+  de-risk this: Decision 1 is "where the fix lives" (upstream, settled by
+  evidence) and Decision 2 is a data-integrity policy call, not a measurement.
+- **Bead status:** Notidian-nir stays **OPEN** (owner/upstream action item),
+  awaiting your direction; it blocks Notidian-osf.
+
 ## Cleared
 
 _(none yet)_
