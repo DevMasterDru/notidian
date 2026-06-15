@@ -188,7 +188,7 @@ export const showSpaceAddMenu = (
         icon: "ui//pin",
         onClick: (e) => {
           const offset = (
-            e.target as HTMLButtonElement
+            e.currentTarget as HTMLButtonElement
           ).getBoundingClientRect();
           showLinkMenu(
             offset,

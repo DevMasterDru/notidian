@@ -30,7 +30,7 @@ export const StyleSubmenu = (props: HoverSubmenuProps) => {
     const handleChangeComplete = (color: string) => {
       saveStyleValue(getStateProp(prop), `'${color}'`);
     };
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     showColorPickerMenu(
       props.superstate,
       offset,

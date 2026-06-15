@@ -394,7 +394,7 @@ export const FrameNodeEditor = (props: {
       });
     });
 
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),
@@ -427,7 +427,7 @@ export const FrameNodeEditor = (props: {
       },
     ];
 
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, styleOptions),
@@ -495,7 +495,7 @@ export const FrameNodeEditor = (props: {
             }}
             onClick={(e) => {
               showNewFrameMenu(
-                (e.target as HTMLElement).getBoundingClientRect(),
+                (e.currentTarget as HTMLElement).getBoundingClientRect(),
                 windowFromDocument(e.view.document),
                 props.superstate,
                 spaceInfo,
@@ -559,7 +559,7 @@ export const FrameNodeEditor = (props: {
                 className="mk-editor-frame-node-button"
                 onClick={(e) => {
                   showNewFrameMenu(
-                    (e.target as HTMLElement).getBoundingClientRect(),
+                    (e.currentTarget as HTMLElement).getBoundingClientRect(),
                     windowFromDocument(e.view.document),
                     props.superstate,
                     spaceInfo,

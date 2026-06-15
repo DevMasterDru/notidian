@@ -105,6 +105,10 @@ export const HeaderPropertiesView = (props: PropsWithChildren<{
         },
       });
 
+    // INTENTIONAL e.target (Notidian-nu9w): showContextMenu is a right-click
+    // (onContextMenu) handler on a full-width space-name row. Anchoring to the
+    // row's top-left (e.currentTarget) would drop the menu far from the pointer;
+    // e.target is the element under the cursor, so the menu opens near the click.
     const offset = (e.target as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
@@ -144,7 +148,7 @@ export const HeaderPropertiesView = (props: PropsWithChildren<{
   };
 
   const newProperty = (e: React.MouseEvent, space: string) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
 
     showNewPropertyMenu(
       props.superstate,
@@ -163,7 +167,7 @@ export const HeaderPropertiesView = (props: PropsWithChildren<{
   };
 
   const showAddMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
     showSpacesMenu(
       offset,
       windowFromDocument(e.view.document),
@@ -351,7 +355,7 @@ export const HeaderPropertiesView = (props: PropsWithChildren<{
     );
   };
   const showMenu = (e: React.MouseEvent, field: PathContextProperty) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     showPropertyMenu({
       superstate: props.superstate,
       field: field.property,

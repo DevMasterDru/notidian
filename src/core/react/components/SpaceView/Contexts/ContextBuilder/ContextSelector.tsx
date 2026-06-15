@@ -12,7 +12,7 @@ export const ContextSelector = (props: {
   saveContexts: (context: string[]) => void;
 }) => {
   const addContext = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const f = props.superstate.spaceManager
       .readTags()
       .filter((f) => f != props.tag);
@@ -49,7 +49,9 @@ export const ContextSelector = (props: {
       },
     });
 
-    // Trigger
+    // INTENTIONAL e.target (Notidian-nu9w): viewContextMenu is bound to
+    // onContextMenu (right-click) on a context tag; anchor near the cursor
+    // (e.target), not the tag element's top-left corner.
     props.superstate.ui.openMenu(
       (e.target as HTMLElement).getBoundingClientRect(),
       defaultMenu(props.superstate.ui, menuOptions),

@@ -41,7 +41,7 @@ export const BorderSubmenu = (props: HoverSubmenuProps) => {
       },
     });
 
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),
@@ -53,7 +53,7 @@ export const BorderSubmenu = (props: HoverSubmenuProps) => {
     const handleChangeComplete = (color: string) => {
       saveStyleValue(prop, `'${color}'`);
     };
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     showColorPickerMenu(
       props.superstate,
       offset,

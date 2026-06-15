@@ -26,7 +26,7 @@ export const ContentSubmenu = (props: HoverSubmenuProps) => {
         }}
         onClick={(e) => {
           showNewFrameMenu(
-            (e.target as HTMLElement).getBoundingClientRect(),
+            (e.currentTarget as HTMLElement).getBoundingClientRect(),
             windowFromDocument(e.view.document),
             props.superstate,
             spaceInfo,
@@ -74,7 +74,7 @@ export const ContentSubmenu = (props: HoverSubmenuProps) => {
             className="mk-editor-frame-node-button"
             onClick={(e) => {
               props.superstate.ui.openCustomMenu(
-                (e.target as HTMLElement).getBoundingClientRect(),
+                (e.currentTarget as HTMLElement).getBoundingClientRect(),
                 <AlignmentEditor {...props}></AlignmentEditor>,
                 { ...props },
                 windowFromDocument(e.view.document)

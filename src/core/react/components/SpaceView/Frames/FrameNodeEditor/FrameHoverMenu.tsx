@@ -65,7 +65,7 @@ export const FrameHoverMenu = (props: {
           <div
             onClick={(e) => {
               showNewFrameMenu(
-                (e.target as HTMLElement).getBoundingClientRect(),
+                (e.currentTarget as HTMLElement).getBoundingClientRect(),
                 window,
                 props.superstate,
                 spaceInfo,

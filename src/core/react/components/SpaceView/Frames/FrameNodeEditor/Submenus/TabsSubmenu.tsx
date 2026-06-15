@@ -154,7 +154,7 @@ export const TabsSubmenu: React.FC<TabsSubmenuProps> = ({
     };
 
     superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      (e.currentTarget as HTMLElement).getBoundingClientRect(),
       menuProps,
       windowFromDocument(e.view.document)
     );

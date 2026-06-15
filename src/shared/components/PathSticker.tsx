@@ -43,7 +43,7 @@ export const PathStickerView = (props: {
       name: i18n.menu.changeColor,
       icon: "ui//palette",
       onClick: (e) => {
-        const rect = (e.target as HTMLElement).getBoundingClientRect();
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         showColorPickerMenu(
           props.superstate,
           rect,
@@ -64,6 +64,9 @@ export const PathStickerView = (props: {
       },
     });
 
+    // INTENTIONAL e.target (Notidian-nu9w): triggerStickerContextMenu is bound to
+    // onContextMenu (right-click); anchor the menu near the cursor (e.target),
+    // not the sticker button's top-left corner.
     props.superstate.ui.openMenu(
       (e.target as HTMLElement).getBoundingClientRect(),
       {

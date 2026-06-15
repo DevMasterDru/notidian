@@ -151,7 +151,7 @@ export const VirtualizedList = React.memo(function VirtualizedList(props: {
                 className={"mk-tree-wrapper mk-tree-section"}
                 onClick={(e) => {
                   const rect = (
-                    e.target as HTMLElement
+                    e.currentTarget as HTMLElement
                   ).getBoundingClientRect();
                   props.superstate.ui.quickOpen(
                     BlinkMode.Open,

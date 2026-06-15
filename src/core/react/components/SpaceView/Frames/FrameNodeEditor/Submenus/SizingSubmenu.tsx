@@ -36,7 +36,7 @@ export const SizingSubmenu = (props: HoverSubmenuProps) => {
         // saveStyleValue("height", `'auto'`);
       },
     });
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),

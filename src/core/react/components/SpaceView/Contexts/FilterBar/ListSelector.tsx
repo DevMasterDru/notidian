@@ -83,6 +83,11 @@ export const ListSelector = (props: {
           deleteSchema(_schema);
         },
       });
+    // INTENTIONAL e.target (Notidian-nu9w): viewContextMenu is a shared handler
+    // bound BOTH to onContextMenu (right-click on a view crumb, which needs the
+    // cursor position) and to a SelectOption.onMoreOptions click. The right-click
+    // path dominates and requires cursor proximity, so it stays on e.target;
+    // e.currentTarget would anchor the menu to the crumb's top-left instead.
     props.superstate.ui.openMenu(
       (e.target as HTMLElement).getBoundingClientRect(),
       defaultMenu(props.superstate.ui, menuOptions),
@@ -142,7 +147,7 @@ export const ListSelector = (props: {
       });
     }
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      (e.currentTarget as HTMLElement).getBoundingClientRect(),
       defaultMenu(props.superstate.ui, options),
       windowFromDocument(e.view.document),
       "bottom"

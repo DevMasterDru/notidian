@@ -66,7 +66,7 @@ export const ContextListEditSelector = (props: {
     return items;
   }, []);
   const selectFrameMenu = (e: React.MouseEvent, frame: ContextListSections) => {
-    const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       {

@@ -15,7 +15,7 @@ export const TextSubmenu = (props: HoverSubmenuProps & { styleState?: "hover" })
   const showFontMenu = (e: React.MouseEvent) => {
     const options = listFonts().map((f) => ({ name: f, value: f }));
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      (e.currentTarget as HTMLElement).getBoundingClientRect(),
       {
         ui: props.superstate.ui,
         multi: false,
@@ -42,7 +42,7 @@ export const TextSubmenu = (props: HoverSubmenuProps & { styleState?: "hover" })
       const finalProp = styleState === "hover" ? `hover:${prop}` : prop;
       saveStyleValue(finalProp, `'${color}'`);
     };
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     showColorPickerMenu(
       props.superstate,
       offset,

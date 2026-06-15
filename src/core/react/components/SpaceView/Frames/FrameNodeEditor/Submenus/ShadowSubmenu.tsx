@@ -15,7 +15,7 @@ export const ShadowSubmenu = (props: HoverSubmenuProps) => {
       const { r, g, b } = hexToRgb(color);
       saveStyleValue(prop, `'${r},${g},${b}'`);
     };
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     showColorPickerMenu(
       props.superstate,
       offset,

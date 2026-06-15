@@ -8,7 +8,7 @@ import { PaddingSubmenu } from "./PaddingSubmenu";
 export const SpacingSubmenu = (props: HoverSubmenuProps) => {
   const { selectedNode, saveStyleValue } = props;
   const showPaddingMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     return props.superstate.ui.openCustomMenu(
       offset,
       <PaddingSubmenu {...props}></PaddingSubmenu>,
@@ -17,7 +17,7 @@ export const SpacingSubmenu = (props: HoverSubmenuProps) => {
     );
   };
   const showMarginMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     return props.superstate.ui.openCustomMenu(
       offset,
       <MarginSubmenu {...props}></MarginSubmenu>,

@@ -79,7 +79,7 @@ export const LayoutSubmenu = (props: HoverSubmenuProps) => {
             className="mk-editor-frame-node-button"
             onClick={(e) => {
               props.superstate.ui.openCustomMenu(
-                (e.target as HTMLElement).getBoundingClientRect(),
+                (e.currentTarget as HTMLElement).getBoundingClientRect(),
                 <AlignmentEditor {...props}></AlignmentEditor>,
                 { ...props },
                 windowFromDocument(e.view.document)

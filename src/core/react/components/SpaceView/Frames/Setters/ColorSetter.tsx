@@ -11,7 +11,7 @@ export const ColorSetter = (props: {
     const handleChangeComplete = (color: string) => {
       props.setValue(color);
     };
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     showColorPickerMenu(
       props.superstate,
       offset,

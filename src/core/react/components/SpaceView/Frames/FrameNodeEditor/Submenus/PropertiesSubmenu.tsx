@@ -195,7 +195,7 @@ export const PropertiesSubmenu = (
             },
           });
       });
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),

@@ -74,7 +74,7 @@ export const FrameSlidesEditor = (props: {
           },
         });
       });
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),
@@ -188,10 +188,12 @@ export const FrameSlideGroup = (props: {
       <button
         className="mk-frame-slide-add"
         onClick={async (e) => {
+          // Read the anchor rect synchronously before any await; e.currentTarget
+          // (the bound + button) is nulled by React once the handler awaits.
+          const offset = (e.currentTarget as HTMLElement).getBoundingClientRect();
           const menuOptions: SelectOption[] = [];
           menuOptions.push(menuInput("", (value) => saveSlide(value), ""));
 
-          const offset = (e.target as HTMLElement).getBoundingClientRect();
           props.superstate.ui.openMenu(
             offset,
             defaultMenu(props.superstate.ui, menuOptions),
@@ -225,6 +227,8 @@ export const FrameSlide = (props: {
             deleteNode(props.slideNode);
           },
         });
+        // INTENTIONAL e.target (Notidian-nu9w): right-click context menu on a
+        // slide row; anchor near the cursor (e.target), not the row top-left.
         const offset = (e.target as HTMLElement).getBoundingClientRect();
         props.superstate.ui.openMenu(
           offset,
