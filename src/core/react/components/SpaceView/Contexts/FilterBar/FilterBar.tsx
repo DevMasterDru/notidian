@@ -36,6 +36,10 @@ import {
 } from "core/utils/contexts/predicate/predicate";
 import { sortFnTypes } from "core/utils/contexts/predicate/sort";
 import { displayPropertyForPredicate } from "core/utils/contexts/rowDisplayLabel";
+import {
+  listItemPropsToMenuState,
+  menuStateToVisibleProperties,
+} from "core/utils/contexts/listItemProperties";
 import { discoverFrontmatterPropertiesFromPathStates } from "core/utils/properties/allProperties";
 import { formatDate } from "core/utils/date";
 import { nameForField } from "core/utils/frames/frames";
@@ -885,6 +889,26 @@ export const FilterBar = (props: {
           );
         },
       });
+      // bd Notidian-543: per-item display-property picker, only for the LIST
+      // view (Notion "Properties" parity). The render half is flag-gated behind
+      // the default-OFF listItemPropertyPicker setting; the menu itself only
+      // writes view config (listItemProps.visibleProperties) and is always safe
+      // to surface, but it is only meaningful where fieldsView renders per-item
+      // properties (list/card/detail), so it is offered on the list view.
+      if (predicate.view == "list") {
+        menuOptions.push({
+          name: i18n.menu.itemProperties,
+          icon: "ui//list",
+          type: SelectOptionType.Submenu,
+          onSubmenu: (rect, onHide) => {
+            return showItemPropertiesMenu(
+              rect,
+              windowFromDocument(e.view.document),
+              onHide
+            );
+          },
+        });
+      }
     }
     listViewOptions.forEach((f) => {
       menuOptions.push({
@@ -1276,6 +1300,50 @@ export const FilterBar = (props: {
             },
             () => null
           ),
+      },
+      onHide
+    );
+  };
+
+  // bd Notidian-543 (flag-gated): per-item display-property picker for LIST view
+  // (Notion "Properties" parity). Reuses showPropertyVisibilityMenu unchanged by
+  // adapting between its (colsHidden/colsOrder) contract and the allowlist stored
+  // in predicate.listItemProps.visibleProperties. The render half is gated behind
+  // the default-OFF listItemPropertyPicker setting; this menu only ever writes
+  // VIEW CONFIG (listItemProps) via savePredicate — never row data (ADR 0016).
+  const showItemPropertiesMenu = (
+    offset: Rect,
+    win: Window,
+    onHide: () => void
+  ) => {
+    const menuCols = filteredCols.filter((f) => f.primary != "true");
+    const seed = listItemPropsToMenuState(menuCols, predicate);
+    // Translate the visibility menu's saved (colsHidden/colsOrder) into the
+    // allowlist and persist it under listItemProps — never colsHidden/colsOrder
+    // (those drive the TABLE column visibility, a different concern).
+    const saveItemProperties = (next: Partial<Predicate>) => {
+      const colsHidden = next.colsHidden ?? seed.colsHidden;
+      const colsOrder = next.colsOrder ?? seed.colsOrder;
+      const visibleProperties = menuStateToVisibleProperties(menuCols, {
+        colsHidden,
+        colsOrder,
+      });
+      savePredicate({
+        listItemProps: {
+          ...predicate.listItemProps,
+          visibleProperties,
+        },
+      });
+    };
+    return showPropertyVisibilityMenu(
+      props.superstate,
+      offset,
+      win,
+      {
+        cols: menuCols,
+        colsOrder: seed.colsOrder,
+        colsHidden: seed.colsHidden,
+        savePredicate: saveItemProperties,
       },
       onHide
     );

@@ -128,6 +128,57 @@ queueing more and pivots to safe work — so this list stays reviewable.
   in code — the circular import cannot return). Full suite (1142 tests) + tsc +
   build green.
 
+### Notidian-543 — List view: per-item display-property picker (Notion "Properties" parity)
+
+- **Setting:** `listItemPropertyPicker` (default `false`) —
+  `src/shared/types/settings.ts`, defaulted in `src/core/schemas/settings.ts`.
+- **Why gated:** the only behavior change on render is filtering the per-item
+  `_properties` context array that the list kit's `fieldsView` frame renders
+  (`src/schemas/kits/list.ts` — `fieldsView` is embedded by `cardListItem`,
+  `cardsListItem`, `overviewItem`, `detailItem`). `SpaceOuter` *always*
+  frame-renders the list, so whether the filtered field set actually renders
+  correctly per item (in every list/card/detail layout, with stickers/labels,
+  grouping, infinite scroll, frame-edit mode) cannot be proven by tsc/jest/build
+  alone. Shipped OFF so the owner's current vault is byte-for-byte unchanged
+  until enabled — *regardless of any stored `visibleProperties`*.
+- **What it does when ON:** if the list view configured a per-item allowlist
+  (`predicate.listItemProps.visibleProperties: string[]`, set via the new
+  FilterBar **"Item Properties"** menu — only shown when `predicate.view ==
+  "list"`), the per-item field set is filtered to that allowlist, in that order;
+  allowlisted-but-deleted keys are skipped, and if nothing matches it falls back
+  to today's full set (never a zero-property item). When OFF, or with no
+  allowlist, the field set is **unchanged** (the chokepoint
+  `applyListItemVisibleProperties` returns the same array reference).
+- **Authority (ADR 0016):** `visibleProperties` is **view config**, stored in the
+  predicate's `listItemProps` → frameSchema → `.notidian/context.mdb` via the
+  existing `savePredicate({ listItemProps })` path (carried through
+  `validatePredicate` whole). It is **never** row data and never per-row
+  in-memory expand/visibility state — no `source:"notidian"` MDB write is added.
+- **How to enable:** set `listItemPropertyPicker: true` in the plugin's data.json
+  (Notidian settings), reload, open a list view's view-options ("3 knobs") menu,
+  pick **Item Properties**, and choose which properties show per item.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - With the flag **ON** and an allowlist set, open a list view in **card,
+    detail, and cards/overview** layouts — each item must render exactly the
+    chosen properties, in the chosen order, with labels/stickers intact.
+  - Toggle the flag **OFF → ON → OFF**: with it OFF (or with an empty
+    allowlist), every non-hidden property must render per item exactly as today.
+  - Reorder / hide / show properties in the **Item Properties** menu and confirm
+    the per-item render updates and the choice survives a reload (persisted in
+    `listItemProps.visibleProperties`, not in row frontmatter / the table's
+    `colsHidden`).
+  - Confirm the **table column visibility** menu (Properties) is unaffected —
+    the two menus write different predicate keys (`colsHidden`/`colsOrder` vs
+    `listItemProps.visibleProperties`).
+- **Offline evidence already in place:**
+  `src/core/utils/contexts/listItemProperties.test.ts` (23 tests: model
+  reader/normalizer; the flag-gated chokepoint incl. the **flag-OFF
+  same-array-reference byte-identity** guarantee, allowlist filter+order,
+  missing-key skip, name+table key isolation, empty-match fallback,
+  no-mutation; the menu adapter round-trip; the default-OFF setting contract;
+  predicate persistence through `validatePredicate` + the "never touches row
+  data" assertion). Full suite (3639 tests) + tsc + build green.
+
 ## Pending — decisions (pick a direction)
 
 ### Notidian-o4w — Select-to-comment: anchor format + AI-review comment channel

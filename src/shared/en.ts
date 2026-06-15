@@ -271,6 +271,7 @@ export const en = {
     "flowView": "Flow View",
     "sortBy": "Sort",
     "displayProperty": "Display Property",
+    "itemProperties": "Item Properties",
     "filters": "Filters",
     "clearFilters": "Clear Filters",
     "hide": "Hide",

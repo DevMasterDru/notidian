@@ -94,6 +94,12 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // branch short-circuit needs live vault verification before the owner enables
   // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
   removeMKitPreviewRuntime: false,
+  // Default-OFF list-view per-item display-property picker (bd Notidian-543 /
+  // ADR 0016). Core list render-path change (filters the per-item `_properties`
+  // set); needs live vault verification before the owner enables it
+  // (docs/AUTONOMOUS-REVIEW-QUEUE.md). With it OFF, the per-item field set is
+  // byte-for-byte today's, regardless of any stored visibleProperties.
+  listItemPropertyPicker: false,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,

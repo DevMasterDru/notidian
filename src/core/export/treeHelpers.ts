@@ -4,6 +4,7 @@ import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
+import { applyListItemVisibleProperties } from "core/utils/contexts/listItemProperties";
 import { applyPropsToState, buildRoot } from "core/utils/frames/ast";
 import { frameToNode } from "core/utils/frames/nodes";
 import { executeTreeNode } from "core/utils/frames/runner";
@@ -115,11 +116,20 @@ export const contextNodeToInstances = async (superstate: Superstate, node: Frame
     const primaryKey = cols.find((f) => f.primary == "true")?.name;
     const dbSchema = dbTable.schema;
     const visibleCols = cols.filter((f) => predicate.colsHidden.indexOf(f.name) == -1);
+    // bd Notidian-543 (flag-gated): mirror the live ContextListView render path
+    // so an export honors the per-item display-property allowlist when the
+    // default-OFF listItemPropertyPicker setting is ON. OFF/unconfigured =>
+    // visibleCols unchanged (byte-for-byte today's export).
+    const itemProperties = applyListItemVisibleProperties(
+      visibleCols,
+      predicate,
+      superstate.settings?.listItemPropertyPicker === true
+    );
     const context = {
       _path: source,
       _schema: dbSchema?.id,
       _key: primaryKey,
-      _properties: visibleCols,
+      _properties: itemProperties,
     };
     const listGroupInstances = await Promise.all(Object.keys(data).map((c) => getFrameInstance(superstate, listGroupFrame, {
       _groupValue: c,

@@ -21,6 +21,7 @@ import {
   listItemSupportsRowExpansion,
   toggleRowExpansion,
 } from "core/utils/contexts/rowExpansion";
+import { applyListItemVisibleProperties } from "core/utils/contexts/listItemProperties";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { SelectOption } from "makemd-core";
 import { parseMultiString } from "utils/parsers";
@@ -193,12 +194,26 @@ export const ContextListView = (props: {
   const visibleCols = useMemo(() => {
     return sortedColumns.filter((f) => !predicate?.colsHidden.includes(f.name));
   }, [predicate, sortedColumns]);
+  // bd Notidian-543 (flag-gated): when the default-OFF listItemPropertyPicker
+  // setting is ON and the view configured a per-item allowlist
+  // (predicate.listItemProps.visibleProperties), filter the per-item field set
+  // to that allowlist. When OFF (default) or unconfigured, this returns
+  // visibleCols UNCHANGED, so the per-item render is byte-for-byte today's.
+  const itemProperties = useMemo(
+    () =>
+      applyListItemVisibleProperties(
+        visibleCols,
+        predicate,
+        props.superstate.settings?.listItemPropertyPicker === true
+      ),
+    [visibleCols, predicate, props.superstate.settings?.listItemPropertyPicker]
+  );
   const context = {
     _path: source,
     _schema: dbSchema?.id,
     _isContext: dbSchema?.id == defaultContextSchemaID,
     _key: primaryKey,
-    _properties: visibleCols,
+    _properties: itemProperties,
   };
 
   const listItemActions: ActionProp = {

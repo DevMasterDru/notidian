@@ -115,6 +115,23 @@ export interface MakeMDSettings {
   // coverage, so it ships gated (docs/AUTONOMOUS-REVIEW-QUEUE.md). Existing
   // saved settings are not mutated; only fresh/unset state defaults to false.
   removeMKitPreviewRuntime: boolean;
+  // List view per-item display-property picker (Notion "Properties" parity) —
+  // bd Notidian-543 / ADR 0016. When true, the list kit's per-item field set
+  // (`fieldsView`, fed by the `_properties` context array) is filtered to the
+  // allowlist stored in `predicate.listItemProps.visibleProperties`; when an
+  // allowlist is set, only those properties render per item, in that order.
+  //   false (default): `_properties` is unchanged — every non-hidden property
+  //     renders per item exactly as today, so the owner's vault is byte-for-byte
+  //     unchanged regardless of any stored visibleProperties.
+  //   true: the allowlist (chosen via the FilterBar "Item Properties" menu) is
+  //     applied to the per-item field set.
+  // DEFAULT-OFF: filtering `_properties` is a core list render-path change that
+  // `SpaceOuter` always frame-renders, so it cannot be proven by tsc/jest/build
+  // alone. It ships gated (docs/AUTONOMOUS-REVIEW-QUEUE.md) so the render half
+  // awaits owner live-verify before the default flips ON. The model + menu +
+  // persistence half is pure and fully unit-tested. Existing saved settings are
+  // not mutated; only fresh/unset state defaults to false.
+  listItemPropertyPicker: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;
