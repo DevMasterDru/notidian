@@ -149,9 +149,34 @@ pending live vault verification — see `docs/AUTONOMOUS-REVIEW-QUEUE.md`):
   not `escapeHtml`, because `onBlur` reads `innerHTML`). Both are gated default-OFF
   because they change the core render path and cannot be verified offline.
 
-Still deferred (NOT done autonomously — needs live vault verification):
-- **HTML export disable + staged removal** of the disabled subsystems
-  (bd Notidian-ala, P3).
+Staged removal landed (bd Notidian-ala — Decision item 1 executed; offline gates
+green: tsc 0, 952 tests, clean build):
+
+- **MKit `.mkit` installer removed** — the disabled-by-default viewer/import UI
+  (`MKitFileViewer`, `MKitFramePreview`, `MKitPreviewProvider`), the `.mkit`
+  view/extension registration and `MKitViewer.css` import in `main.ts`, the
+  `mkitInstallerEnabled` setting (schema + type), the `'mkit'` entry in the JSON
+  filetype adapter, the `mk-mkit-view` CSS selector, and the orphaned i18n
+  strings were deleted. The trusted in-vault space-template path
+  (`schemas/kits/*`, `ui/kit/kits`, `installSpaceKit`) is untouched (load-bearing
+  for the frames runtime).
+- **HTML export button removed** — the user-facing `SpaceExport` component, its
+  `expandedSection == 4` tab in `SpaceHeader.tsx`, and the `Export to HTML` menu
+  item in `SpaceHeaderBar.tsx` were deleted. ~918 LOC removed; `main.js` shrank
+  ~22 KB.
+
+Deliberately KEPT (not pure-deletable; out of this bead's safe Q1 scope):
+
+- **MKit *preview* runtime** (`MKitContext.tsx` ~645 LOC + `MKitSpaceManagerProvider`
+  and the `mkit://preview/` branches in the core `SpaceManagerContext.tsx`) is
+  circularly coupled into a core context (`SpaceManagerContext` ↔ `MKitContext`);
+  with the only mount point (`MKitFileViewer`) gone it is now dead-but-harmless.
+  Untangling it edits a core render-path context with no offline render coverage,
+  so it is a separate follow-up, not a Q1 deletion.
+- **`core/export/toHtml/*` pipeline** is still reachable from the kept
+  `noteThumbnails` feature (default-OFF) via `markdownAdapter.generateThumbnail`,
+  so the pipeline itself is not deleted with the export button; deleting it (or
+  `noteThumbnails`) is out of this bead's scope.
 
 ## Implementation Notes (on ratification)
 

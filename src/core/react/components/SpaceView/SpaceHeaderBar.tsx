@@ -243,16 +243,6 @@ export const SpaceHeaderBar = (props: {
       menuOptions.push(
         menuSeparator,
         {
-          name: i18n.labels.exportToHTML,
-          description: i18n.descriptions.spaceActions,
-          icon: "ui//mouse-pointer-click",
-          onClick: (e) => {
-            setExpandedSection(4);
-          },
-        },
-        menuSeparator,
-        
-        {
           name: i18n.labels.applyToItems,
           description: i18n.descriptions.spaceProperties,
           icon: "ui//list",

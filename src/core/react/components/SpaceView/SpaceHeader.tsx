@@ -4,7 +4,6 @@ import React, { useContext, useEffect, useState } from "react";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { Superstate } from "makemd-core";
-import { SpaceExport } from "../SpaceEditor/SpaceExport";
 import { SpaceItemProperty } from "../SpaceEditor/SpaceItemProperty";
 import { SpaceJoins } from "../SpaceEditor/SpaceJoins";
 import { SpaceListProperty } from "../SpaceEditor/SpaceListProperty";
@@ -116,11 +115,6 @@ export const SpaceHeader = (props: { superstate: Superstate }) => {
               superstate={props.superstate}
               templates={templates}
             ></SpaceTemplateProperty>
-          ) : expandedSection == 4 ? (
-            <SpaceExport
-              superstate={props.superstate}
-              close={() => setExpandedSection(null)}
-            />
           ) : null}
 
         </div>

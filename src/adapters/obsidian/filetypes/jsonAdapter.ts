@@ -13,7 +13,7 @@ type CachedMetadataContentTypes = {
 }
 
 export class JSONFiletypeAdapter implements FileTypeAdapter<Record<string, any>, CachedMetadataContentTypes> {
-    public supportedFileTypes: string[] = ['json', 'mkit'];
+    public supportedFileTypes: string[] = ['json'];
     public id = 'json.notidian';
     public constructor (public plugin: MakeMDPlugin) {
         this.plugin = plugin;
