@@ -146,12 +146,16 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     percentageEmpty: {
         type: 'any',
-        fn: (v) => Math.round(v.filter((f) => empty(f, '')).length / v.length * 100) + "%",
+        // Empty column -> #/0 -> NaN -> "NaN%": floor to '' (Notion shows blank,
+        // and the parseProperty post-pass is skipped for valueType 'string', so
+        // nothing downstream blanks it — Notidian-wis / DEFECT D4). Parallels the
+        // msToDurationValue non-finite flooring for dateRange.
+        fn: (v) => v.length == 0 ? '' : Math.round(v.filter((f) => empty(f, '')).length / v.length * 100) + "%",
         valueType: "string",
     },
     percentageNotEmpty: {
         type: 'any',
-        fn: (v) => Math.round(v.filter((f) => !empty(f, '')).length / v.length * 100) + "%",
+        fn: (v) => v.length == 0 ? '' : Math.round(v.filter((f) => !empty(f, '')).length / v.length * 100) + "%",
         valueType: "string",
     },
     min: {
@@ -201,7 +205,8 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     percentageComplete: {
         type: 'boolean',
-        fn: (v) => Math.round(v.filter((f) => f == 'true').length / v.length * 100) + "%",
+        // Empty column -> #/0 -> NaN -> "NaN%": floor to '' (parity-correct, blank).
+        fn: (v) => v.length == 0 ? '' : Math.round(v.filter((f) => f == 'true').length / v.length * 100) + "%",
         valueType: "string",
     },
     dateRange: {

@@ -289,9 +289,11 @@ describe("aggregateFnTypes.fn — pure math (percentages)", () => {
     expect(fnOf("percentageNotEmpty")(["a", "", ""], "any")).toBe("33%");
     expect(fnOf("percentageNotEmpty")(["a", "b"], "any")).toBe("100%");
   });
-  it("EDGE: empty input -> divide-by-zero renders the literal 'NaN%'", () => {
-    expect(fnOf("percentageEmpty")([], "any")).toBe("NaN%");
-    expect(fnOf("percentageNotEmpty")([], "any")).toBe("NaN%");
+  it("EDGE: empty input is floored to '' (no NaN% divide-by-zero leak — Notidian-wis / D4)", () => {
+    // #/0 -> NaN -> "NaN%" pre-fix; now floored to '' (Notion-parity blank) inside
+    // the fn, paralleling msToDurationValue's non-finite flooring for dateRange.
+    expect(fnOf("percentageEmpty")([], "any")).toBe("");
+    expect(fnOf("percentageNotEmpty")([], "any")).toBe("");
   });
 });
 
@@ -310,8 +312,8 @@ describe("aggregateFnTypes.fn — pure math (boolean / completion)", () => {
     expect(fnOf("percentageComplete")(["true", "false"], "boolean")).toBe("50%");
     expect(fnOf("percentageComplete")(["true", "true"], "boolean")).toBe("100%");
   });
-  it("EDGE: percentageComplete of [] -> 'NaN%'", () => {
-    expect(fnOf("percentageComplete")([], "boolean")).toBe("NaN%");
+  it("EDGE: percentageComplete of [] is floored to '' (no NaN% leak — Notidian-wis / D4)", () => {
+    expect(fnOf("percentageComplete")([], "boolean")).toBe("");
   });
 });
 
@@ -441,6 +443,18 @@ describe("calculateAggregate — valueType 'none'/'string' footers render their 
     expect(calculateAggregate(settings, ["true", "false"], "percentageComplete", col("boolean"))).toBe("50%");
     expect(calculateAggregate(settings, ["true", "true"], "percentageComplete", col("boolean"))).toBe("100%");
   });
+  it("EDGE: percentage family of [] renders '' end-to-end (no NaN% leak — Notidian-wis / D4)", () => {
+    // The parseProperty post-pass is SKIPPED for valueType 'string', so the fn's
+    // own value flows straight to the footer. Pre-fix the fn produced "NaN%"
+    // (#/0 -> NaN) which would have rendered into the footer once the post-pass
+    // stopped accidentally blanking it; the fn now floors [] to '' for
+    // Notion-parity (blank empty-column percentage), so the whole pipeline shows
+    // nothing rather than "NaN%". This is the Layer-2 net the empty-set edge
+    // previously lacked.
+    expect(calculateAggregate(settings, [], "percentageEmpty", col())).toBe("");
+    expect(calculateAggregate(settings, [], "percentageNotEmpty", col())).toBe("");
+    expect(calculateAggregate(settings, [], "percentageComplete", col("boolean"))).toBe("");
+  });
 });
 
 describe("calculateAggregate — boolean completion (valueType number survives)", () => {
@@ -565,6 +579,18 @@ describe("calculateAggregate — flex column unwrapping", () => {
  *     blank/dash. (median is the only empty-safe numeric one, because its throw
  *     is caught -> ''. dateRange is now ALSO empty-safe: its -Infinity span is
  *     floored to a zero duration by msToDurationValue -> '' — see D3.)
+ *
+ *     PERCENTAGE FAMILY [FIXED — Notidian-wis]: percentageEmpty/percentageNotEmpty/
+ *     percentageComplete divide by v.length, so an empty column was #/0 -> NaN ->
+ *     "NaN%". PRE the D2 fix this leak was ACCIDENTALLY masked — the unconditional
+ *     parseProperty post-pass returned '' for valueType 'string' and blanked it.
+ *     Once D2 skipped that post-pass for 'string', the "NaN%" would have rendered
+ *     straight into the footer (a Notion-parity regression: Notion shows blank).
+ *     Now floored: each percentage fn returns '' on [] input (Notion-parity blank),
+ *     paralleling msToDurationValue's non-finite flooring. Pinned by the Layer-1
+ *     'EDGE: empty input is floored to' tests and the Layer-2 'percentage family
+ *     of [] renders ""' test. The numeric NaN/Infinity leaks above remain pinned,
+ *     not fixed.
  *
  * D5. `sum` reducer `(a,b) => b ? a+b : a` skips falsy (0) addends. Harmless
  *     for the value 0, but a latent foot-gun if the reducer is reused.
