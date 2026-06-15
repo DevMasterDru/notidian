@@ -3,6 +3,7 @@ import { showPathContextMenu } from "core/react/components/UI/Menus/navigator/pa
 import { openContextCreateItemModal } from "core/react/components/UI/Modals/ContextCreateItemModal";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { addRowInTable, updateTableRow, updateValueInContext } from "core/utils/contexts/context";
+import { apiFieldWriteTarget } from "core/utils/contexts/apiValueWrite";
 import { formatDate } from "core/utils/date";
 import { runFormulaWithContext } from "core/utils/formula/parser";
 import { parseContextNode, parseLinkedNode } from "core/utils/frames/frame";
@@ -37,6 +38,35 @@ export class API implements IAPI {
     public constructor(superstate: ISuperstate, spaceManager?: SpaceManager | SpaceManagerInterface | APISpaceManager) {
         this.superstate = superstate;
         this.spaceManager = spaceManager || superstate.spaceManager;
+    }
+
+    // Authority-gated write for api.path.setProperty (bd Notidian-1da). Resolves
+    // the property's governing column across every space the path belongs to, then
+    // routes the value to its durable home: frontmatter (default), the context MDB
+    // (explicit Notidian-owned / context-only column), or nothing (computed).
+    private writePathProperty(path: string, property: string, value: string) {
+        const spacesMap = this.superstate.spacesMap;
+        const memberSpaces = spacesMap ? [...spacesMap.get(path)] : [];
+        const contextTables = memberSpaces.map(
+            (s) => this.superstate.contextsIndex.get(s)?.contextTable
+        );
+        const target = apiFieldWriteTarget(property, contextTables, "frontmatter");
+        if (target === "skip") return;
+        if (target === "context") {
+            memberSpaces.forEach((s) => {
+                const space = this.superstate.spacesIndex.get(s);
+                if (space)
+                    updateValueInContext(
+                        this.spaceManager as SpaceManager,
+                        path,
+                        property,
+                        value,
+                        space.space
+                    );
+            });
+            return;
+        }
+        saveProperties(this.superstate, path, { [property]: value });
     }
     public frame = {
 update: (property: string, value: string, path: string, saveState: (state: any) => void) => {
@@ -104,17 +134,17 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
             return newPathInSpace(this.superstate, this.superstate.spacesIndex.get(space), type, name, true, content)
         },
         setProperty: (path: string, property: string, value:  Promise<string> | string) => {
+            // Authority gate (bd Notidian-1da): a path property whose column is
+            // explicitly Notidian-owned / context-only must persist to the context
+            // MDB, not silently into the file's frontmatter; a computed/read-only
+            // column writes nothing. Frontmatter (and any unresolved column) keeps
+            // the historical frontmatter write.
+            const write = (v: string) => this.writePathProperty(path, property, v);
             if (value instanceof Promise) {
-                value.then(v => {
-                    saveProperties(this.superstate, path, {
-                        [property]: v
-                    })
-                })
+                value.then(write)
                 return
             }
-            saveProperties(this.superstate, path, {
-                    [property]: value
-                })
+            write(value)
         },
         contextMenu: (e: React.MouseEvent, path: string) => {
             showPathContextMenu(this.superstate, path, null, { x: e.clientX, y: e.clientY, width: 0, height: 0 }, windowFromDocument(e.view.document))
@@ -235,7 +265,23 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
         update: (path: string, file: string, field: string, value: string) => {
 
             const space = this.superstate.spacesIndex.get(path)
-            if (space)
+            if (!space) return
+            // Authority gate (bd Notidian-1da): context.update historically wrote
+            // the context MDB unconditionally. A frontmatter-backed column edited
+            // through this verb leaked file data into the hidden store, so route a
+            // frontmatter-authority column to the file's YAML, a computed column to
+            // nothing, and Notidian-owned / unresolved columns to the context MDB
+            // (the pre-gate default).
+            const target = apiFieldWriteTarget(
+                field,
+                [this.superstate.contextsIndex.get(path)?.contextTable],
+                "context"
+            )
+            if (target === "skip") return
+            if (target === "frontmatter") {
+                saveProperties(this.superstate, file, { [field]: value })
+                return
+            }
             updateValueInContext(this.spaceManager as SpaceManager, file, field, value, space.space)
         },
         insert: async (path: string, schema: string, name: string, row: DBRow) => {

@@ -81,3 +81,40 @@ export const shouldPersistAuthorityValueToContext = (
   const authority = propertyAuthorityForColumn(property);
   return authority === "file" || authority === "notidian";
 };
+
+// Where a programmatic value write should land for a single field.
+//   - "frontmatter": persist to the file's YAML (visible, portable layer)
+//   - "context":     persist to the Notidian context MDB (hidden, durable store)
+//   - "skip":        the column is computed/read-only — write nothing
+export type ApiValueWriteTarget = "frontmatter" | "context" | "skip";
+
+// Authority gate for the programmatic API write surface
+// (api.context.update / api.path.setProperty -> context.ts updateValueInContext).
+//
+// These verbs historically wrote one layer unconditionally — context.update
+// always wrote the context MDB, path.setProperty always wrote frontmatter — so a
+// frontmatter-backed column edited via context.update leaked into the hidden
+// store, and a Notidian-owned (source: "notidian" / context-only) column edited
+// via setProperty silently never reached its only durable home. Routing both
+// through this gate gives them the SAME authority partition the calendar/modal/
+// header edits already enforce (ADR 0001/0017, bd Notidian-1da / Notidian-f2l).
+//
+// Resolution:
+//   - computed/read-only column  -> "skip" (never persist a derived value)
+//   - frontmatter authority      -> "frontmatter"
+//   - explicit Notidian / context-only -> "context"
+//   - file identity OR an unresolved column (no definition found) -> defaultTarget
+//     (preserve the verb's pre-gate behavior rather than newly reroute identity
+//     writes or guess at an unknown field's home).
+export const apiValueWriteTarget = (
+  property: Partial<Pick<SpaceProperty, "name" | "source" | "type">> | undefined,
+  defaultTarget: "frontmatter" | "context"
+): ApiValueWriteTarget => {
+  if (!property) return defaultTarget;
+  const authority = propertyAuthorityForColumn(property);
+  if (authority === "computed") return "skip";
+  if (authority === "frontmatter") return "frontmatter";
+  if (authority === "notidian") return "context";
+  // "file" identity: not a value write — keep the verb's default behavior.
+  return defaultTarget;
+};
