@@ -346,76 +346,82 @@ describe("IDEMPOTENCY — output is a fixed point (Notidian-hef)", () => {
 });
 
 // ===========================================================================
-// DOCUMENTED UNDER-BLOCK BOUNDARY (Notidian-hef -> follow-up Notidian-35q)
+// PREVIOUSLY-DOCUMENTED UNDER-BLOCK BOUNDARY — NOW CLOSED (Notidian-hef -> Notidian-35q)
 //
-// The neutraliser is regex-based and matches only the LITERAL `url(` / `@import`
-// tokens. The sanitize.ts docblock already declares "exotic CSS
-// escape-obfuscation of the url()/@import tokens is out of scope". Rather than
-// let such a payload SILENTLY PASS an assertion, we pin the boundary two ways:
-//   1. active `it` tests that ASSERT the CURRENT (under-blocking) behavior — so a
-//      future hardening that closes the gap will FAIL here and force this block to
-//      be updated in lockstep (the boundary can never drift unnoticed);
-//   2. `xit` tests encoding the DESIRED post-fix behavior — a visible, runnable
-//      TODO that Notidian-35q flips to `it` when it lands the fix.
-// These payloads are FETCH-only (CSS cannot execute script in this innerHTML
-// context), so the residual risk is SSRF / tracking-beacon, never RCE — the same
-// class the docblock scopes out. The active assertions also pin that the rest of
-// the rule is untouched, so the gap is bounded, not open-ended.
+// The neutraliser was regex-based over the RAW CSS and matched only the LITERAL
+// `url(` / `@import` tokens, so three spec-legal obfuscations a browser still
+// resolves as a remote fetch slipped through: hex/unicode escapes (\75rl(...)),
+// comment-split tokens (u/**/rl(...)), and quote-mismatch (url("...')). The
+// Notidian-hef sweep PINNED that gap (active `it`s asserting it survived) and left
+// `xit` placeholders for the desired post-fix behavior. Notidian-35q closed the
+// gap by NORMALISING first — strip CSS comments, decode CSS escapes — so the
+// neutraliser sees the same tokens a browser will, then re-deriving the url()
+// target with a quote-tolerant capture that can't leak on mismatched quotes.
+//
+// In lockstep with that fix (the file's contract is "the boundary can never drift
+// unnoticed"), the once-CURRENT assertions below were FLIPPED from "the gap
+// survives" to "the gap is closed", and the DESIRED `xit` block was promoted to
+// `it`. These payloads were always FETCH-only (CSS cannot execute script in this
+// innerHTML context), so the risk they closed is SSRF / tracking-beacon, never RCE.
 // ===========================================================================
-describe("documented under-block gaps — CURRENT behavior pinned (Notidian-hef)", () => {
-  it("CSS hex escape \\75rl(...) is NOT neutralised today (\\75 = 'u')", () => {
-    // A browser decodes the \75 escape to `u`, resolving `url(...)` and fetching;
-    // the regex looks for a literal `url(` and so misses it. Pin that the remote
-    // target currently survives — closing Notidian-35q must break this line.
+describe("formerly-documented under-block gaps — NOW CLOSED (Notidian-35q)", () => {
+  it("CSS hex escape \\75rl(...) is neutralised (\\75 = 'u', decoded before matching)", () => {
+    // A browser decodes the \75 escape to `u`, resolving `url(...)` and fetching.
+    // The neutraliser now decodes the escape first, so the remote target collapses.
     const r = svg('<svg><style>.a{background:\\75rl(http://evil.example/x)}</style></svg>');
-    expect(r).toContain("evil.example"); // <-- current GAP (Notidian-35q)
-    // The token itself is preserved verbatim, untouched by the neutraliser.
-    expect(r).toContain("\\75rl(");
+    expect(r).not.toContain("evil.example"); // <-- gap CLOSED (Notidian-35q)
+    // The obfuscated token is decoded, so the literal escape sequence is gone too.
+    expect(r).not.toContain("\\75rl(");
+    expect(r).toContain("url()"); // collapsed to the empty, inert form
   });
 
-  it("comment-split u/**/rl(...) is NOT neutralised today", () => {
+  it("comment-split u/**/rl(...) is neutralised (comments stripped before matching)", () => {
     // CSS strips comments before tokenising, so `u/**/rl(...)` is a real url() to
-    // a browser; the regex sees a broken token and skips it.
+    // a browser; the neutraliser now strips comments first and collapses it.
     const r = html('<style>.a{background:u/**/rl(http://evil.example/x)}</style>');
-    expect(r).toContain("evil.example"); // <-- current GAP (Notidian-35q)
-    expect(r).toContain("u/**/rl(");
+    expect(r).not.toContain("evil.example"); // <-- gap CLOSED (Notidian-35q)
+    expect(r).not.toContain("u/**/rl("); // the split token is gone
+    expect(r).toContain("url()");
   });
 
-  it("quote-mismatch url(\"...') leaks the remote target today", () => {
-    // [^'\")]* stops at the FIRST quote char, so when the opening and closing
-    // quotes differ the captured target is empty and the original (remote) text
-    // is re-emitted unchanged.
+  it("quote-mismatch url(\"...') no longer leaks the remote target", () => {
+    // The quote-tolerant capture takes everything up to the closing paren and
+    // strips stray quote chars before the allowlist test, so a mismatched pair
+    // (opening " / closing ') can't smuggle the remote target through.
     const r = html(
       `<div style="background:url(&quot;http://evil.example/x')">t</div>`
     );
-    expect(r).toContain("evil.example"); // <-- current GAP (Notidian-35q)
+    expect(r).not.toContain("evil.example"); // <-- gap CLOSED (Notidian-35q)
   });
 
-  it("the gap is BOUNDED — a sibling local rule is still sanitised normally", () => {
-    // Even alongside an escaped token the neutraliser still collapses a plain
-    // remote url() in the same block, so the gap is one missed token shape, not a
-    // total bypass of the rule.
+  it("the fix is BOUNDED — a sibling local rule is still sanitised normally", () => {
+    // Alongside a (now-decoded) escaped token the neutraliser still collapses a
+    // plain remote url() in the same block: BOTH remote tokens are neutralised, so
+    // the rule remains intact — the fix closed the gap without over- or under-block.
     const r = svg(
       '<svg><style>.a{background:\\75rl(http://evil.example/x)}.b{background:url(http://other.example/y)}</style></svg>'
     );
-    expect(r).not.toContain("other.example"); // plain url() still neutralised
-    expect(r.match(/url\(\)/g)?.length).toBe(1);
+    expect(r).not.toContain("other.example"); // plain url() neutralised
+    expect(r).not.toContain("evil.example"); // escaped url() now also neutralised
+    expect(r.match(/url\(\)/g)?.length).toBe(2); // both collapsed
   });
 });
 
-describe("documented under-block gaps — DESIRED behavior (TODO Notidian-35q)", () => {
-  // These encode what hardening should achieve; flip xit -> it in Notidian-35q.
-  xit("TODO(Notidian-35q): decode CSS hex escapes before matching \\75rl(remote)", () => {
+describe("closed under-block gaps — DESIRED behavior now holds (Notidian-35q)", () => {
+  // These encoded what hardening should achieve; Notidian-35q landed the fix and
+  // promoted them from xit -> it. They are intentionally kept as a second,
+  // assertion-only restatement of the same contract as the block above.
+  it("decodes CSS hex escapes before matching \\75rl(remote)", () => {
     const r = svg('<svg><style>.a{background:\\75rl(http://evil.example/x)}</style></svg>');
     expect(r).not.toContain("evil.example");
   });
 
-  xit("TODO(Notidian-35q): strip CSS comments so u/**/rl(remote) is neutralised", () => {
+  it("strips CSS comments so u/**/rl(remote) is neutralised", () => {
     const r = html('<style>.a{background:u/**/rl(http://evil.example/x)}</style>');
     expect(r).not.toContain("evil.example");
   });
 
-  xit("TODO(Notidian-35q): handle quote-mismatch url(\"...') without leaking the target", () => {
+  it("handles quote-mismatch url(\"...') without leaking the target", () => {
     const r = html(
       `<div style="background:url(&quot;http://evil.example/x')">t</div>`
     );

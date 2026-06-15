@@ -38,8 +38,37 @@ const SVG_DANGEROUS_TAGS = new Set([
   "animatetransform",
 ]);
 
+const CSS_COMMENT_RE = /\/\*[\s\S]*?\*\//g;
+// A CSS escape is either a hex escape (\ + 1-6 hex digits, with an OPTIONAL single
+// trailing whitespace terminator that the tokenizer consumes) or a literal escape
+// (\ + any single non-hex, non-newline char standing for itself). We decode both
+// so an obfuscated token like \75rl(...) (\75 = 'u') normalises to its literal form
+// BEFORE the url()/@import regex runs. A trailing backslash with nothing after it
+// is dropped (matches the CSS tokenizer, which treats EOF after \ as U+FFFD/ignored).
+const CSS_ESCAPE_RE = /\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\([^\n\r\f])|\\$/g;
 const CSS_IMPORT_RE = /@import[^;]*;?/gi;
-const CSS_URL_RE = /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi;
+// Quote-tolerant url() capture: the target is everything up to the closing paren,
+// with quotes treated as ordinary chars inside the capture. This means a
+// quote-MISMATCH (url("...') no longer makes the whole match fail and leak the
+// target — we capture it, then strip stray quote chars before the allowlist test.
+const CSS_URL_RE = /url\(([^)]*)\)/gi;
+
+// Decode CSS hex/literal escapes so escape-obfuscated tokens normalise to their
+// literal form (e.g. \75rl( -> url(). Browsers decode these before tokenising, so
+// the regex below must see the same decoded text the browser would.
+const decodeCssEscapes = (css: string): string =>
+  css.replace(CSS_ESCAPE_RE, (full, hex: string | undefined, literal: string | undefined) => {
+    if (hex != null) {
+      const cp = parseInt(hex, 16);
+      // 0 and out-of-range/surrogate codepoints become U+FFFD per the CSS tokenizer.
+      if (cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {
+        return "�";
+      }
+      return String.fromCodePoint(cp);
+    }
+    if (literal != null) return literal;
+    return ""; // trailing lone backslash (\$) — dropped
+  });
 
 // Neutralise remote fetches inside CSS — a <style> block or a style="" attribute.
 // Element URL attributes (href/xlink:href/src) are allowlisted below, but CSS can
@@ -47,19 +76,40 @@ const CSS_URL_RE = /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi;
 // cannot execute script in this context, so the risk closed here is a remote
 // fetch (icon phoning home / SSRF / tracking beacon) — the same guarantee
 // sanitizeIconSVG already makes for element attributes (Notidian-m9r, found by
-// the Notidian-5jk adversarial tests). Drop @import rules, and rewrite any
-// url(...) that is not a same-document fragment (#id) or an inline data:image to
-// an empty url() — preserving legitimate url(#gradient) refs and inline raster
-// icons. Regex-based: it handles realistic payloads; exotic CSS escape-obfuscation
-// of the url()/@import tokens is out of scope (still only a fetch, never script).
+// the Notidian-5jk adversarial tests).
+//
+// A browser strips CSS comments and decodes CSS escapes BEFORE it tokenises url()/
+// @import, so a regex over the raw text alone under-blocks three spec-legal
+// obfuscations a browser still resolves as a remote fetch (Notidian-35q, found by
+// the Notidian-hef adversarial sweep): hex/unicode escapes (\75rl(...)),
+// comment-split tokens (u/**/rl(...)), and quote-mismatch (url("...')). We close
+// that gap by NORMALISING first — strip comments, then decode escapes — so the
+// neutraliser sees the same tokens the browser will, then re-derive every url()
+// target with a quote-tolerant capture that can't leak on mismatched quotes.
+//
+// After normalisation: drop @import rules, and rewrite any url(...) that is not a
+// same-document fragment (#id) or an inline data:image to an empty url() —
+// preserving legitimate url(#gradient) refs and inline raster icons. The output is
+// the normalised (comment-free, escape-decoded) CSS, which a browser interprets
+// identically to the input, so this is sound (and idempotent — a second pass over
+// already-normalised CSS is a fixed point).
 const neutralizeCssFetches = (css: string): string => {
   if (!css) return css;
-  return css.replace(CSS_IMPORT_RE, "").replace(CSS_URL_RE, (match, _quote, target) => {
-    const value = String(target).replace(/\s+/g, "").toLowerCase();
-    return value.startsWith("#") || value.startsWith("data:image/")
-      ? match
-      : "url()";
-  });
+  const normalized = decodeCssEscapes(css.replace(CSS_COMMENT_RE, ""));
+  return normalized
+    .replace(CSS_IMPORT_RE, "")
+    .replace(CSS_URL_RE, (match, target: string) => {
+      // Strip surrounding/stray quote chars and whitespace, then test the allowlist.
+      // Quotes are stripped wholesale (not just a matched pair) so a quote-mismatch
+      // cannot smuggle a remote target past the #/data:image check.
+      const value = String(target)
+        .replace(/['"]/g, "")
+        .replace(/\s+/g, "")
+        .toLowerCase();
+      return value.startsWith("#") || value.startsWith("data:image/")
+        ? match
+        : "url()";
+    });
 };
 
 // Sanitize a vault-supplied SVG icon (custom iconsets) before it is injected as
