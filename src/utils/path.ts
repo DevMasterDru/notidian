@@ -54,19 +54,24 @@ export const getParentFolderPaths = (path: string): string[] => {
 };
 export const pathToString = (path: string) => {
   if (path.lastIndexOf("/") != -1) {
-    if (path.lastIndexOf(".") != -1)
+    // Only treat a "." as an extension boundary when it lies in the BASENAME,
+    // i.e. AFTER the last "/". A "." that belongs to a PARENT folder (e.g.
+    // "a.b/c") must NOT trigger extension-stripping: doing so would call
+    // substring(lastSlash+1, lastDot) with start > end, and String.substring
+    // SWAPS the args, leaking a "/"-bearing garbage display name (Notidian-uuco).
+    if (path.lastIndexOf(".") > path.lastIndexOf("/"))
       return removeLeadingSlash(
         path.substring(
           path.lastIndexOf("/") + 1,
           path.lastIndexOf(".")
         )
       );
-    return path.substring(path.lastIndexOf("/") + 1);
+    return removeLeadingSlash(path.substring(path.lastIndexOf("/") + 1));
   }
   if (path.lastIndexOf(".") != -1) {
     return path.substring(0, path.lastIndexOf("."));
   }
-  
+
   return path;
 };
 

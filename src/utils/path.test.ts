@@ -41,16 +41,19 @@ import {
 // pathToString — reduce a vault path to a display *name* (drop dir + extension)
 //   const pathToString = (path) => {
 //     if (path.lastIndexOf("/") != -1) {
-//       if (path.lastIndexOf(".") != -1)
+//       if (path.lastIndexOf(".") > path.lastIndexOf("/"))   // dot in BASENAME
 //         return removeLeadingSlash(path.substring(lastSlash+1, lastDot));
-//       return path.substring(lastSlash+1);
+//       return removeLeadingSlash(path.substring(lastSlash+1));
 //     }
 //     if (path.lastIndexOf(".") != -1) return path.substring(0, lastDot);
 //     return path;
 //   };
-// Note the bug-prone seam: when a "/" is present, the LAST "." is used as the
-// extension boundary EVEN IF that dot precedes the last slash or starts the
-// basename (a dotfile) — there is no check that the dot comes after the slash.
+// Notidian-uuco closed the former bug-prone seam: when a "/" is present, an
+// extension is now stripped ONLY when the last "." FOLLOWS the last "/" (i.e.
+// the dot is in the BASENAME). A dot in a PARENT folder no longer triggers the
+// substring arg-swap that leaked a "/"-bearing garbage display name. A dotfile
+// basename (a/.config) still empties to "" — that is the lastDot==lastSlash+1
+// case, locked separately below.
 // ---------------------------------------------------------------------------
 describe("pathToString", () => {
   // --- the ordinary intended case: strip folder + single extension ----------
@@ -100,28 +103,35 @@ describe("pathToString", () => {
     expect(pathToString("a/")).toBe("");
   });
 
-  // --- TRUE BUG (characterized, follow-up bead filed): dotted PARENT folder ---
-  it('"a.b/c" -> ".b/" : a dot in the PARENT + extensionless leaf produces GARBAGE via substring arg-swap (LOCKED — follow-up bead)', () => {
-    // lastSlash=3, lastDot=1 (the "." in the PARENT "a.b"). The "/" branch is
-    // entered, then the "." branch fires because *some* dot exists — but the
-    // code never checks the dot FOLLOWS the slash. It calls
-    // substring(lastSlash+1=4, lastDot=1). JS `String.prototype.substring` SWAPS
-    // start/end when start > end, so this becomes substring(1, 4) === ".b/" — a
-    // slice spanning the parent's dot THROUGH the boundary slash. The display
-    // name of "a.b/c" is therefore ".b/", which is garbage (it even contains a
-    // "/"). This is a TRUE bug, not a designed contract.
+  // --- FIXED (Notidian-uuco): dotted PARENT folder + extensionless leaf -------
+  it('"a.b/c" -> "c" : a dot in the PARENT folder is NOT an extension; the extensionless leaf is returned (FIXED Notidian-uuco)', () => {
+    // lastSlash=3, lastDot=1 (the "." in the PARENT "a.b"). Previously the "/"
+    // branch fired the "." branch because *some* dot existed, calling
+    // substring(lastSlash+1=4, lastDot=1); String.substring SWAPS start/end when
+    // start > end, leaking ".b/" — garbage that even contained a "/".
     //
-    // Per the bead directive we CHARACTERIZE (lock) it here and file a follow-up
-    // bead to fix it deliberately, rather than "fixing" it blind under a test
-    // bead — a real caller's behavior on dotted folder names must be assessed
-    // first. See follow-up: pathToString dotted-parent arg-swap.
-    expect(pathToString("a.b/c")).toBe(".b/");
+    // The fix only strips an extension when lastIndexOf(".") > lastIndexOf("/"),
+    // i.e. the dot lies in the BASENAME after the last slash. Here it does not,
+    // so the extensionless leaf "c" is returned correctly.
+    expect(pathToString("a.b/c")).toBe("c");
   });
 
-  it('"foo.bar/baz/qux" -> ".bar/baz/" : deeper case of the SAME dotted-parent arg-swap bug (LOCKED)', () => {
-    // Confirms the bug is general: lastDot is in the FIRST segment, lastSlash is
-    // the final boundary, and substring swaps to span everything between them.
-    expect(pathToString("foo.bar/baz/qux")).toBe(".bar/baz/");
+  it('"foo.bar/baz/qux" -> "qux" : deeper dotted-parent case also returns the bare leaf (FIXED Notidian-uuco)', () => {
+    // lastDot is in the FIRST segment, lastSlash is the final boundary. The dot
+    // does NOT follow the last slash, so no extension is stripped and the leaf
+    // "qux" is returned (previously the arg-swap produced ".bar/baz/").
+    expect(pathToString("foo.bar/baz/qux")).toBe("qux");
+  });
+
+  // --- regression guard: extensioned leaf inside dotted/deep folders ----------
+  it('"A/B/x.md" -> "x" : an extensioned leaf inside nested folders still strips the extension', () => {
+    expect(pathToString("A/B/x.md")).toBe("x");
+  });
+
+  it('"a.b/x.md" -> "x" : a dotted PARENT plus an extensioned leaf strips only the leaf extension', () => {
+    // lastDot (in "x.md") FOLLOWS the last slash, so the extension is correctly
+    // stripped, and the parent dot is ignored.
+    expect(pathToString("a.b/x.md")).toBe("x");
   });
 
   // --- empty string ----------------------------------------------------------
@@ -134,14 +144,13 @@ describe("pathToString", () => {
     expect(pathToString("README")).toBe("README");
   });
 
-  // --- PROPERTY: for WELL-FORMED paths the result is a leaf name (no "/") ------
-  // The "no slash in the output" property holds for every path whose only dot
-  // (if any) lies in the BASENAME — i.e. after the last "/". This is the entire
-  // intended domain of the helper. The dotted-PARENT inputs are deliberately
-  // EXCLUDED here because they trip the substring arg-swap bug above (locked
-  // separately); listing them here would wrongly imply the bug is acceptable.
-  it("PROPERTY: for paths whose dot is in the basename, the result is a leaf name (no '/')", () => {
-    const wellFormed = [
+  // --- PROPERTY: the result is ALWAYS a leaf name (no "/") --------------------
+  // Notidian-uuco fixed the dotted-PARENT arg-swap, so the "no slash in the
+  // output" property now holds UNIVERSALLY — including for paths whose only dot
+  // lies in a parent folder. The previously-excluded dotted-parent inputs are
+  // re-enabled here (they tripped the substring arg-swap bug before the fix).
+  it("PROPERTY: the result is always a leaf name (never contains a '/')", () => {
+    const allPaths = [
       "a/b.md",
       "a/b",
       "/a",
@@ -155,18 +164,25 @@ describe("pathToString", () => {
       "deep/nested/file.txt",
       "x/y/z/",
       "no-extension-file",
+      // re-enabled: dotted-PARENT inputs that used to trip the arg-swap bug ----
+      "a.b/c",
+      "foo.bar/baz/qux",
+      "a.b/x.md",
+      "A/B/x.md",
+      "deep.dir/nested/leaf",
     ];
-    for (const x of wellFormed) {
+    for (const x of allPaths) {
       expect(pathToString(x)).not.toContain("/");
     }
   });
 
-  it("the leaf-name property is VIOLATED by the dotted-parent bug (locked exception)", () => {
-    // Documents that the property above is NOT universal: the dotted-parent
-    // arg-swap leaks a "/" into the output. Pinning the violation means a future
-    // fix MUST update this test (it should start passing once the bug is fixed),
-    // giving us a built-in regression signal for the follow-up.
-    expect(pathToString("a.b/c")).toContain("/");
+  it("the leaf-name property HOLDS for the (formerly bug-leaking) dotted-parent inputs (regression signal for Notidian-uuco)", () => {
+    // Before Notidian-uuco the dotted-parent arg-swap leaked a "/" into the
+    // output (this assertion was inverted, toContain("/"), pinning the defect).
+    // The fix restores the invariant: a display name is a single leaf segment
+    // and NEVER contains a slash. If this regresses, the arg-swap is back.
+    expect(pathToString("a.b/c")).not.toContain("/");
+    expect(pathToString("foo.bar/baz/qux")).not.toContain("/");
   });
 
   // --- PURITY: always a string, never throws ---------------------------------
