@@ -261,7 +261,15 @@ export const materializeFrontmatterBackedContextTable = (
       // Respect explicit Notidian ownership (and context-only types whose only
       // durable home is the MDB): never auto-convert them to frontmatter just
       // because a file happens to expose a same-named frontmatter key (ADR 0017).
-      propertyAuthorityForColumn(col) === "notidian"
+      propertyAuthorityForColumn(col) === "notidian" ||
+      // Respect COMPUTED/read-only columns (fileprop/aggregate/rollup/backlink):
+      // their value is derived at render time, so a same-named frontmatter key
+      // must NEVER re-type them or stamp source:"frontmatter". Re-typing here
+      // would silently destroy the computed classification and break the
+      // derived-value-skip promise at its source — apiValueWriteTarget only
+      // defends "skip" while the type is STILL computed (ADR 0001/0017; bd
+      // memory any-new-computed-read-only-column-type; Notidian-0jq).
+      propertyAuthorityForColumn(col) === "computed"
     ) {
       return col;
     }

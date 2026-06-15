@@ -380,6 +380,66 @@ describe("materializeFrontmatterBackedContextTable", () => {
     );
   });
 
+  it("never re-types a computed column whose name collides with an observed frontmatter key", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "a.md",
+        pathState({
+          Status: "active",
+          area: "Veg",
+        }),
+      ],
+    ]);
+
+    const computedCol = {
+      name: "Status",
+      type: "fileprop",
+      value: "",
+      schemaId: "files",
+    };
+    const sourceCols = [...(defaultContextFields.rows as any), computedCol];
+
+    const result = materializeFrontmatterBackedContextTable(
+      {
+        schema: { id: defaultContextSchemaID, name: "Files", type: "db" },
+        cols: sourceCols,
+        rows: [{ [PathPropertyName]: "a.md" }],
+      },
+      pathsIndex,
+      ["a.md"],
+      settings,
+      true
+    );
+
+    const materializedStatus = result.table.cols.find(
+      (col) => col.name === "Status"
+    );
+    // The computed column must be returned by IDENTITY — its type was NOT
+    // overwritten and no source:"frontmatter" marker was stamped, so the
+    // derived-value-skip classification survives (Notidian-0jq).
+    expect(materializedStatus).toBe(computedCol);
+    expect(materializedStatus).toEqual({
+      name: "Status",
+      type: "fileprop",
+      value: "",
+      schemaId: "files",
+    });
+    expect(materializedStatus).not.toHaveProperty(
+      "source",
+      frontmatterPropertySource
+    );
+
+    // Genuinely-new frontmatter keys are still discovered alongside it.
+    const discoveredArea = result.table.cols.find((col) => col.name === "area");
+    expect(discoveredArea).toEqual(
+      expect.objectContaining({
+        name: "area",
+        type: "text",
+        source: frontmatterPropertySource,
+      })
+    );
+  });
+
   it("does not convert contexts that contain non-frontmatter user columns", () => {
     const pathsIndex = new Map<string, any>([
       ["a.md", pathState({ status: "active" })],
