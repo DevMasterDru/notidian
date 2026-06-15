@@ -1123,6 +1123,55 @@ queueing more and pivots to safe work — so this list stays reviewable.
   and `.gitattributes` are **untouched** until you pick.
 - **Bead status:** Notidian-jlb5 stays **OPEN**, awaiting your direction.
 
+### Notidian-k6a5 — `emojiBox.ts` dead, unsanitized SVG/HTML injection sink
+
+- **ADR:** [docs/adr/0040-emojibox-dead-injection-sink.md](adr/0040-emojibox-dead-injection-sink.md)
+  (Proposed). Security-flavoured sibling of ADR 0036's dead-helper decision.
+- **Why a decision, not a build:** `src/shared/utils/emojiBox.ts`
+  (`createExactEmojiBox`/`emojiBoxStyles`/`calculateOptimalEmojiFontSize`/
+  `supportsColorEmoji`) has **zero production callers** — a grep over `*.ts`/`*.tsx`
+  finds only the module's own definitions, and **nothing imports the module**.
+  `createExactEmojiBox` returns raw SVG/`<span>` HTML built by interpolating caller
+  input with **no escaping**: `${emoji}` as element text, `${size}` into a `style`
+  value, and `class="${options?.className}"` into an attribute — a latent
+  `innerHTML`/`dangerouslySetInnerHTML` XSS sink under the **ADR 0017 / Notidian-ebz**
+  threat model (it even *constructs* the `<foreignObject>` element the icon
+  sanitizer explicitly **removes**). Blind test-hardening would spend quota
+  characterizing code that may be deleted; blind deletion could drop an
+  intended-future helper — so it resolves as a decision.
+- **Decisive finding (the house answer already exists):** the codebase renders
+  emoji correctly through the **sanitized** path at `StickerModal.tsx:26-33` —
+  `escapeHtml(emojiFromString(...))` for emoji (a pure codepoint decode to a plain
+  glyph, then escaped) and `sanitizeIconSVG(...)` for custom-iconset SVG — built by
+  the Notidian-ebz sink sweep. `emojiBox` is a **third, defective, unused**
+  emoji-injection path doing the opposite of the hardened pattern.
+- **The one decision you need to make:** pick **A / B / C** — **recommended A**:
+  **delete the whole `emojiBox.ts` module** (removes the attractive-nuisance sink
+  outright; cannot regress — zero callers means zero observable output; re-collapses
+  emoji injection to the single hardened in-use path; any future exact-emoji-box
+  feature should be built **on** the `escapeHtml`/`sanitizeIconSVG` house pattern,
+  not a raw-interpolation builder). Over **B** (keep but route
+  `emoji`/`className`/`size` through `escapeHtml`/`sanitizeIconSVG` + a strict
+  CSS-length guard for `size`, **drop/replace** the `svg`+`foreignObject` method —
+  the sanitizer removes `foreignObject`, so only the `<span>` `css-grid`/`css-flex`
+  methods are sink-compatible — and add adversarial + property tests **before** any
+  caller adopts it; choose only if an out-of-tree importer must keep the exports or
+  a future exact-emoji-box feature is firmly intended) or **C** (keep as-is —
+  rejected: violates the sink invariant the moment anyone calls it; a known
+  unsanitized exported HTML builder is a copy-paste/future-wiring trap even while
+  dead).
+- **No build / no spike shipped.** This is a dead-code / latent-sink decision with
+  no *currently* live `innerHTML`/authority surface, so **no default-OFF runtime
+  flag** and **no eyes-on-vault step** — Option A is fully tsc/jest/build-provable
+  (the only references to each symbol are their own definitions) and Option B's
+  safety is provable by adversarial/property unit tests at the function boundary.
+  `src/shared/utils/emojiBox.ts` is **untouched** until you pick. On a pick of **A**
+  the implementing session deletes the module and confirms a green suite + tsc +
+  build; on a pick of **B** it sanitizes the three inputs, reworks/removes the
+  `foreignObject` method, and lands the adversarial + property tests in the same
+  commit before wiring any caller.
+- **Bead status:** Notidian-k6a5 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
