@@ -14,10 +14,19 @@
 // e.currentTarget, the bound row) and reuses it after the await. This test:
 //   (1) proves the anchor handed to ui.openMenu is the ROW's rect, not the
 //       clicked SVG child's rect (the e.target anti-pattern), AND
-//   (2) proves it survives the intervening await (no crash, correct rect),
-// by capturing the rect synchronously and only reading it after readTable
-// resolves. It fails on a code path that read e.target after the await (wrong
-// rect) or e.currentTarget after the await (null -> throw).
+//   (2) proves it survives the await INTERNAL to showRowContextMenu (no crash,
+//       correct rect), by capturing the rect synchronously and only reading it
+//       after readTable resolves.
+// It fails on a code path that read e.target after the await (wrong rect) or
+// e.currentTarget after the await (null -> throw).
+//
+// SCOPE NOTE: this exercises the SYNCHRONOUS caller — the direct TableView
+// onContextMenu handler that invokes showRowContextMenu while e.currentTarget is
+// still the bound row. The OTHER caller, api.table.contextMenu, is itself async
+// and awaits readTable() BEFORE calling showRowContextMenu, so by then React has
+// already nulled e.currentTarget; that surface needs the rect captured at the
+// caller's synchronous boundary and is covered by
+// src/core/superstate/api.contextMenu.anchor.test.ts (Notidian-74n follow-up).
 import React from "react";
 import { act } from "react-dom/test-utils";
 import { createRoot, Root } from "react-dom/client";

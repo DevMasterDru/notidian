@@ -235,12 +235,27 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
             }
         },
         contextMenu: async (e: React.MouseEvent, space: string, table: string, index: number) => {
+            // This verb is itself async and awaits readTable() BELOW, but the
+            // React synthetic event reaches us through a synchronous chain
+            // (FrameView onContextMenu -> executeAction -> ContextListView
+            // contextMenu action -> here). e.currentTarget is the bound frame
+            // element ONLY until that synchronous dispatch returns; after the
+            // await below React has nulled it. So capture the row anchor rect +
+            // owning window from e.currentTarget NOW, at the true synchronous
+            // boundary, and forward them to showRowContextMenu — otherwise it
+            // would re-read e.currentTarget post-await (null) and fall back to
+            // the clicked SVG child, the e.target anti-pattern (Notidian-74n).
+            const anchorEl = (e.currentTarget ?? e.target) as HTMLElement;
+            const anchorRect = anchorEl.getBoundingClientRect();
+            const anchorWindow = windowFromDocument(
+                e.view?.document ?? anchorEl.ownerDocument
+            );
             const context = await this.spaceManager.readTable(space, table);
             if (table == defaultContextSchemaID) {
                 const path = context?.rows[index]?.[PathPropertyName]
                 showPathContextMenu(this.superstate, path, space, { x: e.clientX, y: e.clientY, width: 0, height: 0 }, windowFromDocument(e.view.document))
             } else {
-                showRowContextMenu(e, this.superstate, space, table, index)
+                showRowContextMenu(e, this.superstate, space, table, index, anchorRect, anchorWindow)
             }
         },
         editModal: async (space: string, table: string, index: number, properties?: DBRow, win?: Window) => {

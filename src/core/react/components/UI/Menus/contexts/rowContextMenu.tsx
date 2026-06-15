@@ -3,6 +3,7 @@ import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React from "react";
 import { PathPropertyName } from "shared/types/context";
+import { Rect } from "shared/types/Pos";
 import { windowFromDocument } from "shared/utils/dom";
 import { defaultMenu } from "../menu/SelectionMenu";
 import { showPathContextMenu } from "../navigator/pathContextMenu";
@@ -15,7 +16,17 @@ export const showRowContextMenu = async (
   superstate: Superstate,
   contextPath: string,
   schema: string,
-  index: number
+  index: number,
+  // Pre-captured anchor from the caller's TRUE synchronous boundary. Some
+  // callers (api.table.contextMenu) are themselves async and await BEFORE
+  // reaching this function, so by the time we run, e.currentTarget is already
+  // null and reading it here would silently fall back to the clicked SVG child
+  // (the very e.target anti-pattern this fixes — Notidian-74n). Those callers
+  // capture the rect/window from e.currentTarget before their own await and pass
+  // them in here. Synchronous callers (the direct TableView onContextMenu
+  // handler) omit them and we capture from e.currentTarget below.
+  anchorRectArg?: Rect,
+  anchorWindowArg?: Window
 ) => {
   e.preventDefault();
 
@@ -25,13 +36,26 @@ export const showRowContextMenu = async (
   // row (currentTarget) — not whichever child the click landed on — so the menu
   // stays anchored to the row regardless of where inside it the pointer hit
   // (Notidian-74n). e.currentTarget is the element the handler is bound to (the
-  // row); e.target was the clicked descendant. We fall back to e.target only if
-  // currentTarget is somehow unavailable.
-  const anchorEl = (e.currentTarget ?? e.target) as HTMLElement;
-  const anchorRect = anchorEl.getBoundingClientRect();
-  const anchorWindow = windowFromDocument(
-    e.view?.document ?? anchorEl.ownerDocument
-  );
+  // row); e.target was the clicked descendant.
+  //
+  // For ASYNC callers that already awaited upstream, e.currentTarget is null at
+  // this point, so we cannot recover the row rect here at all — those callers
+  // MUST pass anchorRectArg/anchorWindowArg captured at their own synchronous
+  // boundary. We prefer those when present; otherwise (synchronous callers) we
+  // capture from e.currentTarget, with e.target only as a last-ditch fallback.
+  let anchorRect: Rect;
+  if (anchorRectArg) {
+    anchorRect = anchorRectArg;
+  } else {
+    const anchorEl = (e.currentTarget ?? e.target) as HTMLElement;
+    anchorRect = anchorEl.getBoundingClientRect();
+  }
+  const anchorWindow =
+    anchorWindowArg ??
+    windowFromDocument(
+      e.view?.document ??
+        ((e.currentTarget ?? e.target) as HTMLElement).ownerDocument
+    );
 
   // Validate index is a valid number
   if (isNaN(index) || index < 0) {
