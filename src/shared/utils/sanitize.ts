@@ -124,3 +124,87 @@ export const sanitizeIconSVG = (svg: string): string => {
     return "";
   }
 };
+
+// Elements removed from RENDERED markdown HTML before innerHTML injection: the
+// SVG-dangerous set plus document-level navigation/fetch elements that have no
+// place in inline note content. <style> is kept (its CSS fetches are neutralised).
+const HTML_DANGEROUS_TAGS = new Set([
+  ...SVG_DANGEROUS_TAGS,
+  "base",
+  "meta",
+  "link",
+  "frame",
+  "frameset",
+  "applet",
+  "form",
+  "noscript",
+]);
+
+const HTML_URL_ATTRS = new Set([
+  "href",
+  "xlink:href",
+  "src",
+  "action",
+  "formaction",
+  "background",
+  "poster",
+  "data",
+]);
+
+// A URL whose scheme can execute script or smuggle markup. Unlike an icon, rendered
+// markdown legitimately links to / embeds remote http(s) resources, so those are
+// allowed; only executable/markup schemes are blocked. Whitespace is stripped first
+// so `java\tscript:` cannot slip past (the parser has already decoded entities).
+const hasDangerousUrlScheme = (raw: string): boolean => {
+  const value = (raw ?? "").replace(/\s+/g, "").toLowerCase();
+  if (value.startsWith("javascript:") || value.startsWith("vbscript:")) {
+    return true;
+  }
+  if (value.startsWith("data:") && !value.startsWith("data:image/")) {
+    return true;
+  }
+  return false;
+};
+
+// Sanitize a RENDERED HTML string from the markdown->HTML pipeline before it is
+// injected via innerHTML (FileLinkViewComponent note/link preview, and the
+// markdownAdapter canvas-thumbnail foreignObject). The pipeline already drops most
+// raw HTML via htmlToTree's tag whitelist and emits no raw nodes (hast-util-to-html
+// runs without allowDangerousHtml), but this is the defence-in-depth chokepoint the
+// authority/security model requires for any vault-content innerHTML sink: it removes
+// script-capable/navigation/fetch elements and all on* handlers, neutralises CSS
+// fetches in <style>/style, and drops dangerous-scheme URLs (javascript:/vbscript:/
+// data:text-html) while preserving ordinary markdown (formatting, links, images,
+// including remote http(s)). DOM-based and fail-safe ("" on parse error or no DOM).
+// Notidian-3yb (follow-up to the Notidian-ebz sweep).
+export const sanitizeRenderedHtml = (html: string): string => {
+  if (!html || typeof html != "string") return "";
+  if (typeof document == "undefined") return "";
+  try {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    template.content.querySelectorAll("*").forEach((el) => {
+      const tag = el.tagName.toLowerCase();
+      if (HTML_DANGEROUS_TAGS.has(tag)) {
+        el.remove();
+        return;
+      }
+      if (tag == "style") {
+        el.textContent = neutralizeCssFetches(el.textContent ?? "");
+      }
+      Array.from(el.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith("on")) {
+          el.removeAttribute(attr.name);
+        } else if (name == "style") {
+          el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+        } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return template.innerHTML;
+  } catch {
+    return "";
+  }
+};

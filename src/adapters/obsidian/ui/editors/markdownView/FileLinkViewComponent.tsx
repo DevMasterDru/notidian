@@ -4,6 +4,7 @@ import { App, parseYaml } from "obsidian";
 
 import classNames from "classnames";
 import { markdownToHtml } from "core/export/toHtml/mdToHtml";
+import { sanitizeRenderedHtml } from "shared/utils/sanitize";
 import React, { useEffect, useRef, useState } from "react";
 import { pathToString } from "utils/path";
 import { RemoteMarkdownHeaderView } from "./RemoteMarkdownHeaderView";
@@ -23,7 +24,9 @@ export const FileLinkViewComponent = (props: {
     // });
     if (ref.current) {
       markdownToHtml(props.superstate, markdown, props.path).then((f) => {
-        ref.current.innerHTML = f;
+        // Vault (and possibly remote-fetched) markdown — sanitize before injection
+        // (Notidian-3yb).
+        ref.current.innerHTML = sanitizeRenderedHtml(f);
       });
 
       const observer = new MutationObserver(() => {

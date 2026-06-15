@@ -12,9 +12,10 @@
 // allowlist sanitizer. Assertions normalise to lower-case and check for the
 // presence/absence of tokens rather than exact serialisation, so they are robust
 // to jsdom's SVG attribute/case serialisation.
-import { sanitizeIconSVG } from "shared/utils/sanitize";
+import { sanitizeIconSVG, sanitizeRenderedHtml } from "shared/utils/sanitize";
 
 const lower = (svg: string): string => sanitizeIconSVG(svg).toLowerCase();
+const rendered = (html: string): string => sanitizeRenderedHtml(html).toLowerCase();
 
 describe("sanitizeIconSVG — jsdom (Notidian-5jk)", () => {
   it("runs against a real DOM (document is defined, no early return)", () => {
@@ -231,6 +232,112 @@ describe("sanitizeIconSVG — jsdom (Notidian-5jk)", () => {
     it("always returns a string", () => {
       expect(typeof sanitizeIconSVG('<svg><path/></svg>')).toBe("string");
       expect(typeof sanitizeIconSVG("not svg at all")).toBe("string");
+    });
+  });
+});
+
+describe("sanitizeRenderedHtml — jsdom (Notidian-3yb)", () => {
+  describe("removes script-capable / navigation / fetch elements", () => {
+    it("strips <script> and keeps surrounding markdown", () => {
+      const result = rendered(
+        '<div><p>hello</p><script>alert(1)</script><p>world</p></div>'
+      );
+      expect(result).not.toContain("<script");
+      expect(result).not.toContain("alert(1)");
+      expect(result).toContain("hello");
+      expect(result).toContain("world");
+    });
+
+    it("strips <iframe>, <object>, <embed>, <foreignObject>", () => {
+      const result = rendered(
+        '<iframe src="https://evil.example"></iframe><object data="x"></object><embed src="x"/><svg><foreignObject><div>x</div></foreignObject></svg><p>ok</p>'
+      );
+      expect(result).not.toContain("<iframe");
+      expect(result).not.toContain("<object");
+      expect(result).not.toContain("<embed");
+      expect(result).not.toContain("foreignobject");
+      expect(result).toContain("ok");
+    });
+
+    it("strips document-level <base>/<meta>/<link>/<form>", () => {
+      const result = rendered(
+        '<base href="https://evil.example/"><meta http-equiv="refresh" content="0;url=https://evil.example"><link rel="stylesheet" href="https://evil.example/x.css"><form action="https://evil.example"><input/></form><p>body</p>'
+      );
+      expect(result).not.toContain("<base");
+      expect(result).not.toContain("<meta");
+      expect(result).not.toContain("<link");
+      expect(result).not.toContain("<form");
+      expect(result).not.toContain("evil.example");
+      expect(result).toContain("body");
+    });
+  });
+
+  describe("drops event handlers and dangerous-scheme URLs", () => {
+    it("drops on* handlers (the real innerHTML XSS vector)", () => {
+      const result = rendered(
+        '<img src="x" onerror="alert(1)"/><a href="#" onclick="steal()">x</a>'
+      );
+      expect(result).not.toContain("onerror");
+      expect(result).not.toContain("onclick");
+      expect(result).not.toMatch(/alert\(1\)|steal\(\)/);
+    });
+
+    it("drops javascript:/vbscript: and data:text/html URLs", () => {
+      expect(rendered('<a href="javascript:alert(1)">x</a>')).not.toContain(
+        "javascript:"
+      );
+      expect(
+        rendered('<a href="vbscript:msgbox(1)">x</a>')
+      ).not.toContain("vbscript:");
+      expect(
+        rendered('<a href="data:text/html,<script>alert(1)</script>">x</a>')
+      ).not.toContain("data:text/html");
+      expect(
+        rendered('<a href="&#106;avascript:alert(1)">x</a>')
+      ).not.toContain("javascript:");
+    });
+  });
+
+  describe("preserves ordinary rendered markdown (including remote resources)", () => {
+    it("keeps formatting, headings, lists, and code", () => {
+      const result = rendered(
+        '<h1>Title</h1><p><strong>bold</strong> and <em>em</em></p><ul><li>a</li></ul><pre><code>x()</code></pre>'
+      );
+      expect(result).toContain("<h1");
+      expect(result).toContain("<strong");
+      expect(result).toContain("<em");
+      expect(result).toContain("<li");
+      expect(result).toContain("<code");
+    });
+
+    it("keeps relative, http(s), and mailto links/images (legit in notes)", () => {
+      expect(rendered('<a href="note.md">x</a>')).toContain('href="note.md"');
+      expect(
+        rendered('<a href="https://example.com/page">x</a>')
+      ).toContain("https://example.com/page");
+      expect(rendered('<a href="mailto:a@b.com">x</a>')).toContain(
+        "mailto:a@b.com"
+      );
+      expect(
+        rendered('<img src="https://example.com/pic.png"/>')
+      ).toContain("https://example.com/pic.png");
+    });
+
+    it("neutralises remote url() in inline styles but keeps the element", () => {
+      const result = rendered(
+        '<div style="background:url(http://evil.example/b.png);color:#111">x</div>'
+      );
+      expect(result).not.toContain("evil.example");
+      expect(result).toContain("color:#111");
+      expect(result).toContain(">x<");
+    });
+  });
+
+  describe("fail-safe contract", () => {
+    it("returns an empty string for empty / non-string input", () => {
+      expect(sanitizeRenderedHtml("")).toBe("");
+      expect(sanitizeRenderedHtml(null as unknown as string)).toBe("");
+      expect(sanitizeRenderedHtml(123 as unknown as string)).toBe("");
     });
   });
 });
