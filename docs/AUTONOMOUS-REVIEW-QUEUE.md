@@ -301,6 +301,47 @@ queueing more and pivots to safe work — so this list stays reviewable.
   commits to the very choice this ADR defers to you.
 - **Bead status:** Notidian-2uz stays **OPEN**, awaiting your direction.
 
+### Notidian-e8e — array.ts order comparators: correctness vs caller-dependence (+ uniqCaseInsensitive casing, Notidian-9v6)
+
+- **ADR:** [docs/adr/0025-array-comparator-correctness.md](adr/0025-array-comparator-correctness.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the two comparators (`orderStringArrayByArray`
+  column ordering, `orderArrayByArrayWithKey` space/row ordering) are load-bearing
+  on the cache path, and their current output is **explicitly locked as
+  characterization, not correction** (`array.test.ts:29`). They are non-reflexive
+  (`cmp(x,x)===-1`), non-transitive, lean on V8 TimSort specifics for absent-item
+  order, and mutate the caller's array in place. The live callers (`cacheParsers.ts:88`,
+  `superstate.ts:816`) *might* depend on the reversed-absent / in-place quirks, so
+  "fix the comparator" is a behavior call, not pure logic — a blind flip could
+  silently reorder the owner's columns/spaces.
+- **What the investigation found (grounds the recommendation):** neither caller
+  depends on *reversed* absent ordering. `superstate.ts` passes a throwaway copy
+  (in-place is harmless) and has no reason to show focus-less spaces reversed.
+  `cacheParsers.ts:88` is **actively harmed** by the comparator's absent tail —
+  verified empirically, it **duplicates** every new path (`orderStringArrayByArray`
+  reverse-appends the absent set, then `missingPaths` appends the same set again:
+  `[row2,row1,newB,newA,newA,newB]`). The single contract both rely on —
+  "present items first, in order-sequence" — is already property-tested
+  (`array.test.ts:388`) and preserved by every option.
+- **The one decision you need to make:** pick **A / B / C** for the comparators —
+  **recommended B**: replace both with a stable, reflexive, non-mutating comparator
+  (`0` for equal/both-absent, `A-B` otherwise, preserving input order for absent
+  items via stable sort), update the two callers, and flip the ~5 locked
+  characterization assertions. Ruled out: **A** (keep+document) leaves the latent
+  V8-dependent sort-stability hazard and the `cacheParsers` duplication; **C**
+  (default-OFF flag) over-engineers the rollout of pure, offline-provable logic —
+  the flag mechanism is for changes gates *can't* prove, which this isn't.
+- **Folded-in sub-decision (Notidian-9v6):** confirm switching `uniqCaseInsensitive`
+  to **first-seen** casing (currently keeps last-seen via `new Map(...).values()`).
+  Recommended **yes** — it is display-only (property-key column labels in
+  `PropertiesView`/`RemoteMarkdownHeaderView`), matches stated intent, mirrors
+  `uniq`. Rides with Option B; can land independently even under A (no caller risk).
+- **No build / no spike shipped.** This is pure offline-provable logic, so no
+  default-OFF flag was added; on a pick, the implementing session applies it (tests
+  + tsc + build green; one eyes-on vault check confirms the cosmetic absent-order
+  delta).
+- **Bead status:** Notidian-e8e stays **OPEN** (folds in Notidian-9v6), awaiting
+  your direction.
+
 ## Cleared
 
 _(none yet)_
