@@ -488,6 +488,45 @@ queueing more and pivots to safe work — so this list stays reviewable.
   bead, **not built**, because it presupposes you accept the contract.
 - **Bead status:** Notidian-tni stays **OPEN**, awaiting your direction.
 
+### Notidian-od7 — `serializeMultiDisplayString`/`parseMultiDisplayString`: first-comma-only escape data loss
+
+- **ADR:** [docs/adr/0030-multi-display-string-comma-escaping.md](adr/0030-multi-display-string-comma-escaping.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the escape contract is **caller-dependent**.
+  `serializeMultiDisplayString` (`serializers.ts:1`) and `parseMultiDisplayString`
+  (`parsers.ts:10`) both use a **string-pattern** `.replace(',', ...)` / `.replace('\\,', ...)`,
+  which replaces only the **first** occurrence — so any element containing a comma
+  fractures on round-trip (`['a,b','c']` -> `'a\,b, c'` -> `['a','b','c']`, one element
+  into three; `['x,y,z']` -> `['x','y','z']`; verified empirically). It backs real
+  authority surfaces (link/context cells, tags, aliases, lookup inlinks/outlinks/spaces).
+  The present defective output is **explicitly locked as characterization, not correction**
+  in `serializers.test.ts` (Notidian-a3s), so a fix must be a deliberate flip — not silent.
+- **What the investigation found (grounds the recommendation):** the exposure is
+  **narrow**. The `multi` path everywhere already uses the safe JSON `serializeMultiString`
+  (`LinkCell.tsx:35`, `ContextCell.tsx:62`); the display form is hit only on **single
+  values** or on **paths/tags** (Obsidian paths and tags can't contain commas in practice),
+  so the only real bite is a comma inside an **alias** (`label.ts:30`) or a single-option
+  label (`optionCellModel.ts:33`) — rare on a single-user vault. Comma-free values
+  round-trip cleanly and are **byte-identical** before/after. The load-bearing catch:
+  fixing the **parser** changes the read-back of values **already written** by the buggy
+  serializer (stored `'a\,b, c'`: old parser -> `['a','b','c']`, fixed parser -> `['a,b','c']`)
+  — a vault-data re-interpretation offline gates can't see.
+- **The one decision you need to make:** pick **A / B / C** — **recommended A**: make
+  **both** comma replaces global (`/,/g` on serialize, `/\\,/g` on parse), and move the
+  parser un-escape to **after** the split (un-escaping the whole string first would
+  re-create separators — verified). Keeps the human-readable comma form; correct
+  round-trip for all values; flips ~5 locked characterization assertions. Ruled out:
+  **B** (route single values through JSON `serializeMultiString`) turns readable `a, b`
+  into `["a","b"]` on disk — a readability regression for a lone string and a larger
+  "retire the display form" call; **C** (accept + document) leaves a confirmed data-loss
+  defect on authority surfaces with only a comment as guardrail.
+- **No build / no spike shipped.** The only un-gate-able aspect is the rare
+  re-interpretation of already-escaped-comma vault values, which a single eyes-on vault
+  check settles — not something a default-OFF flag de-risks (the logic itself is
+  offline-provable and guarded by the comma-free-identity property net + the flipped
+  characterization tests). On a pick, the implementing session applies A's two-function
+  edit and flips the locked assertions.
+- **Bead status:** Notidian-od7 stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
