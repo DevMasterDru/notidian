@@ -127,6 +127,38 @@ queueing more and pivots to safe work — so this list stays reviewable.
   open — there is **no background/OS notification** (an Obsidian-plugin runtime fact).
 - **Bead status:** Notidian-5io stays **OPEN**, awaiting your direction.
 
+### Notidian-214 — Frame-execution settings toggle + vault-trusted-frame allowlist
+
+- **ADR:** [docs/adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md](adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md) (Status: Proposed).
+- **Why a decision, not a build:** (1) this is **gated** on the Notidian-vke
+  flag-gated item above — the toggle + allowlist only matter once you keep
+  `hardenFrameExecution` **ON** after live-verify; building ahead of that gambles on
+  a boundary you may tune or reject, and the allowlist only exists *if* live-verify
+  finds a real user frame the boundary breaks. (2) The allowlist is a genuine design
+  choice with a hard invariant: trust must stay **non-persisted / non-attacker-
+  controllable** (`src/core/utils/frames/trust.ts`). A persisted allowlist (an
+  `.mdb` column, a frontmatter field, a `data.json` paths list) is editable by the
+  same AI-writes-to-vault threat actor the boundary defends against — it would
+  **reopen the exact vke RCE**. So "just add an allowlist" *is* the question.
+- **The one decision you need to make:** approve the recommended pair —
+  **(1)** an **`advanced`-category settings toggle** for `hardenFrameExecution`,
+  worded to name the tradeoff ("may disable `$api` in custom frames you authored");
+  **(2)** a **non-persisted, user-blessed, session-scoped provenance stamp** — a
+  deliberate "trust this frame's code" gesture that calls `stampKitProvenanceTree`
+  **in memory only** (re-confirmed after reload/edit), optionally upgraded to a
+  **content-hash** allowlist (trust the reviewed bytes, not a path/flag) if
+  re-blessing proves too noisy. Ruled out: persisted per-space/frontmatter "trusted"
+  marker (attacker-editable — same class as the forgeable-`ref` RCE); a `data.json`
+  trusted-**paths** list (trust attaches to a location, not reviewed code — kept
+  only as an explicit-consent fallback); auto-trusting opened/edited frames.
+- **Sequencing:** this stays parked until you complete the **Notidian-vke** live-
+  verify above and decide to keep the boundary on. If you do, the cheap first step is
+  the **default-OFF spike** in the ADR: ship only the toggle plus a read-only
+  diagnostic that reports *which* frame/expression the boundary no-op'd, so the
+  live-verify yields a precise list of frames that need blessing — telling you
+  whether the allowlist is even needed before any allowlist code is written.
+- **Bead status:** Notidian-214 stays **OPEN**, awaiting your direction.
+
 ### Notidian-2w0 (epic item 5) — In-table quick find: already shipped; one sequencing decision left
 
 - **ADR:** [docs/adr/0021-in-table-quick-find.md](adr/0021-in-table-quick-find.md) (Status: **Accepted** — records an already-shipped design).
