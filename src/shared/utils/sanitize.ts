@@ -220,3 +220,57 @@ export const sanitizeRenderedHtml = (html: string): string => {
     return "";
   }
 };
+
+// Sanitize the INLINE HTML of a frame text node (TextNodeView) before it is
+// injected via dangerouslySetInnerHTML. Unlike a frontmatter value, this string
+// is NOT plain text: the node is contentEditable and onBlur reads back
+// e.target.innerHTML, so frame text legitimately carries inline FORMATTING markup
+// (bold/italic/links/spans/line breaks). escapeHtml is therefore wrong here — it
+// would render the tags as literal text on first paint and then double-escape on
+// the innerHTML round-trip, corrupting the saved value. Instead we strip only what
+// is genuinely dangerous and KEEP the formatting tags:
+//   - remove script-capable / navigation / fetch elements (the shared
+//     HTML_DANGEROUS_TAGS set: script/iframe/object/embed/SMIL/base/meta/link/
+//     frame/form/...),
+//   - drop every on* event-handler attribute,
+//   - neutralise remote fetches inside <style>/style CSS (@import, url(...)),
+//   - drop URL attributes whose scheme can execute/smuggle markup
+//     (javascript:/vbscript:/data:text-html), keeping ordinary http(s)/# links.
+// DOM-based (an inert <template> parses without executing/fetching) and fail-safe:
+// "" on parse error or when there is no DOM (node test env / non-render contexts),
+// matching sanitizeIconSVG / sanitizeRenderedHtml. The round-trip is lossless for
+// content that contains no dangerous constructs, so a saved value re-sanitised on
+// the next paint is stable (idempotent). bd Notidian-vke (deferred ebz sink #2).
+export const sanitizeFrameText = (html: unknown): string => {
+  if (html == null) return "";
+  if (typeof html != "string") return "";
+  if (html == "") return "";
+  if (typeof document == "undefined") return "";
+  try {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    template.content.querySelectorAll("*").forEach((el) => {
+      const tag = el.tagName.toLowerCase();
+      if (HTML_DANGEROUS_TAGS.has(tag)) {
+        el.remove();
+        return;
+      }
+      if (tag == "style") {
+        el.textContent = neutralizeCssFetches(el.textContent ?? "");
+      }
+      Array.from(el.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith("on")) {
+          el.removeAttribute(attr.name);
+        } else if (name == "style") {
+          el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+        } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+    return template.innerHTML;
+  } catch {
+    return "";
+  }
+};

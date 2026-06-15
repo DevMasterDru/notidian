@@ -12,6 +12,7 @@ import { buildExecutable } from "./executable";
 import { parseLinkedNode } from "./frame";
 import { linkNodes } from "./linker";
 import { frameToNode } from "./nodes";
+import { stampKitProvenance, stampKitProvenanceTree } from "./trust";
 
 const calculateEditorProps = (props: FrameEditorProps, treeNode: FrameTreeNode) : FrameEditorProps => {
 
@@ -73,19 +74,27 @@ export function replaceSubtree(tree: FrameTreeNode, subtree: FrameTreeNode): Fra
 
   return tree;
 }
+// bd Notidian-vke: resolve a frame ref to its rows, and report whether the rows
+// came from a plugin-shipped kit entry (superstate.kit.find). `fromKit` is the
+// SOUND provenance signal for the trust boundary — it is true only when the code
+// genuinely originated from a resolved kit at expansion time, never from the
+// persisted ref string (which is attacker-controllable). User/imported frames
+// resolved via readFrame are fromKit:false even if their stored ref forges the
+// $kit prefix.
 const getFrameNodesByPath = async (
     superstate: Superstate,
     ref: string
-  ): Promise<MDBFrame> => {
+  ): Promise<{ frame: MDBFrame; fromKit: boolean } | undefined> => {
     const path = superstate.spaceManager.uriByString(ref)
     if (!path) return;
     if (path.authority == '$kit') {
       const kit = superstate.kit.find(f => f.def.id == path.ref)
       if (!kit) return;
-      return rootToFrame(kit)
+      return { frame: rootToFrame(kit), fromKit: true };
     }
     const context = await superstate.spaceManager.readFrame(path.basePath, path.ref);
-    return context as MDBFrame;
+    if (!context) return;
+    return { frame: context as MDBFrame, fromKit: false };
   };
 
   export function flattenToFrameNodes(root: FrameTreeNode | FrameRoot, schemaId: string): FrameNode[] {
@@ -126,8 +135,11 @@ const getFrameNodesByPath = async (
   const expandNode = async (treeNode: FrameTreeNode,id: number, superstate: Superstate) : Promise<[FrameTreeNode, number]> => {
 
     if (treeNode.node.type == "frame") {
-      
-      const mdbFrame = await getFrameNodesByPath(superstate, treeNode.node.ref);
+
+      const resolved = await getFrameNodesByPath(superstate, treeNode.node.ref);
+      const mdbFrame = resolved?.frame;
+      // bd Notidian-vke: trust comes from THIS resolution, not the persisted ref.
+      const fromKit = resolved?.fromKit === true;
       if (treeNode.node.schemaId == mdbFrame?.schema.id)
       return [treeNode, id];
       if (!mdbFrame || mdbFrame.rows.length == 0) {
@@ -150,9 +162,28 @@ const getFrameNodesByPath = async (
       if (!newTreeNode) {
         return [linkedNode, newID];
       }
-      return [insertFrameChildren({...newTreeNode, parent: linkedNode.parent, isRef: false, node: {...newTreeNode.node, schemaId: linkedNode.node.schemaId, ref: linkedNode.node.ref, types: linkedNode.node.types, propsAttrs: linkedNode.node.propsAttrs, propsValue: linkedNode.node.propsValue, parentId:linkedNode.node.parentId, type: linkedNode.node.type, id: newTreeNode.id}}, treeNode.children), newID];
+      // bd Notidian-vke: newTreeNode + its descendants ARE the kit code resolved
+      // from superstate.kit at THIS expansion (the sound provenance). When (and
+      // only when) the ref resolved to a real kit entry, stamp this subtree with
+      // a non-persisted kit-provenance marker BEFORE the user's original children
+      // are inserted into its content slots. insertFrameChildren keeps these kit
+      // FrameNode objects by reference (its non-content branches spread only the
+      // tree wrapper, not node), so the stamps carry through; the inserted user
+      // children are rebuilt via {...f.node} spread, which strips any marker, so
+      // stored/imported content can never inherit trust here.
+      if (fromKit) {
+        stampKitProvenanceTree(newTreeNode);
+      }
+      const rebuiltRootNode = {...newTreeNode.node, schemaId: linkedNode.node.schemaId, ref: linkedNode.node.ref, types: linkedNode.node.types, propsAttrs: linkedNode.node.propsAttrs, propsValue: linkedNode.node.propsValue, parentId:linkedNode.node.parentId, type: linkedNode.node.type, id: newTreeNode.id};
+      // The root node is rebuilt via spread above (dropping the non-enumerable
+      // marker), so re-stamp it explicitly for kit-resolved frames.
+      if (fromKit) {
+        stampKitProvenance(rebuiltRootNode);
+      }
+      const expanded = insertFrameChildren({...newTreeNode, parent: linkedNode.parent, isRef: false, node: rebuiltRootNode}, treeNode.children);
+      return [expanded, newID];
     }
-    
+
     return [treeNode, id];
   }
   const expandFrame = async (

@@ -25,6 +25,11 @@ export type FrameExecutableContext = {
   contexts: FrameContexts;
   selectedSlide: string;
   styleAst?: StyleAst;
+  // bd Notidian-vke: when true, the frame-execution trust boundary is active —
+  // $api is withheld from prop/style evaluation of user/imported (non-default-
+  // kit) frame nodes. Default-OFF (resolved from settings.hardenFrameExecution
+  // by callers); undefined/false preserves the legacy behaviour.
+  hardenFrameExecution?: boolean;
 };export type FrameRunInstance = {
   id: string;
   state: FrameState;

@@ -86,6 +86,10 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   enhancedLogs: false,
   basics: true,
   mkitInstallerEnabled: false,
+  // Default-OFF frame-execution hardening (bd Notidian-vke / ADR 0018). Core
+  // render-path change; needs live vault verification before the owner enables
+  // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
+  hardenFrameExecution: false,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,

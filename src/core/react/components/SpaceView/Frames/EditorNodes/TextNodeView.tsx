@@ -9,6 +9,7 @@ import React, { useContext, useMemo, useRef } from "react";
 import { FrameEditorMode } from "shared/types/frameExec";
 
 import useLongPress from "core/react/hooks/useLongPress";
+import { sanitizeFrameText } from "shared/utils/sanitize";
 import { FrameNodeViewProps } from "../ViewNodes/FrameView";
 
 export const TextNodeView = (props: FrameNodeViewProps) => {
@@ -101,6 +102,20 @@ export const TextNodeView = (props: FrameNodeViewProps) => {
   const selected = selection.includes(props.treeNode.id);
   const { linkedProps } = useContext(FrameInstanceContext);
 
+  // bd Notidian-vke (deferred ebz sink #2): frame text is injected via
+  // dangerouslySetInnerHTML and is contentEditable (onBlur reads back innerHTML,
+  // so it legitimately carries inline formatting markup — escapeHtml would
+  // corrupt the round-trip). When the trust boundary is enabled, route it through
+  // sanitizeFrameText, which strips script/on*/dangerous-URLs but KEEPS the
+  // formatting tags. Default-OFF (settings.hardenFrameExecution) — core
+  // render-path change pending live vault verification.
+  const harden = props.superstate?.settings?.hardenFrameExecution;
+  const value = props.state.props?.value;
+  const safeValue = useMemo(
+    () => (harden ? sanitizeFrameText(value) : value),
+    [harden, value]
+  );
+
   const editable = useMemo(() => {
     if (selectionMode == FrameEditorMode.Read) return false;
 
@@ -132,7 +147,7 @@ export const TextNodeView = (props: FrameNodeViewProps) => {
           editable || selectable ? i18n.labels.textPlaceholder : ""
         }
         dangerouslySetInnerHTML={{
-          __html: props.state.props?.value,
+          __html: safeValue,
         }}
         onClick={onClick}
         onMouseDown={onMouseDown}

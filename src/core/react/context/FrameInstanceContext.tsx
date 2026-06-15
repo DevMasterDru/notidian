@@ -140,6 +140,8 @@ export const FrameInstanceProvider: React.FC<
         selectedSlide,
         exec: _exec,
         styleAst: instance.styleAst,
+        // bd Notidian-vke: default-OFF frame-execution trust boundary.
+        hardenFrameExecution: props.superstate.settings?.hardenFrameExecution,
       }
     ).then((s) => {
       setInstance((p) => {
@@ -201,6 +203,8 @@ export const FrameInstanceProvider: React.FC<
           runID,
           selectedSlide,
           styleAst: defaultStyleAst,
+          // bd Notidian-vke: default-OFF frame-execution trust boundary.
+          hardenFrameExecution: props.superstate.settings?.hardenFrameExecution,
         }
       ).then((s) => {
         

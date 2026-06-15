@@ -6,8 +6,66 @@ import { FrameNode, FrameTreeProp } from 'shared/types/mframe';
 import { uniq } from 'shared/utils/array';
 import { buildExecutable } from './executable';
 import { linkTreeNodes } from './linker';
+import { hasKitProvenance } from './trust';
 
 export type ResultStore = { state: FrameState, newState: FrameState, slides: FrameState, prevState: FrameState, styleAsts?: StyleAst[] };
+
+// bd Notidian-vke — frame-execution trust boundary.
+//
+// Frame node props/styles/actions are compiled to JS and run with $api (full
+// vault write access) via new Function (executable.ts / executeCode). Under the
+// elevated threat model (AI agents / pasted content can write frame defs), an
+// untrusted frame def carrying code is an RCE vector. Default-kit frames REQUIRE
+// $api in their props/styles (e.g. list/calendar/ui kits call
+// $api.path.label(...) / $api.date.* in prop and style expressions), so a blanket
+// $api gate would break default space/list rendering (ADR 0018 "disable globally"
+// alt, rejected). The boundary is therefore per-node by SOURCE:
+//
+//  - TRUSTED: plugin-shipped kit frames, resolved from superstate.kit at
+//    expansion time (ast.ts getFrameNodesByPath $kit branch). Such nodes carry a
+//    NON-PERSISTED kit-provenance marker stamped by trusted expansion code
+//    (trust.ts) and keep $api.
+//  - UNTRUSTED: every other frame node (user-authored views.mdb main frames,
+//    .mkit-imported frames). When the boundary is active, $api is withheld from
+//    its prop/style evaluation environment.
+//
+// SECURITY (the fix for the unsound earlier boundary): trust is NOT derived from
+// node.ref. `ref` is a persisted, attacker-controllable DBRow column (frameToNode
+// spreads it verbatim, nodeToFrame writes it back), so a node whose ref forges
+// the "spaces://$kit/" prefix used to be classed trusted and silently regained
+// $api on every render even with the boundary ON — a silent-on-render RCE, and
+// the very threat this boundary claims to close. Legit user frames embedding
+// default-kit elements ALSO persist $kit refs, so the ref string cannot
+// distinguish plugin code from stored content even in principle. Trust is now a
+// runtime provenance marker that only genuine kit resolution can set and that
+// stored/imported data can never carry (see trust.ts).
+//
+// Actions are user-triggered (onClick/onChange/onRun fired by interaction), not
+// part of the always-on render, so they keep $api regardless — the boundary
+// closes the silent-on-render RCE, not deliberate user actions.
+//
+// Gated behind settings.hardenFrameExecution (default-OFF) because it changes the
+// core render path and cannot be verified offline; callers pass the flag through
+// FrameExecutableContext.hardenFrameExecution. With the flag off (or undefined)
+// behaviour is byte-for-byte the legacy path.
+
+export const isTrustedFrameNode = (executable: FrameExecutable): boolean => {
+  // Sound provenance only: the node's code must have originated from a kit entry
+  // resolved at expansion time. Re-reading the persisted ref is explicitly NOT a
+  // trust signal — it is forgeable stored data.
+  return hasKitProvenance(executable?.node);
+};
+
+// Decide whether $api should be exposed to a node's prop/style evaluation. When
+// the boundary is off, always expose (legacy). When on, expose only for trusted
+// (default-kit) nodes.
+export const frameNodeMayUseApiInProps = (
+  executable: FrameExecutable,
+  harden: boolean | undefined
+): boolean => {
+  if (!harden) return true;
+  return isTrustedFrameNode(executable);
+};
 
 const styleAstsForNode = (
   style: FrameTreeProp,
@@ -106,7 +164,7 @@ export const executeTreeNode = async (
         return {id: executionContext.runID, root: executionContext.root, exec: treeNode, state: store.state, slides: store.slides, newState: store.newState, prevState: store.prevState, contexts: executionContext.contexts, styleAst: executionContext.styleAst}
         
     }
-    let execState = await executeNode(treeNode, store, executionContext.contexts, executionContext.api);
+    let execState = await executeNode(treeNode, store, executionContext.contexts, executionContext.api, executionContext.hardenFrameExecution);
     
     if (executionContext.styleAst) {
         const style = execState.state[treeNode.id].styles
@@ -200,10 +258,13 @@ export const executeTreeNode = async (
 
 
 
-export const executeNode = async (executable: FrameExecutable, results: ResultStore, contexts: FrameContexts, api: API) => {
-    const propResults = await executePropsCodeBlocks(executable, results, contexts, api)
-    const stylesResults = executeCodeBlocks(executable.node, 'styles', executable.execStyles, propResults)
-    const actions = executeCodeBlocks(executable.node,'actions', executable.execActions, stylesResults)
+export const executeNode = async (executable: FrameExecutable, results: ResultStore, contexts: FrameContexts, api: API, hardenFrameExecution?: boolean) => {
+    // bd Notidian-vke: prop + style code is part of the always-on render, so it is
+    // subject to the trust boundary. Actions are user-triggered and keep $api.
+    const propApi = frameNodeMayUseApiInProps(executable, hardenFrameExecution) ? api : undefined;
+    const propResults = await executePropsCodeBlocks(executable, results, contexts, propApi)
+    const stylesResults = executeCodeBlocks(executable.node, 'styles', executable.execStyles, propResults, propApi)
+    const actions = executeCodeBlocks(executable.node,'actions', executable.execActions, stylesResults, api)
     return actions;
 }
 export const executeCode =  (code: any, environment: {[key: string]: any}) => {
@@ -221,12 +282,12 @@ export const executeCode =  (code: any, environment: {[key: string]: any}) => {
 // return result;
 }
 
-const executePropsCodeBlocks = async (executable: FrameExecutable, results: ResultStore, contexts: FrameContexts, api: API): Promise<ResultStore> => {
+const executePropsCodeBlocks = async (executable: FrameExecutable, results: ResultStore, contexts: FrameContexts, api: API | undefined): Promise<ResultStore> => {
     const { id} = executable.node
     const codeBlockStore = executable.execProps ?? {}
     // Sort keys based on dependencies.
 
-    
+
     // Prepare an environment for executing code blocks.
     const environment = results.state;
     environment[id] = {
@@ -235,6 +296,11 @@ const executePropsCodeBlocks = async (executable: FrameExecutable, results: Resu
         styles: results.state[id]?.styles ?? {},
     }
     environment.$contexts = contexts,
+    // bd Notidian-vke: api is undefined when the trust boundary withholds $api
+    // from this (untrusted) node. environment is shared across nodes, so it must
+    // be reset every call — a trusted node re-binds it, an untrusted node clears
+    // it. $api.* expressions on an untrusted node then throw (caught per-key) and
+    // resolve to nothing, while const props still evaluate.
     environment.$api = api
     for (const {name: key, isConst} of executable.execPropsOptions.props) {
         // Execute the code block.
@@ -270,10 +336,20 @@ const executePropsCodeBlocks = async (executable: FrameExecutable, results: Resu
     return results;
 }
 
-function executeCodeBlocks(node: FrameNode, type: 'actions' | 'styles', codeBlockStore: FrameExecProp, results: ResultStore): ResultStore {
+function executeCodeBlocks(node: FrameNode, type: 'actions' | 'styles', codeBlockStore: FrameExecProp, results: ResultStore, api?: API): ResultStore {
     // Sort keys based on dependencies.
     // results.state[node.id][type] = codeBlockStore
     // Prepare an environment for executing code blocks.
+    // bd Notidian-vke: codeBlockStore[key].call(results.state) executes with
+    // results.state as `this`, so $api resolves from results.state.$api. Bind it
+    // to the api passed in — withheld (undefined) for untrusted styles, the real
+    // api for trusted styles and for actions (always user-triggered). When api is
+    // not supplied (undefined), the with(this) lookup simply falls through.
+    if (api !== undefined) {
+        results.state.$api = api;
+    } else {
+        results.state.$api = undefined;
+    }
 const { id } = node
     for (const key of uniq([...Object.keys(codeBlockStore), ...Object.keys(results.newState?.[id]?.[type] ?? {})])) {
         let result;

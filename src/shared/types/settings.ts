@@ -88,6 +88,20 @@ export interface MakeMDSettings {
   // surface feeding the frame execution sink and unused in a Notidian-only,
   // folder-backed engine (ADR 0018; bd Notidian-409).
   mkitInstallerEnabled: boolean;
+  // Frame-execution trust boundary + frame-text sanitization (bd Notidian-vke,
+  // deferred from the ebz sweep / ADR 0018). When true:
+  //  (1) the TextNodeView frame-text dangerouslySetInnerHTML sink is routed
+  //      through sanitizeFrameText (strips script/on*/dangerous-URLs, keeps
+  //      formatting), and
+  //  (2) the new Function prop/style evaluator withholds $api from
+  //      user/imported (non-default-kit) frames, so only plugin-shipped default
+  //      frames and user-triggered actions get API write access.
+  // DEFAULT-OFF: this is a core render-path change that cannot be verified
+  // offline (SpaceOuter always frame-renders). It ships gated so the owner's
+  // current vault is untouched until they enable it and live-verify in the
+  // vault (see docs/AUTONOMOUS-REVIEW-QUEUE.md). Existing saved settings are not
+  // mutated; only fresh/unset state defaults to false.
+  hardenFrameExecution: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

@@ -124,16 +124,32 @@ Kept (no change):
   legacy `makerMode`→`basics` derivation (`main.ts:664`). Left enabled pending
   confirmation it is unused.
 
-Deferred to dedicated beads (NOT done autonomously — they change the core frame
-render path and need live vault verification, the same reason the ebz sweep
-deferred them):
+Landed flag-gated (bd Notidian-vke, default-OFF behind `hardenFrameExecution`,
+pending live vault verification — see `docs/AUTONOMOUS-REVIEW-QUEUE.md`):
 
-- **Frame-execution sink hardening** (bd Notidian-vke, P2): the `new Function`
-  trust boundary (default frames *require* code execution, so a blanket gate
-  breaks rendering — needs a trusted-source boundary or `$api`-out-of-prop-scope
-  design) and the `TextNodeView` frame-text sink (needs a DOM HTML *sanitizer*,
-  not `escapeHtml`, because `onBlur` reads `innerHTML` and the text carries
-  formatting).
+- **Frame-execution sink hardening**: (a) the `new Function` trust boundary —
+  `$api` is withheld from prop/style evaluation of **user/imported** frame nodes
+  while plugin-shipped kit frames and user-triggered actions keep it. Trust is a
+  **non-persisted provenance marker** (`trust.ts`) stamped only on nodes whose
+  code is resolved from `superstate.kit` at expansion time (`ast.ts`
+  `getFrameNodesByPath` `$kit` branch); it is a module-private, non-enumerable,
+  Symbol-keyed own property, so stored/imported data (a `Record<string,string>`
+  DBRow) can never carry it. Trust is explicitly **not** derived from
+  `node.ref`: `ref` is a persisted, attacker-controllable column, so an earlier
+  `ref.startsWith("spaces://$kit/")` check was unsound — any stored row could
+  forge the prefix and silently regain `$api` on every render (a silent-on-render
+  RCE), and legit user frames embedding kit elements persist identical `$kit`
+  refs, making the string indistinguishable from a forgery even in principle.
+  Verification against `schemas/kits/*`
+  **refuted** the bead's "no default prop/style needs $api" assumption — the
+  `list`/`calendar`/`ui` kits call `$api.path.label`/`$api.date.*` in props AND
+  styles — so the chosen design is `$api`-out-of-prop-scope *only for untrusted
+  nodes*, not a blanket gate. (b) the `TextNodeView` frame-text sink is routed
+  through the new `sanitizeFrameText` (a DOM HTML sanitizer that keeps formatting,
+  not `escapeHtml`, because `onBlur` reads `innerHTML`). Both are gated default-OFF
+  because they change the core render path and cannot be verified offline.
+
+Still deferred (NOT done autonomously — needs live vault verification):
 - **HTML export disable + staged removal** of the disabled subsystems
   (bd Notidian-ala, P3).
 
