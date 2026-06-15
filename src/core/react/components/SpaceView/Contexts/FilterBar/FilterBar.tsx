@@ -634,18 +634,9 @@ export const FilterBar = (props: {
         },
       });
     }
-    menuOptions.push({
-      name: i18n.menu.groupBy,
-      icon: "ui//columns",
-      type: SelectOptionType.Submenu,
-      onSubmenu: (offset, onHide) => {
-        return showGroupByMenu(
-          offset,
-          windowFromDocument(e.view.document),
-          onHide
-        );
-      },
-    });
+    // Group-By is hoisted to a dedicated toolbar button (Notidian-nmr); it is
+    // intentionally no longer duplicated here in the view-options ("3 knobs")
+    // overflow menu, matching how Filter and Sort already moved to the bar.
     menuOptions.push({
       name: i18n.menu.sortBy,
       icon: "ui//sort-desc",
@@ -1575,6 +1566,22 @@ export const FilterBar = (props: {
               __html: props.superstate.ui.getSticker("ui//sort-desc"),
             }}
           ></button>
+          {/* Group-By toolbar button in minMode too (Notidian-nmr), so the
+              Filter/Sort/Group-By trio stays consistent across modes. */}
+          <button
+            className="mk-toolbar-button"
+            aria-label="Group By"
+            title="Group By"
+            onClick={(e) => {
+              // Anchor to the button, not the clicked SVG child (Notidian-i23).
+              const rect = e.currentTarget.getBoundingClientRect();
+
+              showGroupByMenu(rect, windowFromDocument(e.view.document), null);
+            }}
+            dangerouslySetInnerHTML={{
+              __html: props.superstate.ui.getSticker("ui//columns"),
+            }}
+          ></button>
           <button
             className="mk-toolbar-button"
             onClick={(e) => {
@@ -1732,6 +1739,32 @@ export const FilterBar = (props: {
                   }}
                   dangerouslySetInnerHTML={{
                     __html: props.superstate.ui.getSticker("ui//sort-desc"),
+                  }}
+                ></button>
+                {/* Group-By hoisted to its own toolbar button (Notidian-nmr):
+                    completes the Notion-style Filter/Sort/Group-By trio on the
+                    bar rather than leaving Group-By buried in the view-options
+                    ("3 knobs") menu. It reuses the same showGroupByMenu opener
+                    (no new data authority); active state highlights when a
+                    grouping is applied. Anchors via e.currentTarget so it does
+                    not inherit the i23 SVG-child anti-pattern. */}
+                <button
+                  className={classNames(
+                    "mk-toolbar-button",
+                    predicate?.groupBy.length > 0 && "mk-active"
+                  )}
+                  aria-label="Group By"
+                  title="Group By"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    showGroupByMenu(
+                      e.currentTarget.getBoundingClientRect(),
+                      windowFromDocument(e.view.document),
+                      null
+                    );
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: props.superstate.ui.getSticker("ui//columns"),
                   }}
                 ></button>
                 <button

@@ -188,7 +188,8 @@ const tablePredicate = {
 } as any;
 
 const renderFilterBar = (
-  superstate: any
+  superstate: any,
+  predicateOverride?: any
 ): { root: Root; container: HTMLElement } => {
   const spaceState = {
     path: "Some Space",
@@ -201,7 +202,7 @@ const renderFilterBar = (
     dbSchema: { id: "files", name: "Files", type: "db", primary: "false" },
     cols: [],
     filteredData: [],
-    predicate: tablePredicate,
+    predicate: predicateOverride ?? tablePredicate,
     savePredicate: () => {},
     setSearchString: () => {},
     setFindOpen: () => {},
@@ -337,5 +338,148 @@ describe("FilterBar toolbar menu anchoring (Notidian-i23)", () => {
     const sortAnchor = clickIconButtonAndGetAnchor(sortButton);
     expect(sortAnchor.x).toBe(BUTTON_RECT.x);
     expect(sortAnchor.y).toBe(BUTTON_RECT.y);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Notidian-nmr: Group-By hoisted to a dedicated toolbar button next to
+// Filter/Sort (Notion-style), and removed from the view-options ("3 knobs")
+// overflow menu so it is no longer duplicated.
+//
+// These tests capture the full menu props handed to superstate.ui.openMenu
+// (not just the anchor rect) so we can assert the Group-By button renders,
+// opens the property-grouping menu anchored to the button, toggles its
+// mk-active badge with predicate.groupBy, and that the view-options menu no
+// longer contains a Group-By submenu entry.
+// ---------------------------------------------------------------------------
+type OpenMenuFullCall = { rect: { x: number; y: number }; props: any };
+
+const makeSuperstateCapturingProps = (calls: OpenMenuFullCall[]): any => {
+  const ss = makeSuperstate([]);
+  ss.ui.openMenu = (rect: any, props: any) => {
+    calls.push({ rect: { x: rect.x, y: rect.y }, props });
+    return { update: () => {}, hide: () => {} };
+  };
+  return ss;
+};
+
+describe("FilterBar Group-By toolbar button (Notidian-nmr)", () => {
+  let openMenuCalls: OpenMenuFullCall[];
+  let superstate: any;
+  let root: Root;
+  let container: HTMLElement;
+
+  const mount = (predicateOverride?: any) => {
+    openMenuCalls = [];
+    superstate = makeSuperstateCapturingProps(openMenuCalls);
+    ({ root, container } = renderFilterBar(superstate, predicateOverride));
+  };
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  const clickIconButton = (button: HTMLButtonElement) => {
+    const svgChild =
+      button.querySelector("path") ?? button.querySelector("svg");
+    expect(svgChild).toBeTruthy();
+    stubRect(button, BUTTON_RECT);
+    stubRect(svgChild as Element, SVG_CHILD_RECT);
+    openMenuCalls.length = 0;
+    act(() => {
+      svgChild!.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        })
+      );
+    });
+  };
+
+  it("renders a dedicated Group By toolbar button in the bar", () => {
+    mount();
+    const viewOptions = container.querySelector(".mk-view-options")!;
+    const groupByButton = viewOptions.querySelector(
+      'button[aria-label="Group By"]'
+    ) as HTMLButtonElement;
+    expect(groupByButton).toBeTruthy();
+    expect(groupByButton.classList.contains("mk-toolbar-button")).toBe(true);
+  });
+
+  it("opens the group-by menu anchored to the button, not the clicked SVG child", () => {
+    mount();
+    const viewOptions = container.querySelector(".mk-view-options")!;
+    const groupByButton = viewOptions.querySelector(
+      'button[aria-label="Group By"]'
+    ) as HTMLButtonElement;
+
+    clickIconButton(groupByButton);
+
+    expect(openMenuCalls.length).toBeGreaterThan(0);
+    const call = openMenuCalls[openMenuCalls.length - 1];
+    // Anchored to the BUTTON rect (e.currentTarget), never the SVG child rect.
+    expect(call.rect.x).toBe(BUTTON_RECT.x);
+    expect(call.rect.y).toBe(BUTTON_RECT.y);
+    expect(call.rect.x).not.toBe(SVG_CHILD_RECT.x);
+    expect(call.rect.y).not.toBe(SVG_CHILD_RECT.y);
+    // It is the single-select property-grouping menu (saveOptions wired up).
+    expect(call.props.multi).toBe(false);
+    expect(typeof call.props.saveOptions).toBe("function");
+  });
+
+  it("is NOT marked active when no grouping is applied", () => {
+    mount({ ...tablePredicate, groupBy: [] });
+    const groupByButton = container.querySelector(
+      'button[aria-label="Group By"]'
+    ) as HTMLButtonElement;
+    expect(groupByButton.classList.contains("mk-active")).toBe(false);
+  });
+
+  it("is marked active (mk-active) when predicate.groupBy is non-empty", () => {
+    mount({ ...tablePredicate, groupBy: ["Status"] });
+    const groupByButton = container.querySelector(
+      'button[aria-label="Group By"]'
+    ) as HTMLButtonElement;
+    expect(groupByButton.classList.contains("mk-active")).toBe(true);
+  });
+
+  it("no longer lists Group By inside the view-options (3-knobs) overflow menu", () => {
+    mount();
+    const viewOptions = container.querySelector(".mk-view-options")!;
+    const toolbarButtons = Array.from(
+      viewOptions.querySelectorAll("button.mk-toolbar-button")
+    ) as HTMLButtonElement[];
+    // The 3-knobs (view-options) opener is the last toolbar button.
+    const knobsButton = toolbarButtons[toolbarButtons.length - 1];
+
+    stubRect(knobsButton, BUTTON_RECT);
+    openMenuCalls.length = 0;
+    act(() => {
+      knobsButton.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        })
+      );
+    });
+
+    expect(openMenuCalls.length).toBeGreaterThan(0);
+    const menuProps = openMenuCalls[openMenuCalls.length - 1].props;
+    const optionNames: string[] = (menuProps.options ?? []).map(
+      (o: any) => o.name
+    );
+    // Sort and Filter submenus remain in the overflow menu; Group By must not.
+    expect(optionNames).not.toContain("Group By");
+    // i18n.menu.groupBy currently resolves to "Group By"; assert against both
+    // the literal and the i18n source-of-truth to stay robust to wording.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const i18n = require("shared/i18n").default ?? require("shared/i18n");
+    const groupByLabel = i18n?.menu?.groupBy;
+    if (groupByLabel) {
+      expect(optionNames).not.toContain(groupByLabel);
+    }
   });
 });
