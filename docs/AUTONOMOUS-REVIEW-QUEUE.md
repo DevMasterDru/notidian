@@ -1338,6 +1338,50 @@ queueing more and pivots to safe work — so this list stays reviewable.
   (an owner ratification) — neither a measurement a default-OFF flag yields.
 - **Bead status:** Notidian-9i9i stays **OPEN**, awaiting your direction.
 
+### Notidian-2yh — `api.context.insert` row-create: apply a per-field authority gate?
+
+- **ADR:** [docs/adr/0044-context-insert-row-create-authority-gate.md](adr/0044-context-insert-row-create-authority-gate.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the authority-partition semantics on row-**create**
+  are **genuinely undecided** (a defensible argument exists both ways), so this must be
+  an ADR, not a blind build. On an *update* the gate prevents a leak *from a prior
+  value*; on a *create* there is no prior value (new path, empty YAML) — so "seed the
+  visible file's frontmatter" is arguably a legitimate ungated job. The counter is that
+  the durable-home partition (ADR 0001/0014/0017) does not depend on *when* the write
+  happens. Verified in `api.ts:307-334`: the default-`'files'`-schema branch of
+  `api.context.insert` writes the **whole** input row (minus `PathPropertyName`) to the
+  new file's frontmatter via `saveProperties` with **no per-field gate**, whereas
+  `api.context.update` (`:285-306`) and `api.path.setProperty` (`:43-69`) route each
+  field through `apiFieldWriteTarget` (ADR 0001/0017, Notidian-1da). The no-gate behavior
+  is **pinned as characterization** in `api.authority.context.test.ts:196-226`, so any
+  change deliberately re-blesses that assertion.
+- **The one decision you need to make:** pick **A / B / C** —
+  **recommended Option B**: FULL GATE — route each insert field through
+  `apiFieldWriteTarget` so a `source:"notidian"` / context-only field lands in its
+  declared durable home (the context MDB) and a computed/read-only field is skipped,
+  while ordinary frontmatter fields still seed the new file's YAML. It makes `insert`
+  **consistent with the already-gated `update`/`setProperty`** verb it should mirror:
+  the MDB is the **only** durable home for a declared `source:"notidian"` column, so
+  writing it to a new file's YAML on insert re-introduces exactly the
+  frontmatter-vs-MDB split the gate exists to prevent, and seeding a *computed* value
+  persists a derived snapshot (a known footgun). The cost is one deliberate
+  characterization update.
+  **Ruled out: A** (no gate, status quo) — leaves `insert` as the **one un-gated**
+  value-write verb, an authority hole that grows as more columns declare
+  `source:"notidian"`; **C** (partial gate — skip computed only, still seed
+  `source:"notidian"` to frontmatter) — a half-measure that still seeds the MDB-owned
+  field to frontmatter, **the main split B prevents**, and partitions fields a *third*
+  inconsistent way.
+- **No build / no spike shipped.** No `api.ts` or `api.authority.context.test.ts`
+  change is made and the locked characterization is **not** flipped. A default-OFF flag
+  adds nothing — the gate is pure, offline-provable routing logic (the harness mocks the
+  durable sinks and observes routing; gate is jest, not eyes-on-vault), and the open
+  question is the create-time **partition semantics** plus the deliberate re-blessing of
+  a pinned characterization — neither a measurement a flag yields. (Optional cheap
+  pre-ratify step in the ADR: a throwaway spike that *logs* the gate decision per insert
+  field against the real vault's context tables, to confirm no surprising column would
+  be re-routed.)
+- **Bead status:** Notidian-2yh stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
