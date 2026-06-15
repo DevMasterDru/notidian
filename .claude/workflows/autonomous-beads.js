@@ -1,11 +1,11 @@
 export const meta = {
   name: 'autonomous-beads',
-  description: 'Quadrant-triaged autonomous Notidian implementation with Claude Opus subagents (max reasoning): classify each bead by verifiability x design-closure, implement the safe quadrant, flag-gate the unverifiable (capped), turn design-open work into decision ADRs (never blind builds), drain leftover quota into test/hardening depth. Diverse-lens adversarial review + gates + per-bead commit.',
-  whenToUse: 'Owner-authorized autonomous implementation drive on the autonomous/notion-parity branch (AGENTS.md "Autonomous Implementation Mode"). Converts quota into durable, mergeable value + cheap decisions, not speculative blind features.',
+  description: 'Quadrant-triaged autonomous Notidian drive aligned to USE-DRIVEN validation: implement clear-correct work (including what would otherwise be "decisions"), ship owner-requested render-path features behind kill-switches (default-ON; their use IS the verification), and PARK genuinely-speculative product direction to docs/ROADMAP.md (build only when asked) — NEVER decision-ADRs-that-wait. Diverse-lens adversarial review + gates + per-bead commit.',
+  whenToUse: 'Owner-authorized autonomous implementation drive on the autonomous/notion-parity branch (AGENTS.md "Autonomous Implementation Mode"). Converts quota into durable, mergeable value; parks speculative product direction to docs/ROADMAP.md; never decision-ADRs-that-wait.',
   phases: [
     { title: 'Plan', detail: 'classify ready/roadmap beads into Q1..Q4 with a route' },
     { title: 'Implement', detail: 'Q1: implement+gate+commit; Q3: flag-gate+test (capped)' },
-    { title: 'Decide', detail: 'Q4/design-open: produce a decision ADR + review-queue entry, no blind build' },
+    { title: 'Park', detail: 'genuinely-speculative product direction: one-line docs/ROADMAP.md entry + close (build when asked)' },
     { title: 'Verify', detail: 'diverse-lens Opus reviewers refute each commit; fix real findings' },
   ],
 }
@@ -23,13 +23,18 @@ const MAX_ROUNDS = (args && args.maxRounds) || 16
 const MAX_UNVERIFIED = (args && args.maxUnverified) || 4
 const QUEUE = 'docs/AUTONOMOUS-REVIEW-QUEUE.md'
 
-// TRIAGE MODEL — two axes decide the route:
+// TRIAGE MODEL — the owner validates by USING the tool, not by reviewing specs,
+// so we NEVER produce decision-ADRs-that-wait (a batch ADR queue is negative value).
 //   VERIFIABILITY: can correctness be proven offline by gates (test/tsc/build)?
-//   DESIGN-CLOSURE: is the right thing to build already decided (ADR/owner intent)?
-//   Q1 verifiable + decided      -> route "implement" (the bulk of quota; low risk)
-//   Q3 unverifiable + decided    -> route "flag-gate" (default-OFF + tests; CAPPED)
-//   Q2/Q4 design-open (either)   -> route "decision" (ADR + options; NEVER blind-built)
-// When uncertain about design-closure, default to "decision" (cheap to review).
+//   Q1 verifiable + decided           -> route "implement" (the bulk of quota; low risk)
+//   Q2/Q4 "design-open" but CLEAR-CORRECT (a bug / authority gap / dead-unsafe helper
+//         / semantics fix with one obviously-right answer) -> route "implement" the
+//         right answer (it was never really open). NO ADR-and-wait.
+//   Q3 unverifiable + decided         -> route "flag-gate": ship behind a kill-switch +
+//         tests. OWNER-REQUESTED render-path feature => default-ON (their use verifies);
+//         NOT-requested/surprising (e.g. security) => default-OFF + review-queue (CAPPED).
+//   Q2/Q4 GENUINELY speculative product direction -> route "park": one line on
+//         docs/ROADMAP.md, close the bead, build ONLY when the owner asks. NO pre-build.
 
 const PLAN_SCHEMA = {
   type: 'object',
@@ -45,8 +50,8 @@ const PLAN_SCHEMA = {
           title: { type: 'string' },
           priority: { type: 'string' },
           quadrant: { type: 'string', enum: ['Q1', 'Q2', 'Q3', 'Q4'] },
-          route: { type: 'string', enum: ['implement', 'flag-gate', 'decision'] },
-          plan: { type: 'string', description: 'implementation approach, flag-gate+test plan, or the decision question + options' },
+          route: { type: 'string', enum: ['implement', 'flag-gate', 'park'] },
+          plan: { type: 'string', description: 'implementation approach, flag-gate+test plan, or (park) the one-line roadmap entry' },
         },
         required: ['id', 'title', 'quadrant', 'route', 'plan'],
       },
@@ -95,16 +100,16 @@ const REVIEW_SCHEMA = {
 
 const planPrompt = (attempted, capReached) => `You are the PLANNER + TRIAGE for an autonomous Notidian drive. Read AGENTS.md ("Autonomous Implementation Mode") first. ${REASON}
 
-Classify the next batch of work by two axes and assign a route:
-- VERIFIABILITY: can correctness be proven OFFLINE by gates (npm test/tsc/build) with no live UI?
-- DESIGN-CLOSURE: is the right thing to build already decided (an ADR / clear owner intent / a pure bug-fix)?
-Routes: Q1 verifiable+decided -> "implement"; Q3 unverifiable+decided (core render-path) -> "flag-gate" (default-OFF + offline tests); Q2/Q4 design-OPEN -> "decision" (write an ADR with options + recommendation; do NOT build blind). When unsure about design-closure, choose "decision".
+The owner validates by USING Notidian, not by reviewing specs — so NEVER route work to a decision-ADR-that-waits. Assign each bead a route:
+- "implement" — Q1 (offline-verifiable + decided) OR Q2/Q4 that is CLEAR-CORRECT (a bug, an authority/consistency gap, a dead/unsafe helper, a semantics fix with one obviously-right answer). It was never really design-open: build the right answer (tested + reviewed).
+- "flag-gate" — Q3 (correct core render-path change you can't live-test): ship behind a kill-switch + offline tests. Owner-requested => default-ON (their use verifies it); not-requested/surprising (e.g. security) => default-OFF + review-queue.
+- "park" — GENUINELY speculative product direction (no clear-correct answer, owner has not asked): a one-line docs/ROADMAP.md entry, then close the bead; build only when asked. Do NOT write an ADR, do NOT pre-build.
 
 Steps:
 1. \`bd ready\` + \`bd show <id>\`. EXCLUDE already-attempted ids: ${JSON.stringify(attempted)}.
-2. ${capReached ? 'The un-live-verified CAP is reached: do NOT propose any "flag-gate" beads this round; prefer "implement" and "decision".' : 'Flag-gate beads are allowed but scarce — prefer "implement" and "decision".'}
-3. If fresh "implement" (Q1) work is thin, FIRST prefer DEPTH beads that are pure Q1 and a safe infinite quota sink: expand test coverage / add adversarial+property tests (esp. on authority + sanitize.ts surfaces), and small correctness/refactor hardening — create them via \`bd create\` if needed. Only THEN, decompose the Notion-parity roadmap \`bd show Notidian-2w0\` — but route those product features to "decision" (ADR), NOT blind "implement".
-4. Return at most 4 beads. Return beads:[] and exhausted:true only if there is genuinely nothing left to implement, test-harden, or decide.`
+2. ${capReached ? 'The un-live-verified CAP is reached: do NOT propose any default-OFF "flag-gate" beads this round; prefer "implement" and "park".' : 'Flag-gate beads are allowed but scarce — prefer "implement" and "park".'}
+3. If fresh "implement" work is thin, FIRST prefer DEPTH beads that are pure Q1 and a safe infinite quota sink: expand test coverage / add adversarial+property tests (esp. on authority + sanitize.ts surfaces), and small correctness/refactor hardening — create them via \`bd create\` if needed. Only THEN consider the Notion-parity roadmap \`bd show Notidian-2w0\` — route any clear-correct piece to "implement", the rest to "park" (NEVER "decision").
+4. Return at most 4 beads. Return beads:[] and exhausted:true only if there is genuinely nothing left to implement or test-harden (parking is not "work left" — park aggressively).`
 
 const implPrompt = (b) => `Implement Notidian bead ${b.id}: "${b.title}" (quadrant ${b.quadrant}, route ${b.route}). Approach: ${b.plan}
 ${b.route === 'flag-gate' ? `THIS IS A FLAG-GATE (Q3) BEAD — a core render-path / not-offline-verifiable change. You MUST: gate it behind a NEW default-OFF setting so it cannot affect the owner's current vault; cover it with comprehensive unit/jsdom tests; and APPEND an entry to ${QUEUE} (what to live-verify, how to enable). Never ship an untested core-render change that is not flag-gated.` : 'THIS IS A Q1 BEAD — fully offline-verifiable and design-closed.'}
@@ -114,11 +119,11 @@ ${REASON}
 Working dir is the Notidian repo. Steps: (1) \`bd update ${b.id} --claim\`. (2) Read AGENTS.md, relevant code, ADRs, and \`bd memories <keyword>\`; respect the authority model (file/frontmatter canonical; durable MDB ownership needs explicit source:"notidian") and route any vault-content innerHTML/SVG/iframe sink through src/shared/utils/sanitize.ts. (3) Implement the most optimal solution + tests. (4) GATES must be green — fix until so: \`npm test -- --runInBand\`, \`npx tsc -noEmit -skipLibCheck\`, \`npm run build\`. (5) Commit \`type(scope): summary — ${b.id}\` (NOTE: ${b.id} already includes the \`Notidian-\` prefix — do NOT add another) + body + \`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>\`; \`git push\`. (6) \`bd close ${b.id}\` with evidence; \`bd remember\` insights; \`bd create\` follow-ups.
 If you cannot complete it safely, set committed=false with notes and leave the working tree CLEAN (revert). Return {beadId, committed, commitSha, gatesPassed, flagGated, summary, notes}.`
 
-const decisionPrompt = (b) => `Bead ${b.id}: "${b.title}" is DESIGN-OPEN (quadrant ${b.quadrant}) — building it blind would gamble quota on possibly-wrong product direction. Do NOT implement it. Instead produce a cheap-to-review DECISION for the owner. ${REASON}
+const parkPrompt = (b) => `Bead ${b.id}: "${b.title}" is GENUINELY speculative product direction (quadrant ${b.quadrant}) — the owner has NOT asked for it and there is no single clear-correct answer. Building it (or writing a decision-ADR-that-waits) is negative value: the owner validates by USING the tool, not by reviewing specs. So PARK it. ${REASON}
 
-Decision question / scope: ${b.plan}
+Scope: ${b.plan}
 
-Working dir is the Notidian repo. Steps: (1) \`bd update ${b.id} --claim\`. (2) Investigate the relevant code/ADRs/vault reality to ground the options. (3) Write a focused ADR in docs/adr/ (next number; Status: Proposed) capturing: the question, 2-3 concrete options with trade-offs, a clear recommendation (one-line why), and ruled-out alternatives. Optionally implement a MINIMAL spike behind a default-OFF flag if it materially de-risks the decision. (4) APPEND an entry to ${QUEUE} (the ADR link + the one decision you need from the owner). (5) Commit \`docs(adr): scope <topic> (Proposed) — ${b.id}\` (NOTE: ${b.id} already includes the \`Notidian-\` prefix — do NOT add another) + Co-Authored-By footer; \`git push\`. (6) \`bd update ${b.id}\` with a note that it awaits an owner decision (do NOT close it). Return as much as fits {beadId, committed, commitSha, summary, notes}.`
+Working dir is the Notidian repo. Steps: (1) \`bd update ${b.id} --claim\`. (2) Append ONE concise line to docs/ROADMAP.md (create it with a "# Notidian Roadmap (pull when wanted)" header + a "## Parked — build when the owner asks" section if missing): the feature name + a one-line scope + a grounding pointer (file/ADR). NO options, NO recommendation, NO essay. (3) If a stale Proposed ADR for this already exists in docs/adr/, leave it as reference — do NOT write a new one. (4) Commit \`docs(roadmap): park <topic> — ${b.id}\` (NOTE: ${b.id} already includes the \`Notidian-\` prefix — do NOT add another) + Co-Authored-By footer; \`git push\`. (5) \`bd close ${b.id}\` with reason "parked to docs/ROADMAP.md — build when owner asks". Return {beadId, committed, commitSha, summary, notes}.`
 
 // Diverse-lens review compensates for the absence of cross-model (Codex) critique.
 const LENSES = [
@@ -155,7 +160,7 @@ while (round < MAX_ROUNDS) {
   let todo = (plan && plan.beads ? plan.beads : []).filter((b) => b && b.id && !attempted.includes(b.id))
   if (capReached) todo = todo.filter((b) => b.route !== 'flag-gate')
   if (!todo.length || (plan && plan.exhausted)) {
-    log(`Round ${round}: nothing left to implement/harden/decide — ending. (impl=${implemented}, decisions=${decided}, unverified=${unverified}.)`)
+    log(`Round ${round}: nothing left to implement/harden — ending. (impl=${implemented}, parked=${decided}, unverified=${unverified}.)`)
     break
   }
 
@@ -163,11 +168,11 @@ while (round < MAX_ROUNDS) {
     attempted.push(bead.id)
     if (budget.total && budget.remaining() < STOP_BUFFER) break
 
-    if (bead.route === 'decision') {
-      phase('Decide')
-      await agent(decisionPrompt(bead), { model: MODEL, label: `decide:${bead.id}`, phase: 'Decide' })
+    if (bead.route === 'park') {
+      phase('Park')
+      await agent(parkPrompt(bead), { model: MODEL, label: `park:${bead.id}`, phase: 'Park' })
       decided++
-      log(`${bead.id}: decision ADR produced (awaiting owner).`)
+      log(`${bead.id}: parked to docs/ROADMAP.md (closed; build when asked).`)
       continue
     }
 

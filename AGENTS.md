@@ -30,38 +30,49 @@ axes — *verifiability* (can correctness be proven offline by gates?) and
   coverage, refactors, non-UI features) → **implement** fully. This is where the
   bulk of autonomous quota should go: compute → mergeable value, low risk.
 - **Q3 unverifiable + decided** (correct change to core render-path you can't
-  live-test) → **flag-gate**: implement behind a **default-OFF** setting +
-  comprehensive unit/jsdom tests, and append to `docs/AUTONOMOUS-REVIEW-QUEUE.md`.
-  These accrue review-debt, so they are **capped** (default 4 outstanding); when
-  the cap is hit the loop stops queueing them and pivots to safe work.
-- **Q2 / Q4 design-open** (product-direction features: select-to-comment, date
-  reminders, relations/rollups, import-export, per-DB templates) → **decision, not
-  blind build**: produce a focused Proposed ADR (options + recommendation +
-  ruled-out) — optionally a default-OFF spike — and queue it for the owner. When
-  unsure whether design is closed, default here (a decision is cheap to review; a
-  wrong blind build is not).
+  live-test) → **ship behind a kill-switch flag** with comprehensive unit/jsdom
+  tests. **The owner validates by *using* Notidian, so their use IS the
+  live-verification.** Therefore: an **owner-requested** render-path feature ships
+  **default-ON** with a kill-switch (so they actually encounter it in normal use);
+  a render-path change the owner did **not** request and that could surprise them
+  (e.g. security hardening like frame execution) ships **default-OFF** and is
+  appended to `docs/AUTONOMOUS-REVIEW-QUEUE.md` (capped at 4 outstanding; at the
+  cap, pivot to safe work).
+- **Q2 / Q4 design-open** — split by whether one answer is plainly right:
+  - **Clear-correct** (a correctness bug, an authority/consistency gap, a
+    dead/unsafe helper, a semantics fix with one obviously-right answer) → it was
+    never really "open": **implement the right answer** (tested + reviewed). Do
+    **NOT** write a decision-ADR-and-wait for these.
+  - **Genuinely speculative product direction** (select-to-comment, date reminders,
+    relations/rollups, import-export, per-DB templates, sub-items) → **park** it:
+    one line on `docs/ROADMAP.md` (+ grounding notes), and build it **only when the
+    owner asks**. Do **NOT** pre-build, and do **NOT** generate decision-ADRs that
+    await batch review — the owner does not review specs, so an ADR queue is
+    **negative value** (homework that never gets done while the work sits blocked).
+    *(Why: ratified after the 2026-06 drive produced 30 unreviewed Proposed ADRs.)*
 
 **The loop** (the main session orchestrates; it spawns subagents, never implements
 directly):
 
-1. **Plan + triage.** `bd ready` → classify each into Q1..Q4 with a route. When
-   fresh Q1 work thins, FIRST prefer Q1 **depth** — adversarial/property test
-   coverage (esp. on authority + `sanitize.ts` surfaces) and small correctness
-   hardening (a safe infinite quota sink) — and only then mine the `Notidian-2w0`
-   roadmap, routing those product features to **decision** (ADR), not blind builds.
-2. **Implement / Decide.** One **Claude Opus** subagent per bead (sequential — they
+1. **Plan + triage.** `bd ready` → route each: **implement** (Q1, or Q2/Q4
+   clear-correct), **kill-switch ship** (Q3), or **park** (genuinely speculative
+   product direction → `docs/ROADMAP.md`, build only when asked). When fresh
+   implement-work thins, prefer **depth** — adversarial/property test coverage
+   (esp. on authority + `sanitize.ts` surfaces) and small correctness hardening (a
+   safe infinite quota sink). **Never** route work to a decision-ADR-that-waits.
+2. **Implement / Park.** One **Claude Opus** subagent per bead (sequential — they
    share the working tree), every prompt carrying *"deeply contemplate with maximum
    reasoning and unlimited effort… decide and act without asking for approval."*
-   Q1/Q3 → implement (+ flag-gate for Q3); Q2/Q4 → decision ADR. The subagent
-   claims, does the work, runs gates, commits, pushes, and (Q1) `bd close`s
-   (decision beads stay open awaiting the owner).
+   implement/kill-switch → do the work; park → add the roadmap line. The subagent
+   claims, does the work, runs gates, commits, pushes, and `bd close`s (parked
+   beads get a roadmap note and close — nothing waits on the owner).
 3. **Adversarially verify.** 3 independent Opus reviewers per commit, each a
    **distinct lens** (correctness · authority+security · regression+tests) since
    cross-model (Codex) review is unavailable; each defaults to *refuted*. Real
    must-fix findings → an Opus fix subagent.
-4. **Repeat** until nothing remains to implement, test-harden, or decide; the
-   un-verified cap is reached with no other work; a per-bead failure recurs; or
-   quota is exhausted.
+4. **Repeat** until nothing remains to implement or test-harden; the un-verified
+   cap is reached with no other work; a per-bead failure recurs; or quota is
+   exhausted.
 
 **Subagent model & reasoning.** All implementer/reviewer/fix subagents run on
 **Claude Opus** (explicit owner directive — overrides the Atlas `Configs/Model
