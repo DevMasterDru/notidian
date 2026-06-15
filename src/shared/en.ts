@@ -1266,6 +1266,10 @@ export const en = {
       "name": "Show Note Body in Space View",
       "desc": "Show the folder note's text above the space view so definitions and legends live at the top of the page"
     },
+    "collapsibleNoteBody": {
+      "name": "Collapsible Note Body (Experimental)",
+      "desc": "Add a collapse toggle to the note body above the database and shrink it to fit its text instead of a fixed full-height block. Off keeps the current layout"
+    },
     "folderNoteName": {
       "name": "Folder Note Name",
       "desc": "Name of the folder note, keep blank to use the same name as the folder"

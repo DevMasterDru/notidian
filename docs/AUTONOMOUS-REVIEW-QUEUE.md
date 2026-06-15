@@ -179,6 +179,66 @@ queueing more and pivots to safe work — so this list stays reviewable.
   predicate persistence through `validatePredicate` + the "never touches row
   data" assertion). Full suite (3639 tests) + tsc + build green.
 
+### Notidian-8sl — Collapsible + shrink-to-fit space note body (page region above the database)
+
+- **Setting:** `collapsibleNoteBody` (default `false`) —
+  `src/shared/types/settings.ts`, defaulted in `src/core/schemas/settings.ts`.
+- **Why gated:** the "page" (folder/hub note body) shown above a space's database
+  is rendered by `SpaceNoteBody.tsx` (via `NoteView` → the Obsidian flow editor)
+  on the **core space render path** (`SpaceInner.tsx`). Two things change when ON:
+  (1) a CSS **shrink-to-fit** override of the legacy `height: 100% !important`
+  block, and (2) a collapse **chevron** that conditionally unmounts the note. The
+  repo has no live render harness for the Obsidian flow editor, so the actual
+  *visual* layout (does the body really shrink to its text? does collapse look/
+  behave right across read/edit mode, full-width, banners?) cannot be proven by
+  tsc/jest/build alone. Shipped OFF so the owner's current vault renders
+  **byte-identically** until enabled.
+- **What it does when ON:**
+  1. **Shrink-to-fit** — the legacy rule
+     `.mk-foldernote .mk-floweditor { height: 100% !important }`
+     (`src/css/SpaceViewer/SpaceView.css`) forces the body to full height
+     regardless of content. When ON, the wrapper gains
+     `.mk-space-note--collapsible`, and a higher-specificity scoped rule
+     (`.mk-space-note--collapsible .mk-foldernote .mk-floweditor { height:auto
+     !important }`) overrides it so the body sizes to its text. The legacy rule is
+     **unchanged**; the override is scoped entirely to the opt-in class, so the
+     flag-OFF DOM (no such class) is byte-identical to before.
+  2. **Collapsible** — a header with a `UICollapse` chevron + the space name. The
+     per-space collapsed state persists in the `SpaceDefinition`
+     (`noteBodyCollapsed`) via `saveSpaceMetadataValue(superstate, path,
+     "noteBodyCollapsed", v)`. Collapsing genuinely **unmounts** the `NoteView`
+     (not just `display:none`). Default per space is **expanded** (turning the
+     feature on never hides an existing body).
+- **Authority (ADR 0001/0014/0017):** `noteBodyCollapsed` is per-space **view
+  state**, so its home is space metadata (`SpaceDefinition`) — **not** row data,
+  and **no** `source:"notidian"` durable-MDB write is involved.
+- **How to enable:** set `collapsibleNoteBody: true` in the plugin's data.json
+  (Notidian settings) or via the new "Collapsible Note Body (Experimental)"
+  toggle in Notes settings; reload; open a space whose folder note has body text.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - With the flag **OFF**, open several spaces with folder-note bodies — the note
+    region must look **exactly** as today (no chevron, no header, full-height
+    body). This is the no-regression guarantee.
+  - With the flag **ON**, the body must **shrink to fit its text** (short notes no
+    longer occupy a large fixed block) — verify in **read mode and edit mode**,
+    with **full-width** on/off and with **banners** on, in list/card/detail views.
+  - Click the chevron: the body collapses (note unmounts) and the choice
+    **survives a reload** (persisted per-space in `noteBodyCollapsed`); collapse
+    state must be **independent per space** (collapsing A must not collapse B).
+  - Editing the note while expanded must still work (the flow editor mounts/saves
+    normally — the shrink override only changes height, not editor behavior).
+- **Offline evidence already in place:**
+  `src/core/utils/spaceNoteBodyCollapse.test.ts` (pure model: feature-active gate,
+  expanded-by-default resolution, strict-boolean persist value, render-content
+  predicate, and a **toggle → store → resolve persistence roundtrip** incl.
+  per-space isolation + metadata-merge-not-replace) and
+  `src/core/react/components/SpaceView/SpaceNoteBody.dom.test.tsx` (jsdom: the
+  **flag-OFF byte-identity** — wrapper class is exactly `mk-space-note`, no
+  header/chevron, note always rendered, stale `noteBodyCollapsed` ignored; flag-ON
+  expanded/collapsed class + chevron state + genuine note unmount; chevron click
+  persists `noteBodyCollapsed` against the **space path**). Full suite (3715
+  tests) + tsc + build green.
+
 ## Pending — decisions (pick a direction)
 
 ### Notidian-o4w — Select-to-comment: anchor format + AI-review comment channel

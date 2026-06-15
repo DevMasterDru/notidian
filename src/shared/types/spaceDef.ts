@@ -37,4 +37,8 @@ export type SpaceDefinition = {
   defaultColor?: string;
   readMode?: boolean;
   fullWidth?: boolean;
+  // Per-space view state (Notidian-8sl): whether the folder/hub note body region
+  // shown above the database is collapsed. View state, not row data — its home
+  // is the space metadata (no durable-MDB ownership, no source:"notidian").
+  noteBodyCollapsed?: boolean;
 };

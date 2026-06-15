@@ -19,6 +19,12 @@ export interface MakeMDSettings {
   bannerHeight: number;
   spaceViewEnabled: boolean;
   spaceViewShowNoteBody: boolean;
+  // Notidian-8sl (default OFF, flag-gated core render-path change): when on, the
+  // folder/hub note body shown above a space's database becomes collapsible (a
+  // chevron in its header) and shrink-to-fit when expanded (sized to its text,
+  // not a fixed full-height block). Per-space collapsed state persists in the
+  // SpaceDefinition (noteBodyCollapsed). OFF == byte-identical legacy rendering.
+  collapsibleNoteBody: boolean;
   sidebarTabs: boolean;
   vaultSelector: boolean;
   showRibbon: boolean;

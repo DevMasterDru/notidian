@@ -299,6 +299,41 @@ margin-left: calc((max(100%, var(--max-width)) - var(--max-width)) /2) !importan
   height: 100% !important;
 }
 
+/* Notidian-8sl (flag-gated, default OFF — settings.collapsibleNoteBody).
+   The legacy rule above forces the note body to full height regardless of its
+   text. When the collapsible feature is ON, the wrapper div carries
+   .mk-space-note--collapsible; these descendant selectors (3 classes vs the
+   legacy 2) win specificity and override height back to auto so the body
+   shrinks to fit its content. Scoped entirely to the opt-in class, so the
+   default (flag-OFF) DOM has no .mk-space-note--collapsible and renders
+   byte-identically to before. CSS layout is the live-verify part of this bead
+   (docs/AUTONOMOUS-REVIEW-QUEUE.md). */
+.mk-space-note--collapsible .mk-foldernote .mk-floweditor {
+  height: auto !important;
+}
+
+.mk-space-note--collapsible .mk-flowspace-editor.mk-foldernote {
+  height: auto;
+}
+
+.mk-space-note-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mk-space-note-header-label {
+  color: var(--mk-ui-text-secondary, var(--text-muted));
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mk-space-note--collapsed .mk-flowspace-editor {
+  display: none;
+}
+
 .mk-flowspace-title span {
   flex-grow: 1;
 }

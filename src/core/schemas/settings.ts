@@ -31,6 +31,9 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   currentWaypoint: 0,
   enableFolderNote: true,
   spaceViewShowNoteBody: true,
+  // Notidian-8sl: default OFF — this is a flag-gated core render-path change
+  // awaiting owner live-verification (docs/AUTONOMOUS-REVIEW-QUEUE.md).
+  collapsibleNoteBody: false,
   folderIndentationLines: true,
   revealActiveFile: false,
   spacesStickers: true,
