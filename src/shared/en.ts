@@ -973,7 +973,10 @@ export const en = {
     "spaceProperties": "Define Properties for your Space Items",
     "templateNameFormula": "Template Name Formula",
     "hiddenFileOptions": "Hidden File Options",
-    "maxStepsReachedYouCanChangeThisInSettings": "Max steps reached, you can change this in settings."
+    "maxStepsReachedYouCanChangeThisInSettings": "Max steps reached, you can change this in settings.",
+    "changeTheSyncSettingsToIncludeUnsupportedFileTypes": "Change the sync settings to include unsupported file types.",
+    "dropStickerPackZipOrIndividualIconsHereToImport": "Drop a sticker pack .zip or individual icons here to import.",
+    "dragAndDropZipStickerPacksOrIndividualIconFilesHereToImport": "Drag and drop .zip sticker packs or individual icon files here to import."
   },
   "notice": {
     "invalidStickerPackFile": "Invalid Sticker Pack File",

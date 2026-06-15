@@ -13,8 +13,11 @@
  * This test makes that bug class GATE-ENFORCEABLE and offline-verifiable: it
  * statically scans the whole `src/` tree for every i18n reference of the form
  *   i18n.<seg>.<seg>(.<seg>)*
- * (and the `t` alias used by files that `import { default as t } from "shared/i18n"`),
- * resolves each chain against the real `en` table, and FAILS — listing every
+ * — including chains broken across continuation lines (e.g. `i18n.descriptions`
+ * on one line and `.someKey` on the next) — and the `t` alias used by files that
+ * import the default export either as `import { default as t } from "shared/i18n"`
+ * or as `import t from "shared/i18n"`. It resolves each chain against the real
+ * `en` table, and FAILS — listing every
  * offending reference and the file it lives in — if any chain resolves to
  * `undefined`. A future commit that references a key without adding it to en.ts
  * (or that deletes a key still in use) fails HERE with a precise message.
@@ -85,17 +88,28 @@ type Ref = { chain: string[]; raw: string; file: string };
  * Captures `base.seg(.seg)*` and, via the optional trailing `(` group, detects
  * when the last segment is an immediate method call (e.g. `.replace(` ) — in
  * which case that segment is a JS String method, not an i18n key, and is dropped.
+ *
+ * The segment separator is whitespace/newline-tolerant — `(?:\s*\.\s*ident)+` —
+ * so chains broken across continuation lines (a very common Prettier wrap, e.g.
+ * `i18n.descriptions\n  .someKey`) are captured to their true leaf, not silently
+ * truncated at the last same-line segment. Each captured segment is trimmed.
  */
 const extractRefs = (code: string, base: string, file: string): Ref[] => {
-  // \b<base>  then one-or-more ".identifier"  then optional whitespace + "("
+  // \b<base>  then one-or-more (optional-ws ".") identifier  then optional ws + "("
   const re = new RegExp(
-    `\\b${base}((?:\\.[A-Za-z_$][A-Za-z0-9_$]*)+)\\s*(\\()?`,
+    `\\b${base}((?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*)+)\\s*(\\()?`,
     "g"
   );
   const refs: Ref[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(code)) !== null) {
-    let segs = m[1].slice(1).split("."); // drop the leading dot
+    // Split on "." then trim each segment of the surrounding whitespace/newlines
+    // the tolerant separator allowed in; the first element is the empty string
+    // before the leading dot, so drop it.
+    let segs = m[1]
+      .split(".")
+      .slice(1)
+      .map((s) => s.trim());
     const calledImmediately = Boolean(m[2]);
     // A bare `base()` cannot happen (segs always has >=1 here). If the chain ends
     // in a method call AND has a key segment beneath it, drop the call leaf.
@@ -129,13 +143,19 @@ describe("i18n completeness sweep — every referenced key resolves (Notidian-wk
   });
 
   // Files that alias the default i18n export as `t` — only there is `t.x.y` an
-  // i18n reference (elsewhere `t` is an unrelated local).
+  // i18n reference (elsewhere `t` is an unrelated local). Both import spellings
+  // bind the default export to `t`, so both must be detected:
+  //   import { default as t } from "shared/i18n"   (brace form)
+  //   import t from "shared/i18n"                   (default-named form)
   const aliasFiles = new Set(
-    files.filter((f) =>
-      /import\s*\{[^}]*\bdefault as t\b[^}]*\}\s*from\s*["'][^"']*i18n["']/.test(
-        fs.readFileSync(f, "utf8")
-      )
-    )
+    files.filter((f) => {
+      const src = fs.readFileSync(f, "utf8");
+      return (
+        /import\s*\{[^}]*\bdefault as t\b[^}]*\}\s*from\s*["'][^"']*i18n["']/.test(
+          src
+        ) || /import\s+t\s+from\s*["'][^"']*i18n["']/.test(src)
+      );
+    })
   );
 
   // Collect the de-duplicated set of literal references across the tree.
@@ -193,6 +213,23 @@ describe("i18n completeness sweep — every referenced key resolves (Notidian-wk
       [["labels", "pinned"], "Pinned"],
       [["labels", "joined"], "Joined"],
       [["descriptions", "replace"], "Replace"],
+      // Found only after the scan was made newline-tolerant: these are referenced
+      // via multi-line chains (`i18n.descriptions\n  .key`) and were undefined.
+      [
+        ["descriptions", "changeTheSyncSettingsToIncludeUnsupportedFileTypes"],
+        "Change the sync settings to include unsupported file types.",
+      ],
+      [
+        ["descriptions", "dropStickerPackZipOrIndividualIconsHereToImport"],
+        "Drop a sticker pack .zip or individual icons here to import.",
+      ],
+      [
+        [
+          "descriptions",
+          "dragAndDropZipStickerPacksOrIndividualIconFilesHereToImport",
+        ],
+        "Drag and drop .zip sticker packs or individual icon files here to import.",
+      ],
     ];
     for (const [chain, expected] of added) {
       expect(resolve(chain)).toBe(expected);
