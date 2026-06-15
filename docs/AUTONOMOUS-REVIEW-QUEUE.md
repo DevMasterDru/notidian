@@ -1280,6 +1280,64 @@ queueing more and pivots to safe work — so this list stays reviewable.
   owner ratification) — neither a measurement a flag yields.
 - **Bead status:** Notidian-ywcf stays **OPEN**, awaiting your direction.
 
+### Notidian-9i9i — TEXT-matcher semantics for a non-string operand: `stringCompare` throws `TypeError` on a number `0` / boolean `false` cell (crashes the whole filter pass)
+
+- **ADR:** [docs/adr/0043-stringcompare-non-string-operand-text-matcher-semantics.md](adr/0043-stringcompare-non-string-operand-text-matcher-semantics.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the bead itself says "DECISION NEEDED before
+  fix" — coercing the operand changes **observable matching behavior**, and there
+  is a **LOCKED DEFECT-PIN** in `filterFnTypes.test.ts` that asserts the matcher
+  `toThrow(TypeError)` (lines 185-188 and the null-safety net at 373-394). Fixing
+  the throw means deliberately **flipping a locked characterization assertion** —
+  exactly the case the contract routes to a decision, not a blind build (same
+  posture as ADR 0025/0030/0032/0033/0042).
+- **The defect, and that it is a LIVE crash:** `stringCompare` (`filter.ts:63-70`),
+  the matcher behind the `include`/`notInclude` operators, guards with only
+  `(value ?? "")` — which catches null/undefined but **not** a non-string
+  non-nullish primitive. A `number 0` or `boolean false` reaches `.toLowerCase()`
+  on a non-string and **throws** (reproduced empirically). `filterReturnForCol`
+  (`filter.ts:140-157`) has **no try/catch**, so one throwing cell crashes the
+  **entire** table-view filter pass for that table — live, via three production
+  call sites (`linkContextRow.ts:372/378`, `treeHelpers.ts:224`,
+  `ContextEditorContext.tsx:681`). The reachable trigger is a **flex** cell:
+  `filterReturnForCol:152` reads its value as `parseFlexValue(...)?.value`, which
+  is a **real JSON `0`/`false`** (not a string); if the flex column offers a
+  text operator and the stored value is `0`/`false`, the filter pass dies.
+- **What the investigation refined (grounds the recommendation):** the shared
+  `(value ?? "")` gap has **two** modes — `stringCompare`/`startsWith`/`endsWith`
+  **throw** (Number/Boolean lack the called String method entirely), while
+  `lengthEquals`/`empty` fail closed *by accident* (`(0).length` is `undefined`,
+  so the comparison is just `false`). And `startsWith`/`endsWith`/`lengthEquals`
+  are **exported but NOT wired into the dispatch table** (verified — zero
+  references in `filterFnTypes.ts`), so their throw is **latent**, not live; only
+  `stringCompare` is a live crash and `empty` is dispatched-but-accidentally-OK.
+- **The one decision you need to make:** pick **A / B / C** —
+  **recommended Option A**: FAIL-CLOSED-EMPTY — coerce a non-string non-nullish
+  operand to `""` (`typeof v === "string" ? v : ""`) so a numeric/boolean cell is
+  treated as an empty cell for a TEXT matcher, applied **uniformly** to the shared
+  gap across `stringCompare`/`startsWith`/`endsWith`/`empty`/`lengthEquals`, AND
+  **flip the locked DEFECT-PIN** at `filterFnTypes.test.ts:185-188` and `:373-394`
+  from `toThrow` to "does not throw". It is the **smallest deliberate change** to
+  the pinned characterization, **matches the established value-level fail-closed
+  convention** (lessThan/greaterThan/lengthEquals/date — a non-matching operand
+  never spuriously matches, never throws; same posture as ADR 0032(b), defensibly
+  opposite to ADR 0034's operator-level fail-open), and removes the uncaught throw
+  **without inventing surprising cross-type matching**. **Ruled out: B**
+  (`String(value ?? "")` coerce-to-string — silently makes a `0` cell
+  substring-match `"0"`, a `false` cell match `"false"`, `42` match `"4"`: a
+  footgun behavior change with **no user signal**, diverging from the family's
+  value convention) and **C** (route-by-type at the dispatch layer — most correct
+  long-term but **largest blast radius**: touches the shared dispatch table +
+  column-type/operator contract, and the flex ambiguity re-creates the question
+  one layer up; recorded as the eventual direction if you want strict
+  type-routing, not the way to remove this crash now).
+- **No build / no spike shipped.** No `filter.ts` or `filterFnTypes.test.ts`
+  change is made and the locked DEFECT-PIN is **not** flipped. A spike can't
+  de-risk this: the logic is pure, offline-provable predicate logic (gate is jest,
+  not eyes-on-vault), and the open question is the matching **semantics** (a
+  contract choice) plus the deliberate re-blessing of a pinned `toThrow` assertion
+  (an owner ratification) — neither a measurement a default-OFF flag yields.
+- **Bead status:** Notidian-9i9i stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
