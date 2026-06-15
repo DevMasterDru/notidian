@@ -92,6 +92,31 @@ describe("propertyAuthorityForColumn", () => {
     }
   });
 
+  it("resolves a computed type BEFORE any source marker (computed wins over source:frontmatter/notidian)", () => {
+    // Precedence fix (bd DEPTH-apiValueWriteTarget-authority-matrix): the
+    // computedTypes check runs before the `source` markers, so a computed column
+    // carrying a stray source marker (mislabel / corrupt MDB / materialization
+    // match on a same-named frontmatter key) still classifies as "computed" and
+    // never leaks a DERIVED value into YAML or the MDB. Previously source:
+    // "frontmatter" was checked first and mislabeled such a column "frontmatter".
+    for (const type of ["fileprop", "aggregate", "rollup", "backlink"]) {
+      expect(
+        propertyAuthorityForColumn({
+          name: "derived",
+          type,
+          source: frontmatterPropertySource,
+        })
+      ).toBe("computed");
+      expect(
+        propertyAuthorityForColumn({
+          name: "derived",
+          type,
+          source: notidianPropertySource,
+        })
+      ).toBe("computed");
+    }
+  });
+
   it("classifies rollup and backlink as computed/read-only (no write-through)", () => {
     expect(propertyAuthorityForColumn({ name: "total", type: "rollup" })).toBe(
       "computed"

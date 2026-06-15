@@ -56,8 +56,16 @@ export const propertyAuthorityForColumn = (
   property?: Partial<Pick<SpaceProperty, "name" | "source" | "type">>
 ): PropertyAuthority => {
   if (property?.name === PathPropertyName) return "file";
-  if (property?.source === frontmatterSource) return "frontmatter";
+  // Computed/read-only types are resolved BEFORE any `source` marker. A computed
+  // column's value is derived at render time, so it must classify as "computed"
+  // (-> apiValueWriteTarget "skip") even if it carries a stray
+  // `source: "frontmatter"` marker (a mislabel, a corrupt MDB, or a
+  // materialization pass that matched a same-named frontmatter key). Resolving
+  // the source marker first would leak a DERIVED value into the durable file
+  // layer, breaking the read-only promise (ADR 0001/0017; bd memory
+  // any-new-computed-read-only-column-type). "skip IFF computed" is an invariant.
   if (property?.type && computedTypes.has(property.type)) return "computed";
+  if (property?.source === frontmatterSource) return "frontmatter";
   // Explicit Notidian ownership.
   if (property?.source === notidianPropertySource) return "notidian";
   // Ambiguous (no source marker): ordinary file-backed metadata is frontmatter
