@@ -798,6 +798,7 @@ export const en = {
     "action": "Action",
     "checklist": "Checklist",
     "home": "Home",
+    "repeat": "Repeat",
     "frequency": "Frequency",
     "yearly": "Yearly",
     "monthly": "Monthly",
