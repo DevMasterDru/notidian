@@ -20,28 +20,47 @@ Workflow({ name: "autonomous-beads" })   # .claude/workflows/autonomous-beads.js
 If the engine is unavailable or errors, orchestrate the same loop manually with
 the Agent tool per the contract below.
 
-**The orchestration loop** (the main session is the orchestrator; it spawns
-implementer + reviewer subagents — it does not implement directly):
+Throughput is NOT the goal — **durable value per token** is. Blind, unverified, or
+misaligned code is negative value (it must be reviewed, reverted, or reworked), so
+the loop is **quadrant-triaged**, not flat. Classify every candidate bead on two
+axes — *verifiability* (can correctness be proven offline by gates?) and
+*design-closure* (is the right thing to build already decided?) — and route it:
 
-1. **Plan.** `bd ready`. Choose the highest-value implementable bead. When the
-   ready list is thin, decompose the Notion-parity roadmap (`bd show
-   Notidian-2w0`) into 2–4 concrete, scoped beads with `bd create` and continue —
-   this mode is open-ended; keep building Notidian toward Notion parity.
-2. **Implement.** Spawn **one Claude Opus subagent per bead** (sequential — they
-   share the working tree). Its prompt MUST include: *"Deeply contemplate with
-   maximum reasoning and unlimited effort to reach the most optimal solution. You
-   are authorized to decide and act without asking for approval."* The subagent:
-   claims the bead, implements, runs the gates, commits, pushes, and `bd close`s.
-3. **Adversarially verify.** Spawn **3 independent Opus reviewer subagents**
-   (read-only) on each committed change. Cross-model (Codex) review may be
-   unavailable, so do NOT rely on model diversity — give each reviewer a **distinct
-   lens** instead of identical skeptics: (a) correctness & logic, (b) authority &
-   security model (ADR 0001/0014/0017 + sanitize.ts sinks), (c) regression & test
-   adequacy. Each defaults to *refuted* (assume a defect in its lens and try to
-   prove it). Real must-fix findings → a follow-up Opus fix subagent. (Prior
-   adversarial review caught real bugs in >15 fixes; perspective diversity is how a
-   single model recovers most of that value.)
-4. **Repeat** until no implementable beads remain, a per-bead failure recurs, or
+- **Q1 verifiable + decided** (logic/bug fixes, authority/security hardening, test
+  coverage, refactors, non-UI features) → **implement** fully. This is where the
+  bulk of autonomous quota should go: compute → mergeable value, low risk.
+- **Q3 unverifiable + decided** (correct change to core render-path you can't
+  live-test) → **flag-gate**: implement behind a **default-OFF** setting +
+  comprehensive unit/jsdom tests, and append to `docs/AUTONOMOUS-REVIEW-QUEUE.md`.
+  These accrue review-debt, so they are **capped** (default 4 outstanding); when
+  the cap is hit the loop stops queueing them and pivots to safe work.
+- **Q2 / Q4 design-open** (product-direction features: select-to-comment, date
+  reminders, relations/rollups, import-export, per-DB templates) → **decision, not
+  blind build**: produce a focused Proposed ADR (options + recommendation +
+  ruled-out) — optionally a default-OFF spike — and queue it for the owner. When
+  unsure whether design is closed, default here (a decision is cheap to review; a
+  wrong blind build is not).
+
+**The loop** (the main session orchestrates; it spawns subagents, never implements
+directly):
+
+1. **Plan + triage.** `bd ready` → classify each into Q1..Q4 with a route. When
+   fresh Q1 work thins, FIRST prefer Q1 **depth** — adversarial/property test
+   coverage (esp. on authority + `sanitize.ts` surfaces) and small correctness
+   hardening (a safe infinite quota sink) — and only then mine the `Notidian-2w0`
+   roadmap, routing those product features to **decision** (ADR), not blind builds.
+2. **Implement / Decide.** One **Claude Opus** subagent per bead (sequential — they
+   share the working tree), every prompt carrying *"deeply contemplate with maximum
+   reasoning and unlimited effort… decide and act without asking for approval."*
+   Q1/Q3 → implement (+ flag-gate for Q3); Q2/Q4 → decision ADR. The subagent
+   claims, does the work, runs gates, commits, pushes, and (Q1) `bd close`s
+   (decision beads stay open awaiting the owner).
+3. **Adversarially verify.** 3 independent Opus reviewers per commit, each a
+   **distinct lens** (correctness · authority+security · regression+tests) since
+   cross-model (Codex) review is unavailable; each defaults to *refuted*. Real
+   must-fix findings → an Opus fix subagent.
+4. **Repeat** until nothing remains to implement, test-harden, or decide; the
+   un-verified cap is reached with no other work; a per-bead failure recurs; or
    quota is exhausted.
 
 **Subagent model & reasoning.** All implementer/reviewer/fix subagents run on
