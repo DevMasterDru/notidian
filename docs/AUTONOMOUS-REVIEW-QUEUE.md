@@ -448,6 +448,46 @@ queueing more and pivots to safe work — so this list stays reviewable.
   contract and is the first task of the follow-up implementation bead.
 - **Bead status:** Notidian-e29 stays **OPEN**, awaiting your direction.
 
+### Notidian-tni — Frontmatter-link relations + rollups: authority + UX contract (epic item 1)
+
+- **ADR:** [docs/adr/0029-frontmatter-relations-rollups-authority-ux.md](adr/0029-frontmatter-relations-rollups-authority-ux.md) (Status: **Proposed**).
+- **What the loop found:** the **engine + runtime + cell + column type + config menu
+  already shipped and are tested** (beads 9ln/8pl/e1u/ahk) — this is the headline
+  Notion gap, but it is a *contract* decision, not a build, just like the sub-items
+  sibling (ADR 0024). A relation is just `[[links]]` in a frontmatter `link`/`context`
+  property; `computeRowRollup` resolves them via the shared resolver, reads the linked
+  notes' own frontmatter from the in-memory `pathsIndex`, and aggregates — **read-only,
+  never writes**. The rollup *definition* `{ref, field, fn}` is stored in the rollup
+  **column's** definition in the MDB schema `cols` — and that is *allowed*: ADR 0001
+  (row "View layout" / "Formulas and aggregates") and ADR 0014 put **view/column
+  configuration** in the MDB on purpose. ADR 0017 only fires when the MDB silently
+  owns a frontmatter *value* — a compute-definition is not one, and the rollup *result*
+  is always recomputed, never persisted. So the shipped storage is **compliant, not a
+  violation**. Dangling links and non-numeric values already degrade gracefully but
+  **silently**; recompute is already live, on-render, off the cache.
+- **The one decision you need to make:** **confirm the recommended contract so the
+  one thin UX gap can ship — (a) relation source = any link column designated per
+  rollup/view, no reserved name (status quo, symmetric with ADR 0024 A1); (b) keep the
+  rollup definition in MDB view/column config (it is configuration, not a durable
+  frontmatter value — no `source:notidian` needed); (c) one-way, source owns the link,
+  the inverse is the already-shipped read-only computed `backlink` (symmetric with ADR
+  0024 B1) — two-way only as a future per-DB opt-in; (d) keep graceful degradation but
+  add a passive "N of M counted / K unresolved" indicator so a partial number is
+  honest; (e) keep live on-render recompute off the in-memory cache (a rollup is a
+  computed value per ADR 0001, never a stored one).** The load-bearing parts are (b)
+  and (c): (b) ratifies that the shipped MDB storage is within the authority partition,
+  not an ADR 0017 violation; (c) keeps relations one-way + computed-inverse, so we never
+  duplicate a derivable fact into a second authority. If you instead want a reserved
+  relation property, two-way stored relations, or a materialized rollup value in
+  frontmatter, those are the ruled-out alternatives (A2 / C2 / B3) — pick one explicitly
+  and I will re-scope.
+- **No build is pending.** No code changed. The only new code the recommendation
+  implies is the passive partial/unresolved indicator (d) — a cell badge/tooltip driven
+  by counts the runtime already has, **CSS/text only, no new innerHTML sink** (sanitize
+  invariant, ADR 0017/0019) — and it is the first task of the follow-up implementation
+  bead, **not built**, because it presupposes you accept the contract.
+- **Bead status:** Notidian-tni stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
