@@ -125,11 +125,16 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
                 : path;
             this.superstate.ui.openPath(resolvedPath, target)
         },
-        create: (name: string, space: string, type: string, content?: Promise<string> | string) => {
+        create: (name: string, space: string, type: string, content?: Promise<string> | string): Promise<string> => {
+            // Return the created path in BOTH branches (Notidian-0le). The async
+            // branch previously used a block-body `.then` that dropped the
+            // newPathInSpace result, so it resolved to `Promise<void>` and the
+            // caller could not target the actual created path. Returning the
+            // inner promise keeps the contract honest: `Promise<string>`.
             if (content instanceof Promise) {
-                return content.then(c => {
+                return content.then(c =>
                     newPathInSpace(this.superstate, this.superstate.spacesIndex.get(space), type, name, true, c)
-                })
+                )
             }
             return newPathInSpace(this.superstate, this.superstate.spacesIndex.get(space), type, name, true, content)
         },

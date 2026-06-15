@@ -16,7 +16,7 @@ export interface IAPI {
         label: (path: string) => PathLabel | undefined;
         thumbnail: (path: string) => string | undefined;
         open: (path: string, target?: TargetLocation) => void;
-        create: (name: string, space: string, type: string, content?: Promise<string> | string) => void;
+        create: (name: string, space: string, type: string, content?: Promise<string> | string) => Promise<string>;
         setProperty: (path: string, property: string, value: Promise<string> | string) => void;
         contextMenu: (e: React.MouseEvent, path: string) => void;
     };

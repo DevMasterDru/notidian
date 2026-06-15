@@ -13,6 +13,7 @@ import { frontmatterPropertySource } from "core/utils/properties/allProperties";
 // Mock the durable write sinks so we can observe routing without any I/O.
 const updateValueInContext = jest.fn();
 const saveProperties = jest.fn();
+const newPathInSpace = jest.fn();
 
 jest.mock("core/utils/contexts/context", () => ({
   __esModule: true,
@@ -24,7 +25,7 @@ jest.mock("core/utils/contexts/context", () => ({
 jest.mock("./utils/spaces", () => ({
   __esModule: true,
   saveProperties: (...args: unknown[]) => saveProperties(...args),
-  newPathInSpace: jest.fn(),
+  newPathInSpace: (...args: unknown[]) => newPathInSpace(...args),
 }));
 
 // api.ts pulls in the heavy UI/menu graph (context menus, modals, makemd-core)
@@ -95,6 +96,7 @@ const buildSuperstate = (cols: SpaceProperty[]) => {
 beforeEach(() => {
   updateValueInContext.mockClear();
   saveProperties.mockClear();
+  newPathInSpace.mockClear();
 });
 
 describe("api.context.update authority gate (bd Notidian-1da)", () => {
@@ -188,5 +190,44 @@ describe("api.path.setProperty authority gate (bd Notidian-1da)", () => {
 
     expect(saveProperties).toHaveBeenCalledTimes(1);
     expect(updateValueInContext).not.toHaveBeenCalled();
+  });
+});
+
+describe("api.path.create return contract (bd Notidian-0le / te8)", () => {
+  it("resolves to the created path when content is a plain string", async () => {
+    const { superstate, spacePath } = buildSuperstate([]);
+    newPathInSpace.mockResolvedValue("Folder/New.md");
+    const api = new API(superstate);
+
+    const result = await api.path.create("New", spacePath, "md", "");
+
+    expect(result).toBe("Folder/New.md");
+    expect(newPathInSpace).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves to the created path when content is a Promise (regression: async branch no longer drops the result)", async () => {
+    const { superstate, spacePath } = buildSuperstate([]);
+    newPathInSpace.mockResolvedValue("Folder/Async.md");
+    const api = new API(superstate);
+
+    // The async-content branch previously used a block-body `.then` that
+    // returned undefined, so the caller could not target the created path.
+    const result = await api.path.create(
+      "Async",
+      spacePath,
+      "md",
+      Promise.resolve("body")
+    );
+
+    expect(result).toBe("Folder/Async.md");
+    // The resolved content string is forwarded to newPathInSpace.
+    expect(newPathInSpace).toHaveBeenCalledWith(
+      superstate,
+      expect.anything(),
+      "md",
+      "Async",
+      true,
+      "body"
+    );
   });
 });
