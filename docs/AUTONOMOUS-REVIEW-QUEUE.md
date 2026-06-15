@@ -1225,6 +1225,61 @@ queueing more and pivots to safe work — so this list stays reviewable.
 - **Bead status:** Notidian-z8q stays **OPEN**, awaiting your direction (plus the
   live-repro action).
 
+### Notidian-ywcf — `nativeToUnified('')` empty-input contract: guard to a total codec vs. caller precondition
+
+- **ADR:** [docs/adr/0042-nativetounified-empty-input-contract.md](adr/0042-nativetounified-empty-input-contract.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the fix *looks* like a one-line guard, but the
+  bead explicitly frames it as a **behavior question** (guard returning
+  `""`/`undefined` vs. document as a caller precondition), AND there is a **LOCKED
+  characterization assertion** in `stickers.test.ts:200` (`"THROWS TypeError on
+  empty string"`, landed by Notidian-8fwj) that must be **deliberately re-blessed**
+  as part of any fix — that is a decision posture, not a blind edit (same pattern
+  as ADR 0025 / 0030 / 0033). **LOW present-risk:** `nativeToUnified` has **zero
+  non-test callers** today (verified by grep over `src/**`), so this hardens the
+  codec contract for future/external callers and makes the pair total — not fixing
+  a live crash.
+- **What the loop found (all verified in source):** `src/shared/utils/stickers.ts:30`
+  is `nativeToUnified = (native) => native.codePointAt(0).toString(16)`. For `""`,
+  `''.codePointAt(0)` is `undefined`, so the **unconditional** `.toString(16)`
+  throws `TypeError`. It is the inverse half of a codec pair; the round-trip suite
+  (`stickers.test.ts:204-235`) pins `nativeToUnified(unifiedToNative(x)) === x`,
+  but **empty is the one value where the pair is not total** — `unifiedToNative("")`
+  also throws (`RangeError`, `stickers.test.ts:80-81`). Decisive grounding: the
+  **production-facing wrapper** `emojiFromString("")` **already returns `""`**
+  (pinned `stickers.test.ts:114`, via its try/catch), so the family's production
+  face already has an empty-in/empty-out contract — only the raw inverse util
+  lacks it. The three production sinks all go through `emojiFromString` (one even
+  pre-guards `length > 0`, `StickerMenu.tsx:99`), so nothing crashes today.
+- **The one decision you need to make:** pick **A / B / C** —
+  **recommended Option A**: guard `nativeToUnified` to return `""`
+  (`native.codePointAt(0)?.toString(16) ?? ""`) AND **flip the locked
+  characterization assertion** at `stickers.test.ts:196-201` from "throws" to
+  `expect(nativeToUnified("")).toBe("")`. It makes the codec pair **total**, keeps
+  the return type `string` (no future caller has to null-check), and **matches the
+  existing `emojiFromString("") === ""` contract** (least-surprising for a
+  cleared-glyph caller). **Ruled out: B** (document empty as a caller precondition
+  + guard at call sites — pushes the identical guard onto every future caller and
+  leaves the pair non-total while its production sibling is already total on the
+  same value) and **C** (decline — leaves a latent `TypeError` in an exported util
+  that a one-line, type-preserving, contract-matching guard removes). Also rejected:
+  returning `undefined` (changes the type to `string | undefined` for no benefit
+  over `""`).
+- **Same-family sub-decision (optional, settle in the same breath):** `unifiedToNative`
+  throws `RangeError` on empty/non-hex/out-of-range (pinned `stickers.test.ts:80-98`),
+  caught only by `emojiFromString`'s try/catch. Recommended: add a **narrow**
+  symmetric **empty-only** guard (`unifiedToNative('') -> ''`) to keep the boundary
+  round-trip clean — but **KEEP** the non-hex / out-of-range `RangeError` loud: it
+  is **load-bearing** for `emojiFromString`'s catch (the Notidian-ebz security
+  contract that returns a non-emoji/hostile payload verbatim for the sinks to
+  `escapeHtml`). Same defensibly-different posture as ADR 0034.
+- **No build / no spike shipped.** No code changed — `stickers.ts` and
+  `stickers.test.ts` are untouched and the locked assertion is **not** flipped. A
+  spike cannot de-risk this: the logic is pure, offline-provable string conversion
+  (gate is jest, not eyes-on-vault); the open questions are the return-value
+  contract (a preference) and the deliberate re-blessing of a pinned assertion (an
+  owner ratification) — neither a measurement a flag yields.
+- **Bead status:** Notidian-ywcf stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
