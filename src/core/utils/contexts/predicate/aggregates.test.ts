@@ -33,7 +33,7 @@
  *   - No test asserts wall-clock "today"; every expectation is derived from the
  *     inputs.
  */
-import { calculateAggregate, aggregateFnTypes } from "./aggregates";
+import { calculateAggregate, aggregateFnTypes, msToDurationValue } from "./aggregates";
 import { MakeMDSettings } from "shared/types/settings";
 import { SpaceProperty } from "shared/types/mdb";
 
@@ -337,7 +337,34 @@ describe("aggregateFnTypes.fn — pure math (dates)", () => {
   });
   it("EDGE: dateRange of [] is -Infinity (Math.max([])=-Infinity, Math.min([])=Infinity)", () => {
     // (-Infinity) - (Infinity) === -Infinity, mirroring the numeric `range` edge.
+    // The pure fn is unchanged; calculateAggregate now floors this non-finite
+    // span to a zero duration (see msToDurationValue tests + the dateRange L2 tests).
     expect(fnOf("dateRange")([], "date")).toBe(-Infinity);
+  });
+});
+
+describe("msToDurationValue — ms span -> { values } duration object (Notidian-i9f)", () => {
+  // Bridges dateRange's numeric (ms) fn result to its 'duration' valueType so
+  // parseProperty's duration branch can render it. Pin the decomposition + the
+  // non-finite/negative flooring that keeps empty-set spans from leaking
+  // -Infinity into the footer.
+  const ms = (d = 0, h = 0, m = 0, s = 0) =>
+    ((d * 24 + h) * 60 + m) * 60 * 1000 + s * 1000;
+  it("decomposes a span into days/hours/minutes/seconds (each unit modulo)", () => {
+    expect(msToDurationValue(ms(10)).values).toEqual({ days: 10, hours: 0, minutes: 0, seconds: 0 });
+    expect(msToDurationValue(ms(1, 2, 3, 4)).values).toEqual({ days: 1, hours: 2, minutes: 3, seconds: 4 });
+    expect(msToDurationValue(ms(0, 25)).values).toEqual({ days: 1, hours: 1, minutes: 0, seconds: 0 });
+  });
+  it("floors sub-second remainder (only whole seconds surface)", () => {
+    expect(msToDurationValue(1500).values).toEqual({ days: 0, hours: 0, minutes: 0, seconds: 1 });
+  });
+  it("floors non-finite / negative / zero spans to all-zero (no -Infinity/NaN leak)", () => {
+    const zero = { days: 0, hours: 0, minutes: 0, seconds: 0 };
+    expect(msToDurationValue(0).values).toEqual(zero);
+    expect(msToDurationValue(-Infinity).values).toEqual(zero);
+    expect(msToDurationValue(-5).values).toEqual(zero);
+    expect(msToDurationValue(NaN).values).toEqual(zero);
+    expect(msToDurationValue(Infinity).values).toEqual(zero);
   });
 });
 
@@ -432,11 +459,30 @@ describe("calculateAggregate — date rollups (end to end)", () => {
       calculateAggregate(settings, latest, "latest", dateCol())
     ).toBe("2020-05-10");
   });
-  it("DEFECT-PIN: dateRange throws in the duration post-pass and renders blank", () => {
-    // dateRange.fn returns a NUMBER (ms span) but valueType is 'duration';
-    // parseProperty's duration case does `value.values` on that number ->
-    // TypeError -> caught -> ''. So dateRange footers are always empty.
-    expect(calculateAggregate(settings, ["2020-01-11", "2020-01-01"], "dateRange", col("date"))).toBe("");
+  it("dateRange renders a human duration string (Notidian-i9f / DEFECT D3 FIXED)", () => {
+    // Previously: dateRange.fn returns a NUMBER (ms span) but valueType is
+    // 'duration', so parseProperty's duration branch did `value.values` on a
+    // raw number -> TypeError -> caught -> '' (footer always blank).
+    // Now: calculateAggregate shapes the ms span into the { values: {...} }
+    // object the duration branch consumes, so a 10-day span renders "10 days".
+    expect(
+      calculateAggregate(settings, ["2020-01-11", "2020-01-01"], "dateRange", col("date"))
+    ).toBe("10 days");
+  });
+  it("dateRange renders multiple non-zero units, largest-first, comma-joined", () => {
+    // A span of 1 day, 2 hours, 3 minutes, 4 seconds renders every non-zero unit.
+    const start = new Date("2020-01-01T00:00:00.000Z").toISOString();
+    const end = new Date("2020-01-02T02:03:04.000Z").toISOString();
+    expect(calculateAggregate(settings, [start, end], "dateRange", col("date"))).toBe(
+      "1 days, 2 hours, 3 minutes, 4 seconds"
+    );
+  });
+  it("dateRange of identical/empty spans renders blank (no math-identity leak)", () => {
+    // Identical dates -> 0ms span -> all-zero units -> '' (duration branch drops
+    // count==0 units). Empty set -> dateRange fn -> -Infinity -> msToDurationValue
+    // floors non-finite/negative to 0 -> '' rather than leaking '-Infinity'.
+    expect(calculateAggregate(settings, ["2020-01-01", "2020-01-01"], "dateRange", col("date"))).toBe("");
+    expect(calculateAggregate(settings, [], "dateRange", col("date"))).toBe("");
   });
 });
 
@@ -486,16 +532,22 @@ describe("calculateAggregate — flex column unwrapping", () => {
  *     away by `parseProperty("", value, valueType)` returning '' for unhandled
  *     types. These footers always render empty in the table UI.
  *
- * D3. `dateRange` valueType 'duration' is incompatible with its numeric (ms)
- *     result: parseProperty's duration branch dereferences `value.values` on a
- *     number, throws, is caught, and the footer renders ''. dateRange footers
- *     are therefore always blank.
+ * D3. [FIXED — Notidian-i9f] `dateRange` valueType 'duration' WAS incompatible
+ *     with its numeric (ms) result: parseProperty's duration branch dereferenced
+ *     `value.values` on a number, threw, was caught, and the footer rendered ''.
+ *     calculateAggregate now shapes the ms span into the { values: {...} } object
+ *     the duration branch consumes (msToDurationValue), so dateRange footers
+ *     render a human duration ("10 days"). See the dateRange Layer-2 tests above.
+ *
+ *     NOTE for the D4 empty-set edge: dateRange of [] -> -Infinity is now floored
+ *     to a zero span by msToDurationValue, so it renders '' (no -Infinity leak),
+ *     independent of the duration-branch throw that previously swallowed it.
  *
  * D4. Empty-set edge values leak math identities into the rendered footer:
  *     avg -> 'NaN', min -> 'Infinity', max/range -> '-Infinity' instead of a
  *     blank/dash. (median is the only empty-safe numeric one, because its throw
- *     is caught -> ''. dateRange's -Infinity is also swallowed to '' by D3's
- *     duration-branch throw.)
+ *     is caught -> ''. dateRange is now ALSO empty-safe: its -Infinity span is
+ *     floored to a zero duration by msToDurationValue -> '' — see D3.)
  *
  * D5. `sum` reducer `(a,b) => b ? a+b : a` skips falsy (0) addends. Harmless
  *     for the value 0, but a latent foot-gun if the reducer is reused.

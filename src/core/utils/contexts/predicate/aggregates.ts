@@ -14,6 +14,28 @@ export type AggregateFunctionType = {
     valueType: string;
 };
 
+/**
+ * Decompose a non-negative millisecond span into a `{ values: { days, hours,
+ * minutes, seconds } }` object — the exact shape parseProperty's `duration`
+ * branch consumes (it renders each unit whose count > 0 as "<count> <unit>",
+ * joined by ", "). This is the bridge between dateRange's numeric (ms) fn result
+ * and its declared `valueType: "duration"`: without it, parseProperty does
+ * `Object.keys(value.values)` on a raw number, throws, is caught, and the footer
+ * renders blank (Notidian-i9f / DEFECT D3).
+ *
+ * Non-finite or negative input (e.g. dateRange of [] -> -Infinity) yields all
+ * zero counts, so the duration branch renders an empty footer rather than
+ * leaking a math identity — the sensible "no span" rendering.
+ */
+export const msToDurationValue = (ms: number): { values: Record<string, number> } => {
+    const safe = Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 0;
+    const seconds = Math.floor(safe / 1000) % 60;
+    const minutes = Math.floor(safe / (1000 * 60)) % 60;
+    const hours = Math.floor(safe / (1000 * 60 * 60)) % 24;
+    const days = Math.floor(safe / (1000 * 60 * 60 * 24));
+    return { values: { days, hours, minutes, seconds } };
+};
+
 export const calculateAggregate = (settings: MakeMDSettings, values: any[], fn: string, col: SpaceProperty) => {
     const aggregateFn = aggregateFnTypes[fn];
     if (!aggregateFn) {
@@ -26,7 +48,11 @@ export const calculateAggregate = (settings: MakeMDSettings, values: any[], fn: 
         });
     }
     const type = aggregateFn.type;
-    let result = '';
+    // `result` holds an intermediate value (string, number, or — for the
+    // 'duration' valueType — a { values } object) that the parseProperty
+    // post-pass below normalizes to its final rendered string. Typed `any` to
+    // match the existing `calcResult ?? ''` fallthrough branch.
+    let result: any = '';
     try {
         
         if (type == 'number') {
@@ -41,6 +67,11 @@ export const calculateAggregate = (settings: MakeMDSettings, values: any[], fn: 
             result = formatDate(settings, parseDate(calcResult), format);
         } else if (aggregateFn.valueType == 'number') {
             result = calcResult.toString();
+        } else if (aggregateFn.valueType == 'duration') {
+            // calcResult is a numeric ms span (dateRange). Shape it into the
+            // { values: {...} } object parseProperty's duration branch expects,
+            // paralleling the 'date' branch above. (Notidian-i9f / DEFECT D3.)
+            result = msToDurationValue(calcResult);
         } else {
             result = calcResult ?? '';
         }
