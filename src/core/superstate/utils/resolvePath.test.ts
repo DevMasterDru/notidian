@@ -85,43 +85,52 @@ describe("resolvePath", () => {
     });
 
     /**
-     * CHARACTERIZATION (BUG): the http test is `path.indexOf('http') == 0`, i.e.
-     * "starts with the literal substring 'http'", NOT "is an http(s):// URL".
-     * So any path beginning with the four letters "http" is treated as an
-     * external URL and SHORT-CIRCUITS before alias stripping and relative
-     * resolution — even when it is actually a vault path or a custom scheme.
+     * The http test is now `/^https?:\/\//i.test(path)` — "is an http(s):// URL",
+     * NOT "starts with the literal substring 'http'" (Notidian-4fdo). So a path
+     * that merely BEGINS with the four letters "http" but is not an http(s):// URL
+     * is no longer short-circuited: it falls through to the normal '|' alias strip
+     * and relative resolution, exactly like every other non-URL path.
      *
-     * This is observable: the '|' alias is NOT stripped for these, whereas it
-     * IS stripped for every other (non-http-prefixed) path. A vault note literally
-     * named e.g. "httpx Notes/x.md|Alias", or a "httpx://" custom scheme, would
-     * wrongly keep its alias and skip resolution.
+     * This is observable: the '|' alias IS now stripped for these (it was wrongly
+     * preserved before the fix). A vault note literally named e.g.
+     * "httpx Notes/x.md|Alias", or a "httpx://" custom scheme, gets its alias
+     * stripped and is resolved like any other vault path.
      */
-    it("CHARACTERIZATION(bug): 'httpx://' is a false-positive — treated as a URL, alias NOT stripped", () => {
+    it("'httpx://' is NOT an http(s) URL — falls through, alias IS stripped (Notidian-4fdo)", () => {
       expect(resolvePath("httpx://foo|Alias", "Space/Note.md", noSpace)).toBe(
-        "httpx://foo|Alias"
+        "httpx://foo"
       );
-      // contrast: a non-http-prefixed aliased path DOES get its alias stripped
+      // contrast: a non-http-prefixed aliased path also gets its alias stripped
       expect(resolvePath("foo|Alias", "Space/Note.md", noSpace)).toBe("foo");
     });
 
-    it("CHARACTERIZATION(bug): a bare 'http'-prefixed token passes through unchanged", () => {
-      // "httpfoo" is not a URL but starts with "http", so it short-circuits.
+    it("a bare 'http'-prefixed token is not a URL — falls through to normal handling (Notidian-4fdo)", () => {
+      // "httpfoo" is not an http(s):// URL, so no short-circuit. With no '|',
+      // no leading './' or '../', it falls through to the final return unchanged,
+      // but via the ordinary (non-URL) code path — same as any plain basename.
       expect(resolvePath("httpfoo", "Space/Note.md", noSpace)).toBe("httpfoo");
+      // and a 'http'-prefixed non-URL with an alias gets the alias stripped
+      expect(resolvePath("httpfoo|Alias", "Space/Note.md", noSpace)).toBe(
+        "httpfoo"
+      );
     });
 
-    it("does NOT treat 'http' appearing later in the string as a URL (indexOf must be 0)", () => {
-      // 'http' is present but not at index 0, so no short-circuit: the alias IS stripped.
+    it("does NOT treat 'http' appearing later in the string as a URL (must be at start)", () => {
+      // 'http' is present but not at the start, so no short-circuit: the alias IS stripped.
       expect(resolvePath("xhttp://a|Alias", "Space/Note.md", noSpace)).toBe(
         "xhttp://a"
       );
     });
 
-    it("CHARACTERIZATION: an uppercase 'HTTP://' is NOT recognized (case-sensitive indexOf)", () => {
-      // No http short-circuit (case-sensitive), no leading ./ or ../, so it falls
-      // through to the final return unchanged — same string, different code path.
+    it("an uppercase 'HTTP://' IS recognized as a URL and passes through (Notidian-4fdo)", () => {
+      // The scheme test is case-insensitive (/i flag), so an uppercase scheme
+      // short-circuits like a lowercase one: returned verbatim, alias preserved.
       expect(resolvePath("HTTP://example.com", "Space/Note.md", noSpace)).toBe(
         "HTTP://example.com"
       );
+      expect(
+        resolvePath("HTTPS://example.com/x|Label", "Space/Note.md", noSpace)
+      ).toBe("HTTPS://example.com/x|Label");
     });
   });
 

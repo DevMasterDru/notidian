@@ -5,7 +5,7 @@ import { renameTag } from "utils/tags";
 
 export const resolvePath = (path: string, source: string, isSpace?: (path: string) => boolean): string => {
     if (!source || !path) return path;
-    if (path.indexOf('http') == 0) return path;
+    if (/^https?:\/\//i.test(path)) return path;
     if (path.indexOf('|') != -1) {
         path = path.split('|')[0];
     }
