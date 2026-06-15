@@ -412,24 +412,34 @@ describe("calculateAggregate — count family (end to end)", () => {
   });
 });
 
-describe("calculateAggregate — DEFECT-PIN: parseProperty post-pass blanks several footers", () => {
-  // For these the fn produces a meaningful value (a percent string, a join, or
-  // a count) but parseProperty("", value, valueType) returns '' because the
-  // valueType ('none' / 'string') hits no handled switch case. The footer is
-  // therefore rendered EMPTY despite a non-empty underlying computation.
-  it("values -> '' (valueType 'none' not handled by parseProperty)", () => {
-    expect(calculateAggregate(settings, ["a", "a", "b"], "values", col())).toBe("");
+describe("calculateAggregate — valueType 'none'/'string' footers render their computed value (Notidian-wis / DEFECT D2 FIXED)", () => {
+  // Previously: each fn produced a meaningful value (a percent string, a join,
+  // or a count) but the parseProperty("", value, valueType) post-pass returned
+  // '' because valueType 'none'/'string' hit no handled switch case — so the
+  // footer rendered EMPTY despite a correct underlying computation.
+  // Now: calculateAggregate SKIPS the parseProperty post-pass for the 'none' and
+  // 'string' valueTypes (the fns own the final rendered form), so these footers
+  // show their real value. The typeof guard still stringifies the numeric
+  // 'none' counts (empty/notEmpty).
+  it("values renders the deduped, comma-joined list (valueType 'none')", () => {
+    expect(calculateAggregate(settings, ["a", "a", "b"], "values", col())).toBe("a, b");
+    // empty input -> empty join -> '' (genuinely nothing, not a blanked value).
+    expect(calculateAggregate(settings, [], "values", col())).toBe("");
   });
-  it("empty / notEmpty -> '' (valueType 'none')", () => {
-    expect(calculateAggregate(settings, ["a", "", ""], "empty", col())).toBe("");
-    expect(calculateAggregate(settings, ["a", "", ""], "notEmpty", col())).toBe("");
+  it("empty / notEmpty render their counts as strings (valueType 'none' -> number coerced)", () => {
+    expect(calculateAggregate(settings, ["a", "", ""], "empty", col())).toBe("2");
+    expect(calculateAggregate(settings, ["a", "", ""], "notEmpty", col())).toBe("1");
+    // a literal 0 count still renders "0" (not blanked).
+    expect(calculateAggregate(settings, ["a", "b"], "empty", col())).toBe("0");
   });
-  it("percentageEmpty / percentageNotEmpty -> '' (valueType 'string')", () => {
-    expect(calculateAggregate(settings, ["a", "", ""], "percentageEmpty", col())).toBe("");
-    expect(calculateAggregate(settings, ["a", "", ""], "percentageNotEmpty", col())).toBe("");
+  it("percentageEmpty / percentageNotEmpty render the percent string (valueType 'string')", () => {
+    expect(calculateAggregate(settings, ["a", "", ""], "percentageEmpty", col())).toBe("67%");
+    expect(calculateAggregate(settings, ["a", "", ""], "percentageNotEmpty", col())).toBe("33%");
+    expect(calculateAggregate(settings, ["a", "b"], "percentageEmpty", col())).toBe("0%");
   });
-  it("percentageComplete -> '' (valueType 'string')", () => {
-    expect(calculateAggregate(settings, ["true", "false"], "percentageComplete", col("boolean"))).toBe("");
+  it("percentageComplete renders the percent string (valueType 'string')", () => {
+    expect(calculateAggregate(settings, ["true", "false"], "percentageComplete", col("boolean"))).toBe("50%");
+    expect(calculateAggregate(settings, ["true", "true"], "percentageComplete", col("boolean"))).toBe("100%");
   });
 });
 
@@ -526,11 +536,18 @@ describe("calculateAggregate — flex column unwrapping", () => {
  *     number cols are pre-mapped to real numbers. Pinned in the range
  *     DEFECT-PIN test.
  *
- * D2. parseProperty post-pass BLANKS footers whose `valueType` is 'none' or
- *     'string' (values, empty, notEmpty, percentageEmpty, percentageNotEmpty,
- *     percentageComplete). The arithmetic is computed correctly, then thrown
- *     away by `parseProperty("", value, valueType)` returning '' for unhandled
- *     types. These footers always render empty in the table UI.
+ * D2. [FIXED — Notidian-wis] parseProperty post-pass BLANKED footers whose
+ *     `valueType` is 'none' or 'string' (values, empty, notEmpty,
+ *     percentageEmpty, percentageNotEmpty, percentageComplete). The arithmetic
+ *     was computed correctly, then thrown away by `parseProperty("", value,
+ *     valueType)` returning '' for those unhandled types — so these footers
+ *     always rendered empty in the table UI. Fix: calculateAggregate now SKIPS
+ *     the parseProperty post-pass for the 'none'/'string' valueTypes (the fns
+ *     own the final rendered form) and the typeof guard stringifies the numeric
+ *     'none' counts (empty/notEmpty). values -> 'a, b', empty -> '2',
+ *     percentageEmpty -> '67%'. See the 'none'/'string' Layer-2 tests above.
+ *     Chosen over adding identity cases to the shared parsers.ts (smaller blast
+ *     radius; parsers.ts is shared across the whole property pipeline).
  *
  * D3. [FIXED — Notidian-i9f] `dateRange` valueType 'duration' WAS incompatible
  *     with its numeric (ms) result: parseProperty's duration branch dereferenced

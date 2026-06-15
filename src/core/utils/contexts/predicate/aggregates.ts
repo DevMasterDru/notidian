@@ -75,9 +75,23 @@ export const calculateAggregate = (settings: MakeMDSettings, values: any[], fn: 
         } else {
             result = calcResult ?? '';
         }
-        result = parseProperty("", result, aggregateFn.valueType)
+        // The parseProperty post-pass normalizes structured intermediates (date,
+        // number, duration, link/option/etc.) to their final rendered string.
+        // But parseProperty has NO switch case for the 'none' or 'string'
+        // valueTypes (values, empty, notEmpty, percentageEmpty,
+        // percentageNotEmpty, percentageComplete): it falls through and returns
+        // '', silently BLANKING footers whose fn ALREADY produced the final
+        // value (e.g. '67%', 'a, b', or a raw count). Skip the post-pass for
+        // those valueTypes and pass `result` through unchanged — the fns own the
+        // final form. (Notidian-wis / DEFECT D2.) Preferred over adding identity
+        // cases to the shared parsers.ts (smaller blast radius). The typeof
+        // guard below still coerces a non-string `result` (the 'none' counts —
+        // empty/notEmpty — return numbers) to a stringified footer.
+        if (aggregateFn.valueType != 'none' && aggregateFn.valueType != 'string') {
+            result = parseProperty("", result, aggregateFn.valueType)
+        }
         if (typeof result != "string") {
-            result = ''
+            result = result == null ? '' : String(result)
 		}
     } catch (e) {
         result = '';
