@@ -185,6 +185,33 @@ queueing more and pivots to safe work — so this list stays reviewable.
   and blocks on the Notidian-8h9 direction.
 - **Bead status:** Notidian-2w0 stays **OPEN** (epic), awaiting your sequencing call.
 
+### Notidian-n2t — Type Profile hub-deletion notice: pick a direction (recommend: decline)
+
+- **ADR:** [docs/adr/0023-type-profile-hub-deletion-notice.md](adr/0023-type-profile-hub-deletion-notice.md) (Status: **Proposed**).
+- **What the loop found:** building this blind would be actively harmful. The
+  table→hub mirror (`typeProfileMirror.ts`) returns the same `{ok:false,
+  state:null}` for "no profile", "no folder note", and "hub deleted", and it fires
+  on **every** column edit of **every** folder DB (the caller gates only on
+  `dbSchema.id == defaultContextSchemaID`, not on having a profile;
+  `ContextEditorContext.tsx:1402`). `notePath` is always a computed path
+  (`spaceInfo.ts:121-132`), so the note's existence can't be read off the path.
+  A naive "hub stopped tracking" notice would therefore spam every non-Type-Profile
+  folder DB on every column edit. The only case that loses work — deletion *between*
+  read and write of a resolved profile — **already** surfaces via the
+  `saveFrontmatterProperties` failureMessage.
+- **The one decision you need to make:** **should this notice exist at all, and if
+  so via which prior-state signal** — (a) persist a Notidian-owned
+  last-known-profile context field, (b) a burst-scoped read-before-write diff, or
+  (c) decline. **Recommended: (c) decline** — the only data-loss case is already
+  reported and the rest is a low-value (P3) ambient status not worth net-new
+  Notidian-owned authority state; (b) only catches the mid-burst case the existing
+  notice already covers. If you do want the ambient status, the recommended build is
+  (a) (the only option that detects across-session deletion), implemented per ADR
+  0017 as a Notidian-owned field — *not* (b).
+- **No build is pending.** No spike was added: neither (a) nor (b) can be de-risked
+  by a throwaway flag without committing to the design choice this ADR defers to you.
+- **Bead status:** Notidian-n2t stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
