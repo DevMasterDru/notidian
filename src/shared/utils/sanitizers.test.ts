@@ -50,12 +50,20 @@ import {
 //        former defect case sanitizeFolderName("/+") -> "" (was "+" -> "").
 //        sanitizeFileName, which has no leading-sigil pass, was already
 //        idempotent. We pin BOTH facts.
-//   (D2) The null/undefined contract is INCONSISTENT across the six functions:
-//        quoteIdent is null-safe ('""'); sanitizeSQLStatement / sanitizeColumnName
-//        / sanitizeTableName return `undefined` (via `?.`) on nullish input;
-//        sanitizeFolderName / sanitizeFileName THROW on null/undefined (no
-//        optional chaining). We pin each branch so a future refactor can't
-//        silently flip the contract under a caller that depends on it.
+//   (D2) The null/undefined contract is now UNIFIED across all six functions
+//        (FIXED in Notidian-wtz; was three divergent behaviours surfaced by
+//        Notidian-709). Every sanitizer coerces a nullish (null | undefined)
+//        input to the empty string `''` at entry, then runs its normal
+//        cleansing. The former behaviours were: quoteIdent null-safe ('""', i.e.
+//        the `''` case it already had); sanitizeSQLStatement / sanitizeColumnName
+//        / sanitizeTableName returned `undefined` (via `?.`); sanitizeFolderName
+//        / sanitizeFileName THREW (no optional chaining). `''` is the safest
+//        single contract for the SQL-construction (db.ts) and path/row-identity
+//        (file.ts, ADR 0014/0016) surfaces — never an exception, never a stray
+//        `undefined` that string-coerces to the literal `"undefined"`. We now
+//        pin the UNIFIED contract: every function returns the empty-string
+//        result on nullish input (quoteIdent -> '""', the rest -> ''), so a
+//        future refactor can't silently re-diverge it.
 //   (D3) sanitizeColumnName IS idempotent (FIXED in Notidian-80m; was a latent
 //        ordering defect of the SAME class as D1). The former code peeled the
 //        leading `_`/`$` run FIRST, then quote-stripped in a TERMINAL branch (no
@@ -202,11 +210,11 @@ describe("sanitizeSQLStatement", () => {
   it("does NOT touch double quotes (only single quotes are its job)", () => {
     expect(sanitizeSQLStatement(`a"b`)).toBe(`a"b`);
   });
-  it("returns undefined on nullish input (via `?.` — D2, NOT the '' fail-safe)", () => {
-    // The empty-string fail-safe only triggers on a thrown exception; nullish
-    // input short-circuits through optional chaining to `undefined`.
-    expect(sanitizeSQLStatement(null as unknown as string)).toBeUndefined();
-    expect(sanitizeSQLStatement(undefined as unknown as string)).toBeUndefined();
+  it("coerces nullish input to '' (unified D2 contract — Notidian-wtz)", () => {
+    // Nullish input is now coerced to '' at entry, then the (no-op) quote
+    // doubling runs, yielding ''. No more divergent `undefined` short-circuit.
+    expect(sanitizeSQLStatement(null as unknown as string)).toBe("");
+    expect(sanitizeSQLStatement(undefined as unknown as string)).toBe("");
   });
   it("handles the empty string", () => {
     expect(sanitizeSQLStatement("")).toBe("");
@@ -280,9 +288,9 @@ describe("sanitizeColumnName", () => {
     // `a"_` -> `a_`, whose leading char is `a`, so the trailing `_` stays.
     expect(sanitizeColumnName(`a"_`)).toBe("a_");
   });
-  it("returns undefined on nullish input (via `?.` — D2)", () => {
-    expect(sanitizeColumnName(null as unknown as string)).toBeUndefined();
-    expect(sanitizeColumnName(undefined as unknown as string)).toBeUndefined();
+  it("coerces nullish input to '' (unified D2 contract — Notidian-wtz)", () => {
+    expect(sanitizeColumnName(null as unknown as string)).toBe("");
+    expect(sanitizeColumnName(undefined as unknown as string)).toBe("");
   });
 
   // ---- D3 (FIXED in Notidian-80m): a LEADING quote in front of a sigil no
@@ -371,9 +379,9 @@ describe("sanitizeTableName", () => {
   it("handles the empty string", () => {
     expect(sanitizeTableName("")).toBe("");
   });
-  it("returns undefined on nullish input (via `?.` — D2)", () => {
-    expect(sanitizeTableName(null as unknown as string)).toBeUndefined();
-    expect(sanitizeTableName(undefined as unknown as string)).toBeUndefined();
+  it("coerces nullish input to '' (unified D2 contract — Notidian-wtz)", () => {
+    expect(sanitizeTableName(null as unknown as string)).toBe("");
+    expect(sanitizeTableName(undefined as unknown as string)).toBe("");
   });
 
   // ---- INVARIANTS (property) ----
@@ -454,9 +462,9 @@ describe("sanitizeFileName", () => {
     expect(sanitizeFileName("#+name")).toBe("#+name");
     expect(sanitizeFileName("+con")).toBe("+con");
   });
-  it("THROWS on null/undefined (no optional chaining — D2)", () => {
-    expect(() => sanitizeFileName(null as unknown as string)).toThrow();
-    expect(() => sanitizeFileName(undefined as unknown as string)).toThrow();
+  it("coerces nullish input to '' (unified D2 contract — Notidian-wtz; no longer throws)", () => {
+    expect(sanitizeFileName(null as unknown as string)).toBe("");
+    expect(sanitizeFileName(undefined as unknown as string)).toBe("");
   });
 });
 
@@ -485,9 +493,9 @@ describe("sanitizeFolderName", () => {
   it("loses the slash in a traversal attempt", () => {
     expect(sanitizeFolderName("../etc")).toBe("..etc");
   });
-  it("THROWS on null/undefined (no optional chaining — D2)", () => {
-    expect(() => sanitizeFolderName(null as unknown as string)).toThrow();
-    expect(() => sanitizeFolderName(undefined as unknown as string)).toThrow();
+  it("coerces nullish input to '' (unified D2 contract — Notidian-wtz; no longer throws)", () => {
+    expect(sanitizeFolderName(null as unknown as string)).toBe("");
+    expect(sanitizeFolderName(undefined as unknown as string)).toBe("");
   });
 
   // ---- D1: IDEMPOTENCY (was a latent ordering defect; FIXED in Notidian-hsd) --
@@ -582,6 +590,28 @@ describe("path sanitizers — shared invariants (property)", () => {
       // residual illegal/control/dot/device-name fragment is left behind).
       expect(sanitizeFileName(folder)).toBe(folder);
     }
+  });
+
+  it("UNIFIED D2 CONTRACT: every sanitizer maps BOTH null and undefined to its empty-string result (none throws, none returns undefined) — Notidian-wtz", () => {
+    // quoteIdent's empty case is the wrapped empty identifier `'""'`; the other
+    // five return the bare empty string. The invariant under test is that the
+    // nullish result EQUALS the empty-string ('') result for each function, and
+    // that null and undefined are treated identically — no divergence.
+    for (const fn of [
+      sanitizeSQLStatement,
+      sanitizeColumnName,
+      sanitizeTableName,
+      sanitizeFolderName,
+      sanitizeFileName,
+    ]) {
+      const empty = fn("");
+      expect(fn(null as unknown as string)).toBe(empty);
+      expect(fn(undefined as unknown as string)).toBe(empty);
+    }
+    // quoteIdent: nullish and '' both yield the wrapped empty identifier.
+    expect(quoteIdent(null as unknown as string)).toBe(quoteIdent(""));
+    expect(quoteIdent(undefined as unknown as string)).toBe(quoteIdent(""));
+    expect(quoteIdent("")).toBe(`""`);
   });
 
   it("a name of pure illegal+control chars collapses to empty for both", () => {
