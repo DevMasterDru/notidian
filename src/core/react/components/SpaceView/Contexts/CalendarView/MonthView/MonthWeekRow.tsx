@@ -6,9 +6,8 @@ import {
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { applySat } from "core/utils/color";
 import {
+  buildRepeatRRuleOptions,
   formatDate,
-  getFreqValue,
-  getWeekdayValue,
   isoDateFormat,
   isValidDate,
   parseDate,
@@ -76,51 +75,40 @@ export const MonthWeekRow = (props: {
 
       if (repeatDef && repeatDef.freq) {
         const duration = rowEndDate.getTime() - rowDate.getTime();
-        const rruleOptions = {
+        const rruleOptions = buildRepeatRRuleOptions(repeatDef, {
           dtstart: rowDate,
-          freq: repeatDef.freq && getFreqValue(repeatDef.freq),
-          count: repeatDef.count && Math.min(repeatDef.count, 100),
-          interval: parseInt(repeatDef.interval),
-          byweekday:
-            repeatDef.byweekday &&
-            repeatDef.byweekday.map((d: string) => getWeekdayValue(d)),
           until: parseDate(repeatDef.until),
-          wkst: repeatDef.wkst && getWeekdayValue(repeatDef.wkst),
-        };
-
-        const rules = Object.entries(rruleOptions)
-          .filter(
-            ([key, value]) =>
-              value !== undefined && !isNaN(value) && value !== null
-          )
-          .reduce((obj, [key, value]) => {
-            obj[key] = value;
-            return obj;
-          }, {} as Record<string, any>);
-        const rule = new RRule(rules);
-
-        const starts: Date[] = rule.between(
-          startOfDay(weekStart),
-          endOfDay(weekEnd),
-          true
-        );
-
-        starts.forEach((startDate) => {
-          if (startDate.getTime() == rowDate.getTime()) return;
-          instances.push({
-            ...event,
-            [props.field]: formatDate(
-              props.superstate.settings,
-              startDate,
-              isoDateFormat
-            ),
-            [props.fieldEnd]: formatDate(
-              props.superstate.settings,
-              addMilliseconds(startDate, duration),
-              isoDateFormat
-            ),
-          });
         });
+        // Unknown/missing freq token (or unknown weekday tokens) yields a null
+        // / pruned options object; only generate recurrences when buildable.
+        // The base event was already pushed above, so skipping here preserves
+        // the prior no-recurrence-rendering behavior without crashing rrule.
+        if (rruleOptions) {
+          const rule = new RRule(rruleOptions);
+
+          const starts: Date[] = rule.between(
+            startOfDay(weekStart),
+            endOfDay(weekEnd),
+            true
+          );
+
+          starts.forEach((startDate) => {
+            if (startDate.getTime() == rowDate.getTime()) return;
+            instances.push({
+              ...event,
+              [props.field]: formatDate(
+                props.superstate.settings,
+                startDate,
+                isoDateFormat
+              ),
+              [props.fieldEnd]: formatDate(
+                props.superstate.settings,
+                addMilliseconds(startDate, duration),
+                isoDateFormat
+              ),
+            });
+          });
+        }
       }
 
       instances.forEach((instance) => {

@@ -1,6 +1,7 @@
 import { RRule } from "rrule";
 import { MakeMDSettings } from "shared/types/settings";
 import {
+  buildRepeatRRuleOptions,
   formatDate,
   getFreqValue,
   getWeekdayValue,
@@ -319,5 +320,291 @@ describe("getWeekdayValue", () => {
     expect(getWeekdayValue("")).toBeUndefined();
     expect(getWeekdayValue("XX")).toBeUndefined();
     expect(getWeekdayValue(undefined as unknown as string)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildRepeatRRuleOptions (Notidian-l8l)
+//
+// The crux: getWeekdayValue/getFreqValue return undefined on unknown tokens.
+// The OLD inline callers built `byweekday: repeatDef.byweekday.map(getWeekdayValue)`
+// then filtered options on `value !== undefined`. An unknown weekday produced
+// `[undefined]` — a defined/truthy ARRAY — so the filter did NOT drop it and
+// `new RRule(...).between()` THREW `Cannot read properties of undefined`,
+// crashing the calendar render. This helper validates the tokens so rrule never
+// receives a `[undefined]` byweekday (or an undefined freq).
+// ---------------------------------------------------------------------------
+describe("buildRepeatRRuleOptions", () => {
+  const dtstart = new Date(2024, 0, 1); // Mon Jan 1 2024 (local)
+
+  // Adversarial guard: the exact crash this bead fixes. Building options from a
+  // wrong-case weekday must NOT yield a throwing RRule.
+  it("does not crash rrule on an unknown/wrong-case weekday (the reported bug)", () => {
+    const opts = buildRepeatRRuleOptions(
+      { freq: "WEEKLY", byweekday: ["mo"] }, // wrong case -> getWeekdayValue undefined
+      { dtstart }
+    );
+    expect(opts).not.toBeNull();
+    // byweekday must be omitted entirely (not [undefined]).
+    expect(opts).not.toHaveProperty("byweekday");
+    // Proves the actual rrule call path no longer throws.
+    expect(() =>
+      new RRule(opts!).between(dtstart, new Date(2024, 0, 8), true)
+    ).not.toThrow();
+  });
+
+  it("re-throws-proof: the OLD shape ([undefined] byweekday) really did throw", () => {
+    // Documents WHY the guard is needed — the pre-fix options object crashes.
+    expect(() =>
+      new RRule({
+        dtstart,
+        freq: RRule.WEEKLY,
+        byweekday: [undefined as unknown as number],
+      }).between(dtstart, new Date(2024, 0, 8), true)
+    ).toThrow();
+  });
+
+  describe("freq validation -> null (skip recurrence)", () => {
+    it("returns null when freq is missing", () => {
+      expect(buildRepeatRRuleOptions({}, { dtstart })).toBeNull();
+      expect(
+        buildRepeatRRuleOptions({ count: 5 }, { dtstart })
+      ).toBeNull();
+    });
+
+    it("returns null for an unknown / wrong-case freq token", () => {
+      expect(
+        buildRepeatRRuleOptions({ freq: "weekly" }, { dtstart })
+      ).toBeNull(); // case-sensitive
+      expect(
+        buildRepeatRRuleOptions({ freq: "MINUTELY" }, { dtstart })
+      ).toBeNull(); // unsupported by getFreqValue
+      expect(
+        buildRepeatRRuleOptions({ freq: "GARBAGE" }, { dtstart })
+      ).toBeNull();
+    });
+
+    it("returns null for a null/undefined repeatDef", () => {
+      expect(buildRepeatRRuleOptions(null, { dtstart })).toBeNull();
+      expect(buildRepeatRRuleOptions(undefined, { dtstart })).toBeNull();
+    });
+
+    it("maps every known freq token", () => {
+      for (const [token, value] of [
+        ["DAILY", RRule.DAILY],
+        ["WEEKLY", RRule.WEEKLY],
+        ["MONTHLY", RRule.MONTHLY],
+        ["YEARLY", RRule.YEARLY],
+        ["HOURLY", RRule.HOURLY],
+      ] as const) {
+        const opts = buildRepeatRRuleOptions({ freq: token }, { dtstart });
+        expect(opts).not.toBeNull();
+        expect(opts!.freq).toBe(value);
+      }
+    });
+  });
+
+  describe("byweekday validation", () => {
+    it("keeps only valid weekday tokens, dropping unknown ones", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "WEEKLY", byweekday: ["MO", "mo", "TU", "MON", "WE"] },
+        { dtstart }
+      );
+      // MO->0, TU->1, WE->2 survive; "mo"/"MON" dropped.
+      expect(opts!.byweekday).toEqual([0, 1, 2]);
+    });
+
+    it("omits byweekday entirely when ALL tokens are unknown", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "WEEKLY", byweekday: ["mo", "MON", "XX"] },
+        { dtstart }
+      );
+      expect(opts).not.toHaveProperty("byweekday");
+    });
+
+    it("omits byweekday when the array is empty", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "WEEKLY", byweekday: [] },
+        { dtstart }
+      );
+      expect(opts).not.toHaveProperty("byweekday");
+    });
+
+    it("omits byweekday when it is not an array", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "WEEKLY", byweekday: "MO" as unknown },
+        { dtstart }
+      );
+      expect(opts).not.toHaveProperty("byweekday");
+    });
+
+    it("includes MO=0 (the falsy weekday value must survive the filter)", () => {
+      // MO maps to 0 — a falsy number. A naive truthiness filter would drop it;
+      // the helper uses an explicit !== undefined check, so 0 is kept.
+      const opts = buildRepeatRRuleOptions(
+        { freq: "WEEKLY", byweekday: ["MO"] },
+        { dtstart }
+      );
+      expect(opts!.byweekday).toEqual([0]);
+    });
+  });
+
+  describe("wkst validation", () => {
+    it("includes a valid wkst token", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "WEEKLY", wkst: "MO" },
+        { dtstart }
+      );
+      expect(opts!.wkst).toBe(0);
+    });
+
+    it("omits wkst for an unknown / wrong-case token", () => {
+      expect(
+        buildRepeatRRuleOptions({ freq: "WEEKLY", wkst: "mo" }, { dtstart })
+      ).not.toHaveProperty("wkst");
+      expect(
+        buildRepeatRRuleOptions({ freq: "WEEKLY", wkst: "XX" }, { dtstart })
+      ).not.toHaveProperty("wkst");
+    });
+
+    it("omits wkst when absent", () => {
+      expect(
+        buildRepeatRRuleOptions({ freq: "WEEKLY" }, { dtstart })
+      ).not.toHaveProperty("wkst");
+    });
+  });
+
+  describe("count cap (<= 100)", () => {
+    it("caps a large count at 100", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "DAILY", count: 500 },
+        { dtstart }
+      );
+      expect(opts!.count).toBe(100);
+    });
+
+    it("keeps a count below the cap", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "DAILY", count: 7 },
+        { dtstart }
+      );
+      expect(opts!.count).toBe(7);
+    });
+
+    it("parses a string count (parity with the old DayView parseInt)", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "DAILY", count: "9" },
+        { dtstart }
+      );
+      expect(opts!.count).toBe(9);
+    });
+
+    it("omits count when absent or unparseable", () => {
+      expect(
+        buildRepeatRRuleOptions({ freq: "DAILY" }, { dtstart })
+      ).not.toHaveProperty("count");
+      expect(
+        buildRepeatRRuleOptions(
+          { freq: "DAILY", count: "abc" },
+          { dtstart }
+        )
+      ).not.toHaveProperty("count");
+    });
+  });
+
+  describe("interval (parseInt, fallback 1)", () => {
+    it("parses a numeric interval", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "DAILY", interval: 3 },
+        { dtstart }
+      );
+      expect(opts!.interval).toBe(3);
+    });
+
+    it("parses a string interval", () => {
+      const opts = buildRepeatRRuleOptions(
+        { freq: "DAILY", interval: "2" },
+        { dtstart }
+      );
+      expect(opts!.interval).toBe(2);
+    });
+
+    it("falls back to 1 when interval is missing or unparseable", () => {
+      expect(
+        buildRepeatRRuleOptions({ freq: "DAILY" }, { dtstart })!.interval
+      ).toBe(1);
+      expect(
+        buildRepeatRRuleOptions(
+          { freq: "DAILY", interval: "x" },
+          { dtstart }
+        )!.interval
+      ).toBe(1);
+    });
+  });
+
+  describe("until (caller-clamped, included only when valid)", () => {
+    it("includes a valid until Date", () => {
+      const until = new Date(2024, 5, 1);
+      const opts = buildRepeatRRuleOptions(
+        { freq: "DAILY" },
+        { dtstart, until }
+      );
+      expect(opts!.until).toBe(until);
+    });
+
+    it("omits until when null / undefined", () => {
+      expect(
+        buildRepeatRRuleOptions({ freq: "DAILY" }, { dtstart, until: null })
+      ).not.toHaveProperty("until");
+      expect(
+        buildRepeatRRuleOptions({ freq: "DAILY" }, { dtstart })
+      ).not.toHaveProperty("until");
+    });
+
+    it("omits until when it is an invalid Date", () => {
+      expect(
+        buildRepeatRRuleOptions(
+          { freq: "DAILY" },
+          { dtstart, until: new Date(NaN) }
+        )
+      ).not.toHaveProperty("until");
+    });
+  });
+
+  describe("happy-path parity + dtstart passthrough", () => {
+    it("builds a full, rrule-usable option object", () => {
+      const until = new Date(2024, 2, 1);
+      const opts = buildRepeatRRuleOptions(
+        {
+          freq: "WEEKLY",
+          count: 5,
+          interval: 2,
+          byweekday: ["MO", "WE", "FR"],
+          wkst: "SU",
+        },
+        { dtstart, until }
+      );
+      expect(opts).toEqual({
+        dtstart,
+        freq: RRule.WEEKLY,
+        count: 5,
+        interval: 2,
+        byweekday: [0, 2, 4],
+        wkst: 6,
+        until,
+      });
+      // And it actually drives rrule without throwing.
+      const starts = new RRule(opts!).between(
+        dtstart,
+        new Date(2024, 0, 31),
+        true
+      );
+      expect(Array.isArray(starts)).toBe(true);
+    });
+
+    it("passes dtstart through verbatim", () => {
+      const opts = buildRepeatRRuleOptions({ freq: "DAILY" }, { dtstart });
+      expect(opts!.dtstart).toBe(dtstart);
+    });
   });
 });

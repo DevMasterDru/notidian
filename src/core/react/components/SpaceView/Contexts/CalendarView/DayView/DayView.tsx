@@ -1,9 +1,8 @@
 import { useDndMonitor, useDroppable } from "@dnd-kit/core";
 import { applySat } from "core/utils/color";
 import {
+  buildRepeatRRuleOptions,
   formatDate,
-  getFreqValue,
-  getWeekdayValue,
   isoDateFormat,
   isValidDate,
   parseDate,
@@ -98,59 +97,49 @@ export const DayView = (props: {
 
       if (repeatDef && repeatDef.freq) {
         const duration = endDate.getTime() - rowDate.getTime();
-        const rruleOptions = {
-          dtstart: rowDate,
-          freq: repeatDef.freq && getFreqValue(repeatDef.freq),
-          count: repeatDef.count && Math.min(parseInt(repeatDef.count), 100),
-          interval: repeatDef.interval ? parseInt(repeatDef.interval) : 1,
-          byweekday:
-            repeatDef.byweekday &&
-            repeatDef.byweekday.map((d: string) => getWeekdayValue(d)),
-          until:
-            repeatDef.until &&
-            new Date(
+        // until is clamped to the end of this day's window (caller-owned).
+        const windowEnd = add(blockDate, { days: 1 });
+        const clampedUntil = repeatDef.until
+          ? new Date(
               Math.min(
-                (
-                  parseDate(repeatDef.until) ?? add(blockDate, { days: 1 })
-                ).getTime(),
-                add(blockDate, { days: 1 }).getTime()
+                (parseDate(repeatDef.until) ?? windowEnd).getTime(),
+                windowEnd.getTime()
               )
-            ),
-          wkst: repeatDef.wkst && getWeekdayValue(repeatDef.wkst),
-        };
-        const rule = new RRule(
-          Object.entries(rruleOptions)
-            .filter(
-              ([key, value]) =>
-                value !== undefined && !isNaN(value) && value !== null
             )
-            .reduce((obj, [key, value]) => {
-              obj[key] = value;
-              return obj;
-            }, {} as Record<string, any>)
-        );
-
-        const starts: Date[] = rule.between(
-          blockDate,
-          add(blockDate, { days: 1 }),
-          true
-        );
-        starts.forEach((startDate) => {
-          if (startDate.getTime() == rowDate.getTime()) return;
-          instances.push({
-            ...event,
-            [start]: formatDate(
-              props.superstate.settings,
-              startDate,
-              isoDateFormat
-            ),
-            [end]: formatDate(
-              props.superstate.settings,
-              addMilliseconds(startDate, duration),
-              isoDateFormat
-            ),
-          });
+          : null;
+        const rruleOptions = buildRepeatRRuleOptions(repeatDef, {
+          dtstart: rowDate,
+          until: clampedUntil,
         });
+        // Unknown/missing freq token (or unknown weekday tokens) yields a null
+        // / pruned options object; only generate recurrences when buildable.
+        // The base event was already pushed above, so skipping here preserves
+        // the prior no-recurrence-rendering behavior without crashing rrule.
+        if (rruleOptions) {
+          const rule = new RRule(rruleOptions);
+
+          const starts: Date[] = rule.between(
+            blockDate,
+            add(blockDate, { days: 1 }),
+            true
+          );
+          starts.forEach((startDate) => {
+            if (startDate.getTime() == rowDate.getTime()) return;
+            instances.push({
+              ...event,
+              [start]: formatDate(
+                props.superstate.settings,
+                startDate,
+                isoDateFormat
+              ),
+              [end]: formatDate(
+                props.superstate.settings,
+                addMilliseconds(startDate, duration),
+                isoDateFormat
+              ),
+            });
+          });
+        }
       }
 
       instances.forEach((event) => {
