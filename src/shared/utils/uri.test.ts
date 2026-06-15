@@ -114,28 +114,27 @@ describe("parseURI", () => {
     });
 
     /**
-     * CHARACTERIZATION (genuine bug): for a heading ref, refType falls back to
-     * 'heading' even though the first char ('h') is a real content character, so
-     * `reference = refPart.slice(1)` drops the leading char -> ref="eading".
-     * refStr re-prepends refTypeChar so it stays correct ("heading"), masking the
-     * defect for callers that read refStr. Follow-up bead tracks the fix.
+     * FIXED (Notidian-6ok): a heading ref's first char is real content, not a
+     * consumed sigil, so it must survive into `ref`. parseURI now only slices a
+     * leading char when it is a recognized sigil (^,*,;). refStr correspondingly
+     * no longer re-prepends a phantom sigil.
      */
-    it("CHARACTERIZATION: a heading ref drops its first character into ref but not refStr", () => {
+    it("keeps the full heading text in ref (no leading-char drop)", () => {
       const uri = parseURI("Note.md#heading");
       expect(uri.refType).toBe("heading");
-      expect(uri.ref).toBe("eading"); // BUG: should be "heading"
-      expect(uri.refStr).toBe("heading"); // refStr stays correct
+      expect(uri.ref).toBe("heading");
+      expect(uri.refStr).toBe("heading");
     });
 
     /**
-     * CHARACTERIZATION (genuine bug): '*' is only a recognized refType *inside* a
-     * space; on a plain path it falls through to 'heading', and the same
-     * slice(1) drops the '*' from ref.
+     * '*' is only a recognized refType *inside* a space; on a plain path it falls
+     * through to 'heading'. It is still a sigil character, so it is consumed from
+     * ref but reconstructed into refStr — no real content char is lost here.
      */
-    it("CHARACTERIZATION: a '*' ref on a plain path is treated as heading and loses its sigil", () => {
+    it("treats a leading '*' on a plain path as a consumed sigil (heading refType)", () => {
       const uri = parseURI("Note.md#*frame");
       expect(uri.refType).toBe("heading");
-      expect(uri.ref).toBe("frame"); // '*' dropped
+      expect(uri.ref).toBe("frame"); // '*' is a sigil, correctly consumed
       expect(uri.refStr).toBe("*frame");
     });
   });
@@ -243,25 +242,32 @@ describe("movePath", () => {
   });
 
   /**
-   * CHARACTERIZATION: an empty newParent yields a leading-slash path ("/Note.md")
-   * rather than the bare basename. Callers pass real space paths, but this pins
-   * the degenerate case.
+   * FIXED (Notidian-6ok): an empty (or "/") parent means "root" and now yields
+   * the bare basename instead of a leading-slash path. This also aligns
+   * movePathToNewSpaceAtIndex, whose pre-existence check already computes the
+   * bare name for a "/" parent.
    */
-  it("CHARACTERIZATION: an empty parent produces a leading slash", () => {
-    expect(movePath("Note.md", "")).toBe("/Note.md");
+  it("treats an empty parent as root (bare basename, no leading slash)", () => {
+    expect(movePath("Note.md", "")).toBe("Note.md");
+  });
+
+  it("treats a '/' parent as root (bare basename)", () => {
+    expect(movePath("Folder/Note.md", "/")).toBe("Note.md");
   });
 
   /**
-   * CHARACTERIZATION: a trailing slash on newParent is not collapsed, producing
-   * a double slash ("New//Note.md").
+   * FIXED (Notidian-6ok): a trailing slash on newParent is now collapsed, so the
+   * result no longer contains a double slash.
    */
-  it("CHARACTERIZATION: a trailing-slash parent is not normalized (double slash)", () => {
-    expect(movePath("Folder/Note.md", "New/")).toBe("New//Note.md");
+  it("collapses a trailing-slash parent (no double slash)", () => {
+    expect(movePath("Folder/Note.md", "New/")).toBe("New/Note.md");
   });
 
   /**
-   * CHARACTERIZATION: a source path that itself ends in a slash has an empty last
-   * segment, so the result ends in a slash ("New/").
+   * CHARACTERIZATION (pinned, not normalized): a source path that itself ends in
+   * a slash has an empty last segment, so the result ends in a slash. There is no
+   * basename to fabricate from a malformed source, and no caller produces this
+   * shape, so it is deliberately left as-is (Notidian-6ok decision).
    */
   it("CHARACTERIZATION: a trailing-slash source yields an empty basename", () => {
     expect(movePath("Folder/", "New")).toBe("New/");
@@ -374,36 +380,41 @@ describe("renamePathWithExtension", () => {
     );
   });
 
-  it("treats an extension-only basename ('.md') as having extension '.md'", () => {
-    expect(renamePathWithExtension(".md", "X")).toBe("X.md");
+  /**
+   * FIXED (Notidian-6ok): a leading-dot-only basename is a dotfile, not an
+   * extension boundary. The extension scan now ignores a dot at index 0 of the
+   * basename, so ".md" is the dotfile named "md" (no extension) and renaming it
+   * drops the dotfile name entirely, consistent with ".gitignore" below.
+   */
+  it("treats a leading-dot-only basename ('.md') as a dotfile with no extension", () => {
+    expect(renamePathWithExtension(".md", "X")).toBe("X");
   });
 
   /**
-   * CHARACTERIZATION (genuine bug): a dotfile basename like ".gitignore" has its
-   * only dot at index 0, so lastIndexOf('.') treats the whole name as the
-   * "extension". Renaming yields "Renamed.gitignore" instead of "Renamed". The
-   * extension scan should be scoped to the basename *after* the leading dot.
+   * FIXED (Notidian-6ok): a dotfile basename like ".gitignore" has its only dot
+   * at index 0, which is part of the dotfile name, not an extension boundary.
+   * The scan ignores the index-0 dot, so renaming yields just the new name.
    */
-  it("CHARACTERIZATION: a dotfile is renamed as if its whole name were the extension", () => {
-    expect(renamePathWithExtension(".gitignore", "Renamed")).toBe(
-      "Renamed.gitignore" // BUG: a dotfile has no extension; expected "Renamed"
-    );
+  it("renames a dotfile to the bare new name (a dotfile has no extension)", () => {
+    expect(renamePathWithExtension(".gitignore", "Renamed")).toBe("Renamed");
     expect(renamePathWithExtension("Folder/.env", "Renamed")).toBe(
-      "Folder/Renamed.env" // BUG: expected "Folder/Renamed"
+      "Folder/Renamed"
     );
   });
 
   /**
-   * CHARACTERIZATION (serious bug): extension detection uses lastIndexOf('.') over
-   * the *whole path*, not the basename. When a dotless file lives under a folder
-   * whose name contains a dot, the dot in the directory is mistaken for the file
-   * extension, and everything after it (including the path separator) is appended
-   * to the new name — fabricating a corrupt, non-existent nested path with an
-   * embedded slash. This can move a row's identity to a path that does not exist.
+   * FIXED (Notidian-6ok, serious): extension detection now scopes lastIndexOf('.')
+   * to the basename (after the final '/'), never the whole path. A dotless file
+   * under a folder whose name contains a dot no longer mistakes the directory dot
+   * for the file extension, so it can no longer splice the directory tail
+   * (including a path separator) into the new name and relocate the row identity.
    */
-  it("CHARACTERIZATION: a dotted directory + dotless file corrupts the path with an embedded slash", () => {
+  it("does not let a dotted directory leak into a dotless file's extension", () => {
     expect(renamePathWithExtension("My.Folder/Note", "Renamed")).toBe(
-      "My.Folder/Renamed.Folder/Note" // BUG: expected "My.Folder/Renamed"
+      "My.Folder/Renamed"
+    );
+    expect(renamePathWithExtension("a.b/c.d/NoExt", "Renamed")).toBe(
+      "a.b/c.d/Renamed"
     );
   });
 

@@ -10,6 +10,7 @@ export const parseURI = (uri: string): URI => {
     // export const uriByStr = (uri: string, source?: string) => {
       
       let refTypeChar = '';
+      let refSigilConsumed = false;
       const parseQuery = (queryString: string) => {
         const query: { [key: string]: string } = {};
         queryString.split('&').forEach(param => {
@@ -84,7 +85,12 @@ export const parseURI = (uri: string): URI => {
         refType = mapRefType(refPart[0], trailSlash);
         if (refType || lastHashIndex != lastSlashIndex+1) {
         refTypeChar = refPart[0];
-        reference = refType ? refPart.slice(1) : refPart;
+        // Only the recognized sigils (^,*,;) are consumed from the front of the
+        // ref; for a plain heading/unknown ref the first char is real content
+        // and must NOT be dropped (ADR 0014/0016: refs are part of row addressing).
+        refSigilConsumed =
+          refTypeChar === '^' || refTypeChar === '*' || refTypeChar === ';';
+        reference = refSigilConsumed ? refPart.slice(1) : refPart;
         uri = uri.slice(0, lastHashIndex);
         }
       }
@@ -107,7 +113,7 @@ export const parseURI = (uri: string): URI => {
         alias: alias,
         ref: reference,
         refType: refType,
-        refStr: refType ? refTypeChar+reference : reference,
+        refStr: refSigilConsumed ? refTypeChar+reference : reference,
         query: query,
         trailSlash 
       };
@@ -115,9 +121,19 @@ export const parseURI = (uri: string): URI => {
 
 export const movePath = (path: string, newParent: string) : string => {
   const parts = path.split("/")
-  const newPath = newParent + "/" + parts[parts.length - 1]
-
-  return newPath
+  const basename = parts[parts.length - 1]
+  // Normalize the destination parent so a root/empty/trailing-slash parent does
+  // not produce a malformed path. An empty or "/" parent means "root" -> the
+  // bare basename (this also aligns movePathToNewSpaceAtIndex, whose existence
+  // check already computes the bare name for a "/" parent); a trailing slash is
+  // collapsed so "New/" + basename does not yield "New//basename". A trailing
+  // slash on the SOURCE (empty basename) is left as-is: there is no basename to
+  // fabricate, and no caller produces that shape.
+  const parent = removeTrailingSlashFromFolder(newParent)
+  if (parent.length == 0 || parent == "/") {
+    return basename
+  }
+  return parent + "/" + basename
 }
 export const renamePathWithoutExtension = (path: string, newName: string): string => {
   const dir = path.substring(0, path.lastIndexOf("/"));
@@ -125,8 +141,18 @@ export const renamePathWithoutExtension = (path: string, newName: string): strin
 }
 
 export const renamePathWithExtension = (path: string, newName: string): string => {
-  const dir = path.substring(0, path.lastIndexOf("/"));
-  const ext = path.lastIndexOf(".") != -1 ? path.substring(path.lastIndexOf(".")) : "";
+  const lastSlash = path.lastIndexOf("/");
+  const dir = path.substring(0, lastSlash);
+  const basename = path.substring(lastSlash + 1);
+  // Scope the extension scan to the BASENAME, never the whole path: a dot in a
+  // parent folder name must not be mistaken for the file's extension (that would
+  // splice the directory tail — including a path separator — into the new name,
+  // fabricating a corrupt nested path and silently relocating the row's
+  // identity). A leading dot (index 0, e.g. ".gitignore") is part of a dotfile's
+  // name, not an extension boundary, so it is excluded. (ADR 0014/0016: paths
+  // own row identity.)
+  const dotIndex = basename.lastIndexOf(".");
+  const ext = dotIndex > 0 ? basename.substring(dotIndex) : "";
   return dir.length > 0 ? `${dir}/${newName}${ext}` : `${newName}${ext}`;
 }
 
