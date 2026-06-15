@@ -8,7 +8,9 @@ export const ColorCell = (props: TableCellProp) => {
     const handleChangeComplete = (color: string) => {
       props.saveValue(color);
     };
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound color swatch (currentTarget), not the clicked child
+    // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     showColorPickerMenu(
       props.superstate,
       offset,

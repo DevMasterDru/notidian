@@ -24,7 +24,9 @@ export const SpaceTemplateProperty = (props: {
   const { pathState } = useContext(PathContext);
   const { spaceState } = useContext(SpaceContext);
   const newAction = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked SVG plus child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     showLinkMenu(
       offset,
       windowFromDocument(e.view.document),
@@ -37,7 +39,9 @@ export const SpaceTemplateProperty = (props: {
     e.stopPropagation();
   };
   const showMenu = (e: React.MouseEvent, f: string) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound template chip row (currentTarget), not the clicked SVG
+    // .mk-path-icon child within it (Notidian-3txp). Synchronous read.
+    const offset = e.currentTarget.getBoundingClientRect();
     const menuOptions = [];
     menuOptions.push({
       name: i18n.labels.setAsDefault,
@@ -69,8 +73,10 @@ export const SpaceTemplateProperty = (props: {
       description: i18n.descriptions.templateNameFormula,
       path: pathState.path,
     };
+    // Anchor to the bound edit-formula button (currentTarget), not the clicked SVG
+    // formula child within it (Notidian-3txp). Synchronous read.
     props.superstate.ui.openCustomMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       <FormulaEditor {..._props}></FormulaEditor>,
       { ..._props },
       windowFromDocument(e.view.document),

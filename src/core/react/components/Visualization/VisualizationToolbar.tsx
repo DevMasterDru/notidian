@@ -105,8 +105,10 @@ export const VisualizationToolbar: React.FC<VisualizationToolbarProps> = ({
       },
     }));
 
+    // Anchor to the bound chart-type button (currentTarget), not the clicked SVG
+    // child within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
     superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       defaultMenu(superstate.ui, menuOptions),
       window
     );
@@ -1094,8 +1096,10 @@ export const VisualizationToolbar: React.FC<VisualizationToolbarProps> = ({
       },
     });
 
+    // Anchor to the bound options button (currentTarget), not the clicked SVG
+    // child within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
     superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       defaultMenu(superstate.ui, menuOptions),
       window
     );

@@ -59,7 +59,11 @@ export const EverView = (props: { superstate: Superstate; path: string }) => {
           }}
           onClick={(e) => {
             const pathState = props.superstate.pathsIndex.get(props.path);
-            showSpaceContextMenu(props.superstate, pathState, (e.target as HTMLButtonElement).getBoundingClientRect(), windowFromDocument(e.view.document));
+            // Anchor to the bound options button (currentTarget), not the clicked
+            // child. The button renders its glyph via dangerouslySetInnerHTML SVG,
+            // so e.target can resolve to that SVG child with a different rect
+            // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+            showSpaceContextMenu(props.superstate, pathState, e.currentTarget.getBoundingClientRect(), windowFromDocument(e.view.document));
           }}
         ></button>
       </div>

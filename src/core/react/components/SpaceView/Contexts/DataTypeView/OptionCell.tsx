@@ -265,8 +265,11 @@ export const OptionCell = (
       });
     });
 
+    // Anchor to the bound more-options icon (currentTarget), not the clicked SVG
+    // child within it (Notidian-3txp). showOptionMenu runs synchronously from
+    // onMoreOptions, so currentTarget is valid.
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       defaultMenu(props.superstate.ui, menuOptions),
       windowFromDocument(e.view.document)
     );

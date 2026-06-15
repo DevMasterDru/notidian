@@ -88,7 +88,9 @@ export const SpaceHeaderBar = (props: {
     });
   };
   const addNew = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound toolbar button (currentTarget), not the clicked child
+    // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const win = windowFromDocument(e.view.document);
     const hasSticker =
       pathState?.metadata.label?.[props.superstate.settings.fmKeySticker]

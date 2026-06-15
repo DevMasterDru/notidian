@@ -66,8 +66,11 @@ export const DateCell = (props: TableCellProp) => {
         return;
       }
 
+      // Anchor to the bound .mk-cell-date control (currentTarget), not the clicked
+      // child (Notidian-3txp). When invoked without an event, fall back to the
+      // cell ref. Synchronous read.
       const offset = e
-        ? (e.target as HTMLElement).getBoundingClientRect()
+        ? e.currentTarget.getBoundingClientRect()
         : ref.current.getBoundingClientRect();
       menuRef.current = showDatePickerMenu(
         props.superstate.ui,

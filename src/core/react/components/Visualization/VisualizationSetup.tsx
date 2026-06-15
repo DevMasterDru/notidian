@@ -70,7 +70,9 @@ export const VisualizationSetup: React.FC<VisualizationSetupProps> = ({
 
   // Handle space selection
   const handleSpaceSelect = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-cell-text selector (currentTarget), not the clicked
+    // child (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     
     showSpacesMenu(
       offset, 
@@ -91,7 +93,9 @@ export const VisualizationSetup: React.FC<VisualizationSetupProps> = ({
   const handleListSelect = (e: React.MouseEvent) => {
     if (!availableSchemas || availableSchemas.length === 0) return;
     
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-cell-text selector (currentTarget), not the clicked
+    // child (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const lists = availableSchemas.map(list => ({
       name: list.name,
       value: list.id
@@ -120,7 +124,9 @@ export const VisualizationSetup: React.FC<VisualizationSetupProps> = ({
   const handleXFieldSelect = (e: React.MouseEvent) => {
     if (!availableFields || availableFields.length === 0) return;
     
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-cell-text selector (currentTarget), not the clicked
+    // child (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const fieldOptions = availableFields.map(field => ({
       name: field.name,
       value: field.name
@@ -149,7 +155,9 @@ export const VisualizationSetup: React.FC<VisualizationSetupProps> = ({
   const handleYFieldSelect = (e: React.MouseEvent) => {
     if (!availableFields || availableFields.length === 0) return;
     
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-cell-text selector (currentTarget), not the clicked
+    // child (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const fieldOptions = availableFields.map(field => ({
       name: field.name,
       value: field.name

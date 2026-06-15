@@ -57,9 +57,9 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
             name: i18n.labels.selectSpace,
             icon: "ui//type",
             onClick: (e) => {
-              const offset = (
-                e.target as HTMLButtonElement
-              ).getBoundingClientRect();
+              // Anchor to the bound menu row (currentTarget), not the clicked SVG
+              // icon child within it (Notidian-3txp). Synchronous read.
+              const offset = e.currentTarget.getBoundingClientRect();
               showSpacesMenu(
                 offset,
                 windowFromDocument(e.view.document),
@@ -82,7 +82,10 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
                 },
               });
             });
-          const offset = (e.target as HTMLElement).getBoundingClientRect();
+          // Anchor to the property row that opened showValueMenu (currentTarget),
+          // not the clicked SVG icon child (Notidian-3txp). showValueMenu runs
+          // synchronously from that row's onClick, so currentTarget is valid.
+          const offset = e.currentTarget.getBoundingClientRect();
           props.superstate.ui.openMenu(
             offset,
             defaultMenu(props.superstate.ui, menuOptions),
@@ -97,9 +100,9 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
             name: i18n.labels.selectNote,
             icon: "ui//type",
             onClick: (e) => {
-              const offset = (
-                e.target as HTMLButtonElement
-              ).getBoundingClientRect();
+              // Anchor to the bound menu row (currentTarget), not the clicked SVG
+              // icon child within it (Notidian-3txp). Synchronous read.
+              const offset = e.currentTarget.getBoundingClientRect();
               showLinkMenu(
                 offset,
                 windowFromDocument(e.view.document),
@@ -122,7 +125,10 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
                 },
               });
             });
-          const offset = (e.target as HTMLElement).getBoundingClientRect();
+          // Anchor to the property row that opened showValueMenu (currentTarget),
+          // not the clicked SVG icon child (Notidian-3txp). showValueMenu runs
+          // synchronously from that row's onClick, so currentTarget is valid.
+          const offset = e.currentTarget.getBoundingClientRect();
           props.superstate.ui.openMenu(
             offset,
             defaultMenu(props.superstate.ui, menuOptions),
@@ -179,7 +185,10 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
                 },
               });
             });
-          const offset = (e.target as HTMLElement).getBoundingClientRect();
+          // Anchor to the property row that opened showValueMenu (currentTarget),
+          // not the clicked SVG icon child (Notidian-3txp). showValueMenu runs
+          // synchronously from that row's onClick, so currentTarget is valid.
+          const offset = e.currentTarget.getBoundingClientRect();
           props.superstate.ui.openMenu(
             offset,
             defaultMenu(props.superstate.ui, menuOptions),
@@ -189,7 +198,9 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
         break;
       case "date":
         {
-          const offset = (e.target as HTMLElement).getBoundingClientRect();
+          // Anchor to the property row that opened showValueMenu (currentTarget),
+          // not the clicked SVG icon child (Notidian-3txp). Synchronous read.
+          const offset = e.currentTarget.getBoundingClientRect();
 
           const date = new Date(currentValue);
           showDatePickerMenu(
@@ -245,7 +256,10 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
       icon: "ui//type",
       onClick: (e) => savePropValue("style", `'p'`),
     });
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the "Styles" menu row that opened showTypographyMenu
+    // (currentTarget), not the clicked SVG icon child (Notidian-3txp). Synchronous
+    // read.
+    const offset = e.currentTarget.getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),
@@ -265,7 +279,9 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
       name: i18n.labels.color,
       icon: "ui//palette",
       onClick: (e) => {
-        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Anchor to the bound color menu row (currentTarget), not the clicked SVG
+        // icon child within it (Notidian-3txp). Synchronous read.
+        const offset = e.currentTarget.getBoundingClientRect();
         props.superstate.ui.openMenu(
           offset,
           {
@@ -291,7 +307,9 @@ export const showFramePropsMenu = (props: FramePropertyMenuProps) => {
       name: i18n.labels.backgroundColor,
       icon: "ui//palette",
       onClick: (e) => {
-        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Anchor to the bound background-color menu row (currentTarget), not the
+        // clicked SVG icon child within it (Notidian-3txp). Synchronous read.
+        const offset = e.currentTarget.getBoundingClientRect();
         props.superstate.ui.openMenu(
           offset,
           {

@@ -78,7 +78,10 @@ export const ObjectEditor = (props: {
     if (props.editMode <= CellEditMode.EditModeValueOnly) {
       return;
     }
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound property field (currentTarget), not the clicked SVG/label
+    // child (Notidian-3txp). showPropertyMenu runs synchronously from
+    // PropertyField's onClick, so currentTarget is valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const menuOptions: SelectOption[] = [];
     menuOptions.push({
       name: i18n.menu.rename,
@@ -257,7 +260,9 @@ export const ObjectCell = (
 
   // If the initialValue is changed external, sync it up with our state
   const showPropertyMultiMenu = (e: React.MouseEvent, index: number) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-cell-object-group-header (currentTarget), not the
+    // clicked child (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const menuOptions: SelectOption[] = [];
     menuOptions.push({
       name: i18n.menu.insertAbove,
@@ -475,7 +480,9 @@ export const ObjectEditorModal = (
   };
 
   const newProperty = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked SVG plus child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const type = parseFieldValue(fieldValue, props.property.type)?.type;
     const _value = parseObject(value, props.property.type == "object-multi");
     showNewPropertyMenu(

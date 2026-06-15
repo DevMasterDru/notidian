@@ -108,10 +108,14 @@ export const NoteActionBar = (props: { superstate: Superstate }) => {
     return true;
   };
   const showContextMenu = (e: React.MouseEvent) => {
-     showSpaceContextMenu(props.superstate, pathState, (e.target as HTMLButtonElement).getBoundingClientRect(), windowFromDocument(e.view.document));
+     // Anchor to the bound options button (currentTarget), not the clicked SVG
+     // child within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+     showSpaceContextMenu(props.superstate, pathState, e.currentTarget.getBoundingClientRect(), windowFromDocument(e.view.document));
   };
   const newProperty = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked SVG plus child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     showNewPropertyMenu(
       props.superstate,
       offset,
@@ -140,7 +144,9 @@ export const NoteActionBar = (props: { superstate: Superstate }) => {
   };
 
   const showAddMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked SVG pin child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     showSpacesMenu(
       offset,
       windowFromDocument(e.view.document),

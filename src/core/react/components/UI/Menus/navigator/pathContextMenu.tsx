@@ -103,7 +103,9 @@ export const triggerMultiPathMenu = (
     name: i18n.menu.moveFile,
     icon: "ui//paper-plane",
     onClick: (e) => {
-      const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+      // Anchor the submenu to the bound menu row (currentTarget), not the clicked
+      // SVG icon child within it (Notidian-3txp). Synchronous read.
+      const offset = e.currentTarget.getBoundingClientRect();
       showSpacesMenu(
         offset,
         windowFromDocument(e.view.document),
@@ -121,7 +123,9 @@ export const triggerMultiPathMenu = (
     name: i18n.buttons.addToSpace,
     icon: "ui//pin",
     onClick: (e) => {
-      const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+      // Anchor the submenu to the bound menu row (currentTarget), not the clicked
+      // SVG icon child within it (Notidian-3txp). Synchronous read.
+      const offset = e.currentTarget.getBoundingClientRect();
       showSpacesMenu(
         offset,
         windowFromDocument(e.view.document),
@@ -174,6 +178,10 @@ export const triggerMultiPathMenu = (
     },
   });
 
+  // INTENTIONAL e.target (Notidian-3txp): triggerMultiPathMenu receives the
+  // right-click event from a full-width tree row (handleRightClick). e.target is
+  // the element under the cursor, giving native "menu where I clicked" placement;
+  // e.currentTarget would be the whole row. Left as-is.
   superstate.ui.openMenu(
     (e.target as HTMLElement).getBoundingClientRect(),
     defaultMenu(superstate.ui, menuOptions),
@@ -285,7 +293,9 @@ export const showPathContextMenu = (
     name: i18n.buttons.addToSpace,
     icon: "ui//pin",
     onClick: (e) => {
-      const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+      // Anchor the submenu to the bound menu row (currentTarget), not the clicked
+      // SVG icon child within it (Notidian-3txp). Synchronous read.
+      const offset = e.currentTarget.getBoundingClientRect();
       showSpacesMenu(
         offset,
         windowFromDocument(e.view.document),
@@ -302,7 +312,9 @@ export const showPathContextMenu = (
     name: i18n.menu.moveFile,
     icon: "ui//paper-plane",
     onClick: (e) => {
-      const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+      // Anchor the submenu to the bound menu row (currentTarget), not the clicked
+      // SVG icon child within it (Notidian-3txp). Synchronous read.
+      const offset = e.currentTarget.getBoundingClientRect();
       showSpacesMenu(
         offset,
         windowFromDocument(e.view.document),

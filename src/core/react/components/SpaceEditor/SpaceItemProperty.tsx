@@ -54,8 +54,10 @@ export const SpaceItemProperty = (props: {
   }, [props.space]);
   const addLink = (e: React.MouseEvent) => {
     e.preventDefault();
+    // Anchor to the bound toolbar button (currentTarget), not the clicked SVG plus
+    // child within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
     showLinkMenu(
-      (e.target as HTMLButtonElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       windowFromDocument(e.view.document),
       props.superstate,
       (path) => {

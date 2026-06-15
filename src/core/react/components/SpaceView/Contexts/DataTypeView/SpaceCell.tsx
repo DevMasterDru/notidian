@@ -56,7 +56,9 @@ export const SpaceCell = (props: TableCellProp & { isTable: boolean }) => {
     onHide: () => props.setEditMode(null),
   });
   const showMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-cell-option-select icon (currentTarget), not the
+    // clicked SVG child within it (Notidian-3txp). Synchronous read.
+    const offset = e.currentTarget.getBoundingClientRect();
     menuRef.current = props.superstate.ui.openMenu(
       offset,
       menuProps(),
@@ -65,7 +67,9 @@ export const SpaceCell = (props: TableCellProp & { isTable: boolean }) => {
   };
 
   const showSchemaMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound icon control (currentTarget), not the clicked SVG child
+    // within it (Notidian-3txp). Synchronous read.
+    const offset = e.currentTarget.getBoundingClientRect();
     menuRef.current = props.superstate.ui.openMenu(
       offset,
       menuSchemaProps(),

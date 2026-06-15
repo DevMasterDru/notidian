@@ -228,7 +228,10 @@ export const TreeItem = (props: TreeItemProps) => {
   const newAction = (e: React.MouseEvent) => {
     const space = superstate.spacesIndex.get(pathState.path);
     if (e.shiftKey) {
-      const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+      // Anchor to the bound new-note button (currentTarget), not the clicked SVG
+      // plus child within it (Notidian-3txp). Synchronous read keeps currentTarget
+      // valid.
+      const offset = e.currentTarget.getBoundingClientRect();
       showLinkMenu(
         offset,
         windowFromDocument(e.view.document),
@@ -258,6 +261,10 @@ export const TreeItem = (props: TreeItemProps) => {
       return superstate.ui.nativePathMenu(e, pathState.path);
     }
    
+    // INTENTIONAL e.target (Notidian-3txp): this is a right-click context menu on
+    // a full-width tree-item row. e.currentTarget would be the whole row (anchor
+    // at its top-left, far from the pointer); e.target is the element under the
+    // cursor, giving native "menu appears where I clicked" behavior. Left as-is.
     showPathContextMenu(
       superstate,
       data.path,

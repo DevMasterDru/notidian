@@ -46,6 +46,13 @@ export const SpaceQuery = (
     i: number,
     k: number
   ) => {
+    // INTENTIONAL e.target below (Notidian-3txp): selectFilterValue is a shared
+    // handler with non-control callers — it is invoked with e === null from
+    // FilterValueSpan's onBlur, and re-invoked from a deferred saveOptions
+    // callback (line ~563) where e.currentTarget is already null. e.target
+    // persists across those paths and anchors the value submenu near the filter
+    // chip. Converting to e.currentTarget would crash the deferred/null callers,
+    // so the rect reads in this function are left on e.target.
     const saveFilterValue = (value: string) => {
       setDefFilterValue(value, i, k);
     };
@@ -346,7 +353,9 @@ export const SpaceQuery = (
     }
   };
   const selectGroupType = (e: React.MouseEvent, i: number) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-filter control (currentTarget), not the clicked child
+    // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const filters = ["any", "all"];
     props.superstate.ui.openMenu(
       offset,
@@ -368,7 +377,9 @@ export const SpaceQuery = (
   };
 
   const selectJoinType = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound .mk-filter control (currentTarget), not the clicked child
+    // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const filters = ["any", "all"];
     props.superstate.ui.openMenu(
       offset,
@@ -389,7 +400,9 @@ export const SpaceQuery = (
     );
   };
   const selectFilter = (e: React.MouseEvent, i: number, k: number) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound filter-fn control (currentTarget), not the clicked child
+    // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const { type, field, fType } = filters[i].filters[k];
     const _filters =
       fType == "any"
@@ -412,7 +425,10 @@ export const SpaceQuery = (
     );
   };
   const selectField = async (e: React.MouseEvent, i: number, k: number) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound field control (currentTarget), not the clicked child
+    // (Notidian-3txp). This async handler reads the rect at function entry, BEFORE
+    // any await, so currentTarget is still valid (React 18 events are not pooled).
+    const offset = e.currentTarget.getBoundingClientRect();
 
     props.superstate.ui.openMenu(
       offset,

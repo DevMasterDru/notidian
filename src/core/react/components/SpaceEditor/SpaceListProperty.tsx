@@ -87,7 +87,10 @@ export const SpaceListProperty = (props: {
       name: i18n.menu.moveFile,
       icon: "ui//move",
       onClick: (e) => {
-        const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+        // Anchor the submenu to the bound menu row (currentTarget), not the clicked
+        // SVG icon child within it (Notidian-3txp). This read is synchronous; the
+        // async work is inside the showSpacesMenu callback, after the read.
+        const offset = e.currentTarget.getBoundingClientRect();
         showSpacesMenu(
           offset,
           windowFromDocument(e.view.document),
@@ -198,8 +201,11 @@ export const SpaceListProperty = (props: {
         props.superstate.spaceManager.deleteTable(pathState.path, _schema.id);
       },
     });
+    // Anchor to the bound table crumb (currentTarget), not the clicked SVG
+    // .mk-path-icon child within it (Notidian-3txp). viewContextMenu runs
+    // synchronously from the crumb's onClick/onContextMenu, so currentTarget valid.
     props.superstate.ui.openMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       defaultMenu(props.superstate.ui, menuOptions),
       windowFromDocument(e.view.document)
     );

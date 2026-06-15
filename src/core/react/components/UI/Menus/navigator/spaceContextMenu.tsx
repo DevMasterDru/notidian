@@ -390,7 +390,9 @@ export const showSpaceContextMenu = (
       name: i18n.buttons.addToSpace,
       icon: "ui//pin",
       onClick: (e) => {
-        const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+        // Anchor the submenu to the bound menu row (currentTarget), not the
+        // clicked SVG icon child within it (Notidian-3txp). Synchronous read.
+        const offset = e.currentTarget.getBoundingClientRect();
         showSpacesMenu(
           offset,
           win,
@@ -411,7 +413,9 @@ export const showSpaceContextMenu = (
       name: i18n.menu.moveFile,
       icon: "ui//paper-plane",
       onClick: (e) => {
-        const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
+        // Anchor the submenu to the bound menu row (currentTarget), not the
+        // clicked SVG icon child within it (Notidian-3txp). Synchronous read.
+        const offset = e.currentTarget.getBoundingClientRect();
         showSpacesMenu(
           offset,
           win,

@@ -82,7 +82,10 @@ const showContextEditMenu = (
         superstate.ui.openPath(tagSpacePathFromTag(f));
       },
       onMoreOptions: (e) => {
-        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Anchor the submenu to the bound more-options icon (currentTarget), not
+        // the clicked SVG child within it (Notidian-3txp). onMoreOptions runs
+        // synchronously from that icon's onClick, so currentTarget is valid.
+        const offset = e.currentTarget.getBoundingClientRect();
         const options: SelectOption[] = [];
         options.push({
           name: i18n.menu.deleteContext,

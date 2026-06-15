@@ -47,8 +47,10 @@ export const BuiltinPropertyEditor = (props: {
       fields: props.fields,
       path: props.path,
     };
+    // Anchor to the bound edit-formula button (currentTarget), not the clicked
+    // child (Notidian-3txp). Synchronous read keeps currentTarget valid.
     props.superstate.ui.openCustomMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       <FormulaEditor {..._props}></FormulaEditor>,
       { ..._props },
       windowFromDocument(e.view.document),

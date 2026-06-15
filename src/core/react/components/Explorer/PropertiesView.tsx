@@ -176,6 +176,11 @@ export const PropertiesView = (props: {
     );
   };
   const syncFMValue = (e: React.MouseEvent, property: SpaceProperty) => {
+    // INTENTIONAL e.target (Notidian-3txp): syncFMValue is invoked as a deferred
+    // callback (() => syncFMValue(e, property)) from a LATER click inside the
+    // already-open properties menu, so e.currentTarget is null by then. e.target
+    // persists (React 17+ events are not pooled) and anchors the sync submenu near
+    // the property that opened the menu. Left as-is.
     const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
     const options = [...props.superstate.spacesMap.get(pathState.path)]
       .map((f) => props.superstate.pathsIndex.get(f))
@@ -224,7 +229,10 @@ export const PropertiesView = (props: {
     });
   };
   const selectType = (e: React.MouseEvent, key: string) => {
-    const r = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound "change type" menu row (currentTarget), not the clicked
+    // child (Notidian-3txp). selectType runs synchronously from that row's fresh
+    // onClick, so currentTarget is valid.
+    const r = e.currentTarget.getBoundingClientRect();
     props.superstate.ui.openMenu(
       r,
       {
@@ -290,7 +298,10 @@ export const PropertiesView = (props: {
       );
   };
   const showMenu = (e: React.MouseEvent, property: SpaceProperty) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound property field (currentTarget), not the clicked SVG/label
+    // child (Notidian-3txp). showMenu runs synchronously from PropertyField's
+    // onClick, so currentTarget is valid.
+    const offset = e.currentTarget.getBoundingClientRect();
 
     if (pathState.type == "space") {
       showPropertyMenu({

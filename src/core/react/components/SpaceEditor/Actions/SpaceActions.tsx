@@ -87,7 +87,9 @@ export const SpaceCommand = (props: {
     });
   };
   const newProperty = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked SVG plus child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     showNewPropertyMenu(
       props.superstate,
       offset,
@@ -187,9 +189,11 @@ export const SpaceCommand = (props: {
                       });
                     }}
                     propertyMenu={(e) => {
-                      const offset = (
-                        e.target as HTMLElement
-                      ).getBoundingClientRect();
+                      // Anchor to the bound property field (currentTarget), not the
+                      // clicked SVG/label child (Notidian-3txp). propertyMenu runs
+                      // synchronously from PropertyField's onClick, so currentTarget
+                      // is valid.
+                      const offset = e.currentTarget.getBoundingClientRect();
                       showPropertyMenu({
                         superstate: props.superstate,
                         rect: offset,

@@ -44,7 +44,9 @@ export const DataPropertyView = (props: DataPropertyViewProps) => {
   };
 
   const newProperty = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), not the clicked SVG plus child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     const type = parseFieldValue(props.column.value, props.column.type)?.type;
     const value = parseObject(
       props.initialValue ?? "",

@@ -75,7 +75,9 @@ export const FocusEditor = (props: {
         </div>
         <button
           onClick={(e) => {
-            const rect = (e.target as HTMLElement).getBoundingClientRect();
+            // Anchor to the bound button (currentTarget), not the clicked child
+            // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+            const rect = e.currentTarget.getBoundingClientRect();
             props.superstate.ui.quickOpen(
               BlinkMode.Open,
               rect,

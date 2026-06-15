@@ -34,7 +34,9 @@ export const ActionNode = (props: {
       name: f,
       value: f,
     }));
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound action selector (currentTarget), not the clicked child
+    // (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       {
@@ -64,7 +66,9 @@ export const ActionNode = (props: {
 
   const selectLinkedProp = (e: React.MouseEvent, prop: string) => {
     const options = props.fields.map((f) => ({ name: f.name, value: f.name }));
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound link-prop icon (currentTarget), not the clicked SVG child
+    // within it (Notidian-3txp). Synchronous read keeps currentTarget valid.
+    const offset = e.currentTarget.getBoundingClientRect();
     props.superstate.ui.openMenu(
       offset,
       {

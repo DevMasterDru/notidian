@@ -114,7 +114,10 @@ export const FocusItem = forwardRef<HTMLDivElement, PinnedSpaceProps>(
       <div
         onContextMenu={(e) => {
           e.preventDefault();
-          const rect = (e.target as HTMLElement).getBoundingClientRect();
+          // Anchor to the bound waypoint pin (currentTarget), not the clicked SVG
+          // sticker child within it (Notidian-3txp). The pin is icon-sized, so
+          // currentTarget is the correct tight anchor. Synchronous read.
+          const rect = e.currentTarget.getBoundingClientRect();
           openContextMenu(rect);
         }}
         ref={innerRef}

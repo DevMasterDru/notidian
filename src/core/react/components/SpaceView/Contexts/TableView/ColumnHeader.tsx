@@ -144,7 +144,10 @@ export const ColumnHeader = (props: {
     if (props.isNew) {
       showNewMenu(e);
     } else {
-      const offset = (e.target as HTMLElement).getBoundingClientRect();
+      // Anchor to the bound column header (currentTarget), not the clicked SVG
+      // .mk-path-context-field-icon child within it (Notidian-3txp). Synchronous
+      // read keeps currentTarget valid.
+      const offset = e.currentTarget.getBoundingClientRect();
       const options = optionValuesForColumn(
         field.name,
         field.table == ""

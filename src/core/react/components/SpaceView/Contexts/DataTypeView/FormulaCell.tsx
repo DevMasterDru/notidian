@@ -39,8 +39,10 @@ export const FormulaCell = (
       fields: props.columns,
       path: props.path,
     };
+    // Anchor to the bound .mk-cell-formula control (currentTarget), not the
+    // clicked child (Notidian-3txp). Synchronous read keeps currentTarget valid.
     props.superstate.ui.openCustomMenu(
-      (e.target as HTMLElement).getBoundingClientRect(),
+      e.currentTarget.getBoundingClientRect(),
       <FormulaEditor {..._props}></FormulaEditor>,
       { ..._props },
       windowFromDocument(e.view.document),

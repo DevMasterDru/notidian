@@ -60,7 +60,10 @@ export const SpaceActionProperty = (props: {
   };
   const onContextMenu = (e: React.MouseEvent, action: Command) => {
     e.preventDefault();
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound action chip row (currentTarget), not the clicked SVG
+    // .mk-path-icon child within it (Notidian-3txp). The chip is small, so
+    // currentTarget is the correct anchor. Synchronous read.
+    const offset = e.currentTarget.getBoundingClientRect();
     const actions = [];
     actions.push({
       name: "Run Action",

@@ -543,6 +543,11 @@ export class MakeMDEnactor implements Enactor {
     }
   }
   selectLink(e: React.MouseEvent, onSelect: (path: string) => void) {
+    // INTENTIONAL e.target (Notidian-3txp): the type annotation is React.MouseEvent
+    // but the real callers (MakeMenu.selectSuggestion) pass a native
+    // MouseEvent | KeyboardEvent from Obsidian's EditorSuggest selection, whose
+    // currentTarget is null/wrong after dispatch (and is meaningless for the
+    // keyboard path). e.target is the best-effort anchor here; left as-is.
     const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
     return this.makemd.superstate.ui.quickOpen(
       BlinkMode.Open,
@@ -552,6 +557,9 @@ export class MakeMDEnactor implements Enactor {
     );
   }
   selectSpace(e: React.MouseEvent, onSelect: (path: string) => void) {
+    // INTENTIONAL e.target (Notidian-3txp): real callers pass a native event from
+    // Obsidian's EditorSuggest selection, so currentTarget is null/wrong here. See
+    // selectLink above. Left as-is.
     const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
     return this.makemd.superstate.ui.quickOpen(
       BlinkMode.OpenSpaces,
@@ -561,6 +569,9 @@ export class MakeMDEnactor implements Enactor {
     );
   }
   selectImage(e: React.MouseEvent, onSelect: (path: string) => void) {
+    // INTENTIONAL e.target (Notidian-3txp): real callers pass a native event from
+    // Obsidian's EditorSuggest selection, so currentTarget is null/wrong here. See
+    // selectLink above. Left as-is.
     const offset = (e.target as HTMLButtonElement).getBoundingClientRect();
     this.makemd.superstate.ui.quickOpen(
       BlinkMode.Image,
