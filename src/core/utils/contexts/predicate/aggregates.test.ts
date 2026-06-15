@@ -23,8 +23,13 @@
  *      that can BLANK results whose `valueType` is not one parseProperty handles.
  *
  * Determinism notes:
- *   - Date cases use yyyy-MM-dd calendar dates and an explicit yyyy-MM-dd
- *     output format so they are timezone-stable.
+ *   - Date cases use calendar dates pinned to an explicit local time-of-day
+ *     (noon) and an explicit yyyy-MM-dd output format so they are
+ *     timezone-stable. This matters because the Layer-2 pipeline pre-maps date
+ *     values via `new Date(v)`, which treats a BARE "yyyy-MM-dd" string as UTC
+ *     midnight; formatDate then renders in LOCAL time, which would shift the
+ *     calendar day back one in any negative-UTC-offset zone. Anchoring inputs at
+ *     noon-local (matching the Layer-1 `d` helper) avoids that off-by-one.
  *   - No test asserts wall-clock "today"; every expectation is derived from the
  *     inputs.
  */
@@ -410,11 +415,21 @@ describe("calculateAggregate — boolean completion (valueType number survives)"
 
 describe("calculateAggregate — date rollups (end to end)", () => {
   it("earliest / latest format the extreme date via the column format", () => {
+    // TZ-STABLE INPUTS: the pipeline pre-map (aggregates.ts) does `new Date(v)`,
+    // and JS parses a bare "yyyy-MM-dd" string as UTC midnight; formatDate then
+    // renders via date-fns format() in LOCAL time, shifting the calendar day back
+    // one in any negative-UTC-offset zone (the Americas). Anchoring each input at
+    // explicit noon-local (the same mitigation as the Layer-1 `d` helper, line
+    // ~314, and the sibling date.test.ts convention) keeps the day fixed in every
+    // timezone, so this characterization test is a real regression net and not a
+    // wall-clock-dependent flaky gate.
+    const earliest = ["2020-05-10T12:00:00", "2019-01-01T12:00:00"];
+    const latest = ["2020-05-10T12:00:00", "2019-01-01T12:00:00"];
     expect(
-      calculateAggregate(settings, ["2020-05-10", "2019-01-01"], "earliest", dateCol())
+      calculateAggregate(settings, earliest, "earliest", dateCol())
     ).toBe("2019-01-01");
     expect(
-      calculateAggregate(settings, ["2020-05-10", "2019-01-01"], "latest", dateCol())
+      calculateAggregate(settings, latest, "latest", dateCol())
     ).toBe("2020-05-10");
   });
   it("DEFECT-PIN: dateRange throws in the duration post-pass and renders blank", () => {
