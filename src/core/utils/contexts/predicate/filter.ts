@@ -75,7 +75,13 @@ export const lessThan: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  return parseInt(value) < parseInt(filterValue);
+  // Standardized on parseFloat to match greaterThan (single numeric-coercion
+  // convention) — decimals and radix prefixes are now interpreted identically
+  // by both operators, and by their isLessThanOrEqual/isGreatThanOrEqual
+  // derivatives (defined as !greaterThan/!lessThan in filterFnTypes). NaN
+  // contract: a non-numeric operand parses to NaN and NaN < x / x < NaN is
+  // false, so a non-numeric value never satisfies a numeric < (or >).
+  return parseFloat(value) < parseFloat(filterValue);
 };
 export const dateAfter: FilterFunction = (
   value: string,

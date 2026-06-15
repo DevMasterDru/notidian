@@ -33,6 +33,7 @@ import {
   isSameDayAsToday,
   filterReturnForCol,
 } from "./filter";
+import { filterFnTypes } from "./filterFns/filterFnTypes";
 
 describe("filter.ts row-visibility engine — characterization + adversarial net", () => {
   // ----------------------------------------------------------------------- //
@@ -244,8 +245,8 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
     });
   });
 
-  describe("lessThan (parseInt)", () => {
-    it("compares numerically as integers", () => {
+  describe("lessThan (parseFloat — symmetric with greaterThan, Notidian-a7k)", () => {
+    it("compares numerically with float precision", () => {
       expect(lessThan("4", "5")).toBe(true);
       expect(lessThan("5", "4")).toBe(false);
     });
@@ -254,26 +255,92 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
       expect(lessThan("5", "5")).toBe(false);
     });
 
-    it("DEFECT-PIN: asymmetry with greaterThan — parseInt truncates the fraction", () => {
-      // lessThan truncates "5.9"->5 and "5.1"->5, so 5 < 5 is false...
-      expect(lessThan("5.9", "5.1")).toBe(false);
-      // ...whereas greaterThan keeps the fraction: 5.9 > 5.1 is true.
-      expect(greaterThan("5.9", "5.1")).toBe(true);
-      // And the symmetric direction also diverges:
-      expect(lessThan("5.1", "5.9")).toBe(false); // 5 < 5
-      expect(greaterThan("5.9", "5.1")).toBe(true);
+    it("keeps the fraction and is consistent with greaterThan (no parseInt truncation)", () => {
+      // lessThan now parses with parseFloat, so fractions are honored on BOTH
+      // sides and the two operators agree on the same operands.
+      expect(lessThan("5.1", "5.9")).toBe(true); // 5.1 < 5.9
+      expect(lessThan("5.9", "5.1")).toBe(false); // 5.9 < 5.1 -> false
+      expect(greaterThan("5.9", "5.1")).toBe(true); // mirror image
+      expect(greaterThan("5.1", "5.9")).toBe(false);
     });
 
-    it("DEFECT-PIN: NaN operands make the comparison always false", () => {
+    it("decimal value (1.5) is treated as a true float, not truncated to 1", () => {
+      expect(lessThan("1.5", "2")).toBe(true); // 1.5 < 2
+      expect(lessThan("1.5", "1")).toBe(false); // 1.5 < 1 -> false (parseInt would give 1 < 1 -> false too, but for the wrong reason)
+      expect(lessThan("1.5", "1.6")).toBe(true); // 1.5 < 1.6 (parseInt would give 1 < 1 -> false)
+    });
+
+    it("NaN operands make the comparison always false (NaN < x / x < NaN is false)", () => {
       expect(lessThan("abc", "5")).toBe(false);
+      expect(lessThan("5", "abc")).toBe(false);
       expect(lessThan(null as any, "5")).toBe(false);
     });
 
-    it("DEFECT-PIN: parseInt honors radix prefixes (0x => hex)", () => {
-      // parseInt('0x10') -> 16, which is NOT < 17... 16 < 17 -> true
-      expect(lessThan("0x10", "17")).toBe(true);
-      // but parseFloat('0x10') -> 0, so greaterThan would treat it as 0
-      expect(greaterThan("0x10", "5")).toBe(false);
+    it("parseFloat does NOT honor radix prefixes — '0x10' is parsed as 0, matching greaterThan", () => {
+      // parseFloat('0x10') -> 0 (stops at 'x'); parseInt would have given 16.
+      // Both operators now interpret '0x10' identically (as 0).
+      expect(lessThan("0x10", "17")).toBe(true); // 0 < 17 -> true
+      expect(lessThan("0x10", "0")).toBe(false); // 0 < 0 -> false
+      expect(lessThan("0x10", "-1")).toBe(false); // 0 < -1 -> false (parseInt's 16 would also be false, but parseFloat is the convention)
+      expect(greaterThan("0x10", "5")).toBe(false); // 0 > 5 -> false (already so for greaterThan)
+      expect(greaterThan("0x10", "-1")).toBe(true); // 0 > -1 -> true
+    });
+
+    it("parseFloat tolerates trailing units, matching greaterThan", () => {
+      expect(lessThan("9px", "10")).toBe(true); // 9 < 10
+      expect(greaterThan("10px", "9")).toBe(true);
+    });
+  });
+
+  // ----------------------------------------------------------------------- //
+  // isLessThanOrEqual / isGreatThanOrEqual derivatives (Notidian-a7k).        //
+  // Defined in filterFnTypes as !greaterThan / !lessThan, so they inherit the //
+  // numeric-coercion convention. With both base operators on parseFloat they  //
+  // are now consistent: <= and >= honor decimals and agree on radix-prefixed  //
+  // values. NaN inputs flip through the negation (no value is > / <, so its    //
+  // negation — <= / >= — is vacuously TRUE for a non-numeric operand).         //
+  // ----------------------------------------------------------------------- //
+  describe("isLessThanOrEqual / isGreatThanOrEqual derivatives (parseFloat-consistent)", () => {
+    const isLessThanOrEqual = (v: string, f: string) =>
+      filterFnTypes.isLessThanOrEqual.fn(v, f);
+    const isGreatThanOrEqual = (v: string, f: string) =>
+      filterFnTypes.isGreatThanOrEqual.fn(v, f);
+
+    it("isLessThanOrEqual: !greaterThan honors decimals and includes the boundary", () => {
+      expect(isLessThanOrEqual("5", "5")).toBe(true); // boundary (not greater)
+      expect(isLessThanOrEqual("4.5", "5")).toBe(true); // 4.5 <= 5
+      expect(isLessThanOrEqual("5.5", "5")).toBe(false); // 5.5 > 5 -> not <=
+      // Decimal precision: parseInt would have collapsed 5.4/5.6 to 5/5.
+      expect(isLessThanOrEqual("5.4", "5.6")).toBe(true);
+      expect(isLessThanOrEqual("5.6", "5.4")).toBe(false);
+    });
+
+    it("isGreatThanOrEqual: !lessThan honors decimals and includes the boundary", () => {
+      expect(isGreatThanOrEqual("5", "5")).toBe(true); // boundary (not less)
+      expect(isGreatThanOrEqual("5.5", "5")).toBe(true); // 5.5 >= 5
+      expect(isGreatThanOrEqual("4.5", "5")).toBe(false); // 4.5 < 5 -> not >=
+      // Decimal precision: previously parseInt(5.6)=5 vs parseInt(5.4)=5 gave a
+      // wrong >= result; with parseFloat the fraction decides it.
+      expect(isGreatThanOrEqual("5.6", "5.4")).toBe(true);
+      expect(isGreatThanOrEqual("5.4", "5.6")).toBe(false);
+    });
+
+    it("the two derivatives now agree on radix-prefixed values (parseFloat: '0x10' -> 0)", () => {
+      // Both base operators read '0x10' as 0, so the OrEqual derivatives are
+      // self-consistent (no parseInt hex/parseFloat-0 split).
+      expect(isLessThanOrEqual("0x10", "0")).toBe(true); // 0 <= 0
+      expect(isGreatThanOrEqual("0x10", "0")).toBe(true); // 0 >= 0
+      expect(isLessThanOrEqual("0x10", "-1")).toBe(false); // 0 <= -1 -> false
+      expect(isGreatThanOrEqual("0x10", "-1")).toBe(true); // 0 >= -1 -> true
+    });
+
+    it("NaN operand: !greaterThan / !lessThan are vacuously TRUE (negation of an always-false >/<)", () => {
+      // A non-numeric value is never strictly > or <, so its negation (<=, >=)
+      // is true. This is the inherited NaN contract through the derivatives.
+      expect(isLessThanOrEqual("abc", "5")).toBe(true);
+      expect(isGreatThanOrEqual("abc", "5")).toBe(true);
+      expect(isLessThanOrEqual("5", "abc")).toBe(true);
+      expect(isGreatThanOrEqual("5", "abc")).toBe(true);
     });
   });
 
@@ -529,10 +596,12 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
  * src deliberately unchanged in Notidian-3fs):
  *  1. lengthEquals throws TypeError on null/undefined value (no nullish guard
  *     on value.length) — every other text predicate guards with `?? ""`.
- *  2. greaterThan(parseFloat) vs lessThan(parseInt) asymmetry: decimal values
- *     and radix prefixes are interpreted inconsistently between the two, and
- *     isLessThanOrEqual / isGreatThanOrEqual (defined as !greaterThan /
- *     !lessThan) inherit that asymmetry.
+ *  2. [FIXED in Notidian-a7k] greaterThan(parseFloat) vs lessThan(parseInt)
+ *     asymmetry: lessThan was standardized on parseFloat so decimals and radix
+ *     prefixes are now interpreted identically by both operators and by the
+ *     isLessThanOrEqual / isGreatThanOrEqual (!greaterThan / !lessThan)
+ *     derivatives. NaN contract: a non-numeric operand never satisfies a
+ *     numeric < or > (false), so its <= / >= negation is vacuously true.
  *  3. dateAfter is inclusive (>=) while dateBefore is exclusive (<); an instant
  *     equal to the boundary satisfies dateAfter but not dateBefore.
  *  4. Unparseable date values become Invalid Date and are invisible to BOTH
