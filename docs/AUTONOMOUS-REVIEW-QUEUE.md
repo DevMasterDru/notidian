@@ -1172,6 +1172,59 @@ queueing more and pivots to safe work — so this list stays reviewable.
   commit before wiring any caller.
 - **Bead status:** Notidian-k6a5 stays **OPEN**, awaiting your direction.
 
+### Notidian-z8q — Consolidate the view search affordances: filter-search vs Cmd/F quick-find
+
+- **ADR:** [docs/adr/0041-consolidate-view-search-affordances.md](adr/0041-consolidate-view-search-affordances.md) (Status: **Proposed**).
+- **Why a decision, not a build:** the product shape (one vs two in-view search
+  affordances) is genuinely open, and the change touches a **recently-shipped,
+  never-owner-verified** feature (quick-find, ADR 0021 / Notidian-r20, shipped
+  2026-06-12). The owner also says the "Find in view" button "doesn't work" — an
+  **UNVERIFIABLE OFFLINE** claim (the failure surface is the render path: hotkey,
+  cell-class highlight, scroll-into-view — none provable by tsc/jest/build). Blind
+  removal could drop a tested Notion-parity capability; blind relabel/keep leaves the
+  redundancy the owner objected to. So: a Proposed ADR + a separate live-repro action.
+- **What the loop found (all verified in source):** the table toolbar carries **two
+  adjacent search-shaped controls** — (1) the magnifier `SearchBar` (`FilterBar.tsx:1735`,
+  placeholder "Type to search...", `src/shared/en.ts:657`) that **filters/hides** rows
+  via `searchString`+`matchAny` (`ContextEditorContext.tsx:691-712`); (2) the `⌕`
+  `mk-quick-find-toggle` (`FilterBar.tsx:1757-1767`, "Find in view (⌘/Ctrl+F)") +
+  floating `QuickFindBar` that **highlights+navigates** and never hides
+  (`computeQuickFindMatches` in `tableQuickFind.ts`; `Cmd/F` bound at
+  `TableView.tsx:854-863`). They are technically complementary (filter vs find) but
+  present as **redundant twins** with near-identical labels — exactly the owner's
+  complaint. Notion parity = **one** in-view search (highlight-first) + structured
+  Filter as its own surface (Notidian already has the on-bar Filter button).
+- **The one decision you need to make:** pick **A / C** (B is ruled out) —
+  **recommended Option A**: consolidate to **one** toolbar search, bind `Cmd/F` to it,
+  and **remove the standalone `⌕` quick-find button**. Sub-variant **A1 (recommended)**:
+  fold highlight in as a **mode** of the one search — keeps both engines and the
+  no-`innerHTML`-sink cell-class highlight, reaches Notion parity, loses no capability;
+  the only change is merging two entry points into one box with a filter/highlight mode
+  toggle and re-pointing the `Cmd/F` handler. Over **A2** (delete the quick-find engine,
+  one search just filters — smallest code but **regresses** the parity highlight
+  behavior) and **Option C** (make quick-find the *only* free-text search, drop free-text
+  row-hide — **most** parity-faithful, but **gated on the live repro passing** since it
+  leans entirely on the unverified feature). **Ruled out: Option B "keep both, just
+  relabel"** — treats a product-shape problem as a copy problem; better labels reduce
+  confusion but leave the redundancy in place, and A1 strictly dominates it (keeps both
+  behaviors while removing the redundant control).
+- **Also do (independent of the pick):** a **~2-min live repro** in the vault —
+  focus a table view, press `Cmd/Ctrl+F`, type a visible value: does the "Find in view"
+  bar appear, show `n/m`, highlight the cell, and `↑ ↓`/`Enter` jump + scroll off-screen
+  matches into view? Report which step fails. Likely offline-invisible causes if it
+  fails: table not focused (`TableView.onKeyDown`), the `mk-cell-find-match`/
+  `mk-cell-find-active` classes unstyled in your theme, or another global `Cmd/F`
+  handler consuming the key. The result may itself change the pick (a broken `Cmd/F`
+  argues against C, which leans hardest on it).
+- **No build / no spike shipped.** No code changed — `FilterBar.tsx`,
+  `SearchBar.tsx`, `QuickFindBar.tsx`, `tableQuickFind.ts`, and the `Cmd/F` binding are
+  untouched. A spike cannot de-risk this: both engines already work in isolation; the
+  open questions are *which product shape* (a preference) and *is the feature actually
+  broken in the vault* (needs your eyes) — neither a measurement a flag yields. Removing
+  a shipped, tested feature blind is the most expensive mistake available here.
+- **Bead status:** Notidian-z8q stays **OPEN**, awaiting your direction (plus the
+  live-repro action).
+
 ## Cleared
 
 _(none yet)_
