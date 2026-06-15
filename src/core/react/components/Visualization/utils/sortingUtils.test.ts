@@ -503,18 +503,18 @@ describe("getOptionsOrder", () => {
     );
   });
 
-  it("KNOWN GAP: a truthy non-array `options` THROWS (no Array.isArray guard)", () => {
-    // CHARACTERIZED defect — see follow-up bead. A malformed/legacy/hand-edited
-    // definition with options as a non-array crashes instead of degrading to [].
-    expect(() =>
-      getOptionsOrder({ value: JSON.stringify({ options: 5 }) })
-    ).toThrow();
-    expect(() =>
-      getOptionsOrder({ value: JSON.stringify({ options: "abc" }) })
-    ).toThrow();
-    expect(() =>
-      getOptionsOrder({ value: JSON.stringify({ options: true }) })
-    ).toThrow();
+  it("FIXED (Notidian-dox item 1): a truthy non-array `options` degrades to [] (Array.isArray guard)", () => {
+    // Was a KNOWN GAP characterization (crash); now hardened. A malformed /
+    // legacy / hand-edited definition with `options` as a truthy non-array
+    // (number/string/true) no longer throws on the unguarded .filter — it
+    // degrades to []. Crash -> safe, with NO observable change for valid
+    // (array) data. Items (2) (falsy opt.value dropped) and (3) (real 0 ->
+    // '' in getUniqueSortedValues) remain LOCKED characterization below: both
+    // change observable output for edge data, so they ride the ADR-0025 /
+    // ADR-0033 comparator-correctness decision posture, not this Q1 fix.
+    expect(getOptionsOrder({ value: JSON.stringify({ options: 5 }) })).toEqual([]);
+    expect(getOptionsOrder({ value: JSON.stringify({ options: "abc" }) })).toEqual([]);
+    expect(getOptionsOrder({ value: JSON.stringify({ options: true }) })).toEqual([]);
   });
 
   it("a non-string `value` (object) round-trips to [] (parse of '[object Object]' fails)", () => {

@@ -12,7 +12,13 @@ export const getOptionsOrder = (fieldDefinition: any): string[] => {
   
   const parsed = safelyParseJSON(fieldDefinition.value);
   if (!parsed?.options) return [];
-  
+
+  // Robustness guard (Notidian-dox item 1): a malformed/legacy/hand-edited
+  // definition can have `options` as a truthy non-array (number/string/true).
+  // Calling .filter on it throws; degrade to [] instead of crashing the chart
+  // sort path. No observable change for valid (array) data — Q1 hardening only.
+  if (!Array.isArray(parsed.options)) return [];
+
   // Return the values in the order they appear in options array
   return parsed.options
     .filter((opt: any) => opt?.value)
