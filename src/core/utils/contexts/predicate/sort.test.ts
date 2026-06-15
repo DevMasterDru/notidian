@@ -246,57 +246,147 @@ describe("sort-law triad (reflexive · antisymmetric · transitive)", () => {
     );
   });
 
-  it("number (asc + desc) is reflexive & antisymmetric over WELL-FORMED numerics", () => {
-    // The full triad fails ONLY when NaN is in the domain (see dedicated
-    // characterization below). Over real numbers the law holds.
+  it("number (asc + desc) is a strict weak ordering over WELL-FORMED numerics", () => {
     const nums = ["1", "2", "10", "-5", "0", "3.14", "100"];
     assertSortLawTriad("number", sortFnTypes.number.fn, nums);
     assertSortLawTriad("reverseNumber", sortFnTypes.reverseNumber.fn, nums);
   });
+
+  it("number (asc + desc) is a strict weak ordering over MIXED numeric + junk (NaN fixed — Notidian-5ym)", () => {
+    // The previous numSort treated NaN as equal to every number, breaking
+    // transitivity (the e8e/ADR-0025 bug class). After the fix NaN is pushed to
+    // one end (NaN sorts AFTER every real number, NaN===NaN), so the full
+    // strict-weak-ordering triad now holds even with junk/empty cells mixed in.
+    const mixed = [
+      "1",
+      "2",
+      "10",
+      "-5",
+      "0",
+      "3.14",
+      "100",
+      "abc", // NaN
+      "", // NaN
+      "  ", // NaN
+      null, // NaN
+      undefined, // NaN
+      "3px", // parseFloat -> 3 (real)
+      "NaN", // literally NaN
+    ];
+    assertSortLawTriad("number+junk", sortFnTypes.number.fn, mixed);
+    assertSortLawTriad("reverseNumber+junk", sortFnTypes.reverseNumber.fn, mixed);
+  });
 });
 
 // =========================================================================
-// LAW-VIOLATION CHARACTERIZATION (locked, NOT fixed here)
+// FIXED law violations (Notidian-5ym — the e8e bug class, now corrected)
 // =========================================================================
-describe("LOCKED law violations (the e8e bug class — follow-up filed, do not fix here)", () => {
-  it("numSort treats NaN (non-numeric cell) as equal to EVERY number => NON-TRANSITIVE equivalence", () => {
-    const fn = sortFnTypes.number.fn;
-    // NaN is neither < nor > anything, so simpleSort returns 0 ("equal").
-    expect(fn("abc", "def")).toBe(0); // NaN == NaN
-    expect(fn("abc", "5")).toBe(0); // NaN == 5
-    expect(fn("5", "abc")).toBe(0); // 5 == NaN
-    expect(fn("abc", "0")).toBe(0); // NaN == 0
-    // ...yet distinct real numbers are NOT equal:
-    expect(fn("1", "2")).toBe(-1);
-    // Transitivity of "==0": NaN==1 and NaN==2 would force 1==2, but 1!=2.
-    // This is exactly the V8-version-dependent ordering hazard from e8e/ADR-0025.
+// These two were LOCKED as characterization by Notidian-3wa and FLIPPED here to
+// the corrected behavior. The strict-weak-ordering property runs above (the
+// "number + junk" triad) are the real regression guard; these spot-checks pin
+// the exact intended ordering decisions.
+describe("FIXED: numSort NaN ordering is a strict weak ordering (Notidian-5ym)", () => {
+  const fn = sortFnTypes.number.fn;
+
+  it("NaN (non-numeric / empty cell) compares equal to itself, not to real numbers", () => {
+    expect(fn("abc", "def")).toBe(0); // NaN == NaN  (reflexive equivalence)
+    expect(fn("", "  ")).toBe(0); // both parse to NaN
+    expect(fn(null as any, undefined as any)).toBe(0); // both NaN
+  });
+
+  it("pushes NaN to the END: a real number sorts BEFORE any NaN (mirrors stringSort null discipline)", () => {
+    expect(fn("5", "abc")).toBe(-1); // 5 before NaN
+    expect(fn("abc", "5")).toBe(1); // NaN after 5
+    expect(fn("0", "")).toBe(-1); // 0 before NaN(empty)
+    expect(fn("-9999", "xyz")).toBe(-1); // even very small reals beat NaN
+  });
+
+  it("is TRANSITIVE across the boundary that previously broke it (1 < 2, NaN to the end)", () => {
+    // Previously: cmp(1,NaN)==0 && cmp(NaN,2)==0 but cmp(1,2)==-1 (non-transitive).
+    // Now NaN is strictly after both, so the relation is consistent.
     const a = "1",
-      b = "abc", // NaN
+      b = "abc" /* NaN */,
       c = "2";
-    expect(fn(a, b)).toBe(0); // 1 == NaN
-    expect(fn(b, c)).toBe(0); // NaN == 2
-    expect(fn(a, c)).toBe(-1); // but 1 != 2  -> equivalence is NOT transitive
+    expect(fn(a, c)).toBe(-1); // 1 < 2
+    expect(fn(a, b)).toBe(-1); // 1 < NaN
+    expect(fn(c, b)).toBe(-1); // 2 < NaN
+    // sign(cmp(a,b)) <= 0 && sign(cmp(c,b)) <= 0 with cmp(a,c) <= 0 — consistent.
   });
 
-  it("reverseNumber inherits the same NaN non-transitivity", () => {
-    const fn = sortFnTypes.reverseNumber.fn;
-    expect(fn("abc", "1")).toBe(-0); // -(0) under the *-1 inversion
-    expect(sign(fn("abc", "1") as number)).toBe(0);
-    expect(fn("1", "2")).toBe(1);
+  it("reverseNumber inverts cleanly and remains a strict weak ordering", () => {
+    const rev = sortFnTypes.reverseNumber.fn;
+    expect(rev("abc", "1")).toBe(-1); // NaN-after under asc becomes NaN-first under desc: -(1) = -1
+    expect(rev("1", "abc")).toBe(1); // mirror
+    expect(rev("1", "2")).toBe(1); // 2 before 1 under desc
+    expect(rev("abc", "def")).toBe(-0); // NaN==NaN -> -(0) artifact
+    expect(rev("abc", "def") === 0).toBe(true);
   });
+});
 
-  it("normalizedSortForType('option-multi', …) SHADOWS the count variants (they are unreachable)", () => {
-    // option-multi is claimed by FOUR keys. The resolver returns the FIRST in
-    // insertion order, so optionMultiCount / reverseOptionMultiCount can never be
-    // selected through normalizedSortForType for option-multi columns.
+describe("FIXED: normalizedSortForType disambiguates option-multi order vs count (Notidian-5ym)", () => {
+  it("defaults (no subKey) to the ORDER variant — preserves every existing caller", () => {
     expect(normalizedSortForType("option-multi", false)).toBe("optionMultiOrder");
     expect(normalizedSortForType("option-multi", true)).toBe(
       "reverseOptionMultiOrder"
     );
-    // Confirm the shadowed keys DO exist and DO claim option-multi (so they are
-    // genuinely dead via this resolver, not absent):
+  });
+
+  it("subKey 'count' now REACHES the previously-shadowed count variants", () => {
+    expect(normalizedSortForType("option-multi", true, "count")).toBe(
+      "optionMultiCount"
+    );
+    expect(normalizedSortForType("option-multi", false, "count")).toBe(
+      "reverseOptionMultiCount"
+    );
+  });
+
+  it("subKey 'order' explicitly selects the order variants too", () => {
+    expect(normalizedSortForType("option-multi", false, "order")).toBe(
+      "optionMultiOrder"
+    );
+    expect(normalizedSortForType("option-multi", true, "order")).toBe(
+      "reverseOptionMultiOrder"
+    );
+  });
+
+  it("an unknown subKey falls back to the default (no-subKey) entry rather than returning nothing", () => {
+    expect(normalizedSortForType("option-multi", false, "bogus")).toBe(
+      "optionMultiOrder"
+    );
+    expect(normalizedSortForType("option-multi", true, "bogus")).toBe(
+      "reverseOptionMultiOrder"
+    );
+  });
+
+  it("subKey is ignored for types whose entries never set one (e.g. number)", () => {
+    expect(normalizedSortForType("number", false, "count")).toBe("number");
+    expect(normalizedSortForType("number", true, "anything")).toBe("reverseNumber");
+  });
+
+  it("no user-facing sort option was deleted — all four option-multi entries still claim the type", () => {
+    expect(sortFnTypes.optionMultiOrder.type).toContain("option-multi");
+    expect(sortFnTypes.reverseOptionMultiOrder.type).toContain("option-multi");
     expect(sortFnTypes.optionMultiCount.type).toContain("option-multi");
     expect(sortFnTypes.reverseOptionMultiCount.type).toContain("option-multi");
+  });
+
+  it("the count variants remain directly dispatchable by key through sortReturnForCol (FilterBar path)", () => {
+    // FilterBar surfaces all four via predicateFnsForType and stores the chosen
+    // key in Sort.fn; sortReturnForCol dispatches by key. Confirm a count key
+    // actually measures cardinality on an option-multi column.
+    const optMultiCol: SpaceTableColumn = {
+      name: "tags",
+      type: "option-multi",
+      value: optionMultiFieldDef.value,
+    };
+    expect(
+      sortReturnForCol(
+        optMultiCol,
+        { field: "tags", fn: "optionMultiCount" },
+        { tags: "high,med,low" },
+        { tags: "high" }
+      )
+    ).toBe(1); // 3 items > 1 item
   });
 });
 
@@ -354,9 +444,10 @@ describe("numSort (via number.fn) parsing edges", () => {
     expect(fn("-5", "0")).toBe(-1);
     expect(fn("3.14", "3.2")).toBe(-1);
   });
-  it("treats null/empty as NaN (== everything, see locked violation)", () => {
-    expect(fn(null as any, null as any)).toBe(0);
-    expect(fn("", "5")).toBe(0); // parseFloat('') is NaN
+  it("treats null/empty as NaN and pushes it to the END (Notidian-5ym fix)", () => {
+    expect(fn(null as any, null as any)).toBe(0); // both NaN -> equal
+    expect(fn("", "5")).toBe(1); // '' is NaN -> sorts AFTER the real 5
+    expect(fn("5", "")).toBe(-1); // mirror: real 5 before NaN
   });
 });
 

@@ -8,7 +8,19 @@ import { safelyParseJSON } from "shared/utils/json";
 
 export type SortFunctionType = Record<
   string,
-  { type: string[]; label: string; fn: SortFunction; desc: boolean; fieldDef?: SpaceProperty }
+  {
+    type: string[];
+    label: string;
+    fn: SortFunction;
+    desc: boolean;
+    fieldDef?: SpaceProperty;
+    // Optional disambiguator when a single (type, desc) pair is claimed by more
+    // than one entry (e.g. option-multi has both an "order" and a "count" sort).
+    // normalizedSortForType matches on subKey when one is requested, so every
+    // variant is reachable through the resolver instead of being shadowed by the
+    // first insertion-order match. Entries without a subKey are the default.
+    subKey?: string;
+  }
 >;
 export type SortFunction = (v: any, f: any, fieldDef?: SpaceProperty) => SortResultType;
 
@@ -83,10 +95,29 @@ const linkSort: SortFunction = (
   return stringSort(a, b);
 }
 
+// numSort must be a STRICT WEAK ORDERING for Array.prototype.sort. parseFloat of
+// a non-numeric / empty cell yields NaN, and a naive `simpleSort(NaN, x)` returns
+// 0 for ALL x (NaN is neither < nor >). That makes NaN "equal" to every number
+// while distinct numbers are unequal — a NON-TRANSITIVE equivalence (the
+// e8e/ADR-0025 bug class) that yields V8-version-dependent ordering on a number
+// column containing junk text. FIX (mirrors stringSort's null-to-one-end
+// discipline): coerce NaN to a deterministic sentinel by pushing it to one end —
+// NaN sorts AFTER every real number, and NaN===NaN compares equal (0).
 const numSort: SortFunction = (
   value: string,
   filterValue: string
-): SortResultType => simpleSort(parseFloat(value), parseFloat(filterValue));
+): SortResultType => {
+  const a = parseFloat(value);
+  const b = parseFloat(filterValue);
+  const aNaN = Number.isNaN(a);
+  const bNaN = Number.isNaN(b);
+  // Both NaN -> equal (reflexive within the NaN equivalence class).
+  if (aNaN && bNaN) return 0;
+  // Push NaN to the end (sorts after any real number), like null in stringSort.
+  if (aNaN) return 1;
+  if (bNaN) return -1;
+  return simpleSort(a, b);
+};
 const boolSort: SortFunction = (
   value: string,
   filterValue: string
@@ -118,10 +149,37 @@ const optionMultiSort: SortFunction = (
   return optionSort(firstValue, firstFilterValue, fieldDef);
 };
 
-export const normalizedSortForType = (type: string, desc: boolean) => {
-  return Object.keys(sortFnTypes).find(
-    (f) =>
-      sortFnTypes[f].type.some((g) => g == type) && sortFnTypes[f].desc == desc
+/**
+ * Resolve the sortFnTypes key for a (column type, descending) pair.
+ *
+ * When several entries claim the same (type, desc) — option-multi has BOTH an
+ * "order" sort and a "count" sort per direction — a plain first-match resolver
+ * SHADOWS the later entries, making them unreachable through this resolver
+ * (the option-multi "count items" sorts were dead). The optional `subKey`
+ * disambiguates additively: pass a subKey to select that specific variant; omit
+ * it (the default, preserving every existing caller's behavior) to get the entry
+ * with NO subKey, i.e. the canonical default for that type. No user-facing sort
+ * option is removed — both Order and Count remain selectable for option-multi.
+ */
+export const normalizedSortForType = (
+  type: string,
+  desc: boolean,
+  subKey?: string
+) => {
+  const matches = (f: string) =>
+    sortFnTypes[f].type.some((g) => g == type) && sortFnTypes[f].desc == desc;
+  if (subKey != null) {
+    const exact = Object.keys(sortFnTypes).find(
+      (f) => matches(f) && sortFnTypes[f].subKey === subKey
+    );
+    if (exact) return exact;
+  }
+  // Default: prefer the entry with no subKey (the canonical default for the
+  // type); fall back to the first match for types that never set a subKey.
+  return (
+    Object.keys(sortFnTypes).find(
+      (f) => matches(f) && sortFnTypes[f].subKey == null
+    ) ?? Object.keys(sortFnTypes).find(matches)
   );
 };
 
@@ -203,12 +261,14 @@ export const sortFnTypes: SortFunctionType = {
     fn: optionMultiSort,
     label: "First → Last",
     desc: false,
+    subKey: "order",
   },
   reverseOptionMultiOrder: {
     type: ["option-multi"],
     fn: (v, f, fieldDef) => (optionMultiSort(v, f, fieldDef) * -1) as SortResultType,
     label: "Last → First",
     desc: true,
+    subKey: "order",
   },
   count: {
     type: ["context-multi", "link-multi", "tags-multi"],
@@ -227,12 +287,14 @@ export const sortFnTypes: SortFunctionType = {
     fn: countSort,
     label: i18n.sortTypes.itemsDesc,
     desc: true,
+    subKey: "count",
   },
   reverseOptionMultiCount: {
     type: ["option-multi"],
     fn: (v, f) => (countSort(v, f) * -1) as SortResultType,
     label: i18n.sortTypes.itemsAsc,
     desc: false,
+    subKey: "count",
   },
 };
 
