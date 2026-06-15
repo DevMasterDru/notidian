@@ -24,19 +24,19 @@ export const appendPathMetaData = (propType: string, pathState: PathState) => {
     } else if (propType == "mtime") {
       value = pathState.metadata?.file?.mtime?.toString();
     } else if (propType == "extension") {
-      value = pathState.metadata.extension;
+      value = pathState.metadata?.extension ?? "";
     } else if (propType == "sticker") {
-      value = pathState.label.sticker;
+      value = pathState.label?.sticker ?? "";
     } else if (propType == "size") {
       value = pathState.metadata?.file?.size?.toString();
     } else if (propType == "inlinks") {
-      value = serializeMultiDisplayString(pathState.inlinks);
+      value = serializeMultiDisplayString(pathState.inlinks ?? []);
     } else if (propType == "outlinks") {
-      value = serializeMultiDisplayString(pathState.outlinks);
+      value = serializeMultiDisplayString(pathState.outlinks ?? []);
     } else if (propType == "tags") {
-      value = serializeMultiDisplayString(pathState.tags);
+      value = serializeMultiDisplayString(pathState.tags ?? []);
     } else if (propType == 'spaces') {
-      value = serializeMultiDisplayString(pathState.spaces);
+      value = serializeMultiDisplayString(pathState.spaces ?? []);
     } else {
       value = parseProperty(null, pathState.metadata?.[propType]);
     }

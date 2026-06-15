@@ -16,12 +16,21 @@ import { PathState } from "shared/types/PathState";
 //
 // These tests LOCK the CURRENT behavior. Where that behavior diverges from a
 // naive reading (numeric branches can yield `undefined`, not ""; the empty
-// result of appendPathsMetaData is the JSON literal "[]", not ""; three branches
-// lack the optional-chaining their siblings have and THROW on a nullish parent),
-// the divergence is pinned ON PURPOSE so a future refactor that "fixes" it is a
-// visible, deliberate decision rather than a silent contract break. None of the
-// divergences is treated as a bug to fix here (no source change) — the latent
-// optional-chain asymmetry is filed as a follow-up bead.
+// result of appendPathsMetaData is the JSON literal "[]", not ""), the divergence
+// is pinned ON PURPOSE so a future refactor that "fixes" it is a visible,
+// deliberate decision rather than a silent contract break.
+//
+// UPDATE (Notidian-i9m): the original characterization pinned an optional-chain
+// ASYMMETRY — the extension (metadata.extension), sticker (label.sticker), and
+// inlinks/outlinks/tags/spaces (serializeMultiDisplayString(<arr>)) branches
+// alone read their parent WITHOUT optional chaining and THREW a TypeError on a
+// nullish parent, while every sibling branch (numeric + default) optional-chained
+// and collapsed to undefined/''. PathState declares metadata/label/inlinks/etc
+// OPTIONAL, so a partially-built PathState crashed the relations/rollup column
+// build instead of yielding an empty cell. lookup.ts now optional-chains these
+// six branches and defaults to '' for PARITY with the numeric/default branches
+// (the conservative crash->safe fix; the established in-file convention, not an
+// open product call). The assertions below pin the new ''-default behavior.
 //
 // Stringification reference (production deps, not re-tested here):
 //   serializeMultiDisplayString(arr) = arr.map(f=>f.replace(',', '\\,')).join(', ')
@@ -102,7 +111,7 @@ describe("appendPathMetaData — direct field branches (folder/name/extension)",
     ).toBe("My File Name");
   });
 
-  it("extension => pathState.metadata.extension (read WITHOUT optional chaining on metadata)", () => {
+  it("extension => pathState.metadata?.extension ?? '' (optional-chained, '' default)", () => {
     expect(
       appendPathMetaData(
         "extension",
@@ -116,13 +125,21 @@ describe("appendPathMetaData — direct field branches (folder/name/extension)",
         makePathState({ metadata: { extension: "" } })
       )
     ).toBe("");
-    // Key absent on a present metadata object => undefined (no key, no chain).
+    // Key absent on a present metadata object => '' (Notidian-i9m: was undefined).
     expect(
       appendPathMetaData("extension", makePathState({ metadata: {} }))
-    ).toBeUndefined();
+    ).toBe("");
+    // Notidian-i9m: a wholly-absent metadata no longer THROWS — `metadata?.`
+    // short-circuits and the branch defaults to '' (parity with numeric/default).
+    expect(() =>
+      appendPathMetaData("extension", makePathState({ metadata: undefined }))
+    ).not.toThrow();
+    expect(
+      appendPathMetaData("extension", makePathState({ metadata: undefined }))
+    ).toBe("");
   });
 
-  it("sticker => pathState.label.sticker (read WITHOUT optional chaining on label)", () => {
+  it("sticker => pathState.label?.sticker ?? '' (optional-chained, '' default)", () => {
     expect(
       appendPathMetaData(
         "sticker",
@@ -133,6 +150,20 @@ describe("appendPathMetaData — direct field branches (folder/name/extension)",
       appendPathMetaData(
         "sticker",
         makePathState({ label: { name: "x", sticker: "", color: "" } })
+      )
+    ).toBe("");
+    // Notidian-i9m: a wholly-absent label no longer THROWS — `label?.`
+    // short-circuits and the branch defaults to '' (parity with siblings).
+    expect(() =>
+      appendPathMetaData(
+        "sticker",
+        makePathState({ label: undefined as unknown as PathState["label"] })
+      )
+    ).not.toThrow();
+    expect(
+      appendPathMetaData(
+        "sticker",
+        makePathState({ label: undefined as unknown as PathState["label"] })
       )
     ).toBe("");
   });
@@ -224,19 +255,29 @@ describe("appendPathMetaData — multi-display link/tag branches (inlinks/outlin
     expect(appendPathMetaData("tags", makePathState({ tags: [] }))).toBe("");
   });
 
-  it("THROWS when the underlying array is undefined (these branches do NOT optional-chain the array)", () => {
-    // CHARACTERIZATION of the optional-chain asymmetry: inlinks/outlinks/tags/
-    // spaces are passed straight into serializeMultiDisplayString, which calls
-    // .map on them. A PathState whose array field is absent therefore throws a
-    // TypeError rather than producing "". In practice the indexer populates these
-    // (PathState declares them optional but the builder fills [] ), so this pins
-    // the latent gap, not an observed runtime failure. See follow-up bead.
+  it("=> '' (does NOT throw) when the underlying array is undefined (Notidian-i9m: `?? []` before serialize)", () => {
+    // Notidian-i9m fixed the optional-chain asymmetry: inlinks/outlinks/tags/
+    // spaces are now defaulted to [] (`pathState.<arr> ?? []`) before reaching
+    // serializeMultiDisplayString, so a PathState whose array field is absent
+    // collapses to '' instead of throwing a TypeError. PathState declares these
+    // OPTIONAL, so a partially-built PathState yields an empty cell rather than
+    // crashing the relations/rollup column build (parity with the numeric/default
+    // branches). The indexer typically fills [], so this guards the latent gap.
     expect(() =>
       appendPathMetaData("inlinks", makePathState({ inlinks: undefined }))
-    ).toThrow(TypeError);
-    expect(() =>
+    ).not.toThrow();
+    expect(
+      appendPathMetaData("inlinks", makePathState({ inlinks: undefined }))
+    ).toBe("");
+    expect(
+      appendPathMetaData("outlinks", makePathState({ outlinks: undefined }))
+    ).toBe("");
+    expect(
       appendPathMetaData("tags", makePathState({ tags: undefined }))
-    ).toThrow(TypeError);
+    ).toBe("");
+    expect(
+      appendPathMetaData("spaces", makePathState({ spaces: undefined }))
+    ).toBe("");
   });
 });
 
