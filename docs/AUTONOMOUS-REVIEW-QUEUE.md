@@ -1541,6 +1541,86 @@ queueing more and pivots to safe work — so this list stays reviewable.
   `sanitizers.ts` change and the `:500-528` NUL pins are **not** flipped until you pick.
 - **Bead status:** Notidian-dgo6 stays **OPEN**, awaiting your direction.
 
+### Notidian-ircw — `resolvePath('../…')` over-pop past root: explicit root clamp vs. keep+document the graceful degradation
+
+- **ADR:** [docs/adr/0048-resolvepath-parent-overpop-root-clamp.md](adr/0048-resolvepath-parent-overpop-root-clamp.md)
+  (Status: **Proposed**). A **behavior-contract** question on the pure
+  `resolvePath` identity primitive (sibling of the `'./'`-resolution fix
+  `Notidian-2i5k` on the same file).
+- **Why a decision, not a build:** the bead itself says "this is a behavior
+  change, so characterize-then-decide rather than fix blind." `resolvePath` keys
+  **row identity** for ~56 callers (ADR 0014/0016), so changing it touches a
+  primitive whose wrong answer silently re-points a link/relation at the wrong row
+  — and any fix must **deliberately re-bless** the LOCKED over-pop characterization
+  (`resolvePath.test.ts:264-289`) + the "`../` never produces a leading-slash dup"
+  property (`:355-365`). So: a Proposed ADR, bead OPEN.
+- **The behavior, exactly (verified in source):** `path.ts:31-40` (`'../'` branch)
+  runs `while (pathParts[0]==='..') sourceParts.pop()` with **no clamp** — when
+  `..` count exceeds source depth, `pop()` is called on an **empty** array (returns
+  `undefined`, no throw, no mutation). So `resolvePath('../../../a.md','A/B.md')`
+  → **`'a.md'`** (rootless) and `resolvePath('../../','A/B.md')` → **`''`** (when
+  `..` consumes the whole path). **Property-locked** that it **never** emits a
+  leading `/` or `//` — the degradation is graceful, just not a *defined* clamp.
+- **Sharpened POSIX framing (load-bearing for A vs B):** Node disagrees with
+  itself — `path.posix.resolve('/A','../../../a.md') === '/a.md'` (**clamps** at
+  the absolute root) but `path.posix.normalize('A/../../../a.md') === '../../a.md'`
+  (**keeps** leftover `..`). Notidian paths are root-relative *without* a leading
+  slash (the `Notidian-2i5k` invariant), so `path.resolve`'s `/a.md` minus its
+  mandatory leading slash **is exactly `a.md`** — i.e. **the current over-pop
+  output already equals `path.resolve`'s clamp for the common case.** The code is
+  *accidentally* root-clamping (an empty array can't pop further), not
+  `..`-preserving. So Option A and the current behavior **return the same string**
+  for `'../../../a.md'`; the only thing on the table is **defined contract +
+  explicit guard (A)** vs **emergent accident named as the contract (B)**.
+- **How it's consumed (why present-risk is LOW):** production callers route through
+  `spaceManager.resolvePath` (`spaceManager.ts:115-120`) whose **first** branch is
+  `if (resolvedPath !== path) return resolvedPath` — an over-pop **changes** the
+  string, so the wrapper returns the bare-leaf **immediately** (no `pathsIndex`
+  re-check, no Obsidian link-index fallback). Downstream that key is *matched*
+  against `pathsIndex`; a malformed over-pop link resolves to a non-existent
+  `'a.md'` and **stays a stable non-matching key** — exactly the dangling-link
+  contract `relationResolver.ts` was **designed** around. The `''`-collapse edge
+  flows as a benign empty/no-link key (`uriByString`'s `if (!uri) return null`).
+  Over-pop **requires a malformed link** (more `../` than source depth) to even
+  arise, and when it does it does **not** silently re-point to a *different real
+  row* (only a coincidental real top-level `a.md` would collide).
+- **The one decision you need to make:** pick **A / B / C** — **recommended Option
+  B (keep + document)**: make **no code change**; ratify today's graceful behavior
+  as the intended contract by naming it in the `path.ts` comment + the locked test
+  comments (graceful root-equivalent clamp, no leading-slash artifact, arises only
+  from malformed links, equivalent to `path.resolve` under the no-leading-slash
+  invariant). It is **zero behavior change** to a 56-caller identity primitive,
+  **no caller is shown to be harmed**, **no locked assertion is flipped** (no
+  re-bless review-debt), and it **avoids the asymmetric risk of A** (a malformed
+  link deterministically re-pointing to a real root `a.md`). Over **Option A** —
+  add `if (sourceParts.length > 0) sourceParts.pop();` to make the clamp
+  **explicit** (matches `path.resolve`'s model, removes the `pop()`-on-`[]`
+  reader-trap, **low diff**, and the bare-leaf *values* don't even change): a
+  **real-but-low-value** semantic change for an edge that needs malformed input to
+  reach, with the asymmetric re-point risk — clean readability-only follow-up, not
+  wrong, just lower value than naming the existing contract. Over **Option C**
+  (clamp behind a default-OFF flag) — **over-engineers a pure offline deterministic
+  string question**: a flag de-risks behaviors that need eyes-on or whose effect is
+  uncertain; here both outcomes are jest-provable and near-identical, so a flag adds
+  settings + a branch in an identity-hot primitive + a doubled test matrix for zero
+  payoff (same no-flag posture as ADR 0032/0033/0034/0036/0039/0042) — **rejected**.
+- **Also ruled out:** a `normalize`/`join`-style "preserve leftover `..`" contract
+  (`'../../a.md'`) — it emits a leading `..`, neither a valid vault key nor
+  consistent with the rooted no-leading-slash model; the vault has no parent of
+  root, so `path.resolve`'s clamp is the only coherent model.
+- **No build / no spike shipped.** Pure, offline-provable, deterministic string
+  logic over an identity-keying primitive — **no render / `innerHTML` / authority /
+  eyes-on-vault surface**; the behavior is **already characterized** and the two
+  outcomes are near-identical, so **no default-OFF flag** and **no eyes-on step**.
+  On a pick of **B** the implementing session upgrades the `path.ts:31-40` comment
+  + the locked test comments to name the contract (no assertion **values** flipped)
+  and closes the bead; on **A** it adds the length-guard, re-blesses the over-pop
+  block + leading-slash property (bare-leaf values unchanged; `''`-collapse
+  re-blessed as "clamp to root remainder"), grep-audits that no caller leans on the
+  exact `''` output, and closes. No `path.ts` or `resolvePath.test.ts` change and
+  the `:264-289` / `:355-365` pins are **not** flipped until you pick.
+- **Bead status:** Notidian-ircw stays **OPEN**, awaiting your direction.
+
 ## Cleared
 
 _(none yet)_
