@@ -112,6 +112,45 @@ const neutralizeCssFetches = (css: string): string => {
     });
 };
 
+// Run a single-pass DOM cleaner to a FIXED POINT before returning, to defeat
+// mutation-XSS (mXSS). A single template.innerHTML parse + serialise round-trip is
+// not necessarily a closure: the HTML/foreign-content (SVG/MathML) parser has
+// integration points where the tree the sanitiser SEES differs from the tree a
+// browser builds when the SERIALISED output is re-parsed at the live innerHTML/
+// dangerouslySetInnerHTML sink. The canonical case (found by the Notidian-y3h
+// adversarial sweep): `<math><mtext><mglyph><style><img src=x onerror=alert(1)>`
+// parses with the <img onerror> as the TEXT of <style> (so the attribute loop never
+// sees it and CSS-neutralisation leaves it intact), but when that exact string is
+// assigned to a live element's innerHTML the parser re-tokenises it into a LIVE
+// <img onerror> in the light DOM — a working handler the single pass missed.
+//
+// Re-running the same cleaner on its own output closes the gap: on the second parse
+// the smuggled node is already hoisted out of the integration point into the light
+// DOM, where the cleaner's normal element/attribute strip catches it. The transform
+// is monotone (it only removes elements/attributes and neutralises CSS — it never
+// adds executable surface) and the serialiser is deterministic, so the iteration
+// converges to a fixed point quickly (<=3 passes for every known payload). We cap
+// iterations defensively: if no fixed point is reached within the cap (a parser
+// oscillation we have never observed), we fail safe to "" rather than emit a
+// possibly-still-dangerous string. A second pass over already-clean markup is itself
+// the fixed point, so this preserves the documented idempotency contract and adds
+// no cost for benign content (1 extra confirming pass).
+const FIXED_POINT_MAX_PASSES = 6;
+const sanitizeToFixedPoint = (
+  html: string,
+  onePass: (input: string) => string
+): string => {
+  let current = html;
+  for (let i = 0; i < FIXED_POINT_MAX_PASSES; i++) {
+    const next = onePass(current);
+    if (next === current) return current; // stable: re-parsing changes nothing
+    current = next;
+  }
+  // One more pass that STILL differs means we never reached a fixed point within
+  // the cap; the output cannot be trusted as fully neutralised, so fail safe.
+  return onePass(current) === current ? current : "";
+};
+
 // Sanitize a vault-supplied SVG icon (custom iconsets) before it is injected as
 // raw markup. Removes script/foreignObject/etc. elements and all on* event-handler
 // attributes, restricts URL attributes and CSS url()/@import to same-document
@@ -123,53 +162,58 @@ const neutralizeCssFetches = (css: string): string => {
 // case-sensitive selector. Runtime only (no DOM in the node test env). Fail-safe:
 // any parse error yields an empty string — a missing icon is acceptable, an
 // executing payload is not. Deliberately NOT applied to the bundled lucide/ui
-// icons, only to untrusted custom-iconset SVG.
+// icons, only to untrusted custom-iconset SVG. Run to a fixed point (above) so a
+// parse-differential mXSS cannot survive the single parse/serialise round-trip.
+const sanitizeIconSVGPass = (svg: string): string => {
+  const template = document.createElement("template");
+  template.innerHTML = svg;
+  // Static snapshot of all descendants; safe to mutate while iterating.
+  template.content.querySelectorAll("*").forEach((el) => {
+    const tag = el.tagName.toLowerCase();
+    if (SVG_DANGEROUS_TAGS.has(tag)) {
+      el.remove();
+      return;
+    }
+    // <style> CSS is kept (legit icons use it) but its remote fetches are
+    // neutralised; the element's own attributes (e.g. <style onload>) are still
+    // processed by the loop below.
+    if (tag == "style") {
+      el.textContent = neutralizeCssFetches(el.textContent ?? "");
+    }
+    Array.from(el.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      // Inline style attributes can fetch via url(); neutralise rather than drop
+      // so legitimate fills/gradients survive.
+      if (name == "style") {
+        el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+        return;
+      }
+      const value = attr.value.replace(/\s+/g, "").toLowerCase();
+      const isUrlAttr =
+        name == "href" || name == "xlink:href" || name == "src";
+      // on* handlers are always dropped. For URL attributes (e.g. <use href>,
+      // <image href>) allow only same-doc fragments (#id) and raster data:image
+      // — this blocks javascript:, data:text/html, and remote http(s) fetches
+      // (an icon phoning home / SSRF / tracking beacon) while keeping legit
+      // symbol reuse and inline raster icons working.
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+      } else if (
+        isUrlAttr &&
+        !(value.startsWith("#") || value.startsWith("data:image/"))
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return template.innerHTML;
+};
+
 export const sanitizeIconSVG = (svg: string): string => {
   if (!svg || typeof svg != "string") return "";
   if (typeof document == "undefined") return "";
   try {
-    const template = document.createElement("template");
-    template.innerHTML = svg;
-    // Static snapshot of all descendants; safe to mutate while iterating.
-    template.content.querySelectorAll("*").forEach((el) => {
-      const tag = el.tagName.toLowerCase();
-      if (SVG_DANGEROUS_TAGS.has(tag)) {
-        el.remove();
-        return;
-      }
-      // <style> CSS is kept (legit icons use it) but its remote fetches are
-      // neutralised; the element's own attributes (e.g. <style onload>) are still
-      // processed by the loop below.
-      if (tag == "style") {
-        el.textContent = neutralizeCssFetches(el.textContent ?? "");
-      }
-      Array.from(el.attributes).forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        // Inline style attributes can fetch via url(); neutralise rather than drop
-        // so legitimate fills/gradients survive.
-        if (name == "style") {
-          el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
-          return;
-        }
-        const value = attr.value.replace(/\s+/g, "").toLowerCase();
-        const isUrlAttr =
-          name == "href" || name == "xlink:href" || name == "src";
-        // on* handlers are always dropped. For URL attributes (e.g. <use href>,
-        // <image href>) allow only same-doc fragments (#id) and raster data:image
-        // — this blocks javascript:, data:text/html, and remote http(s) fetches
-        // (an icon phoning home / SSRF / tracking beacon) while keeping legit
-        // symbol reuse and inline raster icons working.
-        if (name.startsWith("on")) {
-          el.removeAttribute(attr.name);
-        } else if (
-          isUrlAttr &&
-          !(value.startsWith("#") || value.startsWith("data:image/"))
-        ) {
-          el.removeAttribute(attr.name);
-        }
-      });
-    });
-    return template.innerHTML;
+    return sanitizeToFixedPoint(svg, sanitizeIconSVGPass);
   } catch {
     return "";
   }
@@ -239,33 +283,43 @@ const hasDangerousUrlScheme = (raw: string): boolean => {
 // data:text-html) while preserving ordinary markdown (formatting, links, images,
 // including remote http(s)). DOM-based and fail-safe ("" on parse error or no DOM).
 // Notidian-3yb (follow-up to the Notidian-ebz sweep).
+//
+// One pass of the rendered-HTML / frame-text cleaner. sanitizeRenderedHtml and
+// sanitizeFrameText share IDENTICAL element/attribute rules (the only difference is
+// their input validation and the surrounding contract), so the per-pass work lives
+// here and both run it to a fixed point (sanitizeToFixedPoint) to defeat the
+// parse-differential mXSS documented above (Notidian-y3h).
+const sanitizeHtmlSinkPass = (html: string): string => {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content.querySelectorAll("*").forEach((el) => {
+    const tag = el.tagName.toLowerCase();
+    if (HTML_DANGEROUS_TAGS.has(tag)) {
+      el.remove();
+      return;
+    }
+    if (tag == "style") {
+      el.textContent = neutralizeCssFetches(el.textContent ?? "");
+    }
+    Array.from(el.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+      } else if (name == "style") {
+        el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
+      } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return template.innerHTML;
+};
+
 export const sanitizeRenderedHtml = (html: string): string => {
   if (!html || typeof html != "string") return "";
   if (typeof document == "undefined") return "";
   try {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    template.content.querySelectorAll("*").forEach((el) => {
-      const tag = el.tagName.toLowerCase();
-      if (HTML_DANGEROUS_TAGS.has(tag)) {
-        el.remove();
-        return;
-      }
-      if (tag == "style") {
-        el.textContent = neutralizeCssFetches(el.textContent ?? "");
-      }
-      Array.from(el.attributes).forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        if (name.startsWith("on")) {
-          el.removeAttribute(attr.name);
-        } else if (name == "style") {
-          el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
-        } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
-          el.removeAttribute(attr.name);
-        }
-      });
-    });
-    return template.innerHTML;
+    return sanitizeToFixedPoint(html, sanitizeHtmlSinkPass);
   } catch {
     return "";
   }
@@ -291,35 +345,17 @@ export const sanitizeRenderedHtml = (html: string): string => {
 // matching sanitizeIconSVG / sanitizeRenderedHtml. The round-trip is lossless for
 // content that contains no dangerous constructs, so a saved value re-sanitised on
 // the next paint is stable (idempotent). bd Notidian-vke (deferred ebz sink #2).
+// Shares the per-pass cleaner with sanitizeRenderedHtml and runs it to a fixed
+// point (Notidian-y3h) so a parse-differential mXSS — directly reachable here
+// because frame text is contentEditable and can carry pasted foreign markup —
+// cannot survive the single parse/serialise round-trip.
 export const sanitizeFrameText = (html: unknown): string => {
   if (html == null) return "";
   if (typeof html != "string") return "";
   if (html == "") return "";
   if (typeof document == "undefined") return "";
   try {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    template.content.querySelectorAll("*").forEach((el) => {
-      const tag = el.tagName.toLowerCase();
-      if (HTML_DANGEROUS_TAGS.has(tag)) {
-        el.remove();
-        return;
-      }
-      if (tag == "style") {
-        el.textContent = neutralizeCssFetches(el.textContent ?? "");
-      }
-      Array.from(el.attributes).forEach((attr) => {
-        const name = attr.name.toLowerCase();
-        if (name.startsWith("on")) {
-          el.removeAttribute(attr.name);
-        } else if (name == "style") {
-          el.setAttribute(attr.name, neutralizeCssFetches(attr.value));
-        } else if (HTML_URL_ATTRS.has(name) && hasDangerousUrlScheme(attr.value)) {
-          el.removeAttribute(attr.name);
-        }
-      });
-    });
-    return template.innerHTML;
+    return sanitizeToFixedPoint(html, sanitizeHtmlSinkPass);
   } catch {
     return "";
   }
