@@ -410,7 +410,8 @@ export const FilterBar = (props: {
     // },
   };
   const showLayoutMenu = (e: React.MouseEvent) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound button, not the clicked SVG child (Notidian-i23).
+    const offset = e.currentTarget.getBoundingClientRect();
     const menuOptions: SelectOption[] = [];
 
     Object.keys(defaultViewTypes).forEach((c) => {
@@ -695,7 +696,9 @@ export const FilterBar = (props: {
           )?.name ?? predicate.subItems.field)
         : i18n.menu.none,
       onClick: (e) => {
-        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Anchor the submenu to the menu row (currentTarget), not the clicked
+        // glyph within it (Notidian-i23).
+        const offset = e.currentTarget.getBoundingClientRect();
         // Sub-items follows a relation/link column whose links point at each
         // row's parent row in THIS table — a self-relation. Only primary-table
         // columns (table == "") qualify; a linked-context column points at
@@ -757,7 +760,9 @@ export const FilterBar = (props: {
       value:
         predicate?.limit > 0 ? predicate.limit.toString() : i18n.labels.showAll,
       onClick: (e) => {
-        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Anchor the submenu to the menu row (currentTarget), not the clicked
+        // glyph within it (Notidian-i23).
+        const offset = e.currentTarget.getBoundingClientRect();
         const limitOptions = [0, 10, 25, 50, 100, 200, 500];
         const currentLimit = predicate?.limit?.toString() ?? "0";
 
@@ -852,7 +857,9 @@ export const FilterBar = (props: {
         type: SelectOptionType.Disclosure,
         value: displayProperty ?? i18n.menu.none,
         onClick: (e) => {
-          const offset = (e.target as HTMLElement).getBoundingClientRect();
+          // Anchor the submenu to the menu row (currentTarget), not the clicked
+          // glyph within it (Notidian-i23).
+          const offset = e.currentTarget.getBoundingClientRect();
           props.superstate.ui.openMenu(
             offset,
             {
@@ -896,7 +903,8 @@ export const FilterBar = (props: {
         value: predicate.listViewProps?.[f.name],
         onClick: (e) => {
           showSetValueMenu(
-            (e.target as HTMLElement).getBoundingClientRect(),
+            // Anchor to the menu row, not the clicked glyph (Notidian-i23).
+            e.currentTarget.getBoundingClientRect(),
             windowFromDocument(e.view.document),
             props.superstate,
             predicate.listViewProps?.[f.name],
@@ -921,7 +929,8 @@ export const FilterBar = (props: {
         value: predicate.listGroupProps?.[f.name],
         onClick: (e) => {
           showSetValueMenu(
-            (e.target as HTMLElement).getBoundingClientRect(),
+            // Anchor to the menu row, not the clicked glyph (Notidian-i23).
+            e.currentTarget.getBoundingClientRect(),
             windowFromDocument(e.view.document),
             props.superstate,
             predicate.listGroupProps?.[f.name],
@@ -947,7 +956,8 @@ export const FilterBar = (props: {
         value: predicate.listItemProps?.[f.name],
         onClick: (e) => {
           showSetValueMenu(
-            (e.target as HTMLElement).getBoundingClientRect(),
+            // Anchor to the menu row, not the clicked glyph (Notidian-i23).
+            e.currentTarget.getBoundingClientRect(),
             windowFromDocument(e.view.document),
             props.superstate,
             predicate.listItemProps?.[f.name],
@@ -971,7 +981,13 @@ export const FilterBar = (props: {
       );
       return;
     }
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound button (currentTarget), NOT the clicked node
+    // (e.target). The toolbar buttons render their icon via
+    // dangerouslySetInnerHTML SVG, so e.target resolves to whichever SVG child
+    // (svg/path/g) the pointer landed on — each with a different rect — making
+    // the menu jump to the click position (Notidian-i23). currentTarget is
+    // always the <button> this handler is bound to, so the anchor is stable.
+    const offset = e.currentTarget.getBoundingClientRect();
     optionsMenuRef.current = props.superstate.ui.openMenu(
       offset,
       defaultMenu(props.superstate.ui, menuOptions),
@@ -1049,7 +1065,8 @@ export const FilterBar = (props: {
   };
 
   const changeSortMenu = (e: React.MouseEvent, sort: Sort) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound element, not the clicked child (Notidian-i23).
+    const offset = e.currentTarget.getBoundingClientRect();
     const saveSort = (_: string[], newType: string[]) => {
       const type = newType[0];
       const newSort: Sort = {
@@ -1093,7 +1110,8 @@ export const FilterBar = (props: {
     filter: Filter,
     index: number
   ) => {
-    const offset = (e.target as HTMLElement).getBoundingClientRect();
+    // Anchor to the bound element, not the clicked child (Notidian-i23).
+    const offset = e.currentTarget.getBoundingClientRect();
     const saveFilter = (_: string[], newType: string[]) => {
       const type = newType[0];
       const newFilter: Filter = {
@@ -1333,7 +1351,8 @@ export const FilterBar = (props: {
             ),
           });
         };
-        const offset = (e.target as HTMLElement).getBoundingClientRect();
+        // Anchor to the bound element, not the clicked child (Notidian-i23).
+        const offset = e.currentTarget.getBoundingClientRect();
 
         const date = new Date(filter.value);
         showDatePickerMenu(
@@ -1354,7 +1373,8 @@ export const FilterBar = (props: {
             if (!space) return;
 
             const contextData = props.superstate.getSpaceItems(space) ?? [];
-            const offset = (e.target as HTMLElement).getBoundingClientRect();
+            // Anchor to the bound element, not the clicked child (Notidian-i23).
+            const offset = e.currentTarget.getBoundingClientRect();
             props.superstate.ui.openMenu(
               offset,
               {
@@ -1397,9 +1417,8 @@ export const FilterBar = (props: {
               ),
             });
           };
-          const offset = (
-            e.target as HTMLButtonElement
-          ).getBoundingClientRect();
+          // Anchor to the bound element, not the clicked child (Notidian-i23).
+          const offset = e.currentTarget.getBoundingClientRect();
           showLinkMenu(
             offset,
             windowFromDocument(e.view.document),
@@ -1429,7 +1448,8 @@ export const FilterBar = (props: {
             });
           };
           if (col.type.startsWith("option")) {
-            const offset = (e.target as HTMLElement).getBoundingClientRect();
+            // Anchor to the bound element, not the clicked child (Notidian-i23).
+            const offset = e.currentTarget.getBoundingClientRect();
             const options = parseFieldValue(col.value, col.type).options;
 
             props.superstate.ui.openMenu(
@@ -1451,7 +1471,8 @@ export const FilterBar = (props: {
             const space = parseFieldValue(col.value, col.type)?.space;
             if (!space) return;
             const contextData = props.superstate.getSpaceItems(space) ?? [];
-            const offset = (e.target as HTMLElement).getBoundingClientRect();
+            // Anchor to the bound element, not the clicked child (Notidian-i23).
+            const offset = e.currentTarget.getBoundingClientRect();
             props.superstate.ui.openMenu(
               offset,
               {
@@ -1472,7 +1493,8 @@ export const FilterBar = (props: {
               windowFromDocument(e.view.document)
             );
           } else if (col.type.startsWith("link")) {
-            const offset = (e.target as HTMLElement).getBoundingClientRect();
+            // Anchor to the bound element, not the clicked child (Notidian-i23).
+            const offset = e.currentTarget.getBoundingClientRect();
             showLinkMenu(
               offset,
               windowFromDocument(e.view.document),
@@ -1485,7 +1507,8 @@ export const FilterBar = (props: {
             e.stopPropagation();
           } else if (col.type.startsWith("tags")) {
             const contextData = props.superstate.spaceManager.readTags();
-            const offset = (e.target as HTMLElement).getBoundingClientRect();
+            // Anchor to the bound element, not the clicked child (Notidian-i23).
+            const offset = e.currentTarget.getBoundingClientRect();
             props.superstate.ui.openMenu(
               offset,
               {
@@ -1543,7 +1566,8 @@ export const FilterBar = (props: {
           <button
             className="mk-toolbar-button"
             onClick={(e) => {
-              const rect = (e.target as HTMLElement).getBoundingClientRect();
+              // Anchor to the button, not the clicked SVG child (Notidian-i23).
+              const rect = e.currentTarget.getBoundingClientRect();
 
               showSortMenu(rect, windowFromDocument(e.view.document), null);
             }}
@@ -1554,7 +1578,8 @@ export const FilterBar = (props: {
           <button
             className="mk-toolbar-button"
             onClick={(e) => {
-              const rect = (e.target as HTMLElement).getBoundingClientRect();
+              // Anchor to the button, not the clicked SVG child (Notidian-i23).
+              const rect = e.currentTarget.getBoundingClientRect();
 
               showAddFilterMenu(
                 rect,
@@ -1592,7 +1617,9 @@ export const FilterBar = (props: {
                         } else {
                           showSpaceAddMenu(
                             props.superstate,
-                            (e.target as HTMLElement).getBoundingClientRect(),
+                            // Anchor to the button, not the clicked SVG child
+                            // (Notidian-i23).
+                            e.currentTarget.getBoundingClientRect(),
                             windowFromDocument(e.view.document),
                             spaceCache,
                             true
@@ -1751,7 +1778,9 @@ export const FilterBar = (props: {
               <span
                 onClick={(e) =>
                   showGroupByMenu(
-                    (e.target as HTMLElement).getBoundingClientRect(),
+                    // Anchor to the bound span, not the clicked child
+                    // (Notidian-i23).
+                    e.currentTarget.getBoundingClientRect(),
                     windowFromDocument(e.view.document),
                     null
                   )
@@ -1849,9 +1878,9 @@ export const FilterBar = (props: {
             <div
               className="mk-filter-add"
               onClick={(e) => {
-                const offset = (
-                  e.target as HTMLElement
-                ).getBoundingClientRect();
+                // Anchor to the bound element, not the clicked SVG/text child
+                // (Notidian-i23).
+                const offset = e.currentTarget.getBoundingClientRect();
                 showAddFilterMenu(
                   offset,
                   windowFromDocument(e.view.document),
