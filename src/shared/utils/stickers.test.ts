@@ -74,11 +74,16 @@ describe("unifiedToNative", () => {
     expect(native).toHaveLength(1);
   });
 
-  it("THROWS RangeError on empty string (split('') -> [''] -> '0x' -> NaN)", () => {
-    // CHARACTERIZATION: ''.split('-') === [''], mapped to '0x', Number('0x') is
-    // NaN, and String.fromCodePoint(NaN) throws. It does NOT return a value.
-    expect(() => unifiedToNative("")).toThrow(RangeError);
-    expect(() => unifiedToNative("")).toThrow(/Invalid code point NaN/);
+  it("returns '' for empty input (narrow boundary guard, ADR 0042)", () => {
+    // RE-BLESSED (ADR 0042, Notidian-ywcf): the prior locked characterization
+    // pinned a RangeError here ('' -> [''] -> '0x' -> NaN). Option A's
+    // SAME-FAMILY sub-decision adds a narrow empty guard so the forward half is
+    // total on its boundary value too, keeping the empty round-trip clean:
+    // nativeToUnified(unifiedToNative("")) === "". The guard is deliberately
+    // limited to the empty case — non-hex / out-of-range input STILL throws
+    // RangeError (pinned below), the load-bearing behavior emojiFromString's
+    // catch relies on for the Notidian-ebz security contract.
+    expect(unifiedToNative("")).toBe("");
   });
 
   it("THROWS RangeError on non-hex junk ('zzz' -> '0xzzz' -> NaN)", () => {
@@ -109,11 +114,20 @@ describe("emojiFromString", () => {
     // The try/catch returns the raw input on any conversion failure. This is
     // the security-relevant contract pinned by Notidian-ebz — the caller
     // (obsidian sticker.ts) escapes the result precisely because a non-emoji
-    // payload survives unchanged.
+    // payload survives unchanged. The non-hex / out-of-range cases below STILL
+    // throw RangeError inside unifiedToNative, so the catch still fires.
     expect(emojiFromString("zzz")).toBe("zzz");
-    expect(emojiFromString("")).toBe("");
     expect(emojiFromString("110000")).toBe("110000"); // out-of-range -> raw
     expect(emojiFromString("1f600-zzz")).toBe("1f600-zzz"); // mixed -> raw
+  });
+
+  it("returns '' for empty input (now via the SUCCESS path, ADR 0042)", () => {
+    // RE-BLESSED (ADR 0042, Notidian-ywcf): emojiFromString("") still === "",
+    // but the route changed. Previously unifiedToNative("") threw RangeError and
+    // the catch returned the raw "". With the narrow empty guard, unifiedToNative
+    // now RETURNS "" directly (no throw), so the success path yields the same "".
+    // The observable contract is unchanged — only the internal path differs.
+    expect(emojiFromString("")).toBe("");
   });
 
   it("returns an HTML-significant payload VERBATIM (why the sink must escapeHtml)", () => {
@@ -193,11 +207,13 @@ describe("nativeToUnified", () => {
     expect(nativeToUnified("\u{1f1ee}\u{1f1f1}")).toBe("1f1ee");
   });
 
-  it("THROWS TypeError on empty string (codePointAt(0) is undefined -> .toString)", () => {
-    // CHARACTERIZATION: ''.codePointAt(0) === undefined, so the unconditional
-    // .toString(16) dereference throws. A latent hazard for any caller that may
-    // pass an empty native string — see follow-up bead.
-    expect(() => nativeToUnified("")).toThrow(TypeError);
+  it("returns '' for empty input (codec pair is total on its boundary value)", () => {
+    // RE-BLESSED (ADR 0042, Notidian-ywcf): the prior locked characterization
+    // pinned a TypeError here (''.codePointAt(0) === undefined -> .toString
+    // threw). Option A guards nativeToUnified to `?.toString(16) ?? ""`, so the
+    // empty native string now yields "" — the return type stays `string` and
+    // the result mirrors the already-pinned emojiFromString("") === "" contract.
+    expect(nativeToUnified("")).toBe("");
   });
 });
 
@@ -232,5 +248,13 @@ describe("nativeToUnified <-> unifiedToNative round-trip (property, table-driven
       // so the round-trip reconstructs the original unified code exactly.
       expect(nativeToUnified(unifiedToNative(unified))).toBe(unified);
     }
+  });
+
+  it("round-trips the EMPTY boundary value cleanly (ADR 0042, Notidian-ywcf)", () => {
+    // With both halves guarded on empty, the empty string is now part of the
+    // total round-trip: "" -> unifiedToNative -> "" -> nativeToUnified -> "".
+    expect(unifiedToNative("")).toBe("");
+    expect(nativeToUnified("")).toBe("");
+    expect(nativeToUnified(unifiedToNative(""))).toBe("");
   });
 });

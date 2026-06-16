@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-ywcf` (the fix follow-up to
+Tracked by bd `Notidian-ywcf` (the fix follow-up to
 the characterization landed by `Notidian-8fwj`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of blindly editing `stickers.ts`**: the fix *looks* like a
