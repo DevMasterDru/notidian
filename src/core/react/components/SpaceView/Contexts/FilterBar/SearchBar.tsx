@@ -7,17 +7,19 @@ export const SearchBar = (props: {
   setSearchString: (str: string) => void;
   closeSearch?: () => void;
 }) => {
-  const [searchActive, setSearchActive] = React.useState(false);
   const clearSearch = () => {
-    setSearchActive(false);
     props.setSearchString("");
   };
   const ref = React.useRef<HTMLInputElement>(null);
+  // Focus the input on mount. SearchBar is mounted only when the view search is
+  // being opened (the magnifier toggle, or Cmd/Ctrl+F via TableView.onKeyDown ->
+  // setSearchActive, ADR 0041/Notidian-z8q), so the user can type immediately
+  // instead of having to click into the field first. (The previous gate on an
+  // internal, never-set searchActive state meant this focus never fired.)
   useEffect(() => {
-    if (searchActive) {
-      ref.current?.focus();
-    }
-  }, [searchActive]);
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
   return (
     <div className="mk-view-search">
       <button
