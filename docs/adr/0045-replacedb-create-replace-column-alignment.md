@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-k778` (a DESIGN-OPEN /
+Tracked by bd `Notidian-k778` (a DESIGN-OPEN /
 cleanup-typed bead characterized from `Notidian-xwc6` and grounded by
 `Notidian-0jtp`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was

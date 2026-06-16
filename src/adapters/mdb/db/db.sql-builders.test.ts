@@ -233,14 +233,17 @@ describe("value quoting + single-quote-doubling contract", () => {
     );
   });
 
-  it("replaceDB: REPLACE row values are single-quote-doubled (parallel contract)", () => {
+  it("replaceDB: REPLACE row values are single-quote-doubled, with an explicit column list (parallel contract; ADR 0045)", () => {
     const db = makeDB();
     const tables: DBTables = {
       t: { uniques: [], cols: ["c"], rows: [{ c: "it's" }] },
     };
     replaceDB(db, tables);
     const replaceStmt = db.statements.find((s) => s.startsWith("REPLACE INTO"));
-    expect(replaceStmt).toBe(`REPLACE INTO "t" VALUES ('it''s');`);
+    // ADR 0045 (Option A): the REPLACE carries an explicit column list derived
+    // from the SAME uniq+filtered liveCols as the CREATE; single quotes are still
+    // doubled in the value literal.
+    expect(replaceStmt).toBe(`REPLACE INTO "t" ("c") VALUES ('it''s');`);
   });
 
   it("CHARACTERIZE: insertIntoDB wraps EVERY value, including empty/missing, in a quoted literal", () => {
@@ -360,13 +363,15 @@ describe("column/row alignment + statement batching", () => {
     );
   });
 
-  it("replaceDB: CREATE column list de-dupes and drops falsy field names, then REPLACE rows by cols order", () => {
+  it("replaceDB: CREATE and REPLACE share ONE de-duped/falsy-filtered column list, emitted as an explicit column list (ADR 0045 / Notidian-k778)", () => {
     const db = makeDB();
     const tables: DBTables = {
       t: {
         uniques: ["a"],
         // duplicate "a" and an empty "" name: uniq() collapses the dup, the
-        // .filter(f=>f) drops the empty from the CREATE field list.
+        // .filter(f=>f) drops the empty. Per ADR 0045 (Option A) this SAME
+        // liveCols list now drives BOTH the CREATE field list AND the REPLACE
+        // VALUES, so the statement is count- and position-matched.
         cols: ["a", "a", "", "b"],
         rows: [{ a: "1", b: "2" }],
       },
@@ -378,12 +383,13 @@ describe("column/row alignment + statement batching", () => {
     // The unique index for "a" is created.
     const idx = db.statements.find((s) => s.includes("CREATE UNIQUE INDEX"));
     expect(idx).toContain(`ON "t"("a")`);
-    // REPLACE rows still map over the FULL cols array (incl. dup/empty), so the
-    // VALUES list length follows cols.length (4), NOT the de-duped CREATE list.
-    // This is a known asymmetry between the CREATE field list and the row VALUES
-    // list; pinned so a future reader does not mistake it for alignment.
+    // ADR 0045 (Option A) — RE-BLESSED: the REPLACE now carries an EXPLICIT
+    // column list derived from the SAME uniq+filtered liveCols as the CREATE, and
+    // the VALUES are mapped over that SAME list. The old asymmetric 4-value form
+    // (`REPLACE INTO "t" VALUES ('1','1','','2')`) is deliberately retired — the
+    // statement is now correct by construction: 2 columns, 2 values, named.
     const replaceStmt = db.statements.find((s) => s.startsWith("REPLACE INTO"));
-    expect(replaceStmt).toBe(`REPLACE INTO "t" VALUES ('1', '1', '', '2');`);
+    expect(replaceStmt).toBe(`REPLACE INTO "t" ("a","b") VALUES ('1', '2');`);
   });
 
   it("replaceDB: emits BEGIN/COMMIT around the REPLACE rows and a DROP TABLE/INDEX preamble", () => {

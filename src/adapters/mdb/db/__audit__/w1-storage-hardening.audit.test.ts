@@ -131,7 +131,14 @@ const parseCreateColumns = (sql: string): string[] => {
 };
 
 const parseValues = (sql: string): string[] => {
-  const start = sql.indexOf("(");
+  // ADR 0045 (Notidian-k778): replaceDB now emits an EXPLICIT column list
+  // (`REPLACE INTO "t" ("a","b") VALUES (...)`). Anchor on the VALUES clause so
+  // the optional preceding column-list parens are not mistaken for the value
+  // tuple. insertIntoDB's bare `... VALUES (...)` form also matches.
+  const valuesMatch = sql.match(/\bVALUES\s*\(/i);
+  const start = valuesMatch && valuesMatch.index !== undefined
+    ? valuesMatch.index + valuesMatch[0].length - 1
+    : sql.indexOf("(");
   const end = sql.lastIndexOf(")");
   if (start === -1 || end === -1 || end <= start) return [];
   return splitSQLList(sql.slice(start + 1, end)).map((value) => {

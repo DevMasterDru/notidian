@@ -436,9 +436,16 @@ export const replaceDB = (db: Database, tables: DBTables) => {
   Object.keys(tables)
     .forEach((t) => {
       const tableFields = tables[t].cols;
-      const fieldQuery = serializeSQLFieldNames(uniq(tableFields).
-        filter(f => f).map((f) => `${quoteIdent(f)} char`));
-      
+      // ADR 0045 (Option A) / Notidian-k778: derive ONE de-duped, falsy-filtered
+      // column list and use it for BOTH the CREATE field definition AND the
+      // REPLACE rows, so the emitted statement is correct by construction —
+      // count- AND position-matched for any cols (dup, empty, or reordered).
+      const liveCols = uniq(tableFields).filter((f) => f);
+      const fieldQuery = serializeSQLFieldNames(liveCols.map((f) => `${quoteIdent(f)} char`));
+      // Explicit column list removes the positional coupling between the created
+      // column order and the VALUES order: REPLACE INTO "t" ("a","b") VALUES (...).
+      const colList = serializeSQLFieldNames(liveCols.map((f) => quoteIdent(f)));
+
       const createQuery = `CREATE TABLE IF NOT EXISTS ${quoteIdent(t)} (${fieldQuery}); `
       const idxQuery = tables[t].uniques
         .filter((f) => f)
@@ -449,7 +456,7 @@ export const replaceDB = (db: Database, tables: DBTables) => {
         }, "");
       const beginTransaction = `BEGIN TRANSACTION;`
       const rowsQuery = tables[t].rows.map((curr) => {
-        return `REPLACE INTO ${quoteIdent(t)} VALUES (${serializeSQLValues(tableFields
+        return `REPLACE INTO ${quoteIdent(t)} (${colList}) VALUES (${serializeSQLValues(liveCols
           .map((c) => `'${sanitizeSQLStatement(curr?.[c] ?? "")}'`))});`;
       });
       const commitQuery = `COMMIT;`;

@@ -528,34 +528,39 @@ describe("real engine: NUL byte in a value is a hard transport limitation (pinne
 });
 
 // =========================================================================
-// (7) Notidian-k778 ASYMMETRY — EMPIRICALLY PINNED against the real engine.
-// replaceDB's CREATE field list is `uniq(cols).filter(f=>f)` (de-duped +
-// falsy-dropped), but the per-row REPLACE VALUES list maps over the FULL,
-// un-deduped `cols`. So cols=['a','a','','b'] yields a 2-column CREATE ("a","b")
-// but a 4-value REPLACE — a column/value-count mismatch. The string net pinned
-// the EMITTED statements; here we pin the REAL ENGINE'S OBSERVED REACTION so the
-// k778 decision ADR is grounded in engine truth, never a blind fix:
+// (7) Notidian-k778 / ADR 0045 (Option A) — CORRECT BY CONSTRUCTION, pinned
+// against the real engine.
+// replaceDB now derives ONE de-duped, falsy-filtered `liveCols` list and uses
+// it for BOTH the CREATE field list AND an EXPLICIT-column REPLACE
+// (`REPLACE INTO "t" ("a","b") VALUES (...)`), mapping the VALUES over that same
+// list. So cols=['a','a','','b'] yields a 2-column CREATE ("a","b") AND a
+// 2-value, named REPLACE — count- and position-matched. The previously pinned
+// asymmetry (a 4-value REPLACE against a 2-column table) is DELIBERATELY RETIRED
+// per ADR 0045; below we pin the REAL ENGINE'S OBSERVED REACTION to the
+// corrected statement so the fix is grounded in engine truth, never a blind edit:
 //
 //   GROUND TRUTH (sql.js 1.8.0, captured live):
-//     - DIRECT: `REPLACE INTO "t" ("a" char,"b" char) VALUES ('1','1','','2')`
-//       -> THROWS: "table t has 2 columns but 4 values were supplied".
-//       (i.e. it is an ERROR, NOT a silent value-drop.)
-//     - VIA replaceDB: the throw is swallowed by replaceDB's try/catch ->
-//       returns FALSE; selectDB -> null (no row stored). The TABLE ITSELF
-//       SURVIVES (CREATE ran as its own exec before the REPLACE threw).
+//     - DIRECT (legacy asymmetric shape): a bare 4-value REPLACE against a
+//       2-column table STILL THROWS "table t has 2 columns but 4 values were
+//       supplied" — retained to document WHY the explicit-column fix matters.
+//     - DIRECT (corrected shape): `REPLACE INTO "t" ("a","b") VALUES ('1','2')`
+//       SUCCEEDS — the explicit column list binds 2 values to 2 named columns.
+//     - VIA replaceDB: cols=['a','a','','b'] now returns TRUE; selectDB returns
+//       the stored row; the table is the 2-column ("a","b") table. The row is
+//       STORED, not silently dropped.
 //
-// Cross-link: Notidian-k778. If k778 is fixed (e.g. REPLACE maps the same
-// uniq+filtered list, or emits an explicit column list), these expectations
-// flip deliberately — they are the locked characterization that grounds that
-// decision, not a sanction of the current behavior.
+// Cross-link: Notidian-k778, ADR 0045 (Option A, accepted). These expectations
+// were the locked characterization of the old asymmetry; ADR 0045 re-blessed
+// them as the corrected, count-matched behavior.
 // =========================================================================
-describe("Notidian-k778: CREATE/REPLACE length asymmetry, REAL-engine ground truth", () => {
-  it("DIRECT: a 4-value REPLACE against a 2-column table throws a column-count error", () => {
+describe("Notidian-k778 / ADR 0045: explicit-column REPLACE is correct by construction, REAL-engine ground truth", () => {
+  it("DIRECT (legacy shape): a bare 4-value REPLACE against a 2-column table still throws — documents why the explicit-column fix matters", () => {
     const db = freshDB();
     try {
       db.exec(`CREATE TABLE "t" ("a" char,"b" char);`);
-      // This is the exact shape replaceDB emits for cols=['a','a','','b'] (CREATE
-      // is uniq+filtered to 2 cols; REPLACE VALUES maps all 4).
+      // The OLD asymmetric shape replaceDB used to emit (CREATE uniq+filtered to
+      // 2 cols; bare REPLACE VALUES mapping all 4). Retained to pin WHY ADR 0045
+      // moved to an explicit column list.
       let thrown: Error | null = null;
       try {
         db.exec(`REPLACE INTO "t" VALUES ('1', '1', '', '2');`);
@@ -570,7 +575,27 @@ describe("Notidian-k778: CREATE/REPLACE length asymmetry, REAL-engine ground tru
     }
   });
 
-  it("VIA replaceDB: cols=['a','a','','b'] -> returns false, no row stored, table survives", () => {
+  it("DIRECT (corrected shape): an explicit-column REPLACE binds 2 values to 2 named columns and succeeds", () => {
+    const db = freshDB();
+    try {
+      db.exec(`CREATE TABLE "t" ("a" char,"b" char);`);
+      // The shape replaceDB now emits for cols=['a','a','','b']: explicit column
+      // list derived from the SAME uniq+filtered liveCols as the CREATE.
+      let thrown: Error | null = null;
+      try {
+        db.exec(`REPLACE INTO "t" ("a","b") VALUES ('1', '2');`);
+      } catch (e) {
+        thrown = e as Error;
+      }
+      expect(thrown).toBeNull();
+      const sel = selectDB(db, "t");
+      expect(sel!.rows).toEqual([{ a: "1", b: "2" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("VIA replaceDB (ADR 0045 re-bless): cols=['a','a','','b'] -> returns true, row STORED, table is ('a','b')", () => {
     const db = freshDB();
     try {
       const ok = replaceDB(db, {
@@ -580,12 +605,12 @@ describe("Notidian-k778: CREATE/REPLACE length asymmetry, REAL-engine ground tru
           rows: [{ a: "1", b: "2" }],
         },
       });
-      // The swallowed engine error surfaces as a false return.
-      expect(ok).toBe(false);
-      // selectDB returns null: the failed REPLACE stored nothing.
-      expect(selectDB(db, "t")).toBeNull();
-      // But the table itself was created (CREATE ran before the REPLACE threw),
-      // so it survives in the catalog as a 2-column ("a","b") table.
+      // ADR 0045 (Option A): the dup/empty-name case is now correct by
+      // construction — it STORES the row instead of silently dropping the save.
+      expect(ok).toBe(true);
+      // selectDB returns the stored row mapped over the de-duped columns.
+      expect(selectDB(db, "t")!.rows).toEqual([{ a: "1", b: "2" }]);
+      // The table is the de-duped 2-column ("a","b") table.
       expect(liveTables(db)).toContain("t");
       const cols =
         db.exec(`SELECT name FROM pragma_table_info('t') ORDER BY cid;`)[0]
