@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted.
+
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
 Awaiting an owner decision. Tracked by bd `Notidian-2yh` (a DESIGN-OPEN /
 DECISION-typed bead discovered from `Notidian-e48`); queued in

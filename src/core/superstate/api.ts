@@ -307,15 +307,61 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
         insert: async (path: string, schema: string, name: string, row: DBRow) => {
             if (schema == defaultContextSchemaID)
             {
-                newPathInSpace(this.superstate, this.superstate.spacesIndex.get(path), "md", name, true).then(f =>
+                const space = this.superstate.spacesIndex.get(path)
+                newPathInSpace(this.superstate, space, "md", name, true).then(f =>
                 {
                     if (row)
                     {
                         delete row[PathPropertyName]
-                        saveProperties(this.superstate, f, {
-                        ...(row ?? {}),
-                    })
-                }
+                        // Authority gate on row-create (ADR 0044, bd Notidian-2yh).
+                        // insert historically wrote the WHOLE row (minus the File
+                        // identity key) to the new file's YAML, ungated — the one
+                        // value-write verb not partitioned by authority while
+                        // update/setProperty are (Notidian-1da, ADR 0001/0014/0017).
+                        // The durable-home partition does not depend on WHEN the
+                        // write happens: seeding a declared source:"notidian" /
+                        // context-only column into file YAML re-introduces the same
+                        // frontmatter-vs-MDB split the gate exists to prevent, and
+                        // seeding a computed value persists a derived snapshot. Route
+                        // each field through the same gate as update, defaulting an
+                        // unresolved/ordinary field to "frontmatter" so the seed-the-
+                        // visible-file job is preserved for ordinary metadata.
+                        const contextTable =
+                            this.superstate.contextsIndex.get(path)?.contextTable
+                        const frontmatterRow: DBRow = {}
+                        const contextFields: Array<[string, string]> = []
+                        for (const field of Object.keys(row)) {
+                            const target = apiFieldWriteTarget(
+                                field,
+                                [contextTable],
+                                "frontmatter"
+                            )
+                            if (target === "skip") continue
+                            if (target === "context") {
+                                contextFields.push([field, row[field] as string])
+                                continue
+                            }
+                            frontmatterRow[field] = row[field]
+                        }
+                        // Ordinary frontmatter / unresolved fields still seed the new
+                        // file's YAML exactly as before; saveProperties is always
+                        // called (with an empty map when every field routed elsewhere)
+                        // so the existing create-path contract is preserved.
+                        saveProperties(this.superstate, f, frontmatterRow)
+                        // Declared-Notidian / context-only fields land in their only
+                        // durable home — the new path's context MDB — not file YAML.
+                        if (space) {
+                            for (const [field, value] of contextFields) {
+                                updateValueInContext(
+                                    this.spaceManager as SpaceManager,
+                                    f,
+                                    field,
+                                    value,
+                                    space.space
+                                )
+                            }
+                        }
+                    }
                 })
         } else {
             const table = await this.spaceManager.readTable(path, schema)

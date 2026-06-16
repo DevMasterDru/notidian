@@ -4,19 +4,24 @@
  * unexercised — api.context.update's pre-gate DEFAULT (the :280 contract: an
  * unresolved field falls back to the context MDB, NOT frontmatter, which is the
  * opposite of api.path.setProperty) and api.context.insert's row-create write
- * path (api.ts:292-303).
+ * path (api.ts default-schema branch).
  *
  * api.authority.test.ts already pins api.context.update's frontmatter / notidian
  * / computed routing; the gap it leaves is (a) the fallback-to-context default
  * for an unresolved column and (b) api.context.insert, which is not integration-
- * tested at all. insert routes a NEW path's whole row through saveProperties
- * (file YAML) after newPathInSpace, stripping only PathPropertyName, with NO
- * visible per-field authority gate. The insert cases below are CHARACTERIZATION:
- * they pin the verb's current behavior (every non-File field of the input row is
- * written to frontmatter, including a Notidian-/computed-typed field) so a future
- * authority-gate change to insert is a deliberate, test-visible decision rather
- * than a silent drift. See bd memory api-write-surface-authority-gated and ADR
- * 0001/0017.
+ * tested at all. insert routes a NEW path's whole row after newPathInSpace,
+ * stripping PathPropertyName.
+ *
+ * As of ADR 0044 / bd Notidian-2yh, insert is GATED: it was the last un-gated
+ * value-write verb, an authority hole inconsistent with update/setProperty. It
+ * now routes each input field through the same apiFieldWriteTarget gate (default
+ * "frontmatter", the seed-the-visible-file job): a declared source:"notidian" /
+ * context-only field lands in the context MDB (updateValueInContext), a computed
+ * field is dropped, and ordinary frontmatter / unresolved fields still seed the
+ * new file's YAML via saveProperties. The insert cases below pin that gated
+ * behavior; the prior CHARACTERIZATION (both manual+total -> frontmatter) was
+ * deliberately re-blessed when Option B was implemented (ADR 0044). See bd memory
+ * api-write-surface-authority-gated and ADR 0001/0014/0017.
  */
 import { IndexMap } from "shared/types/indexMap";
 import { ContextState, ISuperstate } from "shared/types/superstate";
@@ -158,7 +163,7 @@ describe("api.context.update pre-gate default (bd Notidian-1da, api.ts:280)", ()
   });
 });
 
-describe("api.context.insert row-create write path (bd Notidian-1da, api.ts:292-303)", () => {
+describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2yh, ADR 0044 gate)", () => {
   it("creates the path then writes the row's non-File fields to frontmatter for the default schema", async () => {
     const { superstate, spacePath } = buildSuperstate([]);
     const createdPath = "Folder/New.md";
@@ -193,14 +198,15 @@ describe("api.context.insert row-create write path (bd Notidian-1da, api.ts:292-
     expect(updateValueInContext).not.toHaveBeenCalled();
   });
 
-  it("CHARACTERIZATION: insert has NO per-field authority gate — a Notidian-owned / computed field in the row still lands in frontmatter", async () => {
+  it("GATED (ADR 0044, bd Notidian-2yh): routes a Notidian-owned field to the context MDB and drops a computed field, instead of leaking both to frontmatter", async () => {
     // The space defines `manual` as source:notidian and `total` as a computed
-    // rollup. On an UPDATE these would route to the context MDB / be skipped.
-    // insert, however, applies no per-field gate: it saveProperties the whole
-    // row (minus File) to the new file's YAML regardless of column authority.
-    // This test documents the CURRENT behavior (bd Notidian-1da observation);
-    // if insert later grows an authority gate, this expectation must change
-    // deliberately rather than drift silently.
+    // rollup. On an UPDATE these route to the context MDB / are skipped; insert
+    // now applies the SAME gate (ADR 0044 Option B — close the last un-gated
+    // value-write verb). This DELIBERATELY re-blesses the prior characterization,
+    // which pinned the un-gated "both -> frontmatter" hole (bd Notidian-1da
+    // observation): `manual`'s only durable home is the MDB, so seeding it into
+    // the new file's YAML re-introduced the frontmatter-vs-MDB split the gate
+    // exists to prevent, and the computed `total` was a persisted derived value.
     const { superstate, spacePath } = buildSuperstate([
       { name: "manual", type: "text", source: notidianPropertySource },
       { name: "total", type: "rollup" },
@@ -215,14 +221,50 @@ describe("api.context.insert row-create write path (bd Notidian-1da, api.ts:292-
     });
     await flushAsync();
 
+    // Gated behavior: saveProperties is still called (the create-path contract),
+    // but with the gated subset — neither `manual` (MDB-owned) nor `total`
+    // (computed) lands in the new file's YAML.
     expect(saveProperties).toHaveBeenCalledTimes(1);
-    // Current behavior: BOTH fields are written to frontmatter — there is no
-    // gate routing `manual` to the MDB or skipping the computed `total`.
-    expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {
+    expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {});
+    // `manual` lands in its declared durable home, the new path's context MDB.
+    expect(updateValueInContext).toHaveBeenCalledTimes(1);
+    expect(updateValueInContext).toHaveBeenCalledWith(
+      superstate.spaceManager,
+      createdPath,
+      "manual",
+      "kept",
+      { path: spacePath, name: "Folder" }
+    );
+  });
+
+  it("GATED: a mixed row seeds ordinary frontmatter fields to YAML while routing a Notidian field to the MDB", async () => {
+    // The seed-the-visible-file job is preserved for ordinary metadata: only the
+    // authority-declared field is partitioned away to the MDB.
+    const { superstate, spacePath } = buildSuperstate([
+      { name: "manual", type: "text", source: notidianPropertySource },
+    ]);
+    const createdPath = "Folder/Mixed.md";
+    newPathInSpace.mockResolvedValue(createdPath);
+    const api = new API(superstate);
+
+    await api.context.insert(spacePath, defaultContextSchemaID, "Mixed", {
+      status: "done",
       manual: "kept",
-      total: "999",
     });
-    expect(updateValueInContext).not.toHaveBeenCalled();
+    await flushAsync();
+
+    expect(saveProperties).toHaveBeenCalledTimes(1);
+    expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {
+      status: "done",
+    });
+    expect(updateValueInContext).toHaveBeenCalledTimes(1);
+    expect(updateValueInContext).toHaveBeenCalledWith(
+      superstate.spaceManager,
+      createdPath,
+      "manual",
+      "kept",
+      { path: spacePath, name: "Folder" }
+    );
   });
 
   it("creates the path even when the row is empty (no File key to strip)", async () => {
