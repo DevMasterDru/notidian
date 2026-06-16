@@ -242,6 +242,21 @@ describe("stringIsConst — quoted string literals", () => {
     expect(stringIsConst('"a";')).toBe(true);
     expect(stringIsConst('"a";;;')).toBe(true);
   });
+
+  // FIXED (Notidian-akxe round 2): the quoted-literal regex previously tolerated
+  // whitespace AFTER the trailing `;+` run (`(?:;+)?\s*$`) but NOT before it, so a
+  // SPACE BEFORE the `;` (e.g. `'"a" ;'`) fell through to the dynamic/$api closure
+  // path. The regex now allows optional whitespace BOTH sides of the `;+` run
+  // (`["']\s*(?:;+)?\s*$`), so a quoted literal followed by ` ;`, `; `, or `  ;  `
+  // stays CONST — symmetric with how objectIsConst trims around its `;` strip.
+  // Was RED before the round-2 fix.
+  test("whitespace BEFORE the trailing `;` after a quote is now const (Notidian-akxe r2)", () => {
+    expect(stringIsConst('"a" ;')).toBe(true);
+    expect(stringIsConst('"a"  ;  ')).toBe(true);
+    expect(stringIsConst("'a' ;")).toBe(true);
+    // a quote with trailing whitespace but no `;` was already const; pinned for symmetry
+    expect(stringIsConst('"a" ')).toBe(true);
+  });
 });
 
 describe("stringIsConst — numeric coercion (parseFloat + Number(isNaN as any))", () => {
@@ -308,6 +323,24 @@ describe("stringIsConst — array literals", () => {
     expect(stringIsConst("[1,2] ")).toBe(true);
     expect(stringIsConst("[1,2] ;")).toBe(true);
     expect(stringIsConst(" [1,2] ")).toBe(true);
+  });
+
+  // FIXED (Notidian-akxe round 2): the FIRST fix re-trimmed AFTER stripping but
+  // still ran removeTrailingSemicolon on the RAW, untrimmed string, so a space
+  // AFTER the trailing `;` (e.g. `"[1,2];  "`) left the `;` un-stripped (its
+  // `/;+$/` only matches a `;` at the absolute end) and the value ended in `;`,
+  // not `]` — `stringIsConst` returned false while `objectIsConst` (which trims
+  // FIRST) returned true. fixedStr is now `removeTrailingSemicolon(str.trim())
+  // .trim()` — TRIM FIRST, matching objectIsConst exactly — so trailing space
+  // after the `;` run (and combined leading/trailing/interspersed whitespace) is
+  // normalized away and the array literal is correctly CONST. Was RED before the
+  // round-2 fix; pins the symmetry the reviewer found still broken.
+  test("space AFTER the trailing `;` no longer defeats the array-literal check (Notidian-akxe r2)", () => {
+    expect(stringIsConst("[1,2];  ")).toBe(true);
+    expect(stringIsConst(" [1,2]  ;  ")).toBe(true);
+    // symmetry pin: stringIsConst now agrees with objectIsConst on this form
+    expect(objectIsConst("[1,2];  ", "object-multi")).toBe(true);
+    expect(stringIsConst("[1,2];  ")).toBe(objectIsConst("[1,2];  ", "object-multi"));
   });
 
   test("an array that is actually an expression (`[a].map(...)`) is dynamic", () => {

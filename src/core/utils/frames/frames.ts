@@ -49,15 +49,20 @@ export const stringIsConst = (str: string): boolean => {
   if (!str) return true;
   if (!isString(str)) return false;
 
-  // Normalize symmetrically with objectIsConst: strip a trailing `;` RUN and then
-  // re-trim, so a trailing space (e.g. `"[1,2] "`) or a space before the `;` no
-  // longer defeats the literal checks. The quoted-literal regex below likewise
-  // tolerates a trailing `;+` run (was `;?`) to match objectIsConst's `;+` run —
-  // a double trailing `;` after a quote (`"a";;`) is now const, not compiled onto
-  // the $api trust surface (ADR 0018 / Notidian-vke).
-  const fixedStr = removeTrailingSemicolon(str).trim();
+  // Normalize symmetrically with objectIsConst: TRIM FIRST, strip a trailing `;`
+  // RUN, then re-trim. Trimming before the strip is what makes this actually
+  // symmetric — removeTrailingSemicolon's `/;+$/` only matches a `;` at the
+  // ABSOLUTE end, so on a RAW, untrimmed string a trailing space AFTER the `;`
+  // (e.g. `"[1,2];  "`) leaves the `;` un-stripped and the value ends in `;`, not
+  // `]`. objectIsConst already trims first; doing the same here means a space
+  // before OR after the trailing `;` (and a bare trailing space, e.g. `"[1,2] "`)
+  // no longer defeats the literal checks. The quoted-literal regex below tolerates
+  // optional whitespace BOTH before and after a trailing `;+` run, so quoted forms
+  // like `'"a" ;'` (space before `;`) and `'"a";;'` (multiple `;`) stay const and
+  // are not compiled onto the $api trust surface (ADR 0018 / Notidian-vke).
+  const fixedStr = removeTrailingSemicolon(str.trim()).trim();
   // Check for quotes at the start and end without any quotes inside.
-  const hasQuotesAtStartEndOnly = /^["'](?:[^"\\]|\\.)*["'](?:;+)?\s*$/.test(str.trim());
+  const hasQuotesAtStartEndOnly = /^["'](?:[^"\\]|\\.)*["']\s*(?:;+)?\s*$/.test(str.trim());
   // Check for number by trying to parse string into a number and checking if it's NaN
   const isNumber = !isNaN(parseFloat(fixedStr)) && !isNaN(fixedStr as any);
   return hasQuotesAtStartEndOnly || isNumber || fixedStr.startsWith('[') && fixedStr.endsWith(']') || fixedStr == 'false' || fixedStr == 'true';
