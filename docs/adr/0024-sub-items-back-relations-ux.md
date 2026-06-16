@@ -2,9 +2,13 @@
 
 ## Status
 
-Proposed.
+Parked — build when the owner asks.
 
-Awaiting an owner decision. Tracked by bd `Notidian-2uz`; queued in
+Parked to [docs/ROADMAP.md](../ROADMAP.md): this is genuinely-speculative product
+direction the owner has not requested. Validation is use-driven — the owner decides
+the user-facing contract by USING the tool — so this ADR stays as a grounding
+reference (the engine/render plumbing is already shipped and tested) and is built
+only when the owner asks. Previously tracked by bd `Notidian-2uz`; was queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written instead of building the feature blind. Roadmap item (3) of epic
 `Notidian-2w0` ("sub-items via a canonical frontmatter parent/link property") has
