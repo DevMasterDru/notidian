@@ -1,84 +1,43 @@
 # Notidian Agent Guardrails
 
-## Autonomous Implementation Mode (standing authorization)
+## Long Autonomous Mode (standing authorization)
 
 The repository owner has authorized an **autonomous, multi-agent implementation
-drive** on the `autonomous/notion-parity-2026-06-12` branch: implement as much of
-Notidian as possible, at the highest quality, draining available quota. This mode
-is **active** — a session enters it when the owner says "continue" / "go" /
-"drain quota" / "autonomous mode". Once active, the rules below override the
-conservative default in the Beads block; **do not request approval or consent**
-for in-scope work (a *current, explicit* owner instruction in the live session
-still wins).
+drive** on the `autonomous/notion-parity-2026-06-12` branch — the **Long Autonomous
+Mode**. It is **active**: a session enters it when the owner says "long autonomous
+mode" / "autonomous mode" / "drain quota" / "go" / "continue". Once active, the
+rules here override the conservative default in the Beads block; **do not request
+approval or consent** for in-scope work (a *current, explicit* owner instruction in
+the live session still wins).
 
-**How to run it.** Prefer the saved engine:
+**Doctrine lives canonically, not here** (resolve live, never copy) — the practice
+(the three routes implement-clear-correct · kill-switch-ship · park-speculative;
+use-driven validation; the diverse-lens review loop; *never* decision-ADRs-that-wait)
+is the **Long Autonomous Mode** method:
+
+- Method note: Atlas Vault `Agent Context/Methods/Long Autonomous Mode.md`
+- Decision + rationale: Atlas Method repo `docs/decisions/0022-long-autonomous-mode-use-driven.md`
+- Engine + how-to: the global `long-autonomous-mode` skill (`~/.agents/skills/long-autonomous-mode/`)
+
+**How to run it (this repo).** Prefer the global, self-configuring engine — it reads
+the binding below:
 
 ```
-Workflow({ name: "autonomous-beads" })   # .claude/workflows/autonomous-beads.js
+Workflow({ scriptPath: "~/.claude/skills/long-autonomous-mode/engine.js", args: { model: "opus" } })
 ```
 
-If the engine is unavailable or errors, orchestrate the same loop manually with
-the Agent tool per the contract below.
+`.claude/workflows/autonomous-beads.js` is the **deprecated** local predecessor,
+kept only as a battle-tested fallback until the global engine is validated on
+Notidian once — then delete it (bead `Notidian-9y6d`).
 
-Throughput is NOT the goal — **durable value per token** is. Blind, unverified, or
-misaligned code is negative value (it must be reviewed, reverted, or reworked), so
-the loop is **quadrant-triaged**, not flat. Classify every candidate bead on two
-axes — *verifiability* (can correctness be proven offline by gates?) and
-*design-closure* (is the right thing to build already decided?) — and route it:
+**This repo's binding (the specifics the engine consumes):**
 
-- **Q1 verifiable + decided** (logic/bug fixes, authority/security hardening, test
-  coverage, refactors, non-UI features) → **implement** fully. This is where the
-  bulk of autonomous quota should go: compute → mergeable value, low risk.
-- **Q3 unverifiable + decided** (correct change to core render-path you can't
-  live-test) → **ship behind a kill-switch flag** with comprehensive unit/jsdom
-  tests. **The owner validates by *using* Notidian, so their use IS the
-  live-verification.** Therefore: an **owner-requested** render-path feature ships
-  **default-ON** with a kill-switch (so they actually encounter it in normal use);
-  a render-path change the owner did **not** request and that could surprise them
-  (e.g. security hardening like frame execution) ships **default-OFF** and is
-  appended to `docs/AUTONOMOUS-REVIEW-QUEUE.md` (capped at 4 outstanding; at the
-  cap, pivot to safe work).
-- **Q2 / Q4 design-open** — split by whether one answer is plainly right:
-  - **Clear-correct** (a correctness bug, an authority/consistency gap, a
-    dead/unsafe helper, a semantics fix with one obviously-right answer) → it was
-    never really "open": **implement the right answer** (tested + reviewed). Do
-    **NOT** write a decision-ADR-and-wait for these.
-  - **Genuinely speculative product direction** (select-to-comment, date reminders,
-    relations/rollups, import-export, per-DB templates, sub-items) → **park** it:
-    one line on `docs/ROADMAP.md` (+ grounding notes), and build it **only when the
-    owner asks**. Do **NOT** pre-build, and do **NOT** generate decision-ADRs that
-    await batch review — the owner does not review specs, so an ADR queue is
-    **negative value** (homework that never gets done while the work sits blocked).
-    *(Why: ratified after the 2026-06 drive produced 30 unreviewed Proposed ADRs.)*
-
-**The loop** (the main session orchestrates; it spawns subagents, never implements
-directly):
-
-1. **Plan + triage.** `bd ready` → route each: **implement** (Q1, or Q2/Q4
-   clear-correct), **kill-switch ship** (Q3), or **park** (genuinely speculative
-   product direction → `docs/ROADMAP.md`, build only when asked). When fresh
-   implement-work thins, prefer **depth** — adversarial/property test coverage
-   (esp. on authority + `sanitize.ts` surfaces) and small correctness hardening (a
-   safe infinite quota sink). **Never** route work to a decision-ADR-that-waits.
-2. **Implement / Park.** One **Claude Opus** subagent per bead (sequential — they
-   share the working tree), every prompt carrying *"deeply contemplate with maximum
-   reasoning and unlimited effort… decide and act without asking for approval."*
-   implement/kill-switch → do the work; park → add the roadmap line. The subagent
-   claims, does the work, runs gates, commits, pushes, and `bd close`s (parked
-   beads get a roadmap note and close — nothing waits on the owner).
-3. **Adversarially verify.** 3 independent Opus reviewers per commit, each a
-   **distinct lens** (correctness · authority+security · regression+tests) since
-   cross-model (Codex) review is unavailable; each defaults to *refuted*. Real
-   must-fix findings → an Opus fix subagent.
-4. **Repeat** until nothing remains to implement or test-harden; the un-verified
-   cap is reached with no other work; a per-bead failure recurs; or quota is
-   exhausted.
-
-**Subagent model & reasoning.** All implementer/reviewer/fix subagents run on
-**Claude Opus** (explicit owner directive — overrides the Atlas `Configs/Model
-Routing.md` default). Every subagent carries the max-reasoning directive above; it
-is the subagent's responsibility to contemplate deeply and reach the optimal
-solution on its own.
+- **Branch:** `autonomous/notion-parity-2026-06-12` (branch-first if ever on `main`).
+- **Model override:** all implementer/reviewer/fix subagents run on **Claude Opus**
+  (explicit owner directive — overrides Atlas `Configs/Model Routing.md`), each
+  carrying the max-reasoning directive *"deeply contemplate with maximum reasoning
+  and unlimited effort… decide and act without asking for approval."*
+- **Surfaces:** review-queue `docs/AUTONOMOUS-REVIEW-QUEUE.md`; roadmap `docs/ROADMAP.md`.
 
 **Quality bar (non-negotiable, gate before every commit):**
 
@@ -99,13 +58,13 @@ npm run build                  # clean
   are canonical; durable MDB ownership requires an explicit `source: "notidian"`.
 - Route every new vault-content `innerHTML`/`dangerouslySetInnerHTML`/SVG/iframe
   sink through `src/shared/utils/sanitize.ts` (ADR 0017 memory).
-- **Live-verification beads** (core render-path changes that cannot be verified by
-  tsc/jest/build — e.g. `Notidian-vke` frame sinks, `Notidian-8h9` virtualization):
-  implement **behind a default-OFF setting flag** with comprehensive unit/jsdom
-  tests and a `needs live verification` note in the commit — never ship an
-  untested core-render change that is not flag-gated. If a bead truly cannot be
-  done safely without live testing and cannot be flag-gated, leave it open with a
-  `bd` note and move on.
+- **Core render-path changes that can't be verified by tsc/jest/build** (e.g.
+  `Notidian-vke` frame sinks, `Notidian-8h9` virtualization) ship **behind a flag**
+  with comprehensive unit/jsdom tests: default-**ON** with a kill-switch if the
+  owner requested the feature (their use is the live-verification), default-**OFF**
+  + `docs/AUTONOMOUS-REVIEW-QUEUE.md` if not. Never ship an untested core-render
+  change that isn't flagged. If a bead truly can't be done safely and can't be
+  flagged, leave it open with a `bd` note and move on.
 - If a bead fails its gates twice, stop on it, `bd update` a note (or `bd human`),
   and move to the next — do not thrash.
 
