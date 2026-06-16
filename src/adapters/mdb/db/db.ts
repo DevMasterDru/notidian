@@ -351,17 +351,24 @@ export const insertIntoDB = (
   tables: DBTables,
   replace?: boolean
 ) => {
+  // ADR 0046 (Option C, folded onto the ADR 0045 / Notidian-k778 SQL-builder
+  // pass): build per-row statements via .map() and let serializeSQLStatements
+  // ('; ') own ALL separators, instead of a reduce seeded with "" + a `${prev} `
+  // prefix. That seed produced a leading space on every statement and — once the
+  // join added its own '; ' between per-table rows that already ended in ';' — a
+  // ';;  ' double-semicolon seam. Both were benign no-ops (empty statements), but
+  // are now removed at the source so the emitted SQL is clean: a single '; '
+  // separator and no leading space.
   const sqlstr = serializeSQLStatements(Object.keys(tables)
-    .map((t) => {
+    .flatMap((t) => {
       const tableFields = tables[t].cols;
-      const rowsQuery = tables[t].rows.reduce((prev, curr) => {
-        return `${prev} ${
+      return tables[t].rows.map((curr) => {
+        return `${
           replace ? "REPLACE" : "INSERT"
         } INTO ${quoteIdent(t)} VALUES (${serializeSQLValues(tableFields
           .map((c) => `'${sanitizeSQLStatement(curr?.[c]) ?? ""}'`)
-          )});`;
-      }, "");
-      return rowsQuery;
+          )})`;
+      });
     })
     );
   try {
@@ -377,17 +384,19 @@ export const updateDB = (
   updateCol: string,
   updateRef: string
 ) => {
+  // ADR 0046 (Option C): same array+join cleanup as insertIntoDB — per-row
+  // statements via .map(), separators owned by serializeSQLStatements ('; '),
+  // dropping the reduce seed's leading space and the ';;  ' two-table seam.
   const sqlstr = serializeSQLStatements(Object.keys(tables)
-    .map((t) => {
+    .flatMap((t) => {
       const tableFields = tables[t].cols.filter((f) => f != updateRef);
-      const rowsQuery = tables[t].rows.reduce((prev, curr) => {
-        return `${prev} UPDATE ${quoteIdent(t)} SET ${serializeSQLValues(tableFields
+      return tables[t].rows.map((curr) => {
+        return `UPDATE ${quoteIdent(t)} SET ${serializeSQLValues(tableFields
           .map((c) => `${quoteIdent(c)}='${sanitizeSQLStatement(curr?.[c]) ?? ""}'`)
           )} WHERE ${quoteIdent(updateCol)}='${
           sanitizeSQLStatement(curr?.[updateRef]) ?? ""
-        }';`;
-      }, "");
-      return rowsQuery;
+        }'`;
+      });
     })
     );
   try {

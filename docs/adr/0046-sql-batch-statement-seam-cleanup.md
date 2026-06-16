@@ -2,9 +2,18 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
-Awaiting an owner decision. Tracked by bd `Notidian-p5qt` (a DESIGN-OPEN /
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+Resolved to **Option C**: `Notidian-k778` / ADR 0045 was accepted and shipped
+(commit `98fc4bc`), so the Option-B array+join cleanup was folded onto that
+SQL-builder pass — `insertIntoDB`/`updateDB` now build per-row statements via
+`.flatMap(...).map(...)` joined by `serializeSQLStatements` ('; '), dropping the
+reduce-seed leading space and the `;;  ` two-table seam. The ~11 pinned cosmetic
+assertions in `db.sql-builders.test.ts` were deliberately re-blessed to the clean
+shape; the real-engine net (`db.realengine.roundtrip.test.ts`) stays green.
+
+Originally awaiting an owner decision. Tracked by bd `Notidian-p5qt` (a DESIGN-OPEN /
 cosmetic-cleanup-typed bead characterized from `Notidian-xwc6` and grounded by
 the real-engine net of `Notidian-0jtp`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was

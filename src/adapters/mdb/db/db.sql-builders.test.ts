@@ -194,8 +194,10 @@ describe("value quoting + single-quote-doubling contract", () => {
       t: { uniques: [], cols: ["c"], rows: [{ c: "x'y" }] },
     };
     insertIntoDB(db, tables);
-    // Leading space comes from the reduce seed "" (see alignment section).
-    expect(db.statements[0]).toBe(` INSERT INTO "t" VALUES ('x''y');`);
+    // ADR 0046: the array+join builder emits a clean statement — no leading space
+    // (the old reduce seed "" is gone) and the join owns the separator, so a
+    // single statement carries no trailing ';'.
+    expect(db.statements[0]).toBe(`INSERT INTO "t" VALUES ('x''y')`);
     // The dangerous shape `'x'y'` (lone quote closing the literal) is absent.
     expect(db.statements[0]).not.toContain(`'x'y'`);
   });
@@ -211,10 +213,10 @@ describe("value quoting + single-quote-doubling contract", () => {
     const sql = db.statements[0];
     // Every single quote from the payload is doubled, so the only structural
     // single quotes are the wrapping pair; the injected `;` is inert text.
-    expect(sql).toBe(` INSERT INTO "t" VALUES ('''); DROP TABLE m_fields; --');`);
+    expect(sql).toBe(`INSERT INTO "t" VALUES ('''); DROP TABLE m_fields; --')`);
     // There is no bare lone `'` that closes the literal before its end.
     // (Doubled `''` are escapes; the structural close is the final `'` before `)`.)
-    expect(sql.endsWith(`--');`)).toBe(true);
+    expect(sql.endsWith(`--')`)).toBe(true);
   });
 
   it("updateDB: SET values AND the WHERE ref value are single-quote-doubled", () => {
@@ -228,8 +230,9 @@ describe("value quoting + single-quote-doubling contract", () => {
     };
     updateDB(db, tables, "id", "id");
     // updateRef ('id') is filtered OUT of the SET list; it appears only in WHERE.
+    // ADR 0046: array+join builder — no leading space, no trailing ';'.
     expect(db.statements[0]).toBe(
-      ` UPDATE "t" SET "name"='O''Brien' WHERE "id"='a''b';`
+      `UPDATE "t" SET "name"='O''Brien' WHERE "id"='a''b'`
     );
   });
 
@@ -254,7 +257,8 @@ describe("value quoting + single-quote-doubling contract", () => {
       t: { uniques: [], cols: ["a", "b"], rows: [{ a: "" }] },
     };
     insertIntoDB(db, tables);
-    expect(db.statements[0]).toBe(` INSERT INTO "t" VALUES ('', '');`);
+    // ADR 0046: array+join builder — no leading space, no trailing ';'.
+    expect(db.statements[0]).toBe(`INSERT INTO "t" VALUES ('', '')`);
   });
 });
 
@@ -276,7 +280,8 @@ describe("column/row alignment + statement batching", () => {
       },
     };
     insertIntoDB(db, tables);
-    expect(db.statements[0]).toBe(` INSERT INTO "t" VALUES ('1', '2', '3');`);
+    // ADR 0046: array+join builder — no leading space, no trailing ';'.
+    expect(db.statements[0]).toBe(`INSERT INTO "t" VALUES ('1', '2', '3')`);
   });
 
   it("multi-row INSERT emits one INSERT statement per row, batched by '; '", () => {
@@ -292,11 +297,13 @@ describe("column/row alignment + statement batching", () => {
       },
     };
     insertIntoDB(db, tables);
-    // All rows for a table are reduced into a single exec() call; rows are
-    // separated by `; ` and there is a leading space from the reduce seed.
+    // All rows for a table are batched into a single exec() call; ADR 0046:
+    // per-row statements are .map()'d and joined by serializeSQLStatements
+    // ('; '), so rows are separated by a single '; ', with no leading space and
+    // no trailing ';' on the final statement.
     expect(db.statements).toHaveLength(1);
     expect(db.statements[0]).toBe(
-      ` INSERT INTO "t" VALUES ('1', '2'); INSERT INTO "t" VALUES ('3', '4');`
+      `INSERT INTO "t" VALUES ('1', '2'); INSERT INTO "t" VALUES ('3', '4')`
     );
   });
 
@@ -308,15 +315,12 @@ describe("column/row alignment + statement batching", () => {
     };
     insertIntoDB(db, tables);
     expect(db.statements).toHaveLength(1);
-    // Per-table rowsQuery strings (each with their own leading space) are joined
-    // by serializeSQLStatements ('; '). CHARACTERIZE: each per-table rowsQuery
-    // ALREADY ends in ';', and the join adds another '; ', so the seam between
-    // two tables is ';;  ' (double semicolon + two spaces). This is a benign
-    // cosmetic quirk — an empty statement between batches is a no-op in SQL —
-    // pinned so a future reader does not mistake the ';;' for a bug. (Single-
-    // table inserts never hit this seam; see the single-table pins above.)
+    // ADR 0046 / Notidian-p5qt: every statement is now a separate element and
+    // serializeSQLStatements ('; ') owns ALL separators, so the seam between two
+    // tables is a single clean '; ' — the old ';;  ' (double semicolon + two
+    // spaces) benign-no-op quirk is gone, and there is no leading space.
     expect(db.statements[0]).toBe(
-      ` INSERT INTO "t1" VALUES ('1');;  INSERT INTO "t2" VALUES ('2');`
+      `INSERT INTO "t1" VALUES ('1'); INSERT INTO "t2" VALUES ('2')`
     );
   });
 
@@ -326,7 +330,8 @@ describe("column/row alignment + statement batching", () => {
       t: { uniques: [], cols: ["a", "b"], rows: [{ a: "1", b: "2" }] },
     };
     insertIntoDB(db, tables, true);
-    expect(db.statements[0]).toBe(` REPLACE INTO "t" VALUES ('1', '2');`);
+    // ADR 0046: array+join builder — no leading space, no trailing ';'.
+    expect(db.statements[0]).toBe(`REPLACE INTO "t" VALUES ('1', '2')`);
   });
 
   it("updateDB: every non-ref col is in SET; ref col is the WHERE key only", () => {
@@ -339,8 +344,9 @@ describe("column/row alignment + statement batching", () => {
       },
     };
     updateDB(db, tables, "id", "id");
+    // ADR 0046: array+join builder — no leading space, no trailing ';'.
     expect(db.statements[0]).toBe(
-      ` UPDATE "t" SET "name"='Ann', "age"='30' WHERE "id"='k1';`
+      `UPDATE "t" SET "name"='Ann', "age"='30' WHERE "id"='k1'`
     );
   });
 
@@ -357,9 +363,9 @@ describe("column/row alignment + statement batching", () => {
     };
     updateDB(db, tables, "pk", "rowKey");
     // SET excludes "rowKey" (== updateRef); WHERE uses "pk" (updateCol) = the
-    // value of the "rowKey" col.
+    // value of the "rowKey" col. ADR 0046: no leading space, no trailing ';'.
     expect(db.statements[0]).toBe(
-      ` UPDATE "t" SET "name"='Bo' WHERE "pk"='rk';`
+      `UPDATE "t" SET "name"='Bo' WHERE "pk"='rk'`
     );
   });
 
