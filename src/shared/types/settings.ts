@@ -126,17 +126,20 @@ export interface MakeMDSettings {
   // (`fieldsView`, fed by the `_properties` context array) is filtered to the
   // allowlist stored in `predicate.listItemProps.visibleProperties`; when an
   // allowlist is set, only those properties render per item, in that order.
-  //   false (default): `_properties` is unchanged — every non-hidden property
-  //     renders per item exactly as today, so the owner's vault is byte-for-byte
-  //     unchanged regardless of any stored visibleProperties.
-  //   true: the allowlist (chosen via the FilterBar "Item Properties" menu) is
-  //     applied to the per-item field set.
-  // DEFAULT-OFF: filtering `_properties` is a core list render-path change that
-  // `SpaceOuter` always frame-renders, so it cannot be proven by tsc/jest/build
-  // alone. It ships gated (docs/AUTONOMOUS-REVIEW-QUEUE.md) so the render half
-  // awaits owner live-verify before the default flips ON. The model + menu +
-  // persistence half is pure and fully unit-tested. Existing saved settings are
-  // not mutated; only fresh/unset state defaults to false.
+  //   true (default): the allowlist (chosen via the FilterBar "Item Properties"
+  //     menu) is applied to the per-item field set. With no allowlist stored,
+  //     every non-hidden property renders per item exactly as before.
+  //   false: feature fully disabled — `_properties` is unchanged and the
+  //     per-item field set is byte-for-byte legacy, regardless of any stored
+  //     visibleProperties.
+  // DEFAULT-ON / KILL-SWITCH: this is an owner-requested ("very important")
+  // Notion-'Properties' parity feature; validation is use-driven (the owner
+  // verifies by USE), so the default ships ON. The flag is RETAINED as a true
+  // kill-switch: set it false to fully disable. When OFF, the render chokepoint
+  // (`applyListItemVisibleProperties`) returns the visible columns UNCHANGED
+  // (same array reference) at every call site, so the per-item field set is
+  // byte-for-byte today's. The model + menu + persistence half is pure and
+  // fully unit-tested.
   listItemPropertyPicker: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
