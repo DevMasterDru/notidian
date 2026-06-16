@@ -80,14 +80,14 @@ describe("removeTrailingSemicolon — trailing `;` only", () => {
 });
 
 // ---------------------------------------------------------------------------
-// objectIsConst(objString, type) — const iff:
-//   type === 'object'        and trimmed/`;`-stripped value is `{...}`, OR
-//   type === 'object-multi'  and trimmed/`;`-stripped value is `[...]`, OR
-//   the value is null/empty (the `objString == null || objString == ""` clause,
-//   reached only after the leading `if (!objString) return false`, so it is in
-//   practice unreachable for empty input — characterized below).
-// Note the ORDER: it does `removeTrailingSemicolon(objString.trim())` — TRIM
-// first, THEN strip the trailing `;`.
+// objectIsConst(objString, type) — const iff (post Notidian-akxe fix):
+//   type === 'object'        and the normalized value is `{...}`, OR
+//   type === 'object-multi'  and the normalized value is `[...]`.
+// Normalization is `removeTrailingSemicolon(objString.trim()).trim()` — TRIM,
+// strip a trailing `;` RUN, then RE-TRIM — so a space before the trailing `;`
+// (or a bare trailing space) no longer survives to defeat detection. The former
+// unreachable `objString == null || objString == ""` clause was removed (the
+// leading `if (!objString) return false` already owns empty/null).
 // ---------------------------------------------------------------------------
 describe("objectIsConst — object/object-multi literal detection", () => {
   test("type 'object' + `{...}` is const", () => {
@@ -140,23 +140,24 @@ describe("objectIsConst — object/object-multi literal detection", () => {
     expect(objectIsConst(undefined as unknown as string, "object")).toBe(false);
   });
 
-  // quirk (characterized): trim-then-strip ORDER means a SPACE before the
-  // trailing `;` survives removeTrailingSemicolon, leaving the value ending in
-  // " " (not "]"), so a benign `" [1,2] ;"` is judged DYNAMIC even though the
-  // same value without the inner trailing space (`"[1,2];"`) is const. A real,
-  // silent classification asymmetry rooted in removeTrailingSemicolon's `/;+$/`.
-  test("quirk (characterized): a space BEFORE the trailing `;` defeats object-multi", () => {
-    expect(objectIsConst(" [1,2] ;", "object-multi")).toBe(false);
-    // contrast: no inner trailing space -> const
+  // FIXED (Notidian-akxe): the normalization is now `removeTrailingSemicolon(
+  // objString.trim()).trim()` — strip the trailing `;` run, then RE-TRIM — so a
+  // space before the trailing `;` (or a bare trailing space) no longer survives
+  // to defeat detection. `" [1,2] ;"` is now correctly CONST, matching the
+  // no-inner-trailing-space form `"[1,2];"`. Was deliberately RED-on-fix.
+  test("a space before the trailing `;` no longer defeats object-multi (Notidian-akxe)", () => {
+    expect(objectIsConst(" [1,2] ;", "object-multi")).toBe(true);
     expect(objectIsConst("[1,2];", "object-multi")).toBe(true);
+    // bare trailing space (no `;`) is now const too
+    expect(objectIsConst("[1,2] ", "object-multi")).toBe(true);
+    expect(objectIsConst(" {a:1} ;", "object")).toBe(true);
   });
 
-  // quirk (characterized): the `objString == null || objString == ""` clause on
-  // line 40 can never be reached for "" / null because the leading
-  // `if (!objString) return false` already returned. It is dead defensive code;
-  // pin that the OBSERVABLE result for those inputs is false (above), so a future
-  // refactor that "activates" the dead clause would flip a RED test on purpose.
-  test("quirk (characterized): the null/empty const clause is unreachable (observable = false)", () => {
+  // FIXED (Notidian-akxe): the dead `objString == null || objString == ""` clause
+  // (unreachable past the leading `if (!objString) return false`) was removed.
+  // The OBSERVABLE result for "" is still false (the leading guard owns it), so
+  // this remains a stable contract — only the unreachable line is gone.
+  test("empty input is false; the removed null/empty clause did not change behavior (Notidian-akxe)", () => {
     expect(objectIsConst("", "object-multi")).toBe(false);
     expect(objectIsConst("", "anything")).toBe(false);
   });
@@ -164,25 +165,29 @@ describe("objectIsConst — object/object-multi literal detection", () => {
 
 // ---------------------------------------------------------------------------
 // stringIsConst(str) — true when the value is a literal we can fold rather than
-// compile. Internals (characterized against real lodash):
-//   - `if (!str || isInteger(str)) return true` — `!str` catches "", 0, null,
-//     undefined, false, NaN; `isInteger(str)` is a NO-OP for STRING input
-//     (lodash isInteger("5") === false) — the dead branch is pinned below.
-//   - `if (!isString(str)) return false` — non-empty non-strings (true, {}, [..])
-//     are dynamic.
-//   - quoted-literal regex: /^["'](?:[^"\\]|\\.)*["'](?:;)?$/ — a single- or
-//     double-quoted string, escapes allowed, tolerating EXACTLY ONE trailing `;`.
+// compile. Internals (post Notidian-akxe normalization fix):
+//   - `if (!str) return true` — catches "", 0, null, undefined, false, NaN. (The
+//     former `|| isInteger(str)` clause was removed: dead under `str: string`.)
+//   - `if (!isString(str)) return false` — non-empty non-strings (true, 5, {},
+//     [..]) are dynamic.
+//   - fixed = `removeTrailingSemicolon(str).trim()` — strip a trailing `;` RUN
+//     then RE-TRIM, so a trailing space (or a space before the `;`) is normalized
+//     away symmetrically with objectIsConst.
+//   - quoted-literal regex: /^["'](?:[^"\\]|\\.)*["'](?:;+)?\s*$/ on str.trim() —
+//     a single-/double-quoted string, escapes allowed, tolerating a trailing `;`
+//     RUN (aligned with objectIsConst's `;+`).
 //   - numeric coercion: parseFloat(fixed) not NaN AND Number(fixed) not NaN
-//     (`isNaN(fixedStr as any)`), where fixed = str without trailing `;` run.
-//   - array literal: fixed startsWith('[') && endsWith(']') (NO trim).
+//     (`isNaN(fixedStr as any)`).
+//   - array literal: fixed startsWith('[') && endsWith(']') (fixed is trimmed).
 //   - boolean literals: fixed === 'true' | 'false'.
 // ---------------------------------------------------------------------------
-describe("stringIsConst — the `isInteger` branch is dead for string input", () => {
-  // characterization (do NOT 'fix'): lodash isInteger requires a number, so on a
-  // STRING it is always false. The `|| isInteger(str)` clause therefore never
-  // contributes for the string callers in executable.ts/frame.ts; numeric
-  // strings are classified const ONLY via the parseFloat/Number path below.
-  test("integer-looking STRINGS are const via the NUMERIC path, not isInteger", () => {
+describe("stringIsConst — integer-looking strings fold via the NUMERIC path", () => {
+  // FIXED (Notidian-akxe): the `|| isInteger(str)` clause was REMOVED. For the
+  // declared `str: string` contract it was provably dead (lodash isInteger("5")
+  // === false), so for the real string callers in executable.ts/frame.ts nothing
+  // changes: numeric strings are — and always were — classified const via the
+  // parseFloat/Number path below, not via isInteger.
+  test("integer-looking STRINGS are const via the NUMERIC path", () => {
     expect(stringIsConst("5")).toBe(true);
     expect(stringIsConst("42")).toBe(true);
   });
@@ -228,14 +233,14 @@ describe("stringIsConst — quoted string literals", () => {
     expect(stringIsConst('"a"b"')).toBe(false);
   });
 
-  // quirk (characterized): the quoted-literal regex allows AT MOST ONE trailing
-  // `;` (`(?:;)?`); the numeric path strips a `;` RUN but a quoted string is not
-  // numeric. So a string with a DOUBLE trailing semicolon after a quote
-  // (`"a";;`) falls through every branch and is judged DYNAMIC. Single `;` ok,
-  // double `;` not — an asymmetry vs objectIsConst (which tolerates `;+`).
-  test("quirk (characterized): a DOUBLE trailing `;` after a quote is not const", () => {
-    expect(stringIsConst('"a";;')).toBe(false);
+  // FIXED (Notidian-akxe): the quoted-literal regex now tolerates a trailing `;`
+  // RUN (`(?:;+)?\s*$`), aligning it with objectIsConst's `;+` tolerance. A
+  // DOUBLE trailing semicolon after a quote (`"a";;`) is now const, matching the
+  // single-`;` form. Was deliberately RED-on-fix.
+  test("a DOUBLE trailing `;` after a quote is now const (Notidian-akxe)", () => {
+    expect(stringIsConst('"a";;')).toBe(true);
     expect(stringIsConst('"a";')).toBe(true);
+    expect(stringIsConst('"a";;;')).toBe(true);
   });
 });
 
@@ -295,13 +300,14 @@ describe("stringIsConst — array literals", () => {
     expect(stringIsConst("[1,2];")).toBe(true);
   });
 
-  // quirk (characterized): the array branch uses fixedStr.startsWith('[') &&
-  // endsWith(']') with NO trim, while removeTrailingSemicolon does not eat a
-  // trailing SPACE. So `"[1,2] "` (trailing space, no `;`) does NOT end with ']'
-  // and is judged DYNAMIC — the same trim/strip-order asymmetry seen in
-  // objectIsConst. A bare array with a trailing space is compiled, not folded.
-  test("quirk (characterized): a trailing SPACE defeats the array-literal check", () => {
-    expect(stringIsConst("[1,2] ")).toBe(false);
+  // FIXED (Notidian-akxe): fixedStr is now `removeTrailingSemicolon(str).trim()`,
+  // so a trailing SPACE (or space-before-`;`) no longer prevents the value from
+  // ending in ']'. `"[1,2] "` (trailing space, no `;`) is now correctly const,
+  // matching objectIsConst's symmetric normalization. Was deliberately RED-on-fix.
+  test("a trailing SPACE no longer defeats the array-literal check (Notidian-akxe)", () => {
+    expect(stringIsConst("[1,2] ")).toBe(true);
+    expect(stringIsConst("[1,2] ;")).toBe(true);
+    expect(stringIsConst(" [1,2] ")).toBe(true);
   });
 
   test("an array that is actually an expression (`[a].map(...)`) is dynamic", () => {
@@ -331,17 +337,20 @@ describe("stringIsConst — non-string inputs (executable.ts may pass raw values
     expect(stringIsConst(NaN as unknown as string)).toBe(true);
   });
 
-  // quirk (characterized): a non-zero NUMBER is const via lodash isInteger when
-  // it is an integer (the branch that is dead for strings is LIVE for numbers).
-  test("quirk (characterized): a real integer NUMBER is const via isInteger", () => {
-    expect(stringIsConst(5 as unknown as string)).toBe(true);
+  // FIXED (Notidian-akxe): the `isInteger` clause was removed (it was dead under
+  // the declared `str: string` contract). A non-zero integer NUMBER passed as a
+  // contract-violating raw value now fails the `isString` guard and is DYNAMIC —
+  // consistent with every other non-falsy non-string value (e.g. boolean `true`
+  // below). Numeric *strings* (`"5"`) are unaffected: still const via the numeric
+  // path. Was deliberately RED-on-fix for the integer-NUMBER input.
+  test("a non-string integer NUMBER is now dynamic (no isInteger fast-path) (Notidian-akxe)", () => {
+    expect(stringIsConst(5 as unknown as string)).toBe(false);
   });
 
-  // quirk (characterized): boolean `true` is asymmetric vs `false` — `true` is
-  // truthy so it skips the `!str` guard, then fails `isString`, so it is DYNAMIC;
-  // `false` is falsy so the `!str` guard returns const. Same TYPE, opposite
-  // classification. Objects/arrays-as-values are likewise dynamic.
-  test("quirk (characterized): boolean `true` is dynamic while `false` is const", () => {
+  // boolean `true` is asymmetric vs `false`: `true` is truthy so it skips the
+  // `!str` guard, then fails `isString`, so it is DYNAMIC; `false` is falsy so
+  // the `!str` guard returns const. Same TYPE, opposite classification.
+  test("boolean `true` is dynamic while `false` is const", () => {
     expect(stringIsConst(true as unknown as string)).toBe(false);
     expect(stringIsConst(false as unknown as string)).toBe(true);
   });

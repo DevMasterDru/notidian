@@ -2,7 +2,7 @@ import i18n from "shared/i18n";
 
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { SpaceManager } from "core/spaceManager/spaceManager";
-import { isInteger, isString } from "lodash";
+import { isString } from "lodash";
 import { DBRow, SpaceProperty } from "shared/types/mdb";
 import { FrameNode, FrameRoot, FrameTreeProp, MFrame } from "shared/types/mframe";
 import { SpaceInfo } from "shared/types/spaceInfo";
@@ -30,27 +30,37 @@ export const removeTrailingSemicolon = (str: string) => {
 
 export const objectIsConst = (objString: string, type: string): boolean => {
   if (!objString) return false;
-  const trimmed = removeTrailingSemicolon(objString.trim())
+  // Normalize symmetrically: trim, strip a trailing `;` run, then re-trim so a
+  // space BEFORE the trailing `;` (or a bare trailing space) no longer defeats
+  // detection. Without the trailing re-trim, removeTrailingSemicolon's `/;+$/`
+  // leaves whitespace in place and a benign `" [1,2] ;"` would be misclassified
+  // as DYNAMIC and compiled onto the $api trust surface (ADR 0018 / Notidian-vke).
+  const trimmed = removeTrailingSemicolon(objString.trim()).trim()
   if (type == 'object' && trimmed.startsWith("{") && trimmed.endsWith("}")) {
     return true
   }
   if (type == 'object-multi' && trimmed.startsWith("[") && trimmed.endsWith("]")) {
     return true
   }
-  if (objString == null || objString == "") return true;
   return false;
 }
 
 export const stringIsConst = (str: string): boolean => {
-  if (!str || isInteger(str)) return true;
+  if (!str) return true;
   if (!isString(str)) return false;
-  
-  // Check for quotes at the start and end without any quotes inside
-  const hasQuotesAtStartEndOnly = /^["'](?:[^"\\]|\\.)*["'](?:;)?$/.test(str);
-  const fixedStr =  str?.replace(/;+$/, "");
+
+  // Normalize symmetrically with objectIsConst: strip a trailing `;` RUN and then
+  // re-trim, so a trailing space (e.g. `"[1,2] "`) or a space before the `;` no
+  // longer defeats the literal checks. The quoted-literal regex below likewise
+  // tolerates a trailing `;+` run (was `;?`) to match objectIsConst's `;+` run —
+  // a double trailing `;` after a quote (`"a";;`) is now const, not compiled onto
+  // the $api trust surface (ADR 0018 / Notidian-vke).
+  const fixedStr = removeTrailingSemicolon(str).trim();
+  // Check for quotes at the start and end without any quotes inside.
+  const hasQuotesAtStartEndOnly = /^["'](?:[^"\\]|\\.)*["'](?:;+)?\s*$/.test(str.trim());
   // Check for number by trying to parse string into a number and checking if it's NaN
   const isNumber = !isNaN(parseFloat(fixedStr)) && !isNaN(fixedStr as any);
-  return hasQuotesAtStartEndOnly || isNumber || fixedStr.startsWith('[') && fixedStr.endsWith(']') || fixedStr == 'false' || fixedStr == 'true' || str == null || str == "";
+  return hasQuotesAtStartEndOnly || isNumber || fixedStr.startsWith('[') && fixedStr.endsWith(']') || fixedStr == 'false' || fixedStr == 'true';
 }
 
 export const kitWithProps = (root: FrameRoot,
