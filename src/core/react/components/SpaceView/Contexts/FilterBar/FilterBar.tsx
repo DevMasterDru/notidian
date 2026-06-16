@@ -1794,8 +1794,9 @@ export const FilterBar = (props: {
                     toolbar button was removed to consolidate to ONE view
                     search. The magnifier search above is now the single search
                     affordance, and Cmd/Ctrl+F opens it (TableView.onKeyDown ->
-                    setSearchActive). The highlight-on-match engine
-                    (tableQuickFind.ts) is kept dormant, not deleted. */}
+                    setSearchActive). ADR 0042 (Notidian-fws1) then deleted the
+                    now-unreachable highlight-on-match engine outright at the
+                    owner's request — no dormant quick-find machinery remains. */}
                 {/* Inline Filter/Sort affordances (Notidian-ddk): surface
                     filtering + sorting directly on the bar, Notion-style, rather
                     than buried in the view-options ("3 knobs") menu. They reuse

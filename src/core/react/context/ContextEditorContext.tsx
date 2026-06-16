@@ -129,13 +129,6 @@ type ContextEditorContextProps = {
   // handler lives in TableView, the input renders in FilterBar.
   searchActive: boolean;
   setSearchActive: React.Dispatch<React.SetStateAction<boolean>>;
-  // Quick find (Notidian-r20) is the now-dormant highlight-on-match engine,
-  // consolidated out of the toolbar by ADR 0041 (one view search). The state +
-  // pure engine (tableQuickFind.ts) are kept dormant — no toolbar entry point
-  // and Cmd/Ctrl+F is rebound to the one search above — so the tested
-  // capability can be re-enabled (e.g. folded in as a mode) without rebuilding.
-  findOpen: boolean;
-  setFindOpen: React.Dispatch<React.SetStateAction<boolean>>;
   tableData: SpaceTable;
   cols: SpaceTableColumn[];
   saveDB: (table: SpaceTable) => void;
@@ -197,8 +190,6 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   setSearchString: () => null,
   searchActive: false,
   setSearchActive: () => null,
-  findOpen: false,
-  setFindOpen: () => null,
   data: [],
   applyTableEdits: async () => emptyTableEditTransactionResult(),
   applyValueEdits: async () => emptyTableEditTransactionResult(),
@@ -302,7 +293,6 @@ export const ContextEditorProvider: React.FC<
 
   const [searchString, setSearchString] = useState<string>(null);
   const [searchActive, setSearchActive] = useState<boolean>(false);
-  const [findOpen, setFindOpen] = useState<boolean>(false);
   const [predicate, setPredicate] = useState<Predicate>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editMode, setEditMode] = useState<number>(0);
@@ -1667,8 +1657,6 @@ export const ContextEditorProvider: React.FC<
         setSearchString,
         searchActive,
         setSearchActive,
-        findOpen,
-        setFindOpen,
         updateValue,
         applyTableEdits,
         applyValueEdits,

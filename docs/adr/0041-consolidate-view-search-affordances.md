@@ -4,6 +4,14 @@
 
 **Accepted** — implemented per owner-directed realignment (bd `Notidian-z8q`).
 
+> **Update (ADR 0049):** the **keep-dormant** sub-decision below — preserving the
+> highlight-on-match engine (`QuickFindBar.tsx`, `tableQuickFind.ts`, the cell
+> classes, the reveal math) as a re-enable-only A1 follow-up — is **superseded by
+> [ADR 0049](0049-remove-dormant-quick-find.md)**, which deleted that
+> now-unreachable apparatus outright at the owner's explicit request. The rest of
+> this ADR (one consolidated search; `Cmd/Ctrl+F` → `setSearchActive`; the
+> standalone `⌕` button removed) **still stands**.
+
 The owner directed the realignment cleanup to implement the recommended Option A
 directly (the report — "Find in view" is redundant and "doesn't work" — settled
 the product question), so this ADR was ratified and built rather than left
