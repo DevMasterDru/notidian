@@ -104,6 +104,62 @@ export const applyListItemVisibleProperties = (
 //    back into an allowlist = the columns NOT hidden, ordered by colsOrder
 //    (unordered ones trailing in their natural column order).
 
+// ----- Menu-trigger view-gate (bd Notidian-sxs1) --------------------------
+//
+// The "Item Properties" picker only DOES anything where the active per-item
+// layout actually renders the full `_properties` array — i.e. a kit frame that
+// embeds `fieldsView`. In the list kit those are exactly three:
+//   - cardsListItem  (the "Cards" layout)
+//   - cardListItem   (the "Board" layout)
+//   - detailItem     (the "Details" layout)
+// Every other per-item frame (`rowItem` plain list, `coverListItem`,
+// `imageListItem`, `flowListItem`, `overviewItem`) renders specific NAMED
+// fields (previewField/subtitleField/prefixField or a single property), so an
+// allowlist over `_properties` has no visible effect there — surfacing the menu
+// would be a dead control.
+//
+// NOTE: the layout is NOT carried by `predicate.view` (every fieldsView layout
+// shares `view: "list"`); it is carried by `predicate.listItem` (the frame
+// URI, e.g. `spaces://$kit/#*cardListItem`). We match the trailing frame id so
+// a fully-qualified URI, a bare id, or an empty/defaulted predicate all resolve
+// correctly. An unset `listItem` defaults to `rowItem` (the plain list), which
+// is correctly NOT eligible.
+const FIELDS_VIEW_LIST_ITEM_FRAME_IDS = new Set<string>([
+  "cardsListItem",
+  "cardListItem",
+  "detailItem",
+]);
+
+// Extract the trailing frame id from a `listItem` value. Handles the kit URI
+// form (`spaces://$kit/#*cardListItem`), a bare id (`cardListItem`), and
+// nullish/empty (treated as the default `rowItem`). Pure + total.
+export const listItemFrameId = (
+  listItem: string | null | undefined
+): string => {
+  if (typeof listItem != "string" || listItem.length == 0) return "rowItem";
+  // The kit anchor separates the frame id with `#*`; otherwise take the last
+  // path-ish segment. Either way, strip to the final identifier token.
+  const afterAnchor = listItem.includes("#*")
+    ? listItem.slice(listItem.lastIndexOf("#*") + 2)
+    : listItem;
+  const lastSlash = afterAnchor.lastIndexOf("/");
+  const tail = lastSlash >= 0 ? afterAnchor.slice(lastSlash + 1) : afterAnchor;
+  return tail.length > 0 ? tail : "rowItem";
+};
+
+// Should the FilterBar surface the "Item Properties" picker for this view?
+// True exactly when the coarse render-mode is the fieldsView list family
+// (`view == "list"`) AND the active per-item frame is one of the three frames
+// that render the full `_properties` array. This is the menu-trigger half of
+// bd Notidian-543/sxs1 — the render half (applyListItemVisibleProperties on the
+// `_properties` chokepoint) is already live and is itself view-agnostic.
+export const shouldShowListItemPropertyPicker = (
+  predicate: Partial<Predicate> | null | undefined
+): boolean => {
+  if (predicate?.view != "list") return false;
+  return FIELDS_VIEW_LIST_ITEM_FRAME_IDS.has(listItemFrameId(predicate.listItem));
+};
+
 export type ListItemMenuState = {
   colsHidden: string[];
   colsOrder: string[];

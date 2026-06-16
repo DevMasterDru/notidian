@@ -5,10 +5,12 @@ import { DEFAULT_SETTINGS } from "core/schemas/settings";
 import { validatePredicate } from "core/utils/contexts/predicate/predicate";
 import {
   applyListItemVisibleProperties,
+  listItemFrameId,
   listItemPropertyKey,
   listItemPropsToMenuState,
   listItemVisibleProperties,
   menuStateToVisibleProperties,
+  shouldShowListItemPropertyPicker,
 } from "./listItemProperties";
 
 // ---------------------------------------------------------------------------
@@ -290,5 +292,91 @@ describe("predicate persistence (round-trip through validatePredicate)", () => {
     // visibility) — it is per-item view config, a separate concern.
     expect(validated.colsHidden).toEqual([]);
     expect(validated.colsOrder).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bd Notidian-sxs1 — menu-trigger view-gate. The picker is surfaced on every
+// fieldsView-based layout that renders the full `_properties` array (Cards,
+// Board, Details), keyed on the active `listItem` frame, NOT `predicate.view`
+// (every fieldsView layout shares view=="list"). It is correctly hidden where
+// it would be a dead control (plain list/cover/image/flow, and non-list modes).
+// ---------------------------------------------------------------------------
+
+describe("listItemFrameId (frame-id extraction)", () => {
+  it("extracts the trailing id from a kit URI", () => {
+    expect(listItemFrameId("spaces://$kit/#*cardListItem")).toBe("cardListItem");
+    expect(listItemFrameId("spaces://$kit/#*detailItem")).toBe("detailItem");
+    expect(listItemFrameId("spaces://$kit/#*cardsListItem")).toBe(
+      "cardsListItem"
+    );
+  });
+
+  it("accepts a bare frame id", () => {
+    expect(listItemFrameId("cardListItem")).toBe("cardListItem");
+  });
+
+  it("defaults nullish/empty to the plain list frame (rowItem)", () => {
+    expect(listItemFrameId("")).toBe("rowItem");
+    expect(listItemFrameId(null)).toBe("rowItem");
+    expect(listItemFrameId(undefined)).toBe("rowItem");
+  });
+
+  it("is total on a path-shaped value with no kit anchor", () => {
+    expect(listItemFrameId("a/b/detailItem")).toBe("detailItem");
+  });
+});
+
+describe("shouldShowListItemPropertyPicker (menu-trigger gate)", () => {
+  const listPredicate = (
+    listItem: string
+  ): Partial<Predicate> => ({ view: "list", listItem });
+
+  it("shows on the three fieldsView layouts (Cards / Board / Details)", () => {
+    for (const frame of [
+      "spaces://$kit/#*cardsListItem", // Cards
+      "spaces://$kit/#*cardListItem", // Board
+      "spaces://$kit/#*detailItem", // Details
+    ]) {
+      expect(shouldShowListItemPropertyPicker(listPredicate(frame))).toBe(true);
+    }
+  });
+
+  it("hides on layouts that render specific named fields (no-op picker)", () => {
+    for (const frame of [
+      "spaces://$kit/#*rowItem", // plain list (previewField/subtitle/prefix)
+      "spaces://$kit/#*coverListItem",
+      "spaces://$kit/#*imageListItem",
+      "spaces://$kit/#*flowListItem",
+      "spaces://$kit/#*overviewItem",
+    ]) {
+      expect(shouldShowListItemPropertyPicker(listPredicate(frame))).toBe(false);
+    }
+  });
+
+  it("hides for a default/unconfigured predicate (defaults to plain rowItem)", () => {
+    // defaultPredicate is view=="list", listItem=="" => rowItem => not eligible.
+    expect(shouldShowListItemPropertyPicker(defaultPredicate)).toBe(false);
+    expect(
+      shouldShowListItemPropertyPicker({ view: "list", listItem: "" })
+    ).toBe(false);
+  });
+
+  it("hides for non-list render modes regardless of frame", () => {
+    for (const view of ["table", "day", "week", "month"]) {
+      expect(
+        shouldShowListItemPropertyPicker({
+          view,
+          listItem: "spaces://$kit/#*cardListItem",
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("is total on nullish / partial predicates", () => {
+    expect(shouldShowListItemPropertyPicker(null)).toBe(false);
+    expect(shouldShowListItemPropertyPicker(undefined)).toBe(false);
+    expect(shouldShowListItemPropertyPicker({})).toBe(false);
+    expect(shouldShowListItemPropertyPicker({ view: "list" })).toBe(false);
   });
 });

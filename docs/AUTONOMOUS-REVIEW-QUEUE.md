@@ -147,6 +147,7 @@ product direction was parked to [docs/ROADMAP.md](ROADMAP.md).
 **Shipped default-ON (kill-switch retained; owner verifies by use):**
 
 - **Notidian-543 — List view per-item display-property picker** (Notion "Properties" parity, ADR 0016) — shipped default-ON `listItemPropertyPicker`; kill-switch retained (`904db2c`, doc-comment `86b9b40`).
+- **Notidian-sxs1 — Surface the per-item "Item Properties" picker beyond the plain list** (follow-up to 543) — the render half was already live + view-agnostic (default-ON `listItemPropertyPicker`); this widened the FilterBar menu-trigger from a coarse `predicate.view=="list"` gate to a precise `shouldShowListItemPropertyPicker(predicate)` keyed on the active `listItem` frame, so the picker now surfaces on the three fieldsView layouts that render `_properties` (Cards / Board / Details) and is correctly hidden where it would be a dead control (plain list / cover / image / flow). Pure helper + jsdom-free unit tests; inherits 543's kill-switch and use-driven verification.
 - **Notidian-8sl — Collapsible + shrink-to-fit space note body** (ADR 0001/0014/0017) — shipped default-ON `collapsibleNoteBody`; kill-switch retained (`b1a5adc`).
 
 **Shipped (offline-provable fixes / ratified contracts):**

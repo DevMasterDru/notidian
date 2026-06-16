@@ -39,6 +39,7 @@ import { displayPropertyForPredicate } from "core/utils/contexts/rowDisplayLabel
 import {
   listItemPropsToMenuState,
   menuStateToVisibleProperties,
+  shouldShowListItemPropertyPicker,
 } from "core/utils/contexts/listItemProperties";
 import { discoverFrontmatterPropertiesFromPathStates } from "core/utils/properties/allProperties";
 import { formatDate } from "core/utils/date";
@@ -891,13 +892,17 @@ export const FilterBar = (props: {
           );
         },
       });
-      // bd Notidian-543: per-item display-property picker, only for the LIST
-      // view (Notion "Properties" parity). The render half is flag-gated behind
-      // the default-OFF listItemPropertyPicker setting; the menu itself only
-      // writes view config (listItemProps.visibleProperties) and is always safe
-      // to surface, but it is only meaningful where fieldsView renders per-item
-      // properties (list/card/detail), so it is offered on the list view.
-      if (predicate.view == "list") {
+      // bd Notidian-543/sxs1: per-item display-property picker (Notion
+      // "Properties" parity). Surface it on EVERY fieldsView-based layout that
+      // actually renders the full `_properties` array — Cards, Board, and
+      // Details (cardsListItem/cardListItem/detailItem) — not just the plain
+      // list. The picker is keyed on `predicate.listItem` (the frame), NOT
+      // `predicate.view` (every fieldsView layout shares view=="list"), so the
+      // gate excludes layouts where it would be a dead control (rowItem plain
+      // list, cover/image/flow which render specific named fields). The render
+      // half (applyListItemVisibleProperties on the `_properties` chokepoint) is
+      // already live and itself view-agnostic; this only widens the menu trigger.
+      if (shouldShowListItemPropertyPicker(predicate)) {
         menuOptions.push({
           name: i18n.menu.itemProperties,
           icon: "ui//list",
