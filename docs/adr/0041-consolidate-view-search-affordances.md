@@ -2,15 +2,28 @@
 
 ## Status
 
-**Proposed** — awaiting owner direction (bd `Notidian-z8q`).
+**Accepted** — implemented per owner-directed realignment (bd `Notidian-z8q`).
 
-This is a **decision artifact, not a build**. The product shape (one vs two
-in-view search affordances) is genuinely open, and the change touches a
-recently-shipped, **never-owner-verified** feature (quick-find, ADR 0021 /
-`Notidian-r20`, shipped 2026-06-12). Building or removing blind would gamble quota
-on possibly-wrong product direction and on an unconfirmed defect that offline
-review cannot reproduce. So the loop produced this Proposed ADR with options + a
-recommendation, and a parallel **live-repro action**, instead.
+The owner directed the realignment cleanup to implement the recommended Option A
+directly (the report — "Find in view" is redundant and "doesn't work" — settled
+the product question), so this ADR was ratified and built rather than left
+awaiting per-spec review. **Shipped variant:** plain consolidation (the cleanly
+offline-verifiable realization of Option A). The filter-search ("Type to
+search…", `SearchBar`) is now the **single** view search affordance,
+`Cmd/Ctrl+F` is rebound to open it, and the standalone `⌕` quick-find toolbar
+button is **removed**. The highlight-on-match engine (`tableQuickFind.ts`,
+`QuickFindBar.tsx`, the cell-class highlight + reveal math) is kept **dormant**,
+not deleted — sub-variant **A1** (fold highlight in as a *mode* of the one
+search) merges two render trees (the FilterBar toolbar input vs the in-table
+floating bar) and is render-path UI that cannot be offline-verified, so per the
+realignment's "prefer a coherent shipped consolidation the owner can use
+immediately" guidance it was deferred: the dormant engine + shared `searchActive`
+toggle leave A1 a small, re-enable-only follow-up rather than a rebuild.
+
+> Original (pre-implementation) status was **Proposed** — a decision artifact
+> with options + a recommendation + a parallel live-repro action, written when
+> the product shape was treated as still-open and the quick-find defect was
+> unconfirmed offline.
 
 ## Date
 

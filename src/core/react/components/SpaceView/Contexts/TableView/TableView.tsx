@@ -441,6 +441,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     renameRowTitle,
     findOpen,
     setFindOpen,
+    setSearchActive,
     subItemsInfo,
     collapsedSubItems,
     toggleSubItemCollapse,
@@ -848,9 +849,11 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // Quick find (Notidian-r20): Cmd/Ctrl+F opens the find bar when the table is
-    // focused. Obsidian's editor find does not bind inside this custom view, so
-    // intercepting here is safe and does not fight the app.
+    // ADR 0041 (Notidian-z8q): Cmd/Ctrl+F opens the ONE consolidated view
+    // search (the filter-search SearchBar) when the table is focused — it no
+    // longer opens the separate quick-find bar (now dormant). Obsidian's editor
+    // find does not bind inside this custom view, so intercepting here is safe
+    // and does not fight the app.
     if (
       (e.metaKey || e.ctrlKey) &&
       !e.shiftKey &&
@@ -858,7 +861,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       (e.key == "f" || e.key == "F")
     ) {
       e.preventDefault();
-      setFindOpen(true);
+      setSearchActive(true);
       return;
     }
     const pasteColumns = cols.map((f) => ({

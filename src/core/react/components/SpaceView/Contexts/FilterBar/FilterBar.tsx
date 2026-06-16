@@ -76,7 +76,6 @@ export const FilterBar = (props: {
     cols,
     filteredData,
     setSearchString,
-    setFindOpen,
     setEditMode,
     predicate,
     savePredicate,
@@ -84,11 +83,14 @@ export const FilterBar = (props: {
     delColumn,
     saveColumn,
     reloadContextData,
+    // The single view search's open toggle (ADR 0041). Shared via context so
+    // the table's Cmd/Ctrl+F can open this same SearchBar.
+    searchActive,
+    setSearchActive,
   } = useContext(ContextEditorContext);
 
   const { frameSchema, saveSchema, setFrameSchema } =
     useContext(FramesMDBContext);
-  const [searchActive, setSearchActive] = useState(false);
 
   const properties = spaceCache?.propertyTypes ?? [];
   const propertiesForPredicate = async (
@@ -1735,8 +1737,11 @@ export const FilterBar = (props: {
                   <button
                     className={classNames(
                       "mk-toolbar-button",
+                      "mk-view-search-toggle",
                       searchActive && "mk-active"
                     )}
+                    aria-label={i18n.labels.searchView}
+                    title={i18n.labels.searchViewTooltip}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSearchActive((f) => !f);
@@ -1754,17 +1759,12 @@ export const FilterBar = (props: {
                   ></SearchBar>
                 )}
 
-                <button
-                  className="mk-toolbar-button mk-quick-find-toggle"
-                  aria-label="Find in view"
-                  title="Find in view (⌘/Ctrl+F)"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFindOpen((f) => !f);
-                  }}
-                >
-                  ⌕
-                </button>
+                {/* ADR 0041 (Notidian-z8q): the standalone quick-find (⌕)
+                    toolbar button was removed to consolidate to ONE view
+                    search. The magnifier search above is now the single search
+                    affordance, and Cmd/Ctrl+F opens it (TableView.onKeyDown ->
+                    setSearchActive). The highlight-on-match engine
+                    (tableQuickFind.ts) is kept dormant, not deleted. */}
                 {/* Inline Filter/Sort affordances (Notidian-ddk): surface
                     filtering + sorting directly on the bar, Notion-style, rather
                     than buried in the view-options ("3 knobs") menu. They reuse

@@ -287,6 +287,17 @@ describe("FilterBar toolbar menu anchoring (Notidian-i23)", () => {
     expect(buttons.length).toBeGreaterThanOrEqual(4);
   });
 
+  // ADR 0041 (Notidian-z8q): the view was consolidated to ONE search
+  // affordance. The standalone quick-find (⌕) toolbar button is removed and the
+  // single magnifier search-toggle remains (Cmd/Ctrl+F now opens it).
+  it("renders one consolidated search toggle and no standalone quick-find button (ADR 0041)", () => {
+    const viewOptions = container.querySelector(".mk-view-options")!;
+    expect(viewOptions.querySelector(".mk-quick-find-toggle")).toBeNull();
+    const searchToggle = viewOptions.querySelector(".mk-view-search-toggle");
+    expect(searchToggle).toBeTruthy();
+    expect(searchToggle!.getAttribute("aria-label")).toBe("Search");
+  });
+
   it("anchors the 3-knobs (view-options) menu to the button, not the clicked SVG child", () => {
     const viewOptions = container.querySelector(".mk-view-options")!;
     const toolbarButtons = Array.from(

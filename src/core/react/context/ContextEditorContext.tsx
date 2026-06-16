@@ -123,10 +123,17 @@ type ContextEditorContextProps = {
   delColumn: (column: SpaceTableColumn) => void;
   searchString: string;
   setSearchString: React.Dispatch<React.SetStateAction<string>>;
-  // Quick find (Notidian-r20) is a separate view-layer affordance from the
-  // row-hiding filter search above. Only the open toggle is shared here so the
-  // filter-bar button and the table's Cmd/Ctrl+F open the same bar; the matches,
-  // active index, and query live in TableView where the rows + DOM are.
+  // Open toggle for the single view search (the filter-search SearchBar).
+  // Shared here (ADR 0041) so the toolbar magnifier and the table's
+  // Cmd/Ctrl+F open the same one search affordance — the table's keydown
+  // handler lives in TableView, the input renders in FilterBar.
+  searchActive: boolean;
+  setSearchActive: React.Dispatch<React.SetStateAction<boolean>>;
+  // Quick find (Notidian-r20) is the now-dormant highlight-on-match engine,
+  // consolidated out of the toolbar by ADR 0041 (one view search). The state +
+  // pure engine (tableQuickFind.ts) are kept dormant — no toolbar entry point
+  // and Cmd/Ctrl+F is rebound to the one search above — so the tested
+  // capability can be re-enabled (e.g. folded in as a mode) without rebuilding.
   findOpen: boolean;
   setFindOpen: React.Dispatch<React.SetStateAction<boolean>>;
   tableData: SpaceTable;
@@ -188,6 +195,8 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   delColumn: () => null,
   searchString: "",
   setSearchString: () => null,
+  searchActive: false,
+  setSearchActive: () => null,
   findOpen: false,
   setFindOpen: () => null,
   data: [],
@@ -292,6 +301,7 @@ export const ContextEditorProvider: React.FC<
   const [tableData, setTableData] = useState<SpaceTable>(null);
 
   const [searchString, setSearchString] = useState<string>(null);
+  const [searchActive, setSearchActive] = useState<boolean>(false);
   const [findOpen, setFindOpen] = useState<boolean>(false);
   const [predicate, setPredicate] = useState<Predicate>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -1655,6 +1665,8 @@ export const ContextEditorProvider: React.FC<
         newColumn,
         searchString,
         setSearchString,
+        searchActive,
+        setSearchActive,
         findOpen,
         setFindOpen,
         updateValue,
