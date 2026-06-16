@@ -196,18 +196,33 @@ describe("savePropertyToDBTables", () => {
       expect((out.m_fields.rows[1] as SpaceProperty).value).toBe("second");
     });
 
-    it("matches oldColumn by NAME ONLY — schemaId is NOT part of the rename match key", () => {
-      // ADVERSARIAL: unlike delete (name AND schemaId), rename keys on name only.
-      // An oldColumn with a DIFFERENT schemaId than the stored field still
-      // matches as long as the raw name matches.
+    it("matches oldColumn by (name AND schemaId) — the table's own identity key (Notidian-ub72)", () => {
+      // ADVERSARIAL: the slot being replaced is resolved by the SAME identity key
+      // the callers use (mdbAdapter.saveContent: `name AND schemaId`) and that
+      // deletePropertyToDBTables filters on — NOT name alone. An oldColumn that
+      // matches a stored field by name AND schemaId replaces it in place.
+      const stored = prop({ name: "x", schemaId: "sA" });
+      const out = savePropertyToDBTables(
+        prop({ name: "y", schemaId: "sA" }),
+        [stored],
+        prop({ name: "x", schemaId: "sA" }),
+      );
+      expect(out.m_fields.rows).toHaveLength(1);
+      expect((out.m_fields.rows[0] as SpaceProperty).name).toBe("y");
+    });
+
+    it("does NOT match an oldColumn whose schemaId differs from the stored field (Notidian-ub72)", () => {
+      // ADVERSARIAL: a name-only match would resolve to the wrong-schema row.
+      // Since the oldColumn's (name,schemaId) is absent, the rename falls through
+      // to the ADD fallback (oldFieldIndex == -1) rather than clobbering x@sA.
       const stored = prop({ name: "x", schemaId: "sA" });
       const out = savePropertyToDBTables(
         prop({ name: "y", schemaId: "sB" }),
         [stored],
-        prop({ name: "x", schemaId: "sZZZ" }), // different schemaId, same name
+        prop({ name: "x", schemaId: "sZZZ" }), // same name, different schemaId
       );
-      expect(out.m_fields.rows).toHaveLength(1);
-      expect((out.m_fields.rows[0] as SpaceProperty).name).toBe("y");
+      expect(out.m_fields.rows.map((r) => (r as SpaceProperty).name)).toEqual(["x", "y"]);
+      expect((out.m_fields.rows[0] as SpaceProperty).schemaId).toBe("sA"); // stored row untouched
     });
   });
 
@@ -292,6 +307,29 @@ describe("savePropertyToDBTables", () => {
       const out = savePropertyToDBTables(prop({ name: "title", schemaId: "s1" }), [old], old);
       expect(out.m_fields.rows).toHaveLength(1);
       expect((out.m_fields.rows[0] as SpaceProperty).name).toBe("title"); // unchanged, no '1'
+    });
+
+    it("RENAME-self is a NO-OP even when a same-name field exists in an EARLIER other schemaId (Notidian-ub72)", () => {
+      // REGRESSION. `fields` is the WHOLE m_fields table across schemaIds, where
+      // same-name fields in different schemas (e.g. per-schema `Name`/`File`) are
+      // the norm. A name-ONLY oldFieldIndex would resolve to the earlier a@s2 row,
+      // clobber it, AND leave the genuine a@s1 sibling in the collision set — so a
+      // no-op type/format edit of a@s1 would persist a@s1 -> a1@s1 (silent name
+      // mutation of a column's SQL/authority identity). With (name,schemaId)
+      // identity the edited slot is correctly excluded and the name is preserved.
+      const aS2 = prop({ name: "a", schemaId: "s2" });
+      const aS1 = prop({ name: "a", schemaId: "s1", type: "text" });
+      const out = savePropertyToDBTables(
+        prop({ name: "a", schemaId: "s1", type: "number" }), // same name, only type changes
+        [aS2, aS1],
+        aS1,
+      );
+      const rows = out.m_fields.rows as SpaceProperty[];
+      // Both rows keep name "a"; the s1 row is replaced in place with the new type.
+      expect(rows.map((r) => r.name)).toEqual(["a", "a"]);
+      expect(rows.map((r) => r.schemaId)).toEqual(["s2", "s1"]);
+      expect(rows[0].type).toBe("text"); // other-schema row UNTOUCHED
+      expect(rows[1].type).toBe("number"); // edited slot carries the new type
     });
 
     it("RENAME onto an EXISTING OTHER field's name dedups against that other field", () => {

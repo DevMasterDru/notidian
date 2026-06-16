@@ -4,8 +4,19 @@ import { sanitizeColumnName } from "shared/utils/sanitizers";
 import { uniqueNameFromString } from "shared/utils/array";
 
 export const savePropertyToDBTables = (newColumn: SpaceProperty, fields: SpaceProperty[], oldColumn?: SpaceProperty): DBTables => {
+    // Resolve the slot being replaced by the table's OWN identity key
+    // (name AND schemaId) — the same key the callers use to resolve `oldColumn`
+    // (mdbAdapter.saveContent/deleteContent: `t.name == fragmentId.name &&
+    // t.schemaId == fragmentId.schemaId`) and that deletePropertyToDBTables
+    // filters on. `fields` here is the WHOLE m_fields table across every schemaId
+    // (getMDBTableProperties does `SELECT * FROM m_fields` with no schemaId
+    // filter), where same-name fields in different schemas (e.g. the per-schema
+    // `Name`/path `File` defaults) are the NORM. A name-ONLY match would point at
+    // a wrong-schema row, clobbering it AND defeating the self-collision exclusion
+    // below (the genuine same-schema slot would stay in the collision set, so a
+    // no-op type/format edit would spuriously suffix the unchanged name).
     const oldFieldIndex = oldColumn
-      ? fields.findIndex((f) => f.name == oldColumn.name)
+      ? fields.findIndex((f) => f.name == oldColumn.name && f.schemaId == oldColumn.schemaId)
       : -1;
 
     // m_fields declares unique key `name,schemaId` (fieldSchema.uniques). Without
