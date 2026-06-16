@@ -82,4 +82,16 @@ describe("SpaceView.css — collapsible note body shrink-to-fit (Notidian-xazq)"
     );
     expect(robustHeightRule).toBeDefined();
   });
+
+  it("ships a vertical resize handle affordance (Notidian-egoh)", () => {
+    // The drag-to-resize handle must carry the ns-resize cursor so the gesture is
+    // discoverable; the element is only rendered in the flag-ON DOM, so the rule
+    // itself does not need --collapsible scoping.
+    const handleRule = rules.find(
+      (r) =>
+        /\.mk-space-note-resize\b/.test(r.selector) &&
+        declares(r.body, "cursor", /ns-resize/i)
+    );
+    expect(handleRule).toBeDefined();
+  });
 });

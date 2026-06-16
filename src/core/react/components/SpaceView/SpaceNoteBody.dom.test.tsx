@@ -237,3 +237,108 @@ describe("flag ON — collapsible header + chevron (Notidian-8sl)", () => {
     });
   });
 });
+
+// --- Flag ON: resize + scroll (Notidian-egoh) ------------------------------
+
+describe("flag ON — resizeable + scrollable note body (Notidian-egoh)", () => {
+  const pointer = (type: string, clientY: number): Event => {
+    try {
+      return new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientY,
+        button: 0,
+        pointerId: 1,
+      } as any);
+    } catch {
+      // jsdom without PointerEvent: a MouseEvent of the same type still fires
+      // React's onPointer* handlers (it dispatches by native event name).
+      return new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientY,
+        button: 0,
+      } as any);
+    }
+  };
+
+  it("expanded: renders the scroll body wrapper and the resize handle", async () => {
+    await render(makeSuperstate(true), makeSpaceState());
+    expect(container.querySelector(".mk-space-note-body")).not.toBeNull();
+    const handle = container.querySelector(".mk-space-note-resize");
+    expect(handle).not.toBeNull();
+    expect(handle!.getAttribute("role")).toBe("separator");
+    // The note content lives inside the scroll wrapper.
+    expect(
+      container.querySelector(".mk-space-note-body [data-testid='note-view']")
+    ).not.toBeNull();
+  });
+
+  it("flag OFF: no resize handle or scroll wrapper (legacy path untouched)", async () => {
+    await render(makeSuperstate(false), makeSpaceState());
+    expect(container.querySelector(".mk-space-note-resize")).toBeNull();
+    expect(container.querySelector(".mk-space-note-body")).toBeNull();
+  });
+
+  it("collapsed: no resize handle (cannot resize a hidden body)", async () => {
+    await render(
+      makeSuperstate(true),
+      makeSpaceState({ noteBodyCollapsed: true })
+    );
+    expect(container.querySelector(".mk-space-note-resize")).toBeNull();
+    expect(container.querySelector(".mk-space-note-body")).toBeNull();
+  });
+
+  it("applies a persisted height as a fixed, scrollable inline style", async () => {
+    await render(makeSuperstate(true), makeSpaceState({ noteBodyHeight: 300 }));
+    const body = container.querySelector(
+      ".mk-space-note-body"
+    ) as HTMLDivElement;
+    expect(body.style.height).toBe("300px");
+    expect(body.style.overflowY).toBe("auto");
+  });
+
+  it("with no persisted height the body is auto (shrink-to-fit, no fixed height)", async () => {
+    await render(makeSuperstate(true), makeSpaceState());
+    const body = container.querySelector(
+      ".mk-space-note-body"
+    ) as HTMLDivElement;
+    expect(body.style.height).toBe("");
+    expect(body.style.overflowY).toBe("");
+  });
+
+  it("double-clicking the handle resets to auto (persists noteBodyHeight undefined)", async () => {
+    await render(makeSuperstate(true), makeSpaceState({ noteBodyHeight: 300 }));
+    const handle = container.querySelector(
+      ".mk-space-note-resize"
+    ) as HTMLDivElement;
+    await act(async () => {
+      handle.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true })
+      );
+    });
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0]).toEqual({
+      path: "Projects/Atlas",
+      key: "noteBodyHeight",
+      value: undefined,
+    });
+  });
+
+  it("dragging the handle persists a clamped numeric height against the space path", async () => {
+    await render(makeSuperstate(true), makeSpaceState());
+    const handle = container.querySelector(
+      ".mk-space-note-resize"
+    ) as HTMLDivElement;
+    // offsetHeight is 0 in jsdom -> clamp(0) = MIN (60); +80px drag -> 140.
+    await act(async () => {
+      handle.dispatchEvent(pointer("pointerdown", 100));
+      handle.dispatchEvent(pointer("pointermove", 180));
+      handle.dispatchEvent(pointer("pointerup", 180));
+    });
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0].path).toBe("Projects/Atlas");
+    expect(saveCalls[0].key).toBe("noteBodyHeight");
+    expect(saveCalls[0].value).toBe(140);
+  });
+});

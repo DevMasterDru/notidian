@@ -39,6 +39,16 @@ export function ensureBoolean(value: unknown): boolean {
   return true;
 }
 
+// Coerce a persisted metadata value to a finite number, or undefined when it is
+// missing/blank/non-numeric. Used for OPTIONAL per-space numeric view state
+// (e.g. noteBodyHeight) where "absent" must stay absent — it must NOT collapse to
+// 0, which would be a meaningful (zero-height) value rather than "unset".
+export function ensureNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined
+  const n = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
 
 export const indexOfCharElseEOS = (char: string, str: string) => {
   if (str.indexOf(char) > 0) return str.indexOf(char);

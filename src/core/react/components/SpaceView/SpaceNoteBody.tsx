@@ -9,8 +9,19 @@ import {
   resolveNoteBodyCollapsed,
   shouldRenderNoteContent,
 } from "core/utils/spaceNoteBodyCollapse";
+import {
+  clampNoteBodyHeight,
+  nextNoteBodyHeightFromDrag,
+  resolveNoteBodyHeight,
+} from "core/utils/spaceNoteBodyResize";
 import { Superstate } from "makemd-core";
-import React, { useContext, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 // Renders the space's folder note (hub note) body above the space body so a
 // database's legend/definitions live on its own page (Notidian-7oj).
@@ -57,6 +68,86 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
     };
   }, [notePath]);
 
+  // Notidian-egoh — resize/scroll. The persisted explicit height (null => auto /
+  // shrink-to-fit). `dragHeight` is the live height during/after a drag; it wins
+  // over the persisted value until the space changes, so the drag previews
+  // smoothly before the metadata round-trips back.
+  const persistedHeight = collapsible
+    ? resolveNoteBodyHeight(spaceState?.metadata)
+    : null;
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dragOrigin = useRef<{ startY: number; startH: number } | null>(null);
+
+  // A different space carries its own persisted height — drop any stale drag
+  // value so the new space's metadata (or auto) drives the region.
+  useEffect(() => {
+    setDragHeight(null);
+  }, [spaceState?.path]);
+
+  const onResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startH = clampNoteBodyHeight(
+        bodyRef.current?.offsetHeight ?? persistedHeight ?? 0
+      );
+      dragOrigin.current = { startY: e.clientY, startH };
+      setDragHeight(startH);
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    },
+    [persistedHeight]
+  );
+
+  const onResizePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const origin = dragOrigin.current;
+      if (!origin) return;
+      setDragHeight(
+        nextNoteBodyHeightFromDrag(origin.startH, e.clientY - origin.startY)
+      );
+    },
+    []
+  );
+
+  const onResizePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const origin = dragOrigin.current;
+      if (!origin) return;
+      dragOrigin.current = null;
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+      const finalH = nextNoteBodyHeightFromDrag(
+        origin.startH,
+        e.clientY - origin.startY
+      );
+      setDragHeight(finalH);
+      if (spaceState) {
+        void saveSpaceMetadataValue(
+          props.superstate,
+          spaceState.path,
+          "noteBodyHeight",
+          finalH
+        );
+      }
+    },
+    [props.superstate, spaceState]
+  );
+
+  // Double-click the handle: forget the explicit height and return to
+  // shrink-to-fit (auto). Persisting `undefined` clears it from the metadata.
+  const onResizeReset = useCallback(() => {
+    dragOrigin.current = null;
+    setDragHeight(null);
+    if (spaceState) {
+      void saveSpaceMetadataValue(
+        props.superstate,
+        spaceState.path,
+        "noteBodyHeight",
+        undefined
+      );
+    }
+  }, [props.superstate, spaceState]);
+
   if (!hasBody || !spaceState) return null;
 
   const toggleCollapsed = (next: boolean) => {
@@ -71,6 +162,14 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
   };
 
   const renderNote = shouldRenderNoteContent(collapsible, collapsed);
+
+  // A fixed height (live drag value, else persisted) makes the body scroll on
+  // overflow; null => shrink-to-fit (auto, the Notidian-xazq default).
+  const effectiveHeight = !collapsed ? dragHeight ?? persistedHeight : null;
+  const bodyStyle =
+    effectiveHeight != null
+      ? { height: effectiveHeight, overflowY: "auto" as const }
+      : undefined;
 
   // Legacy (flag-OFF) path: byte-identical to the pre-Notidian-8sl region.
   if (!collapsible) {
@@ -102,13 +201,28 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
         <span className="mk-space-note-header-label">{spaceState.name}</span>
       </div>
       {renderNote && (
-        <NoteView
-          superstate={props.superstate}
-          path={spaceState.path}
-          forceNote={true}
-          load={true}
-          readOnly={readMode}
-        ></NoteView>
+        <>
+          <div className="mk-space-note-body" ref={bodyRef} style={bodyStyle}>
+            <NoteView
+              superstate={props.superstate}
+              path={spaceState.path}
+              forceNote={true}
+              load={true}
+              readOnly={readMode}
+            ></NoteView>
+          </div>
+          <div
+            className="mk-space-note-resize"
+            onPointerDown={onResizePointerDown}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+            onDoubleClick={onResizeReset}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize note body — drag to set height, double-click to fit content"
+            title="Drag to resize · double-click to fit content"
+          ></div>
+        </>
       )}
     </div>
   );

@@ -2,7 +2,7 @@ import { spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemp
 import { reorderPathsInContext } from "core/utils/contexts/context";
 import { applyNewRowTypeProfileDefaults } from "core/utils/contexts/typeProfileDefaults";
 import { runFormulaWithContext } from "core/utils/formula/parser";
-import { ensureArray, ensureBoolean, ensureString, ensureStringValueFromSet } from "core/utils/strings";
+import { ensureArray, ensureBoolean, ensureNumber, ensureString, ensureStringValueFromSet } from "core/utils/strings";
 import { compareByField, compareByFieldCaseInsensitive, compareByFieldDeep, compareByFieldNumerical } from "core/utils/tree";
 import { isTouchScreen } from "core/utils/ui/screen";
 import { Superstate } from "makemd-core";
@@ -74,6 +74,7 @@ export const parseSpaceMetadata = (metadata: Record<string, any>, settings: Make
       readMode: ensureBoolean(metadata.readMode),
       fullWidth: ensureBoolean(metadata.fullWidth),
       noteBodyCollapsed: ensureBoolean(metadata.noteBodyCollapsed),
+      noteBodyHeight: ensureNumber(metadata.noteBodyHeight),
     }
 }
 

@@ -95,5 +95,6 @@ export const spaceDefinitionFrontmatter = (
   readMode: metadata.readMode,
   fullWidth: metadata.fullWidth,
   noteBodyCollapsed: metadata.noteBodyCollapsed,
+  noteBodyHeight: metadata.noteBodyHeight,
 });
 
