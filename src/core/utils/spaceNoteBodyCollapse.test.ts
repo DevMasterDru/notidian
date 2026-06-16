@@ -4,6 +4,7 @@
 // shrink-to-fit and the React render are the live-verify part (see
 // docs/AUTONOMOUS-REVIEW-QUEUE.md); the collapse *decision logic* and the
 // persisted-state contract are proven here, DOM-free.
+import { DEFAULT_SETTINGS } from "core/schemas/settings";
 import { spaceDefinitionFrontmatter } from "core/types/space";
 import { parseSpaceMetadata } from "core/superstate/utils/spaces";
 import { MakeMDSettings } from "shared/types/settings";
@@ -176,5 +177,39 @@ describe("definition disk round-trip — serialize -> parse over the REAL write/
     expect(parsed.fullWidth).toBe(true);
     expect(parsed.readMode).toBe(true);
     expect(parsed.noteBodyCollapsed).toBe(true);
+  });
+});
+
+describe("flag gating (default-ON, kill-switch retained) — Notidian-8sl", () => {
+  it("collapsibleNoteBody now defaults to true (owner-requested feature is live)", () => {
+    // The owner explicitly asked for the collapsible + shrink-to-fit space note
+    // body, so it ships enabled and the owner verifies it by USE. The flag is
+    // retained purely as a kill-switch.
+    expect(DEFAULT_SETTINGS.collapsibleNoteBody).toBe(true);
+  });
+
+  it("the kill-switch (OFF) fully disables the feature — legacy rendering", () => {
+    // With the flag OFF the feature is inactive even when a space exists, so
+    // SpaceNoteBody takes the legacy branch (no header/chevron/collapsible class)
+    // and ALWAYS renders the note content regardless of any stored collapsed
+    // state — byte-identical to the pre-feature region.
+    const killSwitchOff = false;
+    const active = isCollapsibleNoteBodyEnabled(killSwitchOff, /* hasSpace */ true);
+    expect(active).toBe(false);
+
+    // Inactive → content always renders, even with a stale collapsed flag.
+    expect(shouldRenderNoteContent(active, /* collapsed */ false)).toBe(true);
+    expect(shouldRenderNoteContent(active, /* collapsed */ true)).toBe(true);
+  });
+
+  it("the default (ON) keeps the feature active when a space exists", () => {
+    const active = isCollapsibleNoteBodyEnabled(
+      DEFAULT_SETTINGS.collapsibleNoteBody,
+      /* hasSpace */ true
+    );
+    expect(active).toBe(true);
+    // Active + expanded renders; active + collapsed unmounts the body.
+    expect(shouldRenderNoteContent(active, /* collapsed */ false)).toBe(true);
+    expect(shouldRenderNoteContent(active, /* collapsed */ true)).toBe(false);
   });
 });

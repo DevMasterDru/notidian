@@ -31,9 +31,14 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   currentWaypoint: 0,
   enableFolderNote: true,
   spaceViewShowNoteBody: true,
-  // Notidian-8sl: default OFF — this is a flag-gated core render-path change
-  // awaiting owner live-verification (docs/AUTONOMOUS-REVIEW-QUEUE.md).
-  collapsibleNoteBody: false,
+  // Notidian-8sl: default ON — the owner explicitly requested a collapsible +
+  // shrink-to-fit space-note body, so it ships enabled; the owner verifies it by
+  // USE. The flag is RETAINED as a KILL-SWITCH: set it false to fully disable the
+  // feature. When OFF, SpaceNoteBody takes the legacy branch (no header, no
+  // chevron, no `mk-space-note--collapsible` class) and the scoped CSS override
+  // never matches, so the rendered region is byte-identical to the pre-feature
+  // behavior — the kill switch truly restores legacy rendering.
+  collapsibleNoteBody: true,
   folderIndentationLines: true,
   revealActiveFile: false,
   spacesStickers: true,
