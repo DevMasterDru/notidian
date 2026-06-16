@@ -16,6 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { canDeletePropertyColumn } from "core/utils/contexts/propertyColumnActions";
 import {
   applyPropertyVisibilityDrag,
   hideAllProperties,
@@ -45,6 +46,15 @@ export type PropertyVisibilityMenuProps = {
   savePredicate: (predicate: Partial<Predicate>) => void;
   editProperty?: (col: SpaceTableColumn, rect: Rect) => void;
   newProperty?: (rect: Rect) => void;
+  // Per-row "Remove property" affordance. When passed, each row whose column
+  // is deletable (i.e. NOT a frontmatter-backed property — the exact same gate
+  // the table-header "Delete Property" menu uses, `canDeletePropertyColumn`)
+  // gets a trash button that invokes this with the column. Callers thread the
+  // SAME `delColumn` the table-column header menu uses, so the delete has
+  // IDENTICAL semantics: a Notidian-owned column is removed from the MDB schema
+  // + rows; a frontmatter-backed column has no delete button at all (its data
+  // is canonical in the file — ADR 0001/0014/0016). Notidian-r6oj.
+  deleteColumn?: (col: SpaceTableColumn) => void;
 };
 
 const PropertyVisibilityRow = (props: {
@@ -53,8 +63,15 @@ const PropertyVisibilityRow = (props: {
   hidden: boolean;
   onToggle: (col: SpaceTableColumn, hidden: boolean) => void;
   onEdit?: (col: SpaceTableColumn, rect: Rect) => void;
+  onRemove?: (col: SpaceTableColumn) => void;
 }) => {
   const { superstate, col, hidden } = props;
+  // Mirror the table-header "Delete Property" gate exactly: the affordance only
+  // appears for deletable (NON-frontmatter-backed) columns. Frontmatter is
+  // canonical, so a frontmatter property can never be deleted from a view —
+  // `delColumn` itself would only `hide` it, so we omit the button entirely to
+  // match the table menu, which hides the option (Notidian-r6oj).
+  const removable = !!props.onRemove && canDeletePropertyColumn(col);
   const key = propertyVisibilityKey(col);
   const {
     attributes,
@@ -113,6 +130,21 @@ const PropertyVisibilityRow = (props: {
           ),
         }}
       ></button>
+      {removable && (
+        <button
+          className="mk-toolbar-button mk-property-visibility-remove"
+          aria-label={i18n.menu.deleteProperty}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Same delColumn the table-header "Delete Property" menu calls —
+            // identical MDB-schema-and-rows deletion semantics (Notidian-r6oj).
+            props.onRemove?.(col);
+          }}
+          dangerouslySetInnerHTML={{
+            __html: superstate.ui.getSticker("ui//trash"),
+          }}
+        ></button>
+      )}
     </div>
   );
 };
@@ -284,6 +316,7 @@ const PropertyVisibilityMenuComponent = (
                   hidden={false}
                   onToggle={toggleVisibility}
                   onEdit={props.editProperty}
+                  onRemove={props.deleteColumn}
                 ></PropertyVisibilityRow>
               ))}
             </SortableContext>
@@ -309,6 +342,7 @@ const PropertyVisibilityMenuComponent = (
                   hidden={true}
                   onToggle={toggleVisibility}
                   onEdit={props.editProperty}
+                  onRemove={props.deleteColumn}
                 ></PropertyVisibilityRow>
               ))}
             </SortableContext>

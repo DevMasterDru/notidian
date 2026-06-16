@@ -678,6 +678,7 @@ export const en = {
     "propertyValueLinkedPlaceholder": "Add/Select Property",
     "propertyLookup": "Edit Formula",
     "existingFrontmatter": "Existing Property",
+    "addAllProperties": "Add all properties",
     "shownInView": "Shown in view",
     "hiddenInView": "Hidden in view",
     "showAllProperties": "Show all",

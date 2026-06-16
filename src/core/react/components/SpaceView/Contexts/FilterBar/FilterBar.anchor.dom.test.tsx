@@ -71,12 +71,19 @@ jest.mock("core/react/context/FramesMDBContext", () => ({
 jest.mock("core/react/components/UI/Crumbs/PathCrumb", () => ({
   PathCrumb: (): null => null,
 }));
+// Capturing spies so the Item Properties path tests (Notidian-r6oj) can assert
+// the props FilterBar threads into the shared menus.
+const showNewPropertyMenuMock = jest.fn();
+const showPropertyVisibilityMenuMock = jest.fn();
 jest.mock("core/react/components/UI/Menus/contexts/newSpacePropertyMenu", () => ({
-  showNewPropertyMenu: () => {},
+  showNewPropertyMenu: (...args: unknown[]) => showNewPropertyMenuMock(...args),
 }));
 jest.mock(
   "core/react/components/UI/Menus/contexts/propertyVisibilityMenu",
-  () => ({ showPropertyVisibilityMenu: () => {} })
+  () => ({
+    showPropertyVisibilityMenu: (...args: unknown[]) =>
+      showPropertyVisibilityMenuMock(...args),
+  })
 );
 jest.mock("core/react/components/UI/Menus/contexts/spacePropertyMenu", () => ({
   showPropertyMenu: () => {},
@@ -492,5 +499,199 @@ describe("FilterBar Group-By toolbar button (Notidian-nmr)", () => {
     if (groupByLabel) {
       expect(optionNames).not.toContain(groupByLabel);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Notidian-r6oj: the Item Properties picker (Cards/Board/Details) gains a
+// reachable Remove-property affordance (Part A) and a reachable New-property
+// row (Part B). FilterBar's showItemPropertiesMenu now threads BOTH deleteColumn
+// (the same delColumn the table-column header menu uses) and newProperty (the
+// same showNewPropertyMenu wiring the table path uses) into the shared
+// property-visibility menu. We capture the props handed to
+// showPropertyVisibilityMenu when the Item Properties submenu opens and assert
+// they are present + correctly wired — and that the table-column header path
+// (Properties submenu) still threads them too (regression).
+// ---------------------------------------------------------------------------
+describe("FilterBar Item Properties picker — remove + new-property threading (Notidian-r6oj)", () => {
+  let openMenuCalls: OpenMenuFullCall[];
+  let superstate: any;
+  let root: Root;
+  let container: HTMLElement;
+
+  // A list-view predicate on the "Cards" layout (cardsListItem) so
+  // shouldShowListItemPropertyPicker(predicate) is true and the Item Properties
+  // option is surfaced in the view-options menu.
+  const cardsListPredicate = {
+    ...tablePredicate,
+    view: "list",
+    listItem: "spaces://$kit/#*cardsListItem",
+  } as any;
+
+  // The Item Properties option is gated on dbSchema.primary == "true"; render
+  // FilterBar with a primary db schema and one deletable column.
+  const mountListView = () => {
+    openMenuCalls = [];
+    superstate = makeSuperstateCapturingProps(openMenuCalls);
+    const spaceState = {
+      path: "Some Space",
+      name: "Some Space",
+      space: { readOnly: false },
+      propertyTypes: [],
+    } as any;
+    const delColumnCalls: any[] = [];
+    const contextEditorValue = {
+      source: "Some Space",
+      dbSchema: { id: "files", name: "Files", type: "db", primary: "true" },
+      cols: [
+        { name: "manual", type: "text", table: "", schemaId: "files" },
+      ],
+      filteredData: [],
+      predicate: cardsListPredicate,
+      savePredicate: () => {},
+      setSearchString: () => {},
+      setFindOpen: () => {},
+      setEditMode: () => {},
+      hideColumn: () => {},
+      delColumn: (col: any) => delColumnCalls.push(col),
+      saveColumn: () => false,
+      reloadContextData: async () => {},
+    } as any;
+    const framesValue = {
+      frameSchema: { id: "fs", name: "View", type: "view", def: {} },
+      saveSchema: async () => {},
+      setFrameSchema: () => {},
+    } as any;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root.render(
+        <SpaceContext.Provider
+          value={{ spaceInfo: null, readMode: false, spaceState }}
+        >
+          <PathContext.Provider value={{ readMode: false } as any}>
+            <ContextEditorContext.Provider value={contextEditorValue}>
+              <FramesMDBContext.Provider value={framesValue}>
+                <FilterBar superstate={superstate} />
+              </FramesMDBContext.Provider>
+            </ContextEditorContext.Provider>
+          </PathContext.Provider>
+        </SpaceContext.Provider>
+      );
+    });
+    return { delColumnCalls };
+  };
+
+  // FilterBar's predicate effect resolves propertiesForPredicate(...) async and
+  // calls setState; flush those microtasks inside act() so the resulting state
+  // update is settled (no act() warning) before the test inspects menus.
+  const flushEffects = async () => {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    showPropertyVisibilityMenuMock.mockClear();
+    showNewPropertyMenuMock.mockClear();
+  });
+
+  // Open the async view-options ("3 knobs") menu and return the captured
+  // options array passed to openMenu.
+  const openViewOptionsMenu = async (): Promise<any[]> => {
+    const viewOptions = container.querySelector(".mk-view-options")!;
+    const toolbarButtons = Array.from(
+      viewOptions.querySelectorAll("button.mk-toolbar-button")
+    ) as HTMLButtonElement[];
+    const knobsButton = toolbarButtons[toolbarButtons.length - 1];
+    stubRect(knobsButton, BUTTON_RECT);
+    openMenuCalls.length = 0;
+    await act(async () => {
+      knobsButton.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+        })
+      );
+      // showViewOptionsMenu is async; flush microtasks so openMenu is called.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(openMenuCalls.length).toBeGreaterThan(0);
+    return openMenuCalls[openMenuCalls.length - 1].props.options ?? [];
+  };
+
+  it("surfaces an Item Properties submenu whose menu threads deleteColumn + newProperty (Parts A+B reachable)", async () => {
+    const { delColumnCalls } = mountListView();
+    await flushEffects();
+    const options = await openViewOptionsMenu();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const i18n = require("shared/i18n").default ?? require("shared/i18n");
+    const itemPropsOption = options.find(
+      (o: any) => o.name == i18n.menu.itemProperties
+    );
+    expect(itemPropsOption).toBeTruthy();
+    expect(typeof itemPropsOption.onSubmenu).toBe("function");
+
+    // Invoke the submenu — it calls showItemPropertiesMenu →
+    // showPropertyVisibilityMenu (our capturing mock).
+    showPropertyVisibilityMenuMock.mockClear();
+    act(() => {
+      itemPropsOption.onSubmenu(BUTTON_RECT, ((): void => undefined));
+    });
+    expect(showPropertyVisibilityMenuMock).toHaveBeenCalledTimes(1);
+    // showPropertyVisibilityMenu(superstate, rect, win, props, onHide)
+    const menuProps = showPropertyVisibilityMenuMock.mock.calls[0][3];
+
+    // PART A: deleteColumn is threaded and is the SAME delColumn the table path
+    // uses (calling it forwards to ContextEditorContext.delColumn).
+    expect(typeof menuProps.deleteColumn).toBe("function");
+    const col = { name: "manual", type: "text", table: "", schemaId: "files" };
+    menuProps.deleteColumn(col);
+    expect(delColumnCalls).toEqual([col]);
+
+    // PART B: newProperty is threaded; invoking it opens the new-property menu
+    // (the same durable showNewPropertyMenu path the table path uses).
+    expect(typeof menuProps.newProperty).toBe("function");
+    showNewPropertyMenuMock.mockClear();
+    menuProps.newProperty(BUTTON_RECT);
+    expect(showNewPropertyMenuMock).toHaveBeenCalledTimes(1);
+    // The durable new-property call targets this context with the default schema.
+    const newPropArgs = showNewPropertyMenuMock.mock.calls[0];
+    expect(newPropArgs[3].schemaId).toBe("files");
+    expect(newPropArgs[3].contextPath).toBe("Some Space");
+    expect(typeof newPropArgs[3].saveField).toBe("function");
+  });
+
+  it("regression: the table-column header (Properties) path still threads editProperty + newProperty unchanged", async () => {
+    mountListView();
+    await flushEffects();
+    const options = await openViewOptionsMenu();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const i18n = require("shared/i18n").default ?? require("shared/i18n");
+    const propertiesOption = options.find(
+      (o: any) => o.name == i18n.menu.properties
+    );
+    expect(propertiesOption).toBeTruthy();
+
+    showPropertyVisibilityMenuMock.mockClear();
+    act(() => {
+      propertiesOption.onSubmenu(BUTTON_RECT, ((): void => undefined));
+    });
+    expect(showPropertyVisibilityMenuMock).toHaveBeenCalledTimes(1);
+    const menuProps = showPropertyVisibilityMenuMock.mock.calls[0][3];
+    // The table path threads delete via the per-row editProperty popup (the
+    // PropertyMenu's "Delete Property"), NOT a top-level deleteColumn on the
+    // visibility menu — so deleteColumn is absent here and the Item Properties
+    // path's new top-level deleteColumn is additive, not a change to this path.
+    expect(menuProps.deleteColumn).toBeUndefined();
+    expect(typeof menuProps.newProperty).toBe("function");
+    expect(typeof menuProps.editProperty).toBe("function");
   });
 });

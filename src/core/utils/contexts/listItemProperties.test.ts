@@ -252,6 +252,28 @@ describe("flag gating (default-ON, kill-switch retained)", () => {
       )
     ).toBe(cols);
   });
+
+  // Notidian-r6oj added per-row Remove-property + reachable New-property +
+  // one-click Add-all to the Item Properties MENU. Those affordances operate on
+  // the DATABASE (column existence) and the new-property window — NOT on this
+  // flag-gated render chokepoint. This pin documents that the render chokepoint
+  // is byte-unchanged by that work: the OFF path returns the same array ref and
+  // the ON path's allowlist filtering is exactly as before.
+  it("render chokepoint is byte-unchanged by the menu enhancements (Notidian-r6oj)", () => {
+    const cols = [primary("Name"), col("Status"), col("Due")];
+    // OFF: same array reference (legacy behavior preserved).
+    expect(
+      applyListItemVisibleProperties(cols, withVisible(["Status"]), false)
+    ).toBe(cols);
+    // ON: allowlist filtering unchanged (keeps only allowlisted, in order).
+    expect(
+      applyListItemVisibleProperties(
+        cols,
+        withVisible(["Status"]),
+        true
+      ).map((c) => c.name)
+    ).toEqual(["Status"]);
+  });
 });
 
 describe("predicate persistence (round-trip through validatePredicate)", () => {

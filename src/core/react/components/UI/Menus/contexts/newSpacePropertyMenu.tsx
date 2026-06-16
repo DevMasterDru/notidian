@@ -14,6 +14,7 @@ import {
   frontmatterPropertySource,
   propertyMenuDiscoveryScope,
 } from "core/utils/properties/allProperties";
+import { buildAddAllPropertiesTable } from "core/utils/properties/addAllProperties";
 import {
   defaultPropertySourceForContext,
   persistedSourceForPropertyChoice,
@@ -309,18 +310,66 @@ const NewPropertyMenuComponent = (
     const result = props.saveField(fieldSource, property);
     if (result) props.hide();
   };
-  const addExistingProperty = (e: React.MouseEvent) => {
-    const source = fieldSource == "" ? props.contextPath : fieldSource;
-    e.stopPropagation();
-    const existingCols = props.fields ?? [];
-    const existingProps: SpaceProperty[] =
-      discoverFrontmatterPropertiesFromPathStates(
-        props.superstate.pathsIndex,
-        [...(props.superstate.spacesMap.getInverse(source) ?? [])],
-        props.superstate.settings,
-        existingCols,
-        props.schemaId
+  // The discovery source for "existing"/"add-all" frontmatter properties — the
+  // selected space or, by default, this context's own path.
+  const existingPropertySource = () =>
+    fieldSource == "" ? props.contextPath : fieldSource;
+  // The frontmatter properties observed across the source's rows that are not
+  // already persisted columns. discoverFrontmatterPropertiesFromPathStates
+  // excludes props.fields by NAME, so a property already materialized as a
+  // computed/notidian column (it is in props.fields) is never re-discovered —
+  // the add-all path can only ever APPEND new frontmatter-sourced columns and
+  // never re-types/re-sources an existing computed or notidian column (the
+  // materialize authority guard still holds; ADR 0001/0017).
+  const discoverExistingProperties = (source: string): SpaceProperty[] =>
+    discoverFrontmatterPropertiesFromPathStates(
+      props.superstate.pathsIndex,
+      [...(props.superstate.spacesMap.getInverse(source) ?? [])],
+      props.superstate.settings,
+      props.fields ?? [],
+      props.schemaId
+    );
+  // The single durable materialization path shared by the buried add-existing
+  // "All" option (addExistingProperty) and the top-level one-click "Add all
+  // properties" action: append every discovered frontmatter column to the
+  // context table (source:"frontmatter") and reload. Notidian-r6oj.
+  const addAllDiscoveredProperties = (
+    source: string,
+    existingProps: SpaceProperty[]
+  ) => {
+    props.superstate.spaceManager
+      .readTable(source, defaultContextSchemaID)
+      .then((f) => {
+        props.superstate.spaceManager.saveTable(
+          source,
+          buildAddAllPropertiesTable(f, existingProps),
+          true
+        );
+      })
+      .then((f) =>
+        props.superstate.reloadContextByPath(source, {
+          force: true,
+          calculate: true,
+        })
       );
+    props.hide();
+  };
+  // Top-level one-click entry: discover + materialize every frontmatter
+  // property in one click, reusing the exact durable path above (Part C).
+  const addAllProperties = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const source = existingPropertySource();
+    const existingProps = discoverExistingProperties(source);
+    if (existingProps.length == 0) {
+      props.superstate.ui.notify(i18n.notice.noPropertiesFound);
+      return;
+    }
+    addAllDiscoveredProperties(source, existingProps);
+  };
+  const addExistingProperty = (e: React.MouseEvent) => {
+    const source = existingPropertySource();
+    e.stopPropagation();
+    const existingProps: SpaceProperty[] = discoverExistingProperties(source);
     if (existingProps.length == 0) {
       props.superstate.ui.notify(i18n.notice.noPropertiesFound);
       return;
@@ -337,25 +386,7 @@ const NewPropertyMenuComponent = (
         searchable: true,
         saveOptions: (_: string[], value: any[]) => {
           if (value[0] == "all") {
-            props.superstate.spaceManager
-              .readTable(source, defaultContextSchemaID)
-              .then((f) => {
-                props.superstate.spaceManager.saveTable(
-                  source,
-                  {
-                    ...f,
-                    cols: [...f.cols, ...existingProps],
-                  },
-                  true
-                );
-              })
-              .then((f) =>
-                props.superstate.reloadContextByPath(source, {
-                  force: true,
-                  calculate: true,
-                })
-              );
-            props.hide();
+            addAllDiscoveredProperties(source, existingProps);
             return;
           }
           const result = props.saveField(fieldSource, value[0]);
@@ -403,6 +434,32 @@ const NewPropertyMenuComponent = (
             ></button>
           )}
         </div>
+
+        {/* Part C (Notidian-r6oj): prominent top-level one-click "Add all
+            properties". Reuses the exact durable add-all-discovered path the
+            buried "Existing Property → All" option uses (addAllDiscoveredProperties).
+            Shown only when there is a discoverable row set ($fm targets a single
+            file, no rows) AND at least one new frontmatter property to add, so it
+            is never a dead control. */}
+        {fieldSource != "$fm" && discoveredProperties.length > 0 && (
+          <>
+            <div className="mk-menu-separator"></div>
+            <div
+              className="mk-menu-option mk-property-add-all"
+              onClick={(e) => addAllProperties(e)}
+            >
+              <div
+                className="mk-sticker"
+                dangerouslySetInnerHTML={{
+                  __html: props.superstate.ui.getSticker("ui//plus"),
+                }}
+              ></div>
+              <div className="mk-menu-options-inner">
+                {i18n.labels.addAllProperties}
+              </div>
+            </div>
+          </>
+        )}
 
         {suggestedProperties.length > 0 && (
           <>

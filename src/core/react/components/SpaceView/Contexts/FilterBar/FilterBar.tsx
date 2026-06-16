@@ -1351,6 +1351,32 @@ export const FilterBar = (props: {
         colsOrder: seed.colsOrder,
         colsHidden: seed.colsHidden,
         savePredicate: saveItemProperties,
+        // Part A (Notidian-r6oj): per-row "Remove property" uses the SAME
+        // delColumn the table-column header menu uses (see showPropertyEditMenu),
+        // so deletion semantics are identical — a Notidian-owned column is
+        // removed from the MDB schema + rows; a frontmatter-backed column shows
+        // no remove button (the menu gates on canDeletePropertyColumn). This
+        // touches the database (column existence), distinct from the allowlist
+        // that saveItemProperties persists as VIEW CONFIG (ADR 0016).
+        deleteColumn: delColumn,
+        // Part B (Notidian-r6oj): make the "+ New Property" row reachable from
+        // the Item Properties picker on Cards/Board/Details — mirror the table
+        // path's newProperty wiring exactly so new properties persist via the
+        // same durable saveColumn path.
+        newProperty: (rect) =>
+          showNewPropertyMenu(
+            props.superstate,
+            rect,
+            win,
+            {
+              spaces: [],
+              fields: [],
+              saveField: saveNewField,
+              schemaId: dbSchema.id,
+              contextPath: spaceCache.path,
+            },
+            () => null
+          ),
       },
       onHide
     );
