@@ -19,16 +19,14 @@ is the **Long Autonomous Mode** method:
 - Decision + rationale: Atlas Method repo `docs/decisions/0022-long-autonomous-mode-use-driven.md`
 - Engine + how-to: the global `long-autonomous-mode` skill (`~/.agents/skills/long-autonomous-mode/`)
 
-**How to run it (this repo).** Prefer the global, self-configuring engine — it reads
-the binding below:
+**How to run it (this repo).** Use the global, self-configuring engine — it reads
+the binding below and is the **sole** path (the former local
+`.claude/workflows/autonomous-beads.js` predecessor was retired once the global
+engine was validated on Notidian — bead `Notidian-wj6b`):
 
 ```
 Workflow({ scriptPath: "~/.claude/skills/long-autonomous-mode/engine.js", args: { model: "opus" } })
 ```
-
-`.claude/workflows/autonomous-beads.js` is the **deprecated** local predecessor,
-kept only as a battle-tested fallback until the global engine is validated on
-Notidian once — then delete it (bead `Notidian-9y6d`).
 
 **This repo's binding (the specifics the engine consumes):**
 
