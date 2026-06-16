@@ -18,26 +18,32 @@
 // authority. Yet this function had ZERO direct coverage.
 //
 // HOW THE REWRITER WORKS (the seams this suite pins):
-//   1. ensureString(code) coerces non-strings; brace-wrapped object literals
-//      ({...}) are parenthesized to ({...}) so acorn parses them as an
-//      expression, not a block.
-//   2. MULTI-LINE handling: if the code contains '\n', the LAST non-blank line
-//      is stripped of a leading "return " (via String.replace, FIRST-occurrence)
-//      BEFORE parsing, and "return " is re-prepended AFTER generate() — but only
-//      if that last line ".includes('return')". Both the strip and the detect
-//      are UNANCHORED substring ops (a real defect class — see below).
+//   1. ensureString(code) coerces non-strings; a top-level `return` is stripped
+//      (see 2) and THEN brace-wrapped object literals ({...}) are parenthesized
+//      to ({...}) so acorn parses them as an expression, not a block.
+//   2. TOP-LEVEL RETURN handling (Notidian-gxx6): a leading `return` is detected
+//      and stripped ONLY at a statement boundary via the anchored, word-bounded
+//      /^\s*return\b/ — for BOTH single-line and multi-line bodies (multi-line
+//      keys off the last non-blank line). The `return` is re-prepended AFTER a
+//      SUCCESSFUL parse, structurally onto the last top-level statement (so a
+//      multi-line returned object literal is not corrupted). Earlier this was
+//      MULTI-LINE-only with UNANCHORED substring ops (.includes/.replace) that
+//      mutilated identifiers like `myreturn` and lost single-line returns — the
+//      `defect (characterized)` cases below now flipped to regression guards.
 //   3. acorn-walk ancestor() renames Identifier nodes whose name === oldName,
 //      GUARDED so a MemberExpression PROPERTY name (foo.oldName) is NOT renamed
 //      but the OBJECT of a member access (oldName.x) and object-literal KEYS
 //      ({oldName: 1}) ARE.
-//   4. parse failure is SWALLOWED: string := '"error"' (silent corruption path).
+//   4. parse failure is SWALLOWED: string := '"error"' (silent corruption path),
+//      and the failed body is NOT re-wrapped in `return ` (Notidian-gxx6).
 //
 // METHOD. We first characterized the LIVE behavior with throwaway probes, then
-// encoded it. Where current behavior is CORRECT we assert it as the contract;
-// where it is a DEFECT we assert it explicitly under a `defect (characterized)`
-// label so the silent path is PINNED and a future fix flips a RED test on
-// purpose (never assert buggy behavior silently — AGENTS.md Long Autonomous
-// Mode). Pure offline: node env, no DOM, no makemd-core runtime.
+// encoded it. Where behavior is CORRECT we assert it as the contract. Cases that
+// were DEFECTS were asserted under a `defect (characterized)` label so the
+// silent path was PINNED; the Notidian-gxx6 fix flipped them on purpose and they
+// are now labelled `fixed (Notidian-gxx6)` REGRESSION GUARDS (never assert buggy
+// behavior silently — AGENTS.md Long Autonomous Mode). Pure offline: node env,
+// no DOM, no makemd-core runtime.
 //
 // Output-format note: astring renders an ExpressionStatement with a trailing
 // ';' and preprocessCode .trimEnd()s — so a bare expression `foo` round-trips
@@ -177,72 +183,80 @@ describe("preprocessCode — multi-line return strip / re-prepend round-trip", (
     );
   });
 
-  test(".replace('return ',\"\") strips only the FIRST 'return ' of the last line", () => {
-    // Last line `return returnX`: the FIRST 'return ' is removed leaving
-    // `returnX` (a different identifier, NOT oldName), then re-prepended. The
-    // SECOND 'return' substring inside `returnX` is untouched — this is the
-    // first-occurrence edge working in our favor here.
+  test("the anchored strip removes only the leading `return` keyword, leaving the returned identifier `returnX` intact", () => {
+    // Last line `return returnX`: /^\s*return\b/ matches only the LEADING
+    // `return ` keyword and strips it, leaving the identifier `returnX` (a
+    // different name, NOT oldName) fully intact; `return ` is re-prepended after
+    // a successful parse. The `return` substring INSIDE `returnX` is never
+    // touched because `\b` anchors the match to the leading keyword boundary.
     expect(run("const returnX = oldName\nreturn returnX", "oldName", "newName")).toBe(
       "const returnX = newName;\nreturn returnX;"
     );
   });
 });
 
-describe("preprocessCode — parse failure falls back to literal \"error\" (silent-corruption path)", () => {
-  // These pin the SWALLOWED-PARSE-ERROR path. The function returns the literal
-  // string `"error"` (WITH quotes) and logs to console — the original code is
-  // DESTROYED. This is the silent-corruption surface; pinning it means any
-  // future change that starts throwing, or starts preserving the source, flips
-  // a RED test on purpose.
+describe("preprocessCode — parse failure falls back to literal \"error\" + return handling (Notidian-gxx6)", () => {
+  // The first case pins the SWALLOWED-PARSE-ERROR path: for genuinely invalid JS
+  // the function returns the literal string `"error"` (WITH quotes) and logs to
+  // console — the original code is DESTROYED. The remaining cases are former
+  // `defect (characterized)` pins now flipped to REGRESSION GUARDS by the
+  // Notidian-gxx6 fix: single-line returns are handled, and the `"error"`
+  // fallback is no longer re-wrapped in `return `.
 
   test("syntactically invalid code collapses to the \"error\" literal", () => {
     expect(run("this is not valid js !!!", "oldName", "newName")).toBe('"error"');
   });
 
-  test("defect (characterized): a SINGLE-LINE `return X` is NOT stripped, so acorn rejects the illegal top-level return and the code is lost", () => {
-    // BUG-CLASS PIN. isMultiLine is false for a single line, so the return-strip
-    // is skipped, `return $root` is parsed as-is, acorn errors ("'return'
-    // outside of function"), and the rename is LOST -> '"error"'. A single-line
-    // frame action of the form `return <expr referencing the node>` silently
-    // loses its node-id rewrite. If single-line return handling is ever fixed,
-    // this becomes `return main;` and this assertion must be updated.
-    expect(run("return $root", "$root", "main")).toBe('"error"');
-    expect(run("return {oldName: 1}", "oldName", "newName")).toBe('"error"');
-  });
-
-  test("defect (characterized): on parse failure of a MULTI-LINE return body, \"error\" is still wrapped back in `return `", () => {
-    // The re-prepend branch keys off `hasReturn` (detected pre-parse), NOT off a
-    // successful parse. So a failed multi-line return body yields the doubly
-    // wrong `return "error"` — the source is destroyed AND falsely framed as a
-    // returned value. Pinning the exact corrupted shape.
-    expect(run("a\nb\nreturn return $root", "$root", "main")).toBe('return "error"');
-  });
-});
-
-describe("preprocessCode — UNANCHORED 'return ' substring handling (defect class)", () => {
-  test("defect (characterized): `.replace('return ', '')` mutilates a last line that merely CONTAINS 'return ' as a substring", () => {
-    // BUG-CLASS PIN (the heart of the rename-corruption family). Last line
-    // `myreturn = oldName` contains the substring "return " inside the
-    // identifier `myreturn`. The unanchored strip turns it into `my = oldName`,
-    // acorn parses `my = newName`, then `.includes('return')` (also unanchored)
-    // is true so `return ` is re-prepended => the last line becomes
-    // `return my = newName;`. The identifier `myreturn` was CORRUPTED into `my`
-    // and a bogus `return` framing was added (the prior `a` line is preserved as
-    // `a;`). A correct fix (anchor 'return' to a statement boundary) would leave
-    // `myreturn = newName;` intact and flip this test.
-    expect(run("a\nmyreturn = oldName", "oldName", "newName")).toBe(
-      "a;\nreturn my = newName;"
+  test("fixed (Notidian-gxx6): a SINGLE-LINE `return X` is stripped, renamed, and the `return` re-prepended", () => {
+    // REGRESSION GUARD (was `defect (characterized)`). A single-line body is now
+    // detected as a top-level return via /^\s*return\b/ (not gated on
+    // isMultiLine), so `return $root` is stripped to `$root`, the rename runs,
+    // and `return ` is re-prepended after a SUCCESSFUL parse. The single-line
+    // frame action keeps BOTH its node-id rewrite AND its `return` framing
+    // instead of collapsing to the `"error"` literal.
+    expect(run("return $root", "$root", "main")).toBe("return main;");
+    // `return { oldName: 1 }`: strip `return ` -> `{oldName: 1}` -> brace-wrap
+    // (now AFTER the strip) -> `({oldName: 1})` -> key renamed -> `return `
+    // re-prepended structurally onto the (multi-line) returned object literal.
+    expect(run("return {oldName: 1}", "oldName", "newName")).toBe(
+      "return ({\n  newName: 1\n});"
     );
   });
 
-  test("defect (characterized): a comment on the last line is treated as 'return' content and dropped", () => {
-    // Last line `// return comment with oldName` is non-blank so it survives the
-    // filter; `.includes('return')` is true; `.replace('return ','')` trims the
-    // first 'return ' from inside the comment, acorn ignores the comment so only
-    // `a` survives, and `return ` is re-prepended => `return a;`. The token
-    // inside the comment is silently gone and a spurious return is synthesized.
+  test("fixed (Notidian-gxx6): on parse failure of a MULTI-LINE return body, the bare \"error\" literal is NOT re-wrapped in `return `", () => {
+    // REGRESSION GUARD (was `defect (characterized)`). Last line
+    // `return return $root`: the anchored strip removes ONE leading `return`,
+    // leaving `return $root`, which is still an illegal top-level return, so
+    // acorn fails and the body falls back to the `"error"` literal. Because
+    // re-prepend now happens ONLY inside the parse-success branch, the failed
+    // body is NOT framed as `return "error"` — it stays the bare `"error"`
+    // literal (still a corruption surface, but no longer doubly wrong).
+    expect(run("a\nb\nreturn return $root", "$root", "main")).toBe('"error"');
+  });
+});
+
+describe("preprocessCode — ANCHORED top-level `return` detection (Notidian-gxx6 fix)", () => {
+  test("fixed (Notidian-gxx6): a last line that merely CONTAINS 'return' as a substring is left intact (no strip, no spurious return)", () => {
+    // REGRESSION GUARD (was `defect (characterized)`, the heart of the
+    // rename-corruption family). Last line `myreturn = oldName` contains the
+    // substring "return" inside the identifier `myreturn`, but the anchored,
+    // word-bounded /^\s*return\b/ does NOT match it, so there is no strip and no
+    // re-prepend. The identifier `myreturn` is preserved and only the genuine
+    // rename target `oldName -> newName` is applied.
+    expect(run("a\nmyreturn = oldName", "oldName", "newName")).toBe(
+      "a;\nmyreturn = newName;"
+    );
+  });
+
+  test("fixed (Notidian-gxx6): a comment on the last line is NOT treated as a return statement", () => {
+    // REGRESSION GUARD (was `defect (characterized)`). Last line
+    // `// return comment with oldName` starts with `//`, so /^\s*return\b/ does
+    // not match: no strip, no re-prepend. acorn still ignores the comment, so the
+    // body is just `a;` — but crucially no spurious `return ` is synthesized and
+    // the comment line is not mistaken for code. (The token inside the comment is
+    // never an Identifier, so it is correctly never renamed.)
     expect(run("a\n// return comment with oldName", "oldName", "newName")).toBe(
-      "return a;"
+      "a;"
     );
   });
 });
