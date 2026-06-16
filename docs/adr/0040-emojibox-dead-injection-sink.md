@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-k6a5`; queued in
+Tracked by bd `Notidian-k6a5`; queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of touching `emojiBox.ts` blind**. The module's
 `createExactEmojiBox` builds raw SVG/`<span>` HTML strings by interpolating
