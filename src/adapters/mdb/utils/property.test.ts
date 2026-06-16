@@ -25,20 +25,30 @@ import { SpaceProperty } from "shared/types/mdb";
 // path) and an ADVERSARIAL net second (sanitizer coupling, duplicate-name
 // collisions, cross-schema delete isolation, non-mutation).
 //
-// PRODUCTION-CHANGE DECISION (per the implement route's "no production change
-// unless a CLEAR-CORRECT bug surfaces"). The one candidate is the
-// `oldColumn given but NOT found` edge (see the dedicated block below): today
-// it APPENDS the new column instead of being a no-op. We deliberately
-// CHARACTERIZE (do not change) it because:
-//   (a) it is UNREACHABLE from the current callers — saveContent only ever
-//       passes an `oldField` it just resolved out of the SAME `oldFields`
-//       array via `.find(...)`, so a passed oldColumn is always present;
-//   (b) "append-as-add" vs "no-op" vs "throw" is a behavioral product choice,
-//       not a strictly clear-correct mechanical fix — flipping it silently
-//       could regress a hypothetical future caller that relies on the
-//       add-fallback.
-// This test LOCKS the current behavior so any future intentional flip trips a
-// red test (the tripwire), and documents the candidate fix in-place.
+// PRODUCTION-CHANGE LEDGER (per the implement route's "no production change
+// unless a CLEAR-CORRECT bug surfaces"). Two gaps were characterized here:
+//
+//   GAP 1 — duplicate (name,schemaId) m_fields rows — FIXED in Notidian-ub72.
+//     The persisted m_fields table declares the unique key "name,schemaId"
+//     (fieldSchema.uniques) yet the builder could emit two rows with the same
+//     name+schemaId when the sanitized new name collided with an existing field.
+//     This was a CLEAR-CORRECT authority/consistency violation (the table broke
+//     its own contract), so the builder now routes the sanitized name through
+//     uniqueNameFromString — scoped to the same schemaId, excluding the renamed
+//     slot — exactly as the CSV-import sibling (tableCsv.ts) already did. See the
+//     "name collision dedup" block below.
+//
+//   GAP 2 — `oldColumn given but NOT found` edge (see the dedicated block) —
+//     still CHARACTERIZED, deliberately NOT changed. Today it APPENDS the new
+//     column instead of being a no-op. We leave it because:
+//       (a) it is UNREACHABLE from the current callers — saveContent only ever
+//           passes an `oldField` it just resolved out of the SAME `oldFields`
+//           array via `.find(...)`, so a passed oldColumn is always present;
+//       (b) "append-as-add" vs "no-op" vs "throw" is a behavioral product choice
+//           with no obviously-right answer — flipping it silently could regress a
+//           hypothetical future caller that relies on the add-fallback.
+//     That test LOCKS today's append behavior so a future intentional flip trips
+//     a red test (the tripwire).
 // ===========================================================================
 
 const prop = (over: Partial<SpaceProperty> & { name: string }): SpaceProperty => ({
@@ -230,27 +240,69 @@ describe("savePropertyToDBTables", () => {
     });
   });
 
-  describe("EDGE: sanitized new name collides with an existing different field (no uniqueNameFromString guard)", () => {
-    // ADVERSARIAL. CSV import dedups headers via uniqueNameFromString
-    // (tableCsv.ts) so columns never collide. This layer has NO such guard: if
-    // the ADD/rename's sanitized name equals an existing field's name, the
-    // builder emits TWO rows with the SAME name into m_fields whose declared
-    // unique key is "name,schemaId". The persisted table then violates its own
-    // uniqueness contract. This is pinned as a KNOWN GAP at this layer.
-    it("ADD produces a DUPLICATE-name m_fields row when the new name collides (no dedup)", () => {
+  describe("name collision dedup (uniqueNameFromString guard — Notidian-ub72)", () => {
+    // FIXED in Notidian-ub72 (was a characterized GAP under Notidian-gm6q).
+    // m_fields declares the unique key "name,schemaId" (fieldSchema.uniques), yet
+    // the builder could emit TWO rows with the same (name,schemaId) when the
+    // sanitized new name collided with an existing field. The builder now routes
+    // the sanitized name through uniqueNameFromString (the same canonical helper
+    // CSV import uses in tableCsv.ts), scoped to the SAME schemaId and — on the
+    // rename path — excluding the slot being replaced. So `title` onto an existing
+    // `title` becomes `title1`, preserving the table's own uniqueness contract.
+    it("ADD dedups a colliding new name against the existing same-schemaId field", () => {
       const existing = prop({ name: "title", schemaId: "s1" });
       const out = savePropertyToDBTables(prop({ name: "title", schemaId: "s1" }), [existing]);
 
       const names = out.m_fields.rows.map((r) => (r as SpaceProperty).name);
-      expect(names).toEqual(["title", "title"]); // collision NOT resolved
+      expect(names).toEqual(["title", "title1"]); // collision resolved
       expect(out.m_fields.rows).toHaveLength(2);
     });
 
-    it("ADD collides AFTER sanitization too (e.g. '\"title' sanitizes to an existing 'title')", () => {
+    it("ADD dedups AFTER sanitization too ('\"title' sanitizes to 'title', then dedups to 'title1')", () => {
       const existing = prop({ name: "title" });
       const out = savePropertyToDBTables(prop({ name: '"title' }), [existing]);
       const names = out.m_fields.rows.map((r) => (r as SpaceProperty).name);
-      expect(names).toEqual(["title", "title"]); // sanitized name collides, no dedup
+      expect(names).toEqual(["title", "title1"]); // sanitized name collides, then deduped
+    });
+
+    it("ADD walks the suffix counter when several same-schemaId names already collide", () => {
+      const out = savePropertyToDBTables(prop({ name: "title", schemaId: "s1" }), [
+        prop({ name: "title", schemaId: "s1" }),
+        prop({ name: "title1", schemaId: "s1" }),
+      ]);
+      const names = out.m_fields.rows.map((r) => (r as SpaceProperty).name);
+      expect(names).toEqual(["title", "title1", "title2"]); // next free suffix
+    });
+
+    it("does NOT dedup a same-name field that lives in a DIFFERENT schemaId", () => {
+      // ADVERSARIAL cross-schema isolation: the unique key is (name,schemaId), so
+      // `title@s2` is legitimately distinct from `title@s1`. Adding `title@s1`
+      // must NOT be suffixed just because `title@s2` exists.
+      const otherSchema = prop({ name: "title", schemaId: "s2" });
+      const out = savePropertyToDBTables(prop({ name: "title", schemaId: "s1" }), [otherSchema]);
+      const rows = out.m_fields.rows as SpaceProperty[];
+      expect(rows.map((r) => r.name)).toEqual(["title", "title"]); // both keep their name
+      expect(rows.map((r) => r.schemaId)).toEqual(["s2", "s1"]); // distinct by schemaId
+    });
+
+    it("RENAME that keeps its own name is a NO-OP, not a self-collision", () => {
+      // The slot being replaced (oldFieldIndex) is excluded from the collision
+      // set, so renaming `title` to itself does not get suffixed to `title1`.
+      const old = prop({ name: "title", schemaId: "s1" });
+      const out = savePropertyToDBTables(prop({ name: "title", schemaId: "s1" }), [old], old);
+      expect(out.m_fields.rows).toHaveLength(1);
+      expect((out.m_fields.rows[0] as SpaceProperty).name).toBe("title"); // unchanged, no '1'
+    });
+
+    it("RENAME onto an EXISTING OTHER field's name dedups against that other field", () => {
+      // ADVERSARIAL. Renaming `b` -> `a` while a different `a` already exists must
+      // suffix the new name (`a1`) — the excluded slot is the one being renamed
+      // (`b`), not the colliding sibling (`a`), so the sibling still guards.
+      const a = prop({ name: "a", schemaId: "s1" });
+      const b = prop({ name: "b", schemaId: "s1" });
+      const out = savePropertyToDBTables(prop({ name: "a", schemaId: "s1" }), [a, b], b);
+      expect(out.m_fields.rows.map((r) => (r as SpaceProperty).name)).toEqual(["a", "a1"]);
+      expect(out.m_fields.rows).toHaveLength(2); // in-place replace, no growth
     });
   });
 
