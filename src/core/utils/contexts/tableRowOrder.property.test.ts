@@ -14,7 +14,7 @@ import { moveVisibleRows, rowDragSet } from "./tableRowOrder";
 //
 // CHARACTERIZATION, NOT CORRECTION. Every assertion LOCKS the current observed
 // behaviour (probed exhaustively against the live implementation — see the
-// LINE-92 proof below); no production code is changed. This is a test-depth bead
+// LINE-106 proof below); no production code is changed. This is a test-depth bead
 // (no render-path change).
 //
 // CONVENTION: hand-rolled mulberry32 PRNG + PROPERTY_RUNS loop, NO fast-check
@@ -551,11 +551,11 @@ describe("moveVisibleRows — strict-subset visible view (characterization)", ()
 });
 
 // =====================================================================
-// LINE-92 NO-OP GUARD — proven defensively unreachable, locked as such.
+// LINE-106 NO-OP GUARD — proven defensively unreachable, locked as such.
 // =====================================================================
-describe("moveVisibleRows — post-recompute no-op guard (line 92)", () => {
-  it("EXHAUSTIVE PROOF: across ALL permuted visible orders + ALL selections, the early guards catch every no-op; line 92 never fires", () => {
-    // The guard at line 91-92 returns `unchanged` when, after the SortableJS-style
+describe("moveVisibleRows — post-recompute no-op guard (line 106)", () => {
+  it("EXHAUSTIVE PROOF: across ALL permuted visible orders + ALL selections, the early guards catch every no-op; line 106 never fires", () => {
+    // The guard at line 106-107 returns `unchanged` when, after the SortableJS-style
     // remove+reinsert, nextVisibleIds equals visibleIds. We prove this is DEAD code
     // given the earlier guards (activeRowId != overRowId AND over not in the dragged
     // block): once those hold, the reinsert ALWAYS produces a genuinely different
@@ -576,7 +576,7 @@ describe("moveVisibleRows — post-recompute no-op guard (line 92)", () => {
 
     let total = 0;
     let unchanged = 0;
-    let line92Fires = 0;
+    let line106Fires = 0;
 
     for (const vis of permute(ids)) {
       for (let mask = 1; mask < 1 << n; mask++) {
@@ -594,7 +594,7 @@ describe("moveVisibleRows — post-recompute no-op guard (line 92)", () => {
             });
             if (!r.changed) {
               unchanged++;
-              // Was this no-op caused by line 92, or by an EARLIER guard?
+              // Was this no-op caused by line 106, or by an EARLIER guard?
               // Reconstruct the dragged block exactly as the engine does.
               const selSet = new Set(sel);
               const dragged = selSet.has(active)
@@ -602,7 +602,7 @@ describe("moveVisibleRows — post-recompute no-op guard (line 92)", () => {
                 : [active];
               const caughtEarly =
                 active === over || dragged.includes(over) || dragged.length === 0;
-              if (!caughtEarly) line92Fires++;
+              if (!caughtEarly) line106Fires++;
             }
           }
         }
@@ -613,8 +613,8 @@ describe("moveVisibleRows — post-recompute no-op guard (line 92)", () => {
     // early guards (so this is a real proof, not a vacuous one).
     expect(total).toBeGreaterThan(10000);
     expect(unchanged).toBeGreaterThan(0);
-    // The load-bearing assertion: line 92 is NEVER the reason for a no-op.
-    expect(line92Fires).toBe(0);
+    // The load-bearing assertion: line 106 is NEVER the reason for a no-op.
+    expect(line106Fires).toBe(0);
   });
 });
 
