@@ -108,6 +108,19 @@ const buildScenario = (rng: () => number) => {
       ...visibleRowOrder.slice(at),
     ];
   }
+  // Occasionally inject a DUPLICATE in-range canonical id (Notidian-p1rh): the
+  // garbage pool above carries no in-range duplicate, so without this the net is
+  // blind to the duplicate-visible-id corruption surface. A dup must NOT break the
+  // PERMUTATION / IN-RANGE / REMAP-TRUTH invariants (engine dedups visibleIds).
+  if (rng() < 0.4 && visibleRowOrder.length > 0) {
+    const dupId = pick(rng, visibleRowOrder);
+    const at = randInt(rng, 0, visibleRowOrder.length);
+    visibleRowOrder = [
+      ...visibleRowOrder.slice(0, at),
+      dupId,
+      ...visibleRowOrder.slice(at),
+    ];
+  }
 
   // selection: a random subset of the (valid) visible ids, sometimes salted with garbage.
   const validVisible = visibleRowOrder.filter(
@@ -468,6 +481,54 @@ describe("moveVisibleRows — strict-subset visible view (characterization)", ()
     expect(result!.rows.length).toBe(8);
     expect(new Set(result!.rows).size).toBe(8);
     for (const row of result!.rows) expect(rows.includes(row)).toBe(true);
+  });
+
+  // --- REGRESSION (Notidian-p1rh, duplicate-canonical-id corruption) -------
+  // The non-canonical-alias fix closed ONE Set-vs-array desync; a DUPLICATE
+  // CANONICAL id in visibleRowOrder is the SAME class of desync. visibleIds was
+  // filtered for validity but NOT deduped, so `visibleSet = new Set(visibleIds)`
+  // collapsed the duplicate to one slot while nextVisibleIds/nextVisibleRows kept
+  // BOTH copies; the visibleCursor++ walk then under-consumed nextVisibleRows,
+  // DROPPING one row and DUPLICATING another — a silent corruption of the user's
+  // row order. Fix: dedup visibleIds (keep first occurrence), matching rowDragSet.
+  it("REGRESSION: a DUPLICATE canonical id in visibleRowOrder must not drop/duplicate a row", () => {
+    const rows = makeRows(4);
+    // visible repeats "1"; drag R0 down over R3.
+    const r = moveVisibleRows({
+      rows,
+      visibleRowOrder: ["0", "1", "1", "2", "3"],
+      activeRowId: "0",
+      overRowId: "3",
+      selectedRowIds: ["0"],
+    });
+    // Clean permutation — every input row present exactly once, none undefined.
+    expect(r.rows.length).toBe(4);
+    expect(new Set(r.rows).size).toBe(4);
+    for (const row of r.rows) expect(rows.includes(row)).toBe(true);
+    // Drag R0 to after R3 (collapsed view [0,1,2,3]) -> [R1,R2,R3,R0].
+    expect(r.rows.map((row) => row.name)).toEqual(["R1", "R2", "R3", "R0"]);
+    expect(r.movedRowIds).toEqual(["0"]);
+    expect(r.selectedRowIds).toEqual(["3"]);
+  });
+
+  it("REGRESSION: a DUPLICATE canonical id in a MULTI-SELECT drag stays a permutation", () => {
+    const rows = makeRows(5);
+    // visible repeats "2"; drag block {0,1} down over R4.
+    const r = moveVisibleRows({
+      rows,
+      visibleRowOrder: ["0", "1", "2", "2", "3", "4"],
+      activeRowId: "0",
+      overRowId: "4",
+      selectedRowIds: ["0", "1"],
+    });
+    expect(r.rows.length).toBe(5);
+    expect(new Set(r.rows).size).toBe(5);
+    for (const row of r.rows) expect(rows.includes(row)).toBe(true);
+    // collapsed view [0,1,2,3,4]; move {0,1} after R4 -> [R2,R3,R4,R0,R1].
+    expect(r.rows.map((row) => row.name)).toEqual(["R2", "R3", "R4", "R0", "R1"]);
+    expect(r.movedRowIds).toEqual(["0", "1"]);
+    // moved block now at absolute slots 3,4.
+    expect(r.selectedRowIds).toEqual(["3", "4"]);
   });
 
   it("REGRESSION: non-canonical numeric aliases ('00','1.0','+1',' 2 ') are all rejected", () => {

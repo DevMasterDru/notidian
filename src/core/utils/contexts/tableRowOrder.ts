@@ -63,9 +63,16 @@ export const moveVisibleRows = ({
     return unchanged;
   }
 
-  const visibleIds = visibleRowOrder.filter((rowId) =>
-    isValidRowId(rowId, rows)
-  );
+  // DEDUP (keep first occurrence) is load-bearing, not cosmetic: a DUPLICATE
+  // canonical id in visibleRowOrder is the same Set-vs-array desync class as the
+  // non-canonical alias bug. `visibleSet = new Set(visibleIds)` (below) collapses
+  // a duplicate to one slot, but nextVisibleIds/nextVisibleRows keep BOTH copies,
+  // so the visibleCursor++ walk under-consumes nextVisibleRows — dropping one row
+  // and duplicating another (a silent row-order corruption of the user's data).
+  // rowDragSet dedups for exactly this reason; do the same here at the source.
+  const visibleIds = [
+    ...new Set(visibleRowOrder.filter((rowId) => isValidRowId(rowId, rows))),
+  ];
   if (!visibleIds.includes(activeRowId) || !visibleIds.includes(overRowId)) {
     return unchanged;
   }
