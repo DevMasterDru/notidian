@@ -2,16 +2,18 @@
 
 ## Status
 
-Proposed.
+Parked — build when the owner asks.
 
-Awaiting an owner decision. Tracked by bd `Notidian-e29`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of building the feature blind. It is roadmap item (2) of epic
-`Notidian-2w0` ("per-database templates on row create"), the last item in that
-epic with **no ADR yet** (items 3/4/5 have 0024/0020/0021). A wrong call here
-would change what frontmatter and body land in the owner's real notes on every
-row create — expensive to undo across a vault — so the build stops at the
-contract.
+Parked to [docs/ROADMAP.md](../ROADMAP.md); build only when the owner explicitly
+asks. This is genuinely-speculative product direction the owner has not requested
+(the owner validates by USING the tool), so it is not a decision-that-waits — it
+is parked, with this ADR retained as the grounding reference. Tracked by bd
+`Notidian-e29`. This ADR was written instead of building the feature blind. It is
+roadmap item (2) of epic `Notidian-2w0` ("per-database templates on row create"),
+the last item in that epic with **no ADR yet** (items 3/4/5 have 0024/0020/0021).
+A wrong call here would change what frontmatter and body land in the owner's real
+notes on every row create — expensive to undo across a vault — so the build stops
+at the contract.
 
 ## Date
 
