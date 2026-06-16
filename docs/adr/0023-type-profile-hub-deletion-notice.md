@@ -2,12 +2,23 @@
 
 ## Status
 
-Proposed. Awaiting owner direction (bd Notidian-n2t). This ADR refuses to build
-the notice blind: a naive "the hub stopped tracking" notice cannot be implemented
-correctly without a sound prior-state signal, and obtaining one is a genuine
-design choice with a false-positive risk and a Notidian-ownership/authority
-constraint. It frames the options and recommends one. Nothing in the runtime
-render path changes here.
+Declined — parked per `docs/ROADMAP.md` (build only if the owner asks). The ADR's
+own recommendation is option (c): decline the per-edit notice. This is a P3,
+explicitly low-value ambient-status nicety; the only data-loss-adjacent case is
+already covered by the existing `saveFrontmatterProperties` failure notice, and
+the use-driven validation model (the owner validates by USING the tool) has not
+surfaced a need for it. This ADR is retained as grounding reference for the
+blocker analysis (the three-way-collapsed `{ ok:false, state:null }` and the
+always-computed `notePath`); it is not a decision-that-waits. If the owner later
+wants the ambient status, the recommended build is option (a) per the analysis
+below.
+
+Originally: Proposed; awaiting owner direction (bd Notidian-n2t). This ADR refuses
+to build the notice blind: a naive "the hub stopped tracking" notice cannot be
+implemented correctly without a sound prior-state signal, and obtaining one is a
+genuine design choice with a false-positive risk and a
+Notidian-ownership/authority constraint. It frames the options and recommends one.
+Nothing in the runtime render path changes here.
 
 ## Date
 
