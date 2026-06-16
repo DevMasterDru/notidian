@@ -173,13 +173,15 @@ export const D3VisualizationEngine: React.FC<D3VisualizationEngineProps> = ({
 
       const field = primaryEncoding.field;
       const values = data.map((d) => d[field]);
-      
-      // For scatter plots, line charts, bar charts, and area charts, ensure numeric/date fields use appropriate encoding
-      if (config.chartType === 'scatter' || config.chartType === 'line' || config.chartType === 'bar' || config.chartType === 'area') {
-        const fieldProperty = tableProperties?.find(p => p.name === field);
-        primaryEncoding = ensureCorrectEncodingType(primaryEncoding, fieldProperty, values);
-      }
-      
+
+      // Re-derive the X encoding type locally for ALL chart types so the `scales`
+      // memo is self-sufficient and does NOT depend on `normalizeConfig`
+      // mutating `config.encoding` as a side-effect (ADR 0037, Option A). Before
+      // this, scatter/line/bar/area re-derived here but pie/radar relied on the
+      // `transformedData` memo having mutated `config.encoding.x[0].type` first.
+      const xFieldProperty = tableProperties?.find(p => p.name === field);
+      primaryEncoding = ensureCorrectEncodingType(primaryEncoding, xFieldProperty, values);
+
       switch (primaryEncoding.type) {
         case "quantitative": {
           // For scatter plots with transformed data, use the x extent from transformed data
@@ -322,8 +324,13 @@ export const D3VisualizationEngine: React.FC<D3VisualizationEngineProps> = ({
         return scales;
       }
 
-      // For scatter plots, ensure numeric/date fields use appropriate encoding
-      if (config.chartType === 'scatter') {
+      // Re-derive the Y encoding type locally for ALL chart types so the `scales`
+      // memo is self-sufficient and does NOT depend on `normalizeConfig`
+      // mutating `config.encoding` as a side-effect (ADR 0037, Option A). Before
+      // this, only scatter re-derived here; bar/line/area/pie/radar relied on the
+      // `transformedData` memo having mutated `config.encoding.y[0].type` first,
+      // so a deep-clone in `normalizeConfig` alone would drop their Y scale.
+      if (primaryEncoding.field) {
         const fieldProperty = tableProperties?.find(p => p.name === primaryEncoding.field);
         const fieldValues = data.map((d) => d[primaryEncoding.field]);
         primaryEncoding = ensureCorrectEncodingType(primaryEncoding, fieldProperty, fieldValues);

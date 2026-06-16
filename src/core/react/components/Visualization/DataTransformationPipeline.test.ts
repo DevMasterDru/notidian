@@ -29,20 +29,22 @@ import i18n from "shared/i18n";
 // result, the rendering dispatch, and config validation messages).
 //
 // These tests CHARACTERIZE (lock) the CURRENT behavior; they are not a
-// redesign. Where the current behavior is surprising-but-intentional (e.g.
-// normalizeConfig MUTATES the caller's encoding object via a shallow copy;
-// the pipeline SWALLOWS a transformer throw into an error result) the surprise
-// is documented inline so a future change has to consciously re-bless it.
+// redesign. Where the current behavior is surprising-but-intentional (e.g. the
+// pipeline SWALLOWS a transformer throw into an error result) the surprise is
+// documented inline so a future change has to consciously re-bless it.
 // (Small integers now infer `quantitative` via value-based inference — ADR 0035
 // resolved the prior date-before-number ordering hazard.)
 //
-// KNOWN DEFECT (locked, not blind-fixed):
-//   - validateConfig dereferences `config.encoding.x` with no guard, so it
-//     THROWS on a config whose `encoding` is undefined (every real caller
-//     passes a populated encoding, so this is an internal-contract gap, not an
-//     owner-visible chart bug). Locked below + tracked as a follow-up bead.
-//   - normalizeConfig is NOT a pure function: it mutates the encoding object
-//     shared with the caller's config. Locked below + tracked.
+// RESOLVED (ADR 0037, Option A — was "KNOWN DEFECT (locked)"):
+//   - normalizeConfig is now PURE: it clones the `encoding` subtree before
+//     writing inferred types, so it no longer mutates the caller's config. The
+//     `D3VisualizationEngine` `scales` memo was made self-sufficient (re-derives
+//     encoding types locally for all chart types) in the same change, so it no
+//     longer relies on the old in-place mutation. Locked below.
+//   - validateConfig now FAILS SOFT on an undefined `encoding` (early guard
+//     returning `{ valid:false, ['No encoding configured'] }`) instead of
+//     throwing on the un-guarded `config.encoding.x` dereference. It has no live
+//     caller, so the guard removes a latent throw without regressing a chart.
 // ===========================================================================
 
 type Row = Record<string, unknown>;
@@ -211,11 +213,14 @@ describe("DataTransformationPipeline.normalizeConfig — idempotency", () => {
   });
 });
 
-describe("DataTransformationPipeline.normalizeConfig — LOCKED side-effect (not pure)", () => {
-  it("MUTATES the caller's shared encoding object (shallow copy aliasing)", () => {
-    // `const normalizedConfig = { ...config }` shallow-copies, so
-    // normalizedConfig.encoding IS config.encoding. Writing back the inferred
-    // encodings therefore mutates the ORIGINAL config in place.
+describe("DataTransformationPipeline.normalizeConfig — PURE (no caller mutation)", () => {
+  it("does NOT mutate the caller's encoding; returns a fresh encoding (ADR 0037)", () => {
+    // ADR 0037 Option A: `normalizeConfig` clones the `encoding` subtree
+    // (`{ ...config, encoding: { ...config.encoding } }`) before writing inferred
+    // types, so the caller's original `config.encoding` is left untouched and
+    // `out.encoding` is a NEW object. (The render-path read sites in
+    // `D3VisualizationEngine` were made self-sufficient in the same change, so
+    // they no longer rely on the old in-place mutation.)
     const original = cfg("bar", { x: { field: "cat" } });
     expect(encOf(original, "x").type).toBeUndefined();
 
@@ -224,8 +229,34 @@ describe("DataTransformationPipeline.normalizeConfig — LOCKED side-effect (not
       original
     );
 
-    expect(out.encoding).toBe(original.encoding); // same reference
-    expect(encOf(original, "x").type).toBe("nominal"); // original mutated
+    expect(out.encoding).not.toBe(original.encoding); // fresh reference
+    expect(encOf(original, "x").type).toBeUndefined(); // original UNCHANGED
+    expect(encOf(out, "x").type).toBe("nominal"); // output carries inferred type
+  });
+
+  it("does not surprise-mutate a config reused across two normalize calls (foot-gun fix)", () => {
+    // The real hazard ADR 0037 removes: a caller that reuses/compares the SAME
+    // config across renders must not have it mutated under it. Normalizing the
+    // same untyped config against two different datasets must not let the first
+    // call's inference leak into the second.
+    const shared = cfg("bar", { x: { field: "f" } });
+
+    const numericOut = DataTransformationPipeline.normalizeConfig(
+      [{ f: 1 }, { f: 2 }],
+      shared
+    );
+    expect(encOf(numericOut, "x").type).toBe("quantitative");
+
+    // shared is still pristine, so the second call infers from its OWN data
+    expect(encOf(shared, "x").type).toBeUndefined();
+    const stringOut = DataTransformationPipeline.normalizeConfig(
+      [{ f: "apple" }, { f: "pear" }],
+      shared
+    );
+    expect(encOf(stringOut, "x").type).toBe("nominal");
+
+    // first result is unaffected by the second call (no shared aliasing)
+    expect(encOf(numericOut, "x").type).toBe("quantitative");
   });
 });
 
@@ -419,11 +450,13 @@ describe("DataTransformationPipeline.transform — normalize integration", () =>
     expect(out.error).toBeUndefined();
   });
 
-  it("LOCKED side-effect: transform mutates the caller's config encoding via normalizeConfig", () => {
+  it("does NOT mutate the caller's config encoding via normalizeConfig (ADR 0037)", () => {
+    // `transform` calls `normalizeConfig`, which is now pure (ADR 0037 Option A),
+    // so the caller's config is left untouched after a transform.
     const config = cfg("bar", { x: { field: "cat" } });
     expect(encOf(config, "x").type).toBeUndefined();
     DataTransformationPipeline.transform([{ cat: "a" }], config);
-    expect(encOf(config, "x").type).toBe("nominal");
+    expect(encOf(config, "x").type).toBeUndefined();
   });
 });
 
@@ -807,13 +840,20 @@ describe("DataTransformationPipeline.validateConfig — pie chart-specific error
   });
 });
 
-describe("DataTransformationPipeline.validateConfig — LOCKED defect (undefined encoding throws)", () => {
-  it("THROWS when config.encoding is undefined (no guard) — internal-contract gap", () => {
-    // Every real caller supplies a populated encoding; this locks the current
-    // un-guarded dereference as a known robustness gap, tracked as a follow-up.
+describe("DataTransformationPipeline.validateConfig — undefined encoding fails soft (ADR 0037)", () => {
+  it("returns { valid:false, ['No encoding configured'] } (no throw) on undefined encoding", () => {
+    // ADR 0037 Option A: an early guard fail-softs instead of throwing on the
+    // un-guarded `config.encoding.x` dereference. `validateConfig` has no live
+    // caller, so this removes a latent throw without regressing any chart.
     expect(() =>
       DataTransformationPipeline.validateConfig([{ a: 1 }], {} as any)
-    ).toThrow();
+    ).not.toThrow();
+    const out = DataTransformationPipeline.validateConfig([{ a: 1 }], {} as any);
+    expect(out).toEqual({
+      valid: false,
+      errors: ["No encoding configured"],
+      warnings: [],
+    });
   });
 });
 

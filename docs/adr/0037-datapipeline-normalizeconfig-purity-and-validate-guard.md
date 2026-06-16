@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-jko` (the two surprises were
+Tracked by bd `Notidian-jko` (the two surprises were
 discovered + LOCKED as characterization by the orchestrator net `Notidian-34e`,
 `DataTransformationPipeline.test.ts`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was

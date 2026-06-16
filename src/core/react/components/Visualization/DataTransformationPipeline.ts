@@ -31,7 +31,18 @@ export class DataTransformationPipeline {
     config: VisualizationConfig,
     tableProperties?: SpaceProperty[]
   ): VisualizationConfig {
-    const normalizedConfig = { ...config };
+    // PURE: clone the `encoding` subtree before writing inferred types so the
+    // caller's `config.encoding` is never mutated in place (ADR 0037, Option A).
+    // A shallow clone of `encoding` is sufficient: every write below is a FULL
+    // reassignment of a sub-key (`.x`/`.y`/`.color`/`.size`) with a
+    // freshly-constructed value (`Array.prototype.map` produces a new array,
+    // `ensureCorrectEncodingType` returns a new `{ ...encoding, type }` object),
+    // so no nested object/array of the original is mutated. The minimal clone
+    // (not a deep `structuredClone` of the whole config) keeps layout/mark/etc.
+    // shared by reference, which is correct — only `encoding` is written back.
+    const normalizedConfig: VisualizationConfig = config.encoding
+      ? { ...config, encoding: { ...config.encoding } }
+      : { ...config };
     
     // Auto-detect encoding types for x-axis
     if (normalizedConfig.encoding?.x) {
@@ -261,8 +272,19 @@ export class DataTransformationPipeline {
 
     const availableFields = Object.keys(sampleRecord);
 
+    // Guard: a config with no encoding has nothing to validate. Fail-soft with a
+    // clear error instead of throwing on the un-guarded `config.encoding.x`
+    // dereference (ADR 0037, Option A — same fail-soft-vs-throw posture as the
+    // empty-rawData early-return above). `validateConfig` has no live caller
+    // today, so this cannot regress a chart; it removes a latent throw from a
+    // public method. (`encoding === {}` is still handled gracefully below.)
+    if (!config.encoding) {
+      errors.push('No encoding configured');
+      return { valid: false, errors, warnings };
+    }
+
     // Check X encoding
-    const xEncodings = Array.isArray(config.encoding.x) 
+    const xEncodings = Array.isArray(config.encoding.x)
       ? config.encoding.x 
       : [config.encoding.x];
     
