@@ -333,26 +333,64 @@ const safeRegExp = (pattern: string, flags?: string): RegExp | null => {
 	}
 };
 
-// A correct, non-NaN, total-order comparator for the mixed values a computed
+// A correct, non-NaN, TOTAL-ORDER comparator for the mixed values a computed
 // `sort` column can hold. The legacy `(a, b) => b - a` only worked for numbers
 // (and descending at that): on strings / dates it produced NaN, which leaves the
-// array order engine-defined (effectively unsorted). This orders numbers and
-// Dates numerically ascending and everything else by its localeCompare string
-// form, with a stable tie of 0 for equal values so V8's stable sort preserves
-// input order.
-const sortValue = (v: any): number | null => {
-	if (typeof v === "number") return v;
-	if (v instanceof Date) return v.getTime();
-	return null;
-};
-const compareSortValues = (a: any, b: any): number => {
-	const na = sortValue(a);
-	const nb = sortValue(b);
-	if (na !== null && nb !== null) {
-		return na < nb ? -1 : na > nb ? 1 : 0;
+// array order engine-defined (effectively unsorted).
+//
+// Correctness requirement: Array.prototype.sort demands a strict weak ordering
+// (reflexive, antisymmetric, TRANSITIVE). Classifying the comparison scheme
+// per-PAIR — "numeric if BOTH are number/Date, else string" — breaks transitivity
+// on mixed input, because the SAME value is treated as a number in one pair and as
+// its string form in another. Counter-example (number 5, number 10, string "2"):
+// cmp(5,10) = -1 (numeric), cmp(10,"2") = -1 ("10" < "2" lexically), but
+// cmp(5,"2") = +1 ("5" > "2" lexically) — so 5<10 and 10<"2" yet 5>"2". V8 then
+// emits an arbitrary, input-position-dependent permutation (the same multiset
+// sorts differently depending on its initial order) — visible garbage in the
+// computed column the owner reads.
+//
+// Fix (ADR-0033 / ADR-0025 precedent — per-VALUE classification into a real
+// strict weak ordering): classify each value ONCE into a stable bucket
+// (number/Date -> the numeric bucket, everything else -> the string bucket); a
+// value's bucket no longer depends on its partner, so the relation is transitive
+// by construction. Order numbers/Dates numerically within the numeric bucket and
+// everything else by its `format()` string within the string bucket; order the
+// buckets deterministically (numeric < string). This keeps the common homogeneous
+// single-type sort (all numbers / all Dates / all strings) identical to before —
+// the only behavior delta is that genuinely mixed-type arrays, which the old
+// comparator scrambled incoherently, now have a defined, stable order.
+const NUMERIC_BUCKET = 0;
+const STRING_BUCKET = 1;
+type SortKey =
+	| { bucket: typeof NUMERIC_BUCKET; num: number }
+	| { bucket: typeof STRING_BUCKET; str: string };
+const sortKey = (v: any): SortKey => {
+	if (typeof v === "number" && !Number.isNaN(v)) {
+		return { bucket: NUMERIC_BUCKET, num: v };
 	}
-	const sa = format(a);
-	const sb = format(b);
+	if (v instanceof Date) {
+		const t = v.getTime();
+		if (!Number.isNaN(t)) return { bucket: NUMERIC_BUCKET, num: t };
+		// An Invalid Date (getTime() -> NaN) has no coherent numeric position AND
+		// `format()` (date-fns) THROWS on it — give it a stable sentinel string so
+		// it lands in the string bucket deterministically without poisoning the
+		// comparator (NaN) or crashing the cell.
+		return { bucket: STRING_BUCKET, str: "￿Invalid Date" };
+	}
+	return { bucket: STRING_BUCKET, str: format(v) };
+};
+// Exported for direct strict-weak-ordering law verification in tests (a 2-element
+// `sort` can short-circuit in V8 and not call the comparator, so the laws must be
+// checked against the comparator itself, not inferred from sort output).
+export const compareSortValues = (a: any, b: any): number => {
+	const ka = sortKey(a);
+	const kb = sortKey(b);
+	if (ka.bucket !== kb.bucket) return ka.bucket < kb.bucket ? -1 : 1;
+	if (ka.bucket === NUMERIC_BUCKET && kb.bucket === NUMERIC_BUCKET) {
+		return ka.num < kb.num ? -1 : ka.num > kb.num ? 1 : 0;
+	}
+	const sa = (ka as { str: string }).str;
+	const sb = (kb as { str: string }).str;
 	return sa < sb ? -1 : sa > sb ? 1 : 0;
 };
 
@@ -563,8 +601,10 @@ export const formulas = {
 	},
 	"sort": (arr: any[]) => {
 		// Non-mutating (copy first) so a shared computed-input array isn't
-		// reordered out from under other cells, and a correct total-order
-		// comparator so non-numeric data sorts instead of NaN-poisoning.
+		// reordered out from under other cells, and a genuine total-order
+		// comparator (per-value bucket classification — see compareSortValues)
+		// so non-numeric AND mixed-type data sorts deterministically instead of
+		// NaN-poisoning or scrambling into an input-position-dependent permutation.
 		return [...arr].sort(compareSortValues);
 	},
 	"reverse": (arr: any[]) => {

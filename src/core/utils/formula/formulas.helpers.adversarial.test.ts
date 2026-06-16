@@ -1,4 +1,4 @@
-import { formulas } from "./formulas";
+import { compareSortValues, formulas } from "./formulas";
 
 // ---------------------------------------------------------------------------
 // DEPTH net (Notidian-398r): adversarial + characterization coverage for the
@@ -162,6 +162,96 @@ describe("sort: non-mutating + a correct total-order comparator (LOCKED FIX)", (
 
   it("handles an empty array", () => {
     expect(fx.sort([])).toEqual([]);
+  });
+});
+
+describe("sort: TOTAL ORDER on MIXED-type arrays (strict-weak-ordering, LOCKED FIX)", () => {
+  // Regression lock for the reviewer must-fix: the previous comparator switched
+  // scheme per-PAIR (numeric iff BOTH operands were number/Date, else a string
+  // compare of their format() forms), which is NOT transitive on mixed input.
+  // Minimal proof the OLD comparator failed (numbers 5, 10 and string "2"):
+  //   cmp(5,10) = -1   cmp(10,"2") = -1   but cmp(5,"2") = +1
+  // so 5<10 and 10<"2" yet 5>"2". V8 then emitted an arbitrary, input-position-
+  // dependent permutation — the SAME multiset sorted differently per initial
+  // order. The fix classifies each value ONCE into a bucket (number/Date vs
+  // string) so the relation is transitive by construction.
+
+  // The pure comparator itself (a 2-element sort can short-circuit in V8 without
+  // calling the comparator, so the laws are checked directly against it).
+  const cmp = compareSortValues;
+
+  it("is DETERMINISTIC: the same multiset sorts identically regardless of input order", () => {
+    const a = fx.sort([5, 10, "2"]);
+    const b = fx.sort(["2", 5, 10]);
+    const c = fx.sort([10, "2", 5]);
+    expect(a).toEqual(b);
+    expect(b).toEqual(c);
+  });
+
+  it("orders the numeric bucket before the string bucket, numbers/Dates numerically within", () => {
+    // numbers/Dates (numeric bucket) come first in numeric order; bare strings
+    // (string bucket) follow in localeCompare order.
+    expect(fx.sort([10, 2, "5", 1])).toEqual([1, 2, 10, "5"]);
+    expect(fx.sort([3, "1", 2, "10"])).toEqual([2, 3, "1", "10"]);
+  });
+
+  it("places a Date in the numeric bucket alongside numbers, then strings", () => {
+    const d = new Date(2024, 0, 1); // epoch millis are large -> sort after small numbers
+    const out = fx.sort([d, 5, "z", 1]);
+    expect(out).toEqual([1, 5, d, "z"]);
+  });
+
+  it("treats an Invalid Date as a string-bucket value (no NaN poisoning)", () => {
+    const invalid = new Date(NaN);
+    // Must not throw and must terminate with a permutation containing every element.
+    const out = fx.sort([invalid, 2, "a"]);
+    expect(out).toHaveLength(3);
+    expect(out).toContain(invalid);
+    expect(out).toContain(2);
+    expect(out).toContain("a");
+  });
+
+  it("satisfies the strict-weak-ordering laws over a mixed domain (reflexive, antisymmetric, TRANSITIVE)", () => {
+    const domain: any[] = [
+      5,
+      10,
+      1,
+      0,
+      -3,
+      "2",
+      "5",
+      "10",
+      "apple",
+      "",
+      new Date(2024, 0, 1),
+      new Date(2020, 5, 15),
+    ];
+    const sign = (n: number) => (n < 0 ? -1 : n > 0 ? 1 : 0);
+    // negate without producing -0 (Object.is(-0, 0) is false, which toBe uses)
+    const neg = (n: number) => (n === 0 ? 0 : -n);
+
+    // reflexive: cmp(x, x) === 0
+    for (const x of domain) {
+      expect(cmp(x, x)).toBe(0);
+    }
+    // antisymmetric: sign(cmp(a,b)) === -sign(cmp(b,a))
+    for (const a of domain) {
+      for (const b of domain) {
+        expect(sign(cmp(a, b))).toBe(neg(sign(cmp(b, a))));
+      }
+    }
+    // transitive: cmp(a,b) <= 0 && cmp(b,c) <= 0 => cmp(a,c) <= 0
+    let violations = 0;
+    for (const a of domain) {
+      for (const b of domain) {
+        for (const c of domain) {
+          if (cmp(a, b) <= 0 && cmp(b, c) <= 0 && cmp(a, c) > 0) {
+            violations++;
+          }
+        }
+      }
+    }
+    expect(violations).toBe(0);
   });
 });
 
