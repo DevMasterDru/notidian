@@ -2,10 +2,12 @@
 
 ## Status
 
-Proposed.
+Parked — build when the owner asks.
 
-Awaiting an owner decision. Tracked by bd `Notidian-5io`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
+Parked to [docs/ROADMAP.md](../ROADMAP.md): this is genuinely-speculative product
+direction the owner has not requested, validated by USE rather than by spec review.
+The ADR stays as grounding reference; do not build until the owner asks. Tracked by
+bd `Notidian-5io` (closed: parked). This ADR was
 written instead of building the feature blind: the bead itself records "these are
 design decisions for the user," and the two open choices (how a reminder is
 *delivered* and how a recurrence *materializes*) are runtime/render/notification
