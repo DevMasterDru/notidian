@@ -62,35 +62,39 @@ describe("AreaChartTransformer.transform — empty / guard contract", () => {
 });
 
 // ---------------------------------------------------------------------------
-// KNOWN DEFECT (Notidian-kxq characterization) — Area is the ONLY one of the six
-// transformers that THROWS (instead of returning the safe empty contract) when
-// the `x` encoding is entirely absent or an empty array on NON-EMPTY data.
+// RESOLVED (ADR 0038, Option A — was a KNOWN DEFECT under Notidian-kxq/Notidian-drp).
+// Area used to be the ONLY one of the six transformers that THREW (instead of
+// returning the safe empty contract) when the `x` encoding was entirely absent or
+// an empty array on NON-EMPTY data.
 //
 // Root cause: after the (working) per-branch helper guards, the MAIN body
-// dereferences `xEncodings[0].type` at AreaChartTransformer.ts:154 (the temporal
-// fill block) with NO null-guard, while the sibling check at :108 IS guarded
-// (`xEncodings[0]?.type`). With `config.encoding.x === undefined` (or `[]`),
-// `xEncodings = [undefined]`, so line 154 throws
-//   TypeError: Cannot read properties of undefined (reading 'type').
+// dereferenced `xEncodings[0].type` in the temporal fill block with NO null-guard,
+// while the sibling check above it WAS guarded (`xEncodings[0]?.type`). With
+// `config.encoding.x === undefined` (or `[]`), `xEncodings = [undefined]`, so the
+// fill block threw `TypeError: Cannot read properties of undefined (reading 'type')`.
 //
-// Every sibling transformer (Bar/Pie/Line/Scatter/Radar) returns an empty result
-// for a missing-x encoding; Area diverging to a THROW is a real robustness gap
-// that can crash the D3 render path. We LOCK the current (defective) behavior here
-// rather than blind-fixing, because the safe-empty repair is owner-visible chart
-// output and is routed to a follow-up DECISION bead (Notidian-drp). When the fix
-// lands, the two `toThrow` assertions below flip to expect the empty contract.
+// FIX (ADR 0038, Option A): Area now early-returns the documented empty contract
+// when there is no usable x encoding (`!xEncodings[0]?.field`), mirroring the
+// missing-encoding contract of its five sibling transformers (Bar/Pie/Line/
+// Scatter/Radar) — including its structural twin Line, which guards the same fill
+// block with `if (xEncodings[0])`. A half-configured area chart now renders an
+// empty frame instead of surfacing a render-path TypeError. The two assertions
+// below were the locked `toThrow` characterization pins, flipped to expect the
+// empty contract in the same commit that landed the guard.
 // ---------------------------------------------------------------------------
-describe("AreaChartTransformer.transform — KNOWN DEFECT: throws on missing x encoding", () => {
-  it("THROWS when the x encoding is entirely absent on non-empty data", () => {
-    expect(() =>
+describe("AreaChartTransformer.transform — missing x encoding returns the empty contract (ADR 0038)", () => {
+  const empty: AreaChartData = { data: [], series: [], xDomain: [], yExtent: [0, 0], stacked: false };
+
+  it("returns the empty contract when the x encoding is entirely absent on non-empty data", () => {
+    expect(
       AreaChartTransformer.transform([{ a: 1 }], cfg({ y: { field: "y", type: "quantitative" } }))
-    ).toThrow(TypeError);
+    ).toEqual(empty);
   });
 
-  it("THROWS when the x encoding is an empty array on non-empty data", () => {
-    expect(() =>
+  it("returns the empty contract when the x encoding is an empty array on non-empty data", () => {
+    expect(
       AreaChartTransformer.transform([{ a: 1 }], cfg({ x: [], y: { field: "y", type: "quantitative" } }))
-    ).toThrow(TypeError);
+    ).toEqual(empty);
   });
 });
 

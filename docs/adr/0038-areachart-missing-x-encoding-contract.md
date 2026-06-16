@@ -2,9 +2,15 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-drp` (the divergence was
+Resolved as **Option A** (the recommendation): `AreaChartTransformer.transform`
+now early-returns the empty `AreaChartData` contract when there is no usable x
+encoding (`!xEncodings[0]?.field`), and the two locked `KNOWN DEFECT`
+`toThrow` assertions were flipped to expect that empty contract in the same
+commit. The remainder of this ADR is preserved as the decision record.
+
+Originally awaiting an owner decision. Tracked by bd `Notidian-drp` (the divergence was
 discovered + **LOCKED as a `KNOWN DEFECT`** characterization by the orchestrator
 net `Notidian-kxq`, `AreaChartTransformer.test.ts`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was

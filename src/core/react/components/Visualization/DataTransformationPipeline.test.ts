@@ -8,6 +8,7 @@ import {
   AreaChartData,
   ScatterPlotData,
 } from "./types/ChartDataSchemas";
+import { AreaChartTransformer } from "./transformers/AreaChartTransformer";
 import { VisualizationConfig } from "shared/types/visualization";
 import { SpaceProperty } from "shared/types/mdb";
 import i18n from "shared/i18n";
@@ -462,9 +463,41 @@ describe("DataTransformationPipeline.transform — normalize integration", () =>
 
 describe("DataTransformationPipeline.transform — resilience (try/catch wraps transformer throws)", () => {
   it("converts a throwing transformer into a graceful error result (does NOT throw)", () => {
-    // AreaChartTransformer throws on a missing-x encoding (Notidian-drp KNOWN
-    // DEFECT). The pipeline's try/catch is the safety net that turns that
-    // throw into { data: null, error } instead of crashing the render path.
+    // The pipeline's try/catch (DataTransformationPipeline.ts:186) is the safety
+    // net that turns ANY transformer throw into { data: null, error } instead of
+    // crashing the render path. We force a throw by spying on a real transformer
+    // (AreaChartTransformer) — formerly this leaned on Area's missing-x TypeError,
+    // but that defect was fixed (ADR 0038), so we now provoke the throw explicitly
+    // to keep the safety-net contract under test regardless of any transformer's
+    // own input guards.
+    const spy = jest
+      .spyOn(AreaChartTransformer, "transform")
+      .mockImplementation(() => {
+        throw new Error("boom: simulated transformer failure");
+      });
+    try {
+      let out!: TransformedData;
+      expect(() => {
+        out = DataTransformationPipeline.transform(
+          [{ x: "a", v: 5 }],
+          cfg("area", {
+            x: { field: "x", type: "nominal" },
+            y: { field: "v", type: "quantitative" },
+          })
+        );
+      }).not.toThrow();
+      expect(out.type).toBe("area");
+      expect(out.data).toBeNull();
+      expect(out.error).toBe("boom: simulated transformer failure");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does NOT throw and returns a real area chart for a missing-x encoding (ADR 0038)", () => {
+    // Regression guard for ADR 0038: a half-configured area chart (no X field)
+    // no longer surfaces an error-state render; it degrades to an empty frame,
+    // matching the five sibling transformers.
     let out!: TransformedData;
     expect(() => {
       out = DataTransformationPipeline.transform(
@@ -473,9 +506,8 @@ describe("DataTransformationPipeline.transform — resilience (try/catch wraps t
       );
     }).not.toThrow();
     expect(out.type).toBe("area");
-    expect(out.data).toBeNull();
-    expect(typeof out.error).toBe("string");
-    expect(out.error!.length).toBeGreaterThan(0);
+    expect(out.error).toBeUndefined();
+    expect((out.data as AreaChartData).data).toEqual([]);
   });
 });
 

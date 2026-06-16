@@ -94,6 +94,18 @@ export class AreaChartTransformer {
 
     let xEncodings = Array.isArray(config.encoding.x) ? config.encoding.x : [config.encoding.x];
     const yEncodings = Array.isArray(config.encoding.y) ? config.encoding.y : [config.encoding.y];
+
+    // No usable x encoding (x absent, an empty array, or an object with no field):
+    // return the documented empty contract instead of dereferencing
+    // `xEncodings[0]` in the main-body temporal-fill block. This mirrors the
+    // missing-encoding contract of the five sibling transformers (Bar/Line/Pie/
+    // Radar/Scatter) — Area's structural twin Line guards the same fill block
+    // with `if (xEncodings[0])` — so a half-configured area chart degrades to an
+    // empty frame rather than surfacing a render-path TypeError. (ADR 0038, Option A.)
+    if (!xEncodings[0]?.field) {
+      return { data: [], series: [], xDomain: [], yExtent: [0, 0], stacked: false };
+    }
+
     const colorEncoding = config.encoding.color;
     const isStacked = config.mark?.stack === true;
     
