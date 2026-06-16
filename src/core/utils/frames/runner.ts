@@ -67,7 +67,11 @@ export const frameNodeMayUseApiInProps = (
   return isTrustedFrameNode(executable);
 };
 
-const styleAstsForNode = (
+// Exported for co-located characterization (runner.trustBoundary.adversarial.test.ts):
+// this is the pure kit-vs-node style merge the render path applies, and its
+// background/hover conflict-resolution rules are subtle enough to need a
+// regression net. No behaviour change — only visibility for tests.
+export const styleAstsForNode = (
   style: FrameTreeProp,
   styleAsts?: StyleAst[]
 ) : [FrameTreeProp, StyleAst[]] => {
