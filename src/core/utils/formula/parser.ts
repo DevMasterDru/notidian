@@ -269,8 +269,17 @@ export const runFormulaNode = (node: FormulaNode, propMap: DBRow): string => {
 		const args = node.args.map(f => runFormulaNode(f, propMap))
 		return runContext.evaluate(`${args.join(node.operator)}`)
 	} else if (node.type === "conditional") {
-		const condition = runFormulaNode(node.condition, propMap)
-		if (condition === "true") {
+		// The ': string' return signature is dishonest: a literal/operator/symbol
+		// node can evaluate to a real JS boolean (verified by the "engine
+		// boundaries" tests in parser.test.ts), so widen to `unknown` here to
+		// compare against the actual runtime value.
+		const condition: unknown = runFormulaNode(node.condition, propMap)
+		// Accept BOTH the string "true" (string-literal/symbol path) and the JS
+		// boolean `true` (a true/false keyword lowers to a mathjs ConstantNode →
+		// literal node returning the verbatim boolean, and operator/symbol nodes
+		// can also evaluate to a real boolean). Do NOT broaden to a truthy check —
+		// that would change "false"/0/"" semantics; keep the exact-match contract.
+		if (condition === "true" || condition === true) {
 			return runFormulaNode(node.ifTrue, propMap)
 		} else {
 			return runFormulaNode(node.ifFalse, propMap)

@@ -29,12 +29,16 @@ import { SpaceProperty, DBRow } from "shared/types/mdb";
 //     The defensive "" fallbacks live in the runFormula / runFormulaWithContext
 //     wrappers (try/catch), not in runFormulaNode itself.
 //
-// NOTE (latent bug, pinned deliberately): a conditional whose CONDITION is a
-// boolean (symbol/operator returning a real boolean) always takes the ifFalse
-// branch, because runFormulaNode compares `condition === "true"` (string) while
-// the evaluated boolean condition is the JS boolean `true`. Pinned below and
-// tracked as a follow-up bead so a future fix is a conscious, test-visible
-// change rather than a silent drift.
+// NOTE (Notidian-ie5r — fixed): a conditional whose CONDITION is a boolean
+// (a true/false keyword, or a symbol/operator returning a real boolean) now
+// selects the correct branch. runFormulaNode previously compared only
+// `condition === "true"` (string) while a boolean condition evaluates to the JS
+// boolean `true`, so every boolean-conditioned ternary fell through to ifFalse;
+// it now accepts both forms (`condition === "true" || condition === true`),
+// keeping the exact-match contract (no broadening to a truthy check). Verified
+// by the "engine boundaries" block below. (This standalone walker is offline
+// only; the production render path uses runFormulaWithContext / mathjs evaluate
+// and was never affected.)
 // ---------------------------------------------------------------------------
 
 const propMap: SpaceProperty[] = [
@@ -246,13 +250,14 @@ describe("runFormulaNode — string / number / list functions over literal args"
 });
 
 describe("runFormulaNode — engine boundaries (pinned, not aspirational)", () => {
-  it("a boolean-condition ternary currently always takes the ifFalse branch (latent bug)", () => {
+  it("a boolean-condition ternary honors the condition (Notidian-ie5r — fixed)", () => {
     // The condition lowers to a boolean literal; runFormulaNode on a literal
-    // returns node.value verbatim (the JS boolean `true`), but the conditional
-    // branch compares `condition === "true"` (a STRING), so it never matches
-    // and always falls through to ifFalse. Tracked as a follow-up bead; pinned
-    // so a fix is a deliberate, test-visible change.
-    expect(run('true ? "a" : "b"')).toBe('"b"');
+    // returns node.value verbatim (the JS boolean `true`/`false`). The
+    // conditional branch now accepts BOTH the string "true" and the JS boolean
+    // `true` (`condition === "true" || condition === true`), so a boolean
+    // condition selects the correct branch. The string-literal branch values
+    // round-trip with their quotes (see the partial-evaluator note above).
+    expect(run('true ? "a" : "b"')).toBe('"a"');
     expect(run('false ? "a" : "b"')).toBe('"b"');
   });
 
