@@ -320,6 +320,42 @@ const format = (arg: any) =>{
 	return "";
 
 }
+
+// Build a RegExp from a user-authored formula string without ever throwing.
+// `new RegExp("(")` (and friends) raise a SyntaxError; inside a computed cell
+// that would propagate up the mathjs engine and crash the whole cell render.
+// Returning null lets the callers degrade gracefully (false / null / no-op).
+const safeRegExp = (pattern: string, flags?: string): RegExp | null => {
+	try {
+		return new RegExp(pattern, flags);
+	} catch {
+		return null;
+	}
+};
+
+// A correct, non-NaN, total-order comparator for the mixed values a computed
+// `sort` column can hold. The legacy `(a, b) => b - a` only worked for numbers
+// (and descending at that): on strings / dates it produced NaN, which leaves the
+// array order engine-defined (effectively unsorted). This orders numbers and
+// Dates numerically ascending and everything else by its localeCompare string
+// form, with a stable tie of 0 for equal values so V8's stable sort preserves
+// input order.
+const sortValue = (v: any): number | null => {
+	if (typeof v === "number") return v;
+	if (v instanceof Date) return v.getTime();
+	return null;
+};
+const compareSortValues = (a: any, b: any): number => {
+	const na = sortValue(a);
+	const nb = sortValue(b);
+	if (na !== null && nb !== null) {
+		return na < nb ? -1 : na > nb ? 1 : 0;
+	}
+	const sa = format(a);
+	const sb = format(b);
+	return sa < sb ? -1 : sa > sb ? 1 : 0;
+};
+
 export const formulas = {
 	"prop": prop,
 	"_current": current,
@@ -361,21 +397,31 @@ export const formulas = {
 	},
 	"test": (str: string, regex: string) => {
 		str = format(str);
-		return new RegExp(regex).test(str);
+		// A malformed user regex must not crash the computed cell — fail soft
+		// to false (no match) instead of throwing a SyntaxError up the engine.
+		const re = safeRegExp(regex);
+		return re ? re.test(str) : false;
 	},
 	"match": (str: string, regex: string) => {
 		str = format(str);
-		return str.match(new RegExp(regex));
+		// Fail soft to null (the no-match shape String.match already returns)
+		// rather than throwing on an invalid pattern.
+		const re = safeRegExp(regex);
+		return re ? str.match(re) : null;
 	},
 	"replace": (str: string, search: string, replace: string) => {
 		str = format(str);
-		return str.replace(new RegExp(search), replace);
+		// Fail soft to the untouched input when the pattern is malformed, so a
+		// bad formula degrades to a no-op instead of crashing the cell.
+		const re = safeRegExp(search);
+		return re ? str.replace(re, replace) : str;
 	},
 	"replaceAll": (str: string, search: string, replace: string) => {
 		str = format(str);
 		search = format(search);
 		replace = format(replace);
-		return str.replace(new RegExp(search, "g"), replace);
+		const re = safeRegExp(search, "g");
+		return re ? str.replace(re, replace) : str;
 	},
 	"lower": (str: string) => {
 		str = format(str);
@@ -516,12 +562,14 @@ export const formulas = {
 		return arr1.concat(arr2);
 	},
 	"sort": (arr: any[]) => {
-		return arr.sort((a, b) => {
-			return b - a;
-		});
+		// Non-mutating (copy first) so a shared computed-input array isn't
+		// reordered out from under other cells, and a correct total-order
+		// comparator so non-numeric data sorts instead of NaN-poisoning.
+		return [...arr].sort(compareSortValues);
 	},
 	"reverse": (arr: any[]) => {
-		return arr.reverse();
+		// Non-mutating: copy before reversing so the caller's array is untouched.
+		return [...arr].reverse();
 	},
 	"join": (arr: any[], separator: string) => {
 		return arr.join(separator);

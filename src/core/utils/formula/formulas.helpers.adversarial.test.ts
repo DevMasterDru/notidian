@@ -1,0 +1,290 @@
+import { formulas } from "./formulas";
+
+// ---------------------------------------------------------------------------
+// DEPTH net (Notidian-398r): adversarial + characterization coverage for the
+// VALUE-computation helpers in formulas.ts — the computed-column values the
+// table owner actually reads. The sibling formulas.test.ts covers the rawArgs
+// GUARD branches; parser.test.ts covers the mathjs end-to-end engine path.
+// Neither exercises these pure helpers directly. This file:
+//
+//   1. pins the format() coercion net that slice/substring/startsWith/contains/
+//      lower/upper/replace funnel through (degrade-gracefully-to-"" contract);
+//   2. LOCKS the fail-soft regex behavior — a malformed user pattern must not
+//      crash the computed cell (test->false, match->null, replace->no-op);
+//   3. LOCKS the sort fix — non-mutating + a correct total-order comparator
+//      (the legacy `(a,b)=>b-a` mutated the input and NaN-poisoned non-numbers);
+//   4. characterizes the date helpers' unknown-unit/format fall-through to days
+//      and their startsWith-prefix unit matching;
+//   5. exercises the array/number helpers on empty + off-type inputs.
+//
+// All offline + deterministic (no real mathjs runtime, no vault, fixed dates).
+// ---------------------------------------------------------------------------
+
+// `formulas` is typed for the mathjs import; cast to a loose record so we can
+// call the value-helpers with adversarial off-type inputs the way the engine
+// can in practice (a computed cell can hold a number, Date, string, or object).
+const fx = formulas as unknown as Record<string, (...args: any[]) => any>;
+
+describe("format() coercion net (the degrade-gracefully funnel)", () => {
+  it("returns a primitive string unchanged", () => {
+    expect(fx.format("hello")).toBe("hello");
+    expect(fx.format("")).toBe("");
+  });
+
+  it("returns a boxed String's value (instanceof String branch)", () => {
+    // eslint-disable-next-line no-new-wrappers
+    const boxed = new String("boxed");
+    expect(fx.format(boxed)).toBe(boxed);
+  });
+
+  it("formats a Date as yyyy-MM-dd", () => {
+    expect(fx.format(new Date(2024, 0, 2))).toBe("2024-01-02");
+    expect(fx.format(new Date(2023, 11, 31))).toBe("2023-12-31");
+  });
+
+  it("formats a number via toFixed(0) — truncating/rounding to an integer string", () => {
+    expect(fx.format(3)).toBe("3");
+    expect(fx.format(3.4)).toBe("3");
+    expect(fx.format(3.6)).toBe("4");
+    expect(fx.format(0)).toBe("0");
+    expect(fx.format(-2.4)).toBe("-2");
+    expect(fx.format(-2.5)).toBe("-3"); // toFixed rounds half away from zero
+  });
+
+  it("returns an object's .path when present", () => {
+    expect(fx.format({ path: "notes/a.md" })).toBe("notes/a.md");
+    expect(fx.format({ path: "x", other: 1 })).toBe("x");
+  });
+
+  it("degrades everything else to '' (null/undefined/boolean/path-less object)", () => {
+    expect(fx.format(null)).toBe("");
+    expect(fx.format(undefined)).toBe("");
+    expect(fx.format(true)).toBe("");
+    expect(fx.format(false)).toBe("");
+    expect(fx.format({})).toBe("");
+    expect(fx.format({ notPath: 1 })).toBe("");
+    expect(fx.format([])).toBe(""); // array has no .path, not string/Date/number
+  });
+});
+
+describe("string helpers funnel non-string input through format()", () => {
+  it("slice / substring coerce non-strings first (Date -> yyyy-MM-dd)", () => {
+    expect(fx.slice(new Date(2024, 0, 2), 0, 4)).toBe("2024");
+    expect(fx.substring(new Date(2024, 0, 2), 5)).toBe("01-02");
+    expect(fx.substring(new Date(2024, 0, 2), 0, 4)).toBe("2024");
+  });
+
+  it("slice on a null value coerces to '' and returns ''", () => {
+    expect(fx.slice(null, 0, 3)).toBe("");
+  });
+
+  it("startsWith / contains coerce BOTH operands via format()", () => {
+    expect(fx.startsWith("hello world", "hello")).toBe(true);
+    expect(fx.startsWith(new Date(2024, 0, 2), "2024")).toBe(true);
+    expect(fx.contains("abcdef", "cde")).toBe(true);
+    expect(fx.contains(12345, 234)).toBe(true); // both formatted: "12345".includes("234")
+    expect(fx.contains(null, "x")).toBe(false); // "".includes("x")
+  });
+
+  it("lower / upper coerce then case-fold", () => {
+    expect(fx.lower("ABC")).toBe("abc");
+    expect(fx.upper("abc")).toBe("ABC");
+    expect(fx.lower(new Date(2024, 0, 2))).toBe("2024-01-02");
+    expect(fx.upper(null)).toBe(""); // format(null) -> ""
+  });
+});
+
+describe("regex helpers fail SOFT on a malformed pattern (no computed-cell crash)", () => {
+  const bad = "("; // unterminated group -> new RegExp("(") throws SyntaxError
+
+  it("test() does not throw and returns false on a bad pattern", () => {
+    expect(() => fx.test("abc", bad)).not.toThrow();
+    expect(fx.test("abc", bad)).toBe(false);
+  });
+
+  it("match() does not throw and returns null on a bad pattern", () => {
+    expect(() => fx.match("abc", bad)).not.toThrow();
+    expect(fx.match("abc", bad)).toBeNull();
+  });
+
+  it("replace() does not throw and is a no-op (returns input) on a bad pattern", () => {
+    expect(() => fx.replace("abc", bad, "X")).not.toThrow();
+    expect(fx.replace("abc", bad, "X")).toBe("abc");
+  });
+
+  it("replaceAll() does not throw and is a no-op (returns input) on a bad pattern", () => {
+    expect(() => fx.replaceAll("abc", bad, "X")).not.toThrow();
+    expect(fx.replaceAll("abc", bad, "X")).toBe("abc");
+  });
+
+  it("still works correctly on a VALID pattern", () => {
+    expect(fx.test("abc123", "\\d+")).toBe(true);
+    expect(fx.match("abc123", "\\d+")?.[0]).toBe("123");
+    expect(fx.replace("a-b-c", "-", "_")).toBe("a_b-c"); // first match only
+    expect(fx.replaceAll("a-b-c", "-", "_")).toBe("a_b_c"); // global
+  });
+});
+
+describe("sort: non-mutating + a correct total-order comparator (LOCKED FIX)", () => {
+  it("does NOT mutate the caller's array", () => {
+    const input = [3, 1, 2];
+    const out = fx.sort(input);
+    expect(input).toEqual([3, 1, 2]); // untouched
+    expect(out).not.toBe(input); // a fresh array
+  });
+
+  it("sorts numbers ASCENDING (legacy was descending b-a)", () => {
+    expect(fx.sort([3, 1, 2])).toEqual([1, 2, 3]);
+    expect(fx.sort([10, -5, 0, 7])).toEqual([-5, 0, 7, 10]);
+  });
+
+  it("sorts lexical string data instead of NaN-poisoning it", () => {
+    // Legacy `(a,b)=>b-a` returned NaN for strings -> engine-defined / unsorted.
+    expect(fx.sort(["banana", "apple", "cherry"])).toEqual([
+      "apple",
+      "banana",
+      "cherry",
+    ]);
+  });
+
+  it("sorts Dates chronologically", () => {
+    const a = new Date(2024, 0, 3);
+    const b = new Date(2024, 0, 1);
+    const c = new Date(2024, 0, 2);
+    expect(fx.sort([a, b, c])).toEqual([b, c, a]);
+  });
+
+  it("is stable for equal values (returns 0, preserving input order)", () => {
+    expect(fx.sort([2, 2, 2])).toEqual([2, 2, 2]);
+    const xs = ["a", "a", "a"];
+    expect(fx.sort(xs)).toEqual(["a", "a", "a"]);
+  });
+
+  it("handles an empty array", () => {
+    expect(fx.sort([])).toEqual([]);
+  });
+});
+
+describe("reverse: non-mutating (LOCKED FIX)", () => {
+  it("does NOT mutate the caller's array and returns a fresh reversed copy", () => {
+    const input = [1, 2, 3];
+    const out = fx.reverse(input);
+    expect(input).toEqual([1, 2, 3]); // untouched
+    expect(out).toEqual([3, 2, 1]);
+    expect(out).not.toBe(input);
+  });
+
+  it("handles an empty array", () => {
+    expect(fx.reverse([])).toEqual([]);
+  });
+});
+
+describe("dateBetween: format switch + default fall-through to days", () => {
+  const jan1 = new Date(2024, 0, 1, 0, 0, 0, 0);
+  const jan11 = new Date(2024, 0, 11, 0, 0, 0, 0); // exactly 10 days later
+
+  it("computes each known unit", () => {
+    expect(fx.dateBetween(jan1, jan11, "days")).toBe(10);
+    expect(fx.dateBetween(jan1, jan11, "hours")).toBe(240);
+    expect(fx.dateBetween(jan1, jan11, "weeks")).toBe(1); // round(10/7)
+    expect(fx.dateBetween(jan1, jan11, "minutes")).toBe(14400);
+    expect(fx.dateBetween(jan1, jan11, "seconds")).toBe(864000);
+  });
+
+  it("is symmetric (uses abs of the diff)", () => {
+    expect(fx.dateBetween(jan11, jan1, "days")).toBe(10);
+  });
+
+  it("falls through to DAYS on an unknown/empty format (default branch)", () => {
+    expect(fx.dateBetween(jan1, jan11, "fortnights")).toBe(10);
+    expect(fx.dateBetween(jan1, jan11, "")).toBe(10);
+    expect(fx.dateBetween(jan1, jan11, undefined)).toBe(10);
+  });
+});
+
+describe("dateRange: startsWith-prefix unit matching + default to days", () => {
+  const arr = [new Date(2024, 0, 1, 0, 0, 0, 0), new Date(2024, 0, 11, 0, 0, 0, 0)];
+
+  it("matches a unit by PREFIX ('day' matches the documented 'days')", () => {
+    expect(fx.dateRange(arr, "day")).toBe(10);
+    expect(fx.dateRange(arr, "days")).toBe(10);
+    expect(fx.dateRange(arr, "dayXYZ")).toBe(10); // startsWith, not equality
+  });
+
+  it("computes other prefixed units", () => {
+    expect(fx.dateRange(arr, "hour")).toBe(240);
+    expect(fx.dateRange(arr, "week")).toBeCloseTo(10 / 7, 5);
+  });
+
+  it("falls through to DAYS for an unknown unit (default branch)", () => {
+    expect(fx.dateRange(arr, "fortnight")).toBe(10);
+    expect(fx.dateRange(arr, "")).toBe(10);
+  });
+});
+
+describe("dateAdd / dateSubtract: prefix unit matching + default branch", () => {
+  it("dateAdd adds days by prefix", () => {
+    const out = fx.dateAdd(new Date(2024, 0, 1), 5, "day");
+    expect(out.getDate()).toBe(6);
+  });
+
+  it("dateAdd with an unknown unit leaves the date unchanged (no branch fires)", () => {
+    // Unlike dateBetween/dateRange there is no default add — an unknown unit is a no-op.
+    const out = fx.dateAdd(new Date(2024, 0, 1), 5, "fortnights");
+    expect(out.getDate()).toBe(1);
+    expect(out.getMonth()).toBe(0);
+  });
+
+  it("dateSubtract subtracts months by prefix", () => {
+    const out = fx.dateSubtract(new Date(2024, 5, 15), 2, "months");
+    expect(out.getMonth()).toBe(3); // June(5) - 2 = April(3)
+  });
+
+  it("dateAdd matches 'week'/'quarter' prefixes", () => {
+    const wk = fx.dateAdd(new Date(2024, 0, 1), 1, "weeks");
+    expect(wk.getDate()).toBe(8);
+    const qt = fx.dateAdd(new Date(2024, 0, 1), 1, "quarter");
+    expect(qt.getMonth()).toBe(3); // +3 months
+  });
+});
+
+describe("array helpers on empty / off-type input", () => {
+  it("at() out of range and on empty array is undefined", () => {
+    expect(fx.at([10, 20], 5)).toBeUndefined();
+    expect(fx.at([], 0)).toBeUndefined();
+    expect(fx.at([10, 20], -1)).toBeUndefined(); // plain index access, not Array.at semantics
+  });
+
+  it("first() / last() on an empty array are undefined", () => {
+    expect(fx.first([])).toBeUndefined();
+    expect(fx.last([])).toBeUndefined();
+  });
+
+  it("first() / last() on a single-element array return that element", () => {
+    expect(fx.first([42])).toBe(42);
+    expect(fx.last([42])).toBe(42);
+  });
+});
+
+describe("toNumber coercion", () => {
+  it("a Date becomes its epoch millis", () => {
+    const d = new Date(2024, 0, 1);
+    expect(fx.toNumber(d)).toBe(d.getTime());
+  });
+
+  it("a numeric string is parsed via parseFloat", () => {
+    expect(fx.toNumber("3.14")).toBeCloseTo(3.14, 5);
+    expect(fx.toNumber("42px")).toBe(42); // parseFloat stops at non-numeric
+  });
+
+  it("a non-numeric string is NaN (parseFloat result)", () => {
+    expect(Number.isNaN(fx.toNumber("abc"))).toBe(true);
+  });
+
+  it("any other type is returned unchanged (number / boolean / object passthrough)", () => {
+    expect(fx.toNumber(7)).toBe(7);
+    expect(fx.toNumber(true)).toBe(true); // not a Date/string -> returned as-is
+    const obj = { a: 1 };
+    expect(fx.toNumber(obj)).toBe(obj);
+  });
+});
