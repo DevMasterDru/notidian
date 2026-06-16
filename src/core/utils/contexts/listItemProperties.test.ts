@@ -212,21 +212,41 @@ describe("menu adapter round-trip (listItemPropsToMenuState / menuStateToVisible
   });
 });
 
-describe("flag gating (default-OFF contract)", () => {
-  it("listItemPropertyPicker defaults to false so the owner's vault is unchanged", () => {
-    // The render half is gated behind this default-OFF setting; until the owner
-    // enables it and live-verifies (docs/AUTONOMOUS-REVIEW-QUEUE.md), the
-    // per-item field set is byte-for-byte today's.
-    expect(DEFAULT_SETTINGS.listItemPropertyPicker).toBe(false);
+describe("flag gating (default-ON, kill-switch retained)", () => {
+  it("listItemPropertyPicker now defaults to true (owner-requested feature is live)", () => {
+    // bd Notidian-543: this owner-requested feature ships default-ON; the owner
+    // verifies it by USE. The flag is retained purely as a kill-switch.
+    expect(DEFAULT_SETTINGS.listItemPropertyPicker).toBe(true);
   });
 
-  it("with the default setting, the render chokepoint never filters", () => {
+  it("with the default setting ON, a configured allowlist filters the field set", () => {
+    // Default-ON means the chokepoint honors a configured allowlist out of the
+    // box — the feature is reachable without the owner toggling anything.
     const cols = [primary("Name"), col("Status"), col("Due")];
     expect(
       applyListItemVisibleProperties(
         cols,
         withVisible(["Status"]),
         DEFAULT_SETTINGS.listItemPropertyPicker === true
+      )
+    ).toEqual([col("Status")]);
+  });
+
+  it("the kill-switch (OFF) byte-restores legacy behavior, ignoring any allowlist", () => {
+    // The retained flag is a TRUE kill-switch: with it OFF the chokepoint returns
+    // the SAME array reference regardless of any stored visibleProperties, so the
+    // per-item field set is byte-for-byte today's (no filtering whatsoever).
+    const cols = [primary("Name"), col("Status"), col("Due")];
+    const killSwitchOff = false;
+    expect(
+      applyListItemVisibleProperties(cols, withVisible(["Status"]), killSwitchOff)
+    ).toBe(cols);
+    // Even a fully-specified, valid allowlist is inert when the switch is OFF.
+    expect(
+      applyListItemVisibleProperties(
+        cols,
+        withVisible(["Status", "Due"]),
+        killSwitchOff
       )
     ).toBe(cols);
   });

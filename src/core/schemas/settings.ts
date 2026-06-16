@@ -97,12 +97,15 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // branch short-circuit needs live vault verification before the owner enables
   // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
   removeMKitPreviewRuntime: false,
-  // Default-OFF list-view per-item display-property picker (bd Notidian-543 /
-  // ADR 0016). Core list render-path change (filters the per-item `_properties`
-  // set); needs live vault verification before the owner enables it
-  // (docs/AUTONOMOUS-REVIEW-QUEUE.md). With it OFF, the per-item field set is
-  // byte-for-byte today's, regardless of any stored visibleProperties.
-  listItemPropertyPicker: false,
+  // Default-ON list-view per-item display-property picker (bd Notidian-543 /
+  // ADR 0016) — an owner-requested ("very important") Notion-'Properties'
+  // parity feature; the owner verifies it by USE. The flag is RETAINED as a
+  // KILL-SWITCH: set it false to fully disable the feature. When OFF, the
+  // render chokepoint (`applyListItemVisibleProperties`) returns the visible
+  // columns UNCHANGED (same array reference) at every call site, so the
+  // per-item field set is byte-for-byte today's, regardless of any stored
+  // `visibleProperties`.
+  listItemPropertyPicker: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,
