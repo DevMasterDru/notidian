@@ -36,7 +36,12 @@ export const dbTableToMDBTable = (
   };
 };
 
-const updateFieldsToSchema = (fields: SpaceProperty[], space: FilesystemSpaceInfo) => {
+// Exported for test only (Notidian-c2ef): this default-field merge is a pure,
+// deterministic seam whose dedup key (name AND schemaId) mirrors the m_fields
+// unique key — the same authority invariant pinned by Notidian-ub72. It has no
+// exported caller in this module, so the only clean way to characterize it
+// offline is to export the function itself; the export is otherwise inert.
+export const updateFieldsToSchema = (fields: SpaceProperty[], space: FilesystemSpaceInfo) => {
   const defaultFields = defaultFieldsForContext(space);
   return [
     ...fields,
