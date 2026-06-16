@@ -6,6 +6,23 @@ Accepted.
 
 Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
+**Review correction (bd `Notidian-2yh`):** the create-path MDB sink is
+`addRowInTable` (an INSERT), **not** `updateValueInContext` (an UPDATE). On a
+row-**create** the new path's MDB row does not exist yet — `newPathInSpace` writes
+only the file + its frontmatter; the context MDB learns of the new file later, via
+the async file-watcher/reload pipeline (`updateContextWithProperties` /
+`addPathInContexts`, which await nothing here). `updateValueInContext`
+(`context.ts`) mutates **only an existing row** (`mdb.rows.map(... === row ...)`)
+and is a **silent no-op** when no row matches (`_.isEqual(mdb, newDB)` is true, so
+`saveContext` never runs). Routing a context-only field through it on create would
+drop the value **entirely** — persisted nowhere, strictly worse than the un-gated
+behavior that at least left it in the new file's YAML. The fix uses
+`addRowInTable`, which `insertRows` a fresh row carrying the path identity plus the
+context fields; the later reload reconciliation (keyed on `PathPropertyName`)
+**merges** frontmatter onto that row rather than appending a duplicate. The prose
+below that still says `updateValueInContext` describes the original (defective)
+prescription; the implemented sink is `addRowInTable`.
+
 Awaiting an owner decision. Tracked by bd `Notidian-2yh` (a DESIGN-OPEN /
 DECISION-typed bead discovered from `Notidian-e48`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was

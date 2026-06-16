@@ -350,16 +350,31 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
                         saveProperties(this.superstate, f, frontmatterRow)
                         // Declared-Notidian / context-only fields land in their only
                         // durable home — the new path's context MDB — not file YAML.
-                        if (space) {
+                        // INSERT, not update: on row-CREATE the new path's MDB row does
+                        // not exist yet (newPathInSpace only writes the file + its
+                        // frontmatter; the context MDB learns of the file later, via
+                        // the async file-watcher/reload pipeline). updateValueInContext
+                        // mutates ONLY an existing row (it maps over mdb.rows matching
+                        // PathPropertyName and is a silent no-op when none matches), so
+                        // routing the field through it would drop the value entirely —
+                        // persisted nowhere, strictly worse than the un-gated path that
+                        // at least landed it in YAML. addRowInTable INSERTS a new row,
+                        // the correct create-path primitive (ADR 0044, bd Notidian-2yh).
+                        // It carries the path identity so the later reload reconciliation
+                        // (updateContextWithProperties, keyed on PathPropertyName)
+                        // MERGES frontmatter onto this row rather than appending a
+                        // duplicate.
+                        if (space && contextFields.length > 0) {
+                            const contextRow: DBRow = { [PathPropertyName]: f }
                             for (const [field, value] of contextFields) {
-                                updateValueInContext(
-                                    this.spaceManager as SpaceManager,
-                                    f,
-                                    field,
-                                    value,
-                                    space.space
-                                )
+                                contextRow[field] = value
                             }
+                            addRowInTable(
+                                this.spaceManager as SpaceManager,
+                                contextRow,
+                                space.space,
+                                defaultContextSchemaID
+                            )
                         }
                     }
                 })

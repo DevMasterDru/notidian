@@ -16,12 +16,21 @@
  * value-write verb, an authority hole inconsistent with update/setProperty. It
  * now routes each input field through the same apiFieldWriteTarget gate (default
  * "frontmatter", the seed-the-visible-file job): a declared source:"notidian" /
- * context-only field lands in the context MDB (updateValueInContext), a computed
- * field is dropped, and ordinary frontmatter / unresolved fields still seed the
- * new file's YAML via saveProperties. The insert cases below pin that gated
- * behavior; the prior CHARACTERIZATION (both manual+total -> frontmatter) was
- * deliberately re-blessed when Option B was implemented (ADR 0044). See bd memory
+ * context-only field lands in the context MDB, a computed field is dropped, and
+ * ordinary frontmatter / unresolved fields still seed the new file's YAML via
+ * saveProperties. The insert cases below pin that gated behavior; the prior
+ * CHARACTERIZATION (both manual+total -> frontmatter) was deliberately re-blessed
+ * when Option B was implemented (ADR 0044). See bd memory
  * api-write-surface-authority-gated and ADR 0001/0014/0017.
+ *
+ * REVIEW FIX (bd Notidian-2yh): the create-path MDB sink is addRowInTable, NOT
+ * updateValueInContext. On row-CREATE the new path's MDB row does not exist yet
+ * (newPathInSpace writes only the file + its frontmatter), and
+ * updateValueInContext mutates ONLY an existing row — it is a silent no-op when no
+ * row matches, so the context field would be dropped (persisted nowhere, worse
+ * than the un-gated YAML leak). addRowInTable INSERTS the row, carrying the path
+ * identity so the later reload reconciliation merges rather than duplicates. These
+ * tests assert the INSERT, not the (wrong) update primitive.
  */
 import { IndexMap } from "shared/types/indexMap";
 import { ContextState, ISuperstate } from "shared/types/superstate";
@@ -35,13 +44,14 @@ import { PathPropertyName } from "shared/types/context";
 // mirrors api.authority.test.ts so both files share the same fake-superstate
 // harness and sink contract.
 const updateValueInContext = jest.fn();
+const addRowInTable = jest.fn();
 const saveProperties = jest.fn();
 const newPathInSpace = jest.fn();
 
 jest.mock("core/utils/contexts/context", () => ({
   __esModule: true,
   updateValueInContext: (...args: unknown[]) => updateValueInContext(...args),
-  addRowInTable: jest.fn(),
+  addRowInTable: (...args: unknown[]) => addRowInTable(...args),
   updateTableRow: jest.fn(),
 }));
 
@@ -125,6 +135,7 @@ const flushAsync = () => new Promise((resolve) => setImmediate(resolve));
 
 beforeEach(() => {
   updateValueInContext.mockClear();
+  addRowInTable.mockClear();
   saveProperties.mockClear();
   newPathInSpace.mockClear();
 });
@@ -194,7 +205,8 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
     });
     const writtenRow = saveProperties.mock.calls[0][2];
     expect(writtenRow).not.toHaveProperty(PathPropertyName);
-    // The context MDB sink is never touched on the create path.
+    // The context MDB sink is never touched when no field routes there.
+    expect(addRowInTable).not.toHaveBeenCalled();
     expect(updateValueInContext).not.toHaveBeenCalled();
   });
 
@@ -226,14 +238,17 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
     // (computed) lands in the new file's YAML.
     expect(saveProperties).toHaveBeenCalledTimes(1);
     expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {});
-    // `manual` lands in its declared durable home, the new path's context MDB.
-    expect(updateValueInContext).toHaveBeenCalledTimes(1);
-    expect(updateValueInContext).toHaveBeenCalledWith(
+    // `manual` lands in its declared durable home, the new path's context MDB —
+    // INSERTED as a new row (the create-path primitive), carrying the path
+    // identity. updateValueInContext (update-only, silent no-op on a missing row)
+    // must NOT be used here.
+    expect(updateValueInContext).not.toHaveBeenCalled();
+    expect(addRowInTable).toHaveBeenCalledTimes(1);
+    expect(addRowInTable).toHaveBeenCalledWith(
       superstate.spaceManager,
-      createdPath,
-      "manual",
-      "kept",
-      { path: spacePath, name: "Folder" }
+      { [PathPropertyName]: createdPath, manual: "kept" },
+      { path: spacePath, name: "Folder" },
+      defaultContextSchemaID
     );
   });
 
@@ -257,13 +272,48 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
     expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {
       status: "done",
     });
-    expect(updateValueInContext).toHaveBeenCalledTimes(1);
-    expect(updateValueInContext).toHaveBeenCalledWith(
+    expect(updateValueInContext).not.toHaveBeenCalled();
+    expect(addRowInTable).toHaveBeenCalledTimes(1);
+    expect(addRowInTable).toHaveBeenCalledWith(
       superstate.spaceManager,
-      createdPath,
-      "manual",
-      "kept",
-      { path: spacePath, name: "Folder" }
+      { [PathPropertyName]: createdPath, manual: "kept" },
+      { path: spacePath, name: "Folder" },
+      defaultContextSchemaID
+    );
+  });
+
+  it("REGRESSION (bd Notidian-2yh review): bundles MULTIPLE context-only fields into ONE inserted row and never uses the update primitive on create", async () => {
+    // Two declared source:"notidian" columns. The create-path MUST insert a
+    // single row carrying both values plus the path identity — not call the
+    // update-only updateValueInContext (which maps over existing rows and is a
+    // silent no-op when the new path's row does not exist yet, dropping the
+    // values entirely). This pins the data-loss fix: the chosen sink can CREATE
+    // the row.
+    const { superstate, spacePath } = buildSuperstate([
+      { name: "manual", type: "text", source: notidianPropertySource },
+      { name: "owner", type: "text", source: notidianPropertySource },
+    ]);
+    const createdPath = "Folder/Multi.md";
+    newPathInSpace.mockResolvedValue(createdPath);
+    const api = new API(superstate);
+
+    await api.context.insert(spacePath, defaultContextSchemaID, "Multi", {
+      manual: "a",
+      owner: "b",
+    });
+    await flushAsync();
+
+    // No context field leaks to YAML; saveProperties still called (empty subset).
+    expect(saveProperties).toHaveBeenCalledTimes(1);
+    expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {});
+    // Exactly one INSERT, both fields in one row, never the update primitive.
+    expect(updateValueInContext).not.toHaveBeenCalled();
+    expect(addRowInTable).toHaveBeenCalledTimes(1);
+    expect(addRowInTable).toHaveBeenCalledWith(
+      superstate.spaceManager,
+      { [PathPropertyName]: createdPath, manual: "a", owner: "b" },
+      { path: spacePath, name: "Folder" },
+      defaultContextSchemaID
     );
   });
 
