@@ -2,13 +2,16 @@
 
 ## Status
 
-Proposed.
+Parked — build when the owner asks.
 
-Awaiting an owner decision. Tracked by bd `Notidian-o4w`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of building the feature blind, because the product/UX design is
-genuinely open and a wrong-format build would have to be re-done across two repos
-(Notidian writes the format; the Atlasidian parser reads it).
+Parked to [docs/ROADMAP.md](../ROADMAP.md): the owner validates by using the tool
+and has not asked to build this. This ADR is retained as grounding reference for
+the chosen anchor/format design if/when the owner requests the feature.
+
+Tracked by bd `Notidian-o4w`. This ADR was written instead of building the
+feature blind, because the product/UX design is genuinely open and a wrong-format
+build would have to be re-done across two repos (Notidian writes the format; the
+Atlasidian parser reads it).
 
 ## Date
 
