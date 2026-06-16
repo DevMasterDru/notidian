@@ -32,6 +32,16 @@ import { MakeMDSettings } from "shared/types/settings";
 // first, never fix blind) — real render-path callers may depend on today's exact
 // shape.
 //
+// UPDATE (Notidian-r2gr): one of those characterized edges WAS resolved as a
+// clear-correct defect — excludePathPredicate lacked the `spacesFolder + '/$'`
+// clause that excludeSpacesPredicate has, leaking on-disk `$`-system spaces
+// (Spaces/$tags, Spaces/$kit; spaceInfo.ts:50) into the navigator/db listing via
+// the raw-path call site (cacheParsers.ts:206). The clause was added (mirroring
+// the already-shared `/#` clause) and the affected assertions FLIPPED below. The
+// remaining "PARENT-equals-sub" (.space/child) gap is INTENDED — files inside a
+// .space folder are covered by hiddenFiles in practice and the triple-check is
+// suffix/exact/basename by design — so it stays locked as characterization.
+//
 // FIXTURE — only the FIVE consumed MakeMDSettings fields are populated; the rest
 // of the (large) interface is irrelevant to these pure predicates, so we cast a
 // minimal object. The two predicates DIVERGE on which array they consult for the
@@ -68,8 +78,10 @@ const makeSettings = (
 //    || (C) path == spaceSubFolder
 //    || (D) path.split('/').pop() == spaceSubFolder         } the TRIPLE check
 //   || (E) path.startsWith(spacesFolder + '/#')
+//   || (E$) path.startsWith(spacesFolder + '/$')   <-- added in Notidian-r2gr
 //   || (F) hiddenFiles.some(e => path.startsWith(e))
-// NOTE: NO '$' clause here (that exists only in excludeSpacesPredicate).
+// NOTE: the '/$' clause was ADDED in Notidian-r2gr to mirror excludeSpacesPredicate
+// (and the already-shared '/#' clause), closing a system-storage leak.
 // ===========================================================================
 describe("excludePathPredicate", () => {
   // --- clause (A): hiddenExtensions via endsWith -------------------------
@@ -152,11 +164,43 @@ describe("excludePathPredicate", () => {
     expect(excludePathPredicate(makeSettings(), "Other/#tag")).toBe(false);
   });
 
-  it('excludePathPredicate has NO "$" clause: "Spaces/$sys" is NOT hidden (DIVERGENCE)', () => {
-    // This is the key divergence from excludeSpacesPredicate, which DOES add a
-    // "Spaces/$" prefix clause. Here a $-system space under spacesFolder leaks
-    // through. LOCKED — the asymmetry is intentional per the two call sites.
-    expect(excludePathPredicate(makeSettings(), "Spaces/$sys")).toBe(false);
+  it('(E$) excludePathPredicate now HIDES "$"-system spaces under spacesFolder ("Spaces/$sys")', () => {
+    // RESOLVED (Notidian-r2gr): the prior asymmetry — excludePathPredicate
+    // lacking the "Spaces/$" prefix clause that excludeSpacesPredicate has —
+    // was an OVERSIGHT, not design. Builtin/system spaces are materialized on
+    // disk as `spacesFolder + "/$" + builtinPath` (e.g. Spaces/$tags, Spaces/$kit;
+    // see spaceManager/filesystemAdapter/spaceInfo.ts:50). excludePathPredicate
+    // runs on the RAW on-disk path via the navigator/path-cache (cacheParsers.ts:206,
+    // obsidian filesystem adapter) — where the `spaces://$` URI override does NOT
+    // apply — so before this fix the "$"-system storage LEAKED into the file
+    // navigator/db listing. The "/#" tag-space clause was already present in BOTH
+    // predicates; the missing "/$" was the lone gap. Adding it restores parity with
+    // excludeSpacesPredicate and closes the system-storage leak. LOCKED at the
+    // corrected value.
+    expect(excludePathPredicate(makeSettings(), "Spaces/$sys")).toBe(true);
+  });
+
+  it('(E$) regression — real on-disk builtin spaces (Spaces/$tags, Spaces/$kit) are hidden, including nested storage', () => {
+    // The concrete paths materialized by spaceInfo.ts:50 (spacesFolder + "/$" +
+    // builtinPath) that the navigator/path-cache walks as RAW paths. Each — and
+    // their nested .space / note storage — must now be suppressed so builtin
+    // system storage never leaks into the file navigator/db listing.
+    const s = makeSettings();
+    for (const p of [
+      "Spaces/$tags",
+      "Spaces/$kit",
+      "Spaces/$tags/.space/def.json",
+      "Spaces/$kit/Kit.md",
+    ]) {
+      expect(excludePathPredicate(s, p)).toBe(true);
+    }
+  });
+
+  it('the "/$" prefix is anchored at spacesFolder — a "$" ELSEWHERE is NOT hidden', () => {
+    // Mirrors the excludeSpacesPredicate anchoring test: "Other/$sys" does not
+    // start with "Spaces/$", and no other clause fires. Confirms the new clause
+    // is prefix-anchored, not a blanket "$" match.
+    expect(excludePathPredicate(makeSettings(), "Other/$sys")).toBe(false);
   });
 
   // --- clause (F): hiddenFiles via startsWith ----------------------------
@@ -190,12 +234,14 @@ describe("excludePathPredicate", () => {
 //    || (C) path == spaceSubFolder
 //    || (D) path.split('/').pop() == spaceSubFolder       } same TRIPLE check
 //   || (E) path.startsWith(spacesFolder + '/#')
-//   || (E$) path.startsWith(spacesFolder + '/$')        <-- EXTRA clause
+//   || (E$) path.startsWith(spacesFolder + '/$')        <-- now SHARED with excludePath
 //   || (F) hiddenFiles.some(e => path.startsWith(e))
 //
-// Differs from excludePathPredicate in exactly TWO ways:
+// Differs from excludePathPredicate in exactly ONE way now (post Notidian-r2gr):
 //   1. the endsWith clause consults skipFolderNames (not hiddenExtensions)
-//   2. it has the EXTRA spacesFolder+'/$' prefix clause
+// The spacesFolder+'/$' prefix clause used to be EXCLUSIVE to this predicate; it
+// was added to excludePathPredicate in Notidian-r2gr, so both now share it (as
+// they already shared the '/#' clause).
 // ===========================================================================
 describe("excludeSpacesPredicate", () => {
   // --- clause (A'): skipFolderNames via endsWith (the divergence) --------
@@ -233,10 +279,10 @@ describe("excludeSpacesPredicate", () => {
     expect(excludeSpacesPredicate(makeSettings(), "Spaces/#tag")).toBe(true);
   });
 
-  it('(E$) THE EXTRA "$" CLAUSE: "Spaces/$sys" IS hidden here (vs leaked by excludePath)', () => {
-    // This is the clause excludePathPredicate lacks. A $-system space under
-    // spacesFolder is suppressed from the space listing. LOCKED as the
-    // characterizing difference between the two predicates.
+  it('(E$) THE "$" CLAUSE: "Spaces/$sys" IS hidden here (now shared with excludePath)', () => {
+    // A $-system space under spacesFolder is suppressed from the space listing.
+    // Post Notidian-r2gr, excludePathPredicate ALSO hides this (parity), so the
+    // "$" clause is no longer the characterizing difference between the two.
     expect(excludeSpacesPredicate(makeSettings(), "Spaces/$sys")).toBe(true);
   });
 
@@ -270,15 +316,20 @@ describe("excludePath vs excludeSpaces divergence (LOCKED contrast)", () => {
     expect(excludeSpacesPredicate(s, "a/node_modules")).toBe(true);
   });
 
-  it('the "$"-system space under spacesFolder is leaked by excludePath but hidden by excludeSpaces', () => {
+  it('the "$"-system space under spacesFolder is now hidden by BOTH predicates (Notidian-r2gr parity)', () => {
     const s = makeSettings();
-    expect(excludePathPredicate(s, "Spaces/$sys")).toBe(false); // leaked
+    // Previously excludePath LEAKED "Spaces/$sys" (no "/$" clause). After the
+    // Notidian-r2gr fix both predicates suppress it — closing the system-storage
+    // leak into the navigator/db listing.
+    expect(excludePathPredicate(s, "Spaces/$sys")).toBe(true); // now hidden
     expect(excludeSpacesPredicate(s, "Spaces/$sys")).toBe(true); // hidden
   });
 
-  it('the shared clauses agree: "/.space" suffix, "Spaces/#" tag prefix, and hiddenFiles prefix hide in BOTH', () => {
+  it('the shared clauses agree: "/.space" suffix, "Spaces/#" tag prefix, "Spaces/$" system prefix, and hiddenFiles prefix hide in BOTH', () => {
     const s = makeSettings();
-    for (const p of ["a/.space", "Spaces/#tag", ".obsidian/app.json"]) {
+    // "Spaces/$sys" joined this list in Notidian-r2gr (the "$"-system prefix is
+    // now a shared clause, alongside the always-shared "#"-tag prefix).
+    for (const p of ["a/.space", "Spaces/#tag", "Spaces/$sys", ".obsidian/app.json"]) {
       expect(excludePathPredicate(s, p)).toBe(true);
       expect(excludeSpacesPredicate(s, p)).toBe(true);
     }

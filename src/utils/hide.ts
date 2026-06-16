@@ -5,7 +5,7 @@ export const excludePathPredicate =
     (
       settings.hiddenExtensions.some((e) => path.endsWith(e))
       || path.endsWith('/'+settings.spaceSubFolder) || path == settings.spaceSubFolder || path.split('/').pop() == settings.spaceSubFolder
-    ) || path.startsWith(settings.spacesFolder+'/#') ||
+    ) || path.startsWith(settings.spacesFolder+'/#') || path.startsWith(settings.spacesFolder+'/$') ||
     settings.hiddenFiles.some((e) => path.startsWith(e))
 
 export const excludeSpacesPredicate =
