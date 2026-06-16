@@ -16,8 +16,16 @@ export type MoveVisibleRowsResult = {
 };
 
 const isValidRowId = (rowId: string, rows: DBRows): boolean => {
+  // Row ids are CANONICAL stringified indices (`index.toString()`), so only a
+  // bare non-negative decimal integer string is valid. Number() alone is too
+  // loose: it coerces "" / " " / "1.0" / "+1" / " 2 " to a number, and those
+  // non-canonical aliases would desync the index->row map built below (which is
+  // keyed by `index.toString()`), corrupting the reorder or crashing the remap.
+  if (!/^\d+$/.test(rowId)) {
+    return false;
+  }
   const index = Number(rowId);
-  return Number.isInteger(index) && index >= 0 && index < rows.length;
+  return index < rows.length && String(index) === rowId;
 };
 
 export const rowDragSet = (

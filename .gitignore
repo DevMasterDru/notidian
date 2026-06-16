@@ -4,6 +4,7 @@ node_modules
 undefined
 .vscode
 .worktrees/
+coverage/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
