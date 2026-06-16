@@ -60,6 +60,19 @@ describe("defaultValueForField — number kind (presence, not truthiness)", () =
   it("returns a supplied 0 even when there is no configured default", () => {
     expect(defaultValueForField(prop("number"), 0)).toBe(0);
   });
+
+  // Regression pin (Notidian-w6cq review): the live caller (ButtonSubmenu.tsx)
+  // seeds number/boolean params from a STRING param map, so an UNSET number
+  // param arrives as '' — which must still fall through to the configured
+  // default and pre-fill the editor, NOT be returned as a present '' value.
+  it("falls through to the configured default for an empty string (param-map seed)", () => {
+    const field = prop("number", { default: 5 });
+    expect(defaultValueForField(field, "")).toBe(5);
+  });
+
+  it("returns undefined for an empty string when there is no configured default", () => {
+    expect(defaultValueForField(prop("number"), "")).toBeUndefined();
+  });
 });
 
 describe("defaultValueForField — boolean kind (presence, not truthiness)", () => {
@@ -82,6 +95,18 @@ describe("defaultValueForField — boolean kind (presence, not truthiness)", () 
 
   it("returns a supplied false even when there is no configured default", () => {
     expect(defaultValueForField(prop("boolean"), false)).toBe(false);
+  });
+
+  // Regression pin (Notidian-w6cq review): an UNSET boolean param arrives from
+  // the live caller's string param map as '' and must fall through to the
+  // configured default, not be returned as a present '' value.
+  it("falls through to the configured default for an empty string (param-map seed)", () => {
+    const field = prop("boolean", { default: true });
+    expect(defaultValueForField(field, "")).toBe(true);
+  });
+
+  it("returns undefined for an empty string when there is no configured default", () => {
+    expect(defaultValueForField(prop("boolean"), "")).toBeUndefined();
   });
 });
 
