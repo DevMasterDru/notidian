@@ -31,15 +31,15 @@
 // bucket.
 //
 // CHARACTERIZATION POSTURE. These tests assert CURRENT behavior, not aspiration.
-// Two current behaviors are deliberately PINNED here (not asserted "correct"),
-// and are flagged as follow-up beads rather than fixed in this test bead:
-//   (B1) generateStatefulCSS only emits pseudo-selector rules for FOUR of the
-//        eight states (hover/focus/active/disabled). press / selected / loading
-//        / error carry no pseudoSelectorMap entry and are SILENTLY DROPPED from
-//        the emitted CSS. (Harmless today — no live consumer — but a latent
-//        surprise if generateStatefulCSS is ever wired up.)
+//   (B1) FIXED (Notidian-dczm): generateStatefulCSS now emits a rule block for
+//        ALL EIGHT documented states. hover/focus/active/disabled emit real
+//        pseudo-class selectors (`.cls:state`); the four non-pseudo states
+//        press/selected/loading/error — which are NOT real CSS pseudo-classes —
+//        emit deterministic `[data-state~="state"]` attribute selectors. None
+//        are silently dropped anymore. The tests below assert the new behavior.
 //   (B2) generateStatefulCSS interpolates `className` into the selector with NO
 //        escaping, so an adversarial className injects raw text into the CSS.
+//        STILL PINNED here — owned by follow-up bead Notidian-myrt.
 // ===========================================================================
 
 import { FrameTreeProp } from "shared/types/mframe";
@@ -379,34 +379,85 @@ describe("generateStatefulCSS", () => {
     expect(generateStatefulCSS({}, "frame-1")).toBe("");
   });
 
-  it("emits nothing for a base-less, state-only object whose states are all unsupported by the pseudo map", () => {
-    // press/selected/loading/error are NOT in pseudoSelectorMap -> dropped.
+  it("emits data-state rule blocks (no base block) for a base-less object of non-pseudo states", () => {
+    // press/selected are non-pseudo -> emitted as [data-state~] selectors;
+    // with no base styles there is no base block.
     const css = generateStatefulCSS(
       { "press:transform": "scale(0.95)", "selected:color": "gold" },
       "frame-1"
     );
-    expect(css).toBe("");
+    expect(css).not.toContain(".frame-1 {");
+    expect(css).toContain(
+      '.frame-1[data-state~="press"] { transform: scale(0.95); }'
+    );
+    expect(css).toContain('.frame-1[data-state~="selected"] { color: gold; }');
   });
 
-  it("CHARACTERIZATION (B1): SILENTLY DROPS states with no pseudoSelectorMap entry while emitting the supported ones", () => {
+  it("ignores unknown state prefixes (not one of the eight) — no state rule block is produced", () => {
+    // STATE_PREFIX_REGEX only recognizes the eight documented prefixes, so an
+    // unknown prefix like 'wobble:' is NOT split into a state bucket and never
+    // produces a `:wobble` pseudo or `[data-state~="wobble"]` attribute rule.
+    const css = generateStatefulCSS({ "wobble:color": "red" }, "frame-1");
+    expect(css).not.toMatch(/:wobble/);
+    expect(css).not.toContain('[data-state~="wobble"]');
+  });
+
+  it("B1 (Notidian-dczm): emits real pseudo-classes for hover/focus/active/disabled and [data-state~] for press/selected/loading/error — none dropped", () => {
     const css = generateStatefulCSS(
       {
-        "hover:color": "blue", // supported -> emitted
-        "press:transform": "scale(0.95)", // dropped
-        "selected:color": "gold", // dropped
-        "loading:opacity": "0.5", // dropped
-        "error:color": "red", // dropped
-        "disabled:opacity": "0.4", // supported -> emitted
+        "hover:color": "blue", // pseudo -> :hover
+        "press:transform": "scale(0.95)", // non-pseudo -> [data-state~="press"]
+        "selected:color": "gold", // non-pseudo -> [data-state~="selected"]
+        "loading:opacity": "0.5", // non-pseudo -> [data-state~="loading"]
+        "error:color": "red", // non-pseudo -> [data-state~="error"]
+        "disabled:opacity": "0.4", // pseudo -> :disabled
       },
       "frame-1"
     );
-    // Only hover + disabled survive.
+    // The two real pseudo-classes emit as `:state` selectors.
     expect(css).toContain(".frame-1:hover { color: blue; }");
     expect(css).toContain(".frame-1:disabled { opacity: 0.4; }");
-    expect(css).not.toContain("scale(0.95)");
-    expect(css).not.toContain("gold");
-    expect(css).not.toContain("0.5");
-    expect(css).not.toMatch(/:error|:press|:selected|:loading/);
+    // The four non-pseudo states now ALSO emit, via deterministic
+    // `[data-state~="state"]` attribute selectors — no longer dropped.
+    expect(css).toContain(
+      '.frame-1[data-state~="press"] { transform: scale(0.95); }'
+    );
+    expect(css).toContain(
+      '.frame-1[data-state~="selected"] { color: gold; }'
+    );
+    expect(css).toContain(
+      '.frame-1[data-state~="loading"] { opacity: 0.5; }'
+    );
+    expect(css).toContain('.frame-1[data-state~="error"] { color: red; }');
+  });
+
+  it("emits each non-pseudo state as a data-state attribute selector, NOT a bogus ':state' pseudo-class", () => {
+    const css = generateStatefulCSS(
+      { "loading:opacity": "0.5", "error:color": "red" },
+      "frame-1"
+    );
+    // These are not real pseudo-classes, so they must NOT appear as `:loading`
+    // / `:error`, which no browser would match.
+    expect(css).not.toMatch(/:loading|:error/);
+    expect(css).toContain('[data-state~="loading"]');
+    expect(css).toContain('[data-state~="error"]');
+  });
+
+  it("does not leak a non-pseudo state's properties into another state's rule block", () => {
+    const css = generateStatefulCSS(
+      { "loading:color": "blue", "error:color": "green" },
+      "frame-1"
+    );
+    const loadingBlock = css
+      .split("\n")
+      .find((line) => line.includes('[data-state~="loading"]'))!;
+    const errorBlock = css
+      .split("\n")
+      .find((line) => line.includes('[data-state~="error"]'))!;
+    expect(loadingBlock).toContain("color: blue;");
+    expect(loadingBlock).not.toContain("green");
+    expect(errorBlock).toContain("color: green;");
+    expect(errorBlock).not.toContain("blue");
   });
 
   it("CHARACTERIZATION (B2): interpolates an adversarial className into the selector WITHOUT escaping", () => {
@@ -418,12 +469,13 @@ describe("generateStatefulCSS", () => {
     expect(css).toContain(".frame-1 .evil { } .injected:hover { color: blue; }");
   });
 
-  it("skips a state bucket that has no properties (guarded by length > 0)", () => {
-    // parseStateStyles never produces an empty bucket for valid input, but a
-    // bucket with only-dropped (unsupported) states yields no output, and the
-    // base block is the only thing emitted.
+  it("emits the base block plus a data-state block for a base + non-pseudo state object", () => {
+    // The base block and the press (non-pseudo) state block both emit; the
+    // length>0 guard only skips genuinely-empty buckets, which valid input
+    // never produces.
     const css = generateStatefulCSS({ color: "black", "press:x": "y" }, "frame-1");
-    expect(css).toBe(".frame-1 { color: black; }\n");
+    expect(css).toContain(".frame-1 { color: black; }\n");
+    expect(css).toContain('.frame-1[data-state~="press"] { x: y; }');
   });
 });
 

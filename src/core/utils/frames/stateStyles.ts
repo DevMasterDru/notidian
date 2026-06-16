@@ -134,36 +134,83 @@ export const extractStateTypes = (styles: FrameTreeProp): string[] => {
 };
 
 /**
- * Generate CSS for state-specific styles (for performance optimization)
+ * Real CSS pseudo-class for each interaction state that maps to one.
+ * hover / focus / active / disabled are genuine pseudo-classes the browser
+ * toggles itself, so they emit `.className:state { ... }`.
+ */
+const STATE_PSEUDO_SELECTOR_MAP: { readonly [state: string]: string } = {
+  hover: ':hover',
+  focus: ':focus',
+  active: ':active',
+  disabled: ':disabled',
+};
+
+/**
+ * The four documented interaction states that are NOT real CSS pseudo-classes
+ * (press / selected / loading / error). They cannot be a `:state` pseudo, so
+ * they are driven by a `data-state` attribute the runtime sets on the element
+ * and emit `.className[data-state~="state"] { ... }`. The `~=` token match lets
+ * several non-pseudo states coexist in one space-separated `data-state` value
+ * (e.g. `data-state="loading selected"`), matching how parseStylesForState
+ * already allows multiple simultaneously-active states.
+ */
+const NON_PSEUDO_STATES: ReadonlySet<string> = new Set([
+  'press',
+  'selected',
+  'loading',
+  'error',
+]);
+
+/**
+ * Build the CSS selector that targets `className` for a given interaction
+ * state. Real pseudo-classes use a `:state` suffix; the four non-pseudo states
+ * use a deterministic `[data-state~="state"]` attribute selector. Returns null
+ * for any state that is neither (so unknown states are skipped, not emitted as
+ * malformed CSS).
+ */
+const selectorForState = (className: string, stateType: string): string | null => {
+  const pseudoSelector = STATE_PSEUDO_SELECTOR_MAP[stateType];
+  if (pseudoSelector) {
+    return `.${className}${pseudoSelector}`;
+  }
+  if (NON_PSEUDO_STATES.has(stateType)) {
+    return `.${className}[data-state~="${stateType}"]`;
+  }
+  return null;
+};
+
+/**
+ * Generate CSS for state-specific styles (for performance optimization).
+ *
+ * Emits a rule block for every documented interaction state: the four real
+ * pseudo-classes (hover/focus/active/disabled) as `:state` selectors, and the
+ * four non-pseudo states (press/selected/loading/error) as deterministic
+ * `[data-state~="state"]` attribute selectors. No documented state is silently
+ * dropped.
+ *
  * @param styles - The styles object containing state prefixes
  * @param className - CSS class name to apply styles to
- * @returns CSS string with pseudo-selectors for supported states
+ * @returns CSS string with one rule block per base + present interaction state
  */
 export const generateStatefulCSS = (styles: FrameTreeProp, className: string): string => {
   const { baseStyles, stateStyles } = parseStateStyles(styles);
-  
+
   let css = '';
-  
+
   // Base styles
   if (Object.keys(baseStyles).length > 0) {
     css += `.${className} { ${convertToCSS(baseStyles)} }\n`;
   }
-  
-  // State-specific CSS with pseudo-selectors (web only)
-  const pseudoSelectorMap: { [state: string]: string } = {
-    hover: ':hover',
-    focus: ':focus',
-    active: ':active',
-    disabled: ':disabled',
-  };
-  
+
+  // State-specific CSS: real pseudo-classes get a ':state' selector, the four
+  // non-pseudo states get a deterministic '[data-state~="state"]' selector.
   for (const [stateType, stateStyleObj] of Object.entries(stateStyles)) {
-    const pseudoSelector = pseudoSelectorMap[stateType];
-    if (pseudoSelector && Object.keys(stateStyleObj).length > 0) {
-      css += `.${className}${pseudoSelector} { ${convertToCSS(stateStyleObj)} }\n`;
+    const selector = selectorForState(className, stateType);
+    if (selector && Object.keys(stateStyleObj).length > 0) {
+      css += `${selector} { ${convertToCSS(stateStyleObj)} }\n`;
     }
   }
-  
+
   return css;
 };
 
