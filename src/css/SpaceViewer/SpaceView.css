@@ -316,6 +316,32 @@ margin-left: calc((max(100%, var(--max-width)) - var(--max-width)) /2) !importan
   height: auto;
 }
 
+/* Notidian-xazq — shrink-to-fit, the part the .mk-foldernote-scoped rules above
+   missed. The embedded CodeMirror editor sets an INLINE padding-bottom (~one
+   viewport tall — the "scroll past end" reserve) on .cm-content, so the note
+   body renders far taller than its text even at height:auto. The app already
+   neutralizes this for .mk-space-body (see ".mk-space-body .cm-content" above);
+   the foldernote region uses .mk-space-note and was never covered. These rules
+   (a) zero that reserve and (b) force the editor/scroller/sizer to content
+   height regardless of whether .mk-foldernote is present in the live DOM (it
+   often is not, which is why the height:auto overrides above alone were
+   insufficient). All scoped to the opt-in .mk-space-note--collapsible class, so
+   the flag-OFF (collapsibleNoteBody=false) DOM is byte-identical. !important is
+   required to beat CodeMirror's inline padding. Verified live: 2472px -> 1490px
+   (= the note's true content height) for a 71-line note. */
+.mk-space-note--collapsible .cm-content {
+  padding-bottom: 0px !important;
+}
+
+.mk-space-note--collapsible .mk-flowspace-editor,
+.mk-space-note--collapsible .mk-floweditor,
+.mk-space-note--collapsible .markdown-source-view.mod-cm6 .cm-editor,
+.mk-space-note--collapsible .markdown-source-view.mod-cm6 .cm-scroller,
+.mk-space-note--collapsible .markdown-source-view.mod-cm6 .cm-sizer {
+  height: auto !important;
+  min-height: 0 !important;
+}
+
 .mk-space-note-header {
   display: flex;
   align-items: center;
