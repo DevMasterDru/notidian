@@ -35,7 +35,14 @@ export const defaultTableDataForContext = (superstate: Superstate, space: SpaceI
 
 
 export const createNewRow = (mdb: SpaceTable, row: DBRow, index?: number) => {
-  if (index) {
+  // Insert at an explicit position when one is given — including index 0
+  // (insert-at-top). A truthy guard (`if (index)`) treats 0 as "no index" and
+  // wrongly appends; `index !== undefined` lets 0 (and any negative index)
+  // reach insert(), which front-inserts for index <= 0 (shared/utils/array.ts).
+  // Only an absent index (undefined) appends at the bottom. Real caller:
+  // TableView.tsx newRow(name, index, data) — index 0 means "above the first
+  // row". Notidian-9fla.
+  if (index !== undefined) {
     return {
       ...mdb,
       rows: insert(mdb.rows, index, row),

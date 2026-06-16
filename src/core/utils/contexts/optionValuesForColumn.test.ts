@@ -19,12 +19,15 @@ import { DBRow, SpaceTable } from "shared/types/mdb";
 // defaultTableDataForContext and renameTagSpacePath are intentionally NOT
 // tested — they require a live Superstate / spaceManager.
 //
-// These are characterization tests: they LOCK current behavior (including
-// quirks) so a refactor that changes it is caught. Where behavior is a latent
-// footgun it is labelled ADVERSARIAL and the source line is cited — none of it
-// is a "bug to fix" under this bead (no genuine correctness defect surfaced;
-// the off-by-falsy index quirk is consistent, intentional-looking defensive
-// code, and ties to array.insert's own front-insert branch).
+// These are characterization tests: they LOCK behavior so a refactor that
+// changes it is caught. Where behavior is a latent footgun it is labelled
+// ADVERSARIAL and the source line is cited.
+//
+// UPDATE (Notidian-9fla): the createNewRow off-by-falsy index defect first
+// characterized here WAS a genuine correctness bug — `if (index)` dropped
+// index 0 (insert-at-top) to the append branch. It is now fixed to
+// `index !== undefined`; the createNewRow block below pins the corrected
+// insert-at-top contract.
 //
 // Pure / offline: no DOM, no vault, no Superstate at call time.
 // ---------------------------------------------------------------------------
@@ -160,7 +163,7 @@ describe("optionValuesForColumn — immutability", () => {
 
 const mdbWith = (rows: DBRow[]): SpaceTable => tableWith(rows);
 
-describe("createNewRow — truthy index inserts at that position via array.insert", () => {
+describe("createNewRow — a positive index inserts at that position via array.insert", () => {
   test("index 1 inserts between existing rows", () => {
     const mdb = mdbWith([{ id: "0" }, { id: "1" }, { id: "2" }]);
     const newRow: DBRow = { id: "NEW" };
@@ -203,29 +206,38 @@ describe("createNewRow — truthy index inserts at that position via array.inser
   });
 });
 
-describe("createNewRow — falsy index appends (NOT prepends)", () => {
-  test("undefined index appends at the end", () => {
-    const mdb = mdbWith([{ id: "0" }, { id: "1" }]);
-    const result = createNewRow(mdb, { id: "NEW" });
-    expect(result.rows).toEqual([{ id: "0" }, { id: "1" }, { id: "NEW" }]);
-  });
+describe("createNewRow — index 0 / negative prepend (insert-at-top); only an absent index appends", () => {
+  // REGRESSION (Notidian-9fla). The guard was `if (index)`, a truthiness test
+  // under which index === 0 is falsy and fell through to the append branch — so
+  // a row meant for position 0 (TableView newRow's "insert above the first
+  // row") wrongly landed at the bottom. The guard is now `index !== undefined`,
+  // so 0 (and any negative index) reaches array.insert, which front-inserts for
+  // index <= 0 (shared/utils/array.ts `!index || index <= 0`). Only an ABSENT
+  // index (undefined) appends.
 
-  test("ADVERSARIAL: index === 0 is FALSY, so a row meant for position 0 APPENDS instead of prepending", () => {
-    // Source: optionValuesForColumn.ts:38 `if (index)` — 0 fails the truthy
-    // test, so the function takes the append branch (`[...mdb.rows, row]`)
-    // rather than calling insert. Note this is the OPPOSITE of array.insert's
-    // own behavior, which for index<=0 front-inserts (array.ts:1
-    // `!index || index <= 0`). The two off-by-falsy branches do NOT compose:
-    // createNewRow short-circuits before insert ever sees the 0.
+  test("index === 0 PREPENDS the new row at position 0 (insert-at-top)", () => {
     const mdb = mdbWith([{ id: "0" }, { id: "1" }]);
     const result = createNewRow(mdb, { id: "NEW" }, 0);
-    expect(result.rows).toEqual([{ id: "0" }, { id: "1" }, { id: "NEW" }]);
-    // Explicitly NOT a prepend:
-    expect(result.rows[0]).toEqual({ id: "0" });
-    expect(result.rows[result.rows.length - 1]).toEqual({ id: "NEW" });
+    expect(result.rows).toEqual([{ id: "NEW" }, { id: "0" }, { id: "1" }]);
+    // Explicitly a prepend, not an append:
+    expect(result.rows[0]).toEqual({ id: "NEW" });
+    expect(result.rows[result.rows.length - 1]).toEqual({ id: "1" });
   });
 
-  test("CONTRAST: array.insert(arr, 0, x) front-inserts — proving the divergence is in createNewRow's `if (index)` short-circuit, not in insert", () => {
+  test("a negative index also prepends (insert front-inserts for index <= 0)", () => {
+    const mdb = mdbWith([{ id: "0" }, { id: "1" }]);
+    const result = createNewRow(mdb, { id: "NEW" }, -3);
+    expect(result.rows).toEqual([{ id: "NEW" }, { id: "0" }, { id: "1" }]);
+  });
+
+  test("index 0 delegates to array.insert (same front-insert semantics, no short-circuit)", () => {
+    const rows = [{ id: "0" }, { id: "1" }];
+    const mdb = mdbWith(rows);
+    const newRow: DBRow = { id: "NEW" };
+    expect(createNewRow(mdb, newRow, 0).rows).toEqual(insert(rows, 0, newRow));
+  });
+
+  test("CONTRAST baseline: array.insert(arr, 0, x) front-inserts — createNewRow now composes with it instead of short-circuiting", () => {
     const rows = [{ id: "0" }, { id: "1" }];
     expect(insert(rows, 0, { id: "NEW" })).toEqual([
       { id: "NEW" },
@@ -234,7 +246,22 @@ describe("createNewRow — falsy index appends (NOT prepends)", () => {
     ]);
   });
 
-  test("appends onto an empty table for both falsy-index paths", () => {
+  test("ONLY an absent (undefined) index appends at the end", () => {
+    const mdb = mdbWith([{ id: "0" }, { id: "1" }]);
+    const result = createNewRow(mdb, { id: "NEW" });
+    expect(result.rows).toEqual([{ id: "0" }, { id: "1" }, { id: "NEW" }]);
+  });
+
+  test("index 0 is immutable (new table object + new rows array; input untouched)", () => {
+    const rows = [{ id: "0" }, { id: "1" }];
+    const mdb = mdbWith(rows);
+    const result = createNewRow(mdb, { id: "NEW" }, 0);
+    expect(result).not.toBe(mdb);
+    expect(result.rows).not.toBe(rows);
+    expect(rows).toEqual([{ id: "0" }, { id: "1" }]); // untouched
+  });
+
+  test("empty table: index 0 and absent index both yield a single-row table", () => {
     expect(createNewRow(mdbWith([]), { id: "NEW" }).rows).toEqual([
       { id: "NEW" },
     ]);
