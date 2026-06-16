@@ -2,9 +2,16 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
-Awaiting an owner decision. Tracked by bd `Notidian-ircw` (the fix follow-up to
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c). Resolved
+to **Option B (recommended)** — keep the current graceful behavior and name the
+contract; no behavior change. `path.ts` and the locked test comments were
+upgraded to ratify the over-pop graceful root-clamp as the defined contract; no
+assertion values were flipped. Option A (explicit `if (sourceParts.length > 0)`
+guard) remains an available readability-only follow-up.
+
+Tracked by bd `Notidian-ircw` (the fix follow-up to
 the characterization landed by `Notidian-iuiw`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of blindly editing `path.ts`**: the bead explicitly frames it

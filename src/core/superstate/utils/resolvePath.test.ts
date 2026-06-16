@@ -262,28 +262,39 @@ describe("resolvePath", () => {
     });
 
     /**
-     * CHARACTERIZATION (over-pop past root): when the number of '..' segments
-     * exceeds the source depth, the while loop keeps popping an already-empty
-     * sourceParts array (Array.prototype.pop() on [] returns undefined, no throw).
-     * The resolver does NOT clamp at root and does NOT throw. The key property
-     * the suite asserts is that over-popping never produces a leading-slash
-     * duplication ('//…') or a leading-slash artifact — it degrades to a bare
-     * (rootless) path. We pin the exact outputs so a future clamp is deliberate.
+     * RATIFIED CONTRACT (over-pop past root) — ADR 0048 / Notidian-ircw,
+     * Option B (keep the graceful behavior, name the contract; no code change):
+     *
+     * When the number of '..' segments exceeds the source depth, the while loop
+     * keeps popping an already-empty sourceParts array (Array.prototype.pop() on
+     * [] returns undefined, no throw, no mutation), so the extra '..' are simply
+     * absorbed. This is INTENTIONALLY equivalent to path.resolve's absolute-root
+     * clamp under the repo-wide no-leading-slash invariant: path.resolve clamps
+     * over-pop to '/a.md', and our root-relative model drops the mandatory
+     * leading '/', so '/a.md' === 'a.md'. The key property the suite asserts is
+     * that over-popping NEVER produces a leading-slash duplication ('//…') or a
+     * leading-slash artifact and NEVER throws — it degrades to a bare (rootless)
+     * path. Over-pop only arises from a MALFORMED link (more '..' than the
+     * source's depth). These outputs are the ratified contract, not an accident
+     * to be "fixed"; an explicit `if (sourceParts.length > 0)` guard (ADR 0048
+     * Option A) is a readability-only follow-up whose outputs match these.
      */
-    it("CHARACTERIZATION: over-popping past root yields a bare path (no leading '/')", () => {
+    it("RATIFIED (ADR 0048): over-popping past root clamps to a bare path (no leading '/')", () => {
       // '../../../a.md' vs 'A/B.md': pop leaf -> ['A']; three '..' pops drain it and
       // then pop undefined twice -> sourceParts === [] -> [] + ['a.md'] -> 'a.md'
       expect(resolvePath("../../../a.md", "A/B.md", noSpace)).toBe("a.md");
     });
 
-    it("CHARACTERIZATION: over-popping a single-segment source yields the bare leaf", () => {
+    it("RATIFIED (ADR 0048): over-popping a single-segment source clamps to the bare leaf", () => {
       expect(resolvePath("../a.md", "B.md", noSpace)).toBe("a.md");
       expect(resolvePath("../../a.md", "B.md", noSpace)).toBe("a.md");
     });
 
-    it("CHARACTERIZATION: when '..' segments consume the WHOLE path it collapses to ''", () => {
+    it("RATIFIED (ADR 0048): when '..' segments consume the WHOLE path it clamps to root ('')", () => {
       // '../../' -> pathParts ['..','..',''] ; both '..' shift out, leaving [''] ;
-      // sourceParts drained to [] -> [] + [''] -> [''].join('/') === ''
+      // sourceParts clamped to [] (pop()-on-[] no-op) -> [] + [''] -> '' . This
+      // is the root remainder of a pure '..' walk with no tail — equivalent to
+      // path.resolve's clamp under the no-leading-slash invariant (ADR 0048).
       expect(resolvePath("../../", "A/B.md", noSpace)).toBe("");
       expect(resolvePath("../../..", "A/B/C/D.md", noSpace)).toBe("");
     });
@@ -352,6 +363,11 @@ describe("resolvePath", () => {
       }
     });
 
+    // RATIFIED INVARIANT (ADR 0048 / Notidian-ircw): the over-pop graceful
+    // root-clamp must never emit a leading-slash artifact. This property is the
+    // load-bearing guarantee behind the no-code-change ratification — it proves
+    // the degradation respects the repo-wide no-leading-slash invariant across a
+    // generated input space, including over-pop depths that exceed source depth.
     it("'../' depth never produces a leading-slash duplication ('//') nor a leading '/'", () => {
       for (const depth of depths) {
         for (const tail of tails) {
