@@ -2,9 +2,11 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
-Awaiting an owner decision. Tracked by bd `Notidian-2zs`; queued in
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+
+Tracked by bd `Notidian-2zs`; queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of changing `fm.ts` blind**. `stripFrontmatterFromString`'s
 regex `/---(.|\n)*---/` is greedy + unanchored and provably over-strips body

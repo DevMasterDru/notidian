@@ -14,23 +14,13 @@ import { onlyUniquePropCaseInsensitive, uniq } from "shared/utils/array";
 
 import { defaultValueForType, parseMDBStringValue, yamlTypeToMDBType } from "utils/properties";
 
-// KNOWN OVER-GREEDY HAZARD (characterized, not fixed — Notidian-bey).
-// The regex /---(.|\n)*---/ is GREEDY and UNANCHORED:
-//   - greedy `*` makes the match span from the FIRST `---` to the LAST `---`
-//     anywhere in the document, so a body horizontal-rule `---` AFTER a real
-//     frontmatter block causes the match to extend past the fence and STRIP
-//     intervening body content (and any later `---` swallows everything between);
-//   - unanchored: a frontmatter-like block is matched even when it is not at the
-//     start of the document.
-// Current observable behaviour is pinned in fm.stripFrontmatterFromString.test.ts.
-// Per the ADR 0025 / ADR 0033 characterize-then-decide posture, this is left as
-// CHARACTERIZATION; a non-greedy/anchored fix is a behavior call (it changes what
-// is removed from real notes) and is tracked by a follow-up decision bead rather
-// than changed blind here.
-export const stripFrontmatterFromString = (string: string) => {
-  return string.replace(/---(.|\n)*---/, "");
-};
-
+// NOTE: a `stripFrontmatterFromString` helper formerly lived here with a
+// greedy/unanchored regex `/---(.|\n)*---/` that over-stripped body prose. It
+// had zero production callers and the repo already has two correct, in-use
+// frontmatter strippers — `stripFrontmatter` (src/core/utils/spaceNoteBody.ts,
+// anchored/lazy/CRLF-safe string form) and the Obsidian `frontmatterPosition`
+// offset slice (cache-backed, authoritative). It was deleted per ADR 0036
+// (Option C). For any future body-minus-frontmatter need, use one of those two.
 export const getAllFrontmatterKeys = (plugin: MakeMDPlugin): string[] => {
   return uniq(getAllAbstractFilesInVault(plugin.app).flatMap(f => Object.keys(frontMatterForFile(plugin.app, f) ?? {}) ?? []));
 }
