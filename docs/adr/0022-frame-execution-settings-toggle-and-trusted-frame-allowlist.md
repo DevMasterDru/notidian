@@ -2,11 +2,16 @@
 
 ## Status
 
-Proposed. Awaiting owner direction (bd Notidian-214). This ADR refuses to build
-the toggle + allowlist blind: the work is gated on a prior live-verify decision
-(see Context) and the allowlist mechanism is a genuine design choice with a hard
-security invariant. It frames the options and recommends one; nothing in the
-runtime render path changes here.
+Parked — build when the owner asks. Parked to `docs/ROADMAP.md`; this ADR stays as
+grounding reference. The toggle + allowlist is genuinely-speculative product
+direction: it is gated on the owner first live-verifying `hardenFrameExecution` in
+the vault and keeping it on (still pending), and the allowlist only matters if that
+live-verify finds a real user frame the boundary breaks. The owner validates by
+USING the tool and has not asked for this. This ADR refuses to build the toggle +
+allowlist blind: the work is gated on a prior live-verify decision (see Context)
+and the allowlist mechanism is a genuine design choice with a hard security
+invariant. It frames the options and recommends one; nothing in the runtime render
+path changes here.
 
 ## Date
 
