@@ -14,21 +14,22 @@ import { SpaceProperty } from "shared/types/mdb";
 // and aggregation defaults — so its switch exhaustiveness and value-based
 // fall-through heuristics are load-bearing.
 //
-// CHARACTERIZATION net, not a correction. The most important pinned fact is an
-// adversarial HEURISTIC HAZARD, not a crash: the value-based fall-through checks
-// dates BEFORE numbers, and `new Date(String(n))` accepts bare numeric strings
-// AND even real JS numbers (e.g. new Date('2024'), new Date(String(1)) are
-// valid Dates). Consequently, value-based inference returns 'temporal' for
-// arrays of plain numbers / numeric strings, SHADOWING 'quantitative'. The only
-// value path that actually reaches 'quantitative' is numbers that are NOT
-// date-parseable (in practice: booleans, since Number(true)===1 but
-// new Date('true') is Invalid Date). This is deterministic and crash-free, so
-// it is LOCKED here and a follow-up bead tracks the ordering as a design issue;
-// it is NOT silently "fixed" in production code under this Q1 test bead.
+// This net originally CHARACTERIZED an adversarial heuristic hazard: the
+// value-based fall-through checked dates BEFORE numbers, and `new Date(String(n))`
+// accepts bare numeric strings AND even real JS numbers (e.g. new Date('2024'),
+// new Date(String(1)) are valid Dates), so value-based inference returned
+// 'temporal' for arrays of plain numbers / numeric strings, SHADOWING
+// 'quantitative'. That hazard is now RESOLVED by ADR 0035 (Option C/A hybrid):
+// a value is a date candidate only when Number(String(v)) is NaN OR v is a Date,
+// so numeric tokens short-circuit out of date-candidacy and infer 'quantitative',
+// while genuine date strings ("2024-01-01") and Date objects stay 'temporal'.
+// The assertions that previously LOCKED the temporal-shadow were flipped to
+// 'quantitative' in the same commit as the fix; the genuine-date pins and the
+// boolean-quantitative pin remain green.
 //
-// Note: explicit property metadata always WINS over values, so this hazard only
-// bites the no-property-metadata path. Everything here is pure / offline.
-// Every expectation was empirically captured before pinning.
+// Note: explicit property metadata always WINS over values, so the value path
+// is only the metadata-less fallback. Everything here is pure / offline.
+// Every expectation was empirically captured.
 // ---------------------------------------------------------------------------
 
 const prop = (type: string): SpaceProperty => ({ name: "f", type });
@@ -76,11 +77,13 @@ describe("inferEncodingType — property-metadata switch (property wins over val
     expect(inferEncodingType(prop("totally-unknown-type"))).toBe("nominal");
   });
 
-  it("UNKNOWN property type with values uses value-based inference (numbers are date-parseable -> 'temporal')", () => {
-    // Confirms fall-through reaches the value path AND that the temporal-shadow
-    // hazard applies there too: [1,2,3] are date-parseable -> 'temporal'.
+  it("UNKNOWN property type with values uses value-based inference (numbers -> 'quantitative')", () => {
+    // Confirms fall-through reaches the value path AND that numeric data infers
+    // 'quantitative' there too: [1,2,3] are finite numbers -> 'quantitative'.
+    // (ADR 0035: numbers prefer their numeric identity; previously this returned
+    // 'temporal' because new Date(String(n)) coerced numbers into dates.)
     expect(inferEncodingType(prop("totally-unknown-type"), [1, 2, 3])).toBe(
-      "temporal"
+      "quantitative"
     );
   });
 });
@@ -118,29 +121,39 @@ describe("inferEncodingType — value-based fall-through (no property metadata)"
     expect(inferEncodingType(undefined, [1, "apple"])).toBe("nominal");
   });
 
-  describe("ADVERSARIAL: temporal SHADOWS quantitative for numeric data (LOCKED hazard)", () => {
-    it("bare numeric STRINGS like '2024' infer as 'temporal', not 'quantitative'", () => {
-      // new Date('2024') is a valid Date -> the areDates check (which runs first)
-      // returns true -> 'temporal'. The number that '2024' clearly is never wins.
-      expect(inferEncodingType(undefined, ["2024", "2025"])).toBe("temporal");
+  describe("numeric data infers 'quantitative' (ADR 0035: numbers prefer their numeric identity)", () => {
+    // RESOLVED by ADR 0035 (Option C/A hybrid): a value is a date candidate only
+    // when Number(String(v)) is NaN OR v is a Date. Numeric tokens short-circuit
+    // out of date-candidacy, so they now reach the areNumbers branch and infer
+    // 'quantitative' instead of being swallowed by `new Date(String(n))`.
+    it("bare numeric STRINGS like '2024' infer as 'quantitative'", () => {
+      // Number(String('2024')) is 2024 (finite) -> NOT a date candidate ->
+      // reaches areNumbers -> 'quantitative'. (The years-as-numbers ambiguity is
+      // resolved toward quantitative for the metadata-less path; a user who means
+      // years sets a 'date' property or an explicit encoding type — see ADR 0035.)
+      expect(inferEncodingType(undefined, ["2024", "2025"])).toBe(
+        "quantitative"
+      );
     });
 
-    it("real JS NUMBERS [1, 2.5, -3] also infer as 'temporal' (new Date(String(n)) is valid)", () => {
-      // The single most surprising pinned fact: arrays of genuine numbers do NOT
-      // reach the 'quantitative' branch via value inference, because each number
-      // stringifies to a date-parseable token. To get quantitative for numeric
-      // data, the caller MUST supply property metadata of type 'number'.
-      expect(inferEncodingType(undefined, [1, 2.5, -3])).toBe("temporal");
+    it("real JS NUMBERS [1, 2.5, -3] infer as 'quantitative'", () => {
+      // The headline fix: arrays of genuine numbers now reach the 'quantitative'
+      // branch via value inference. Number(String(n)) is finite for each, so they
+      // short-circuit out of date-candidacy.
+      expect(inferEncodingType(undefined, [1, 2.5, -3])).toBe("quantitative");
     });
 
-    it("numbers with null/empty gaps still -> 'temporal' (gaps filtered, remainder date-parseable)", () => {
-      expect(inferEncodingType(undefined, [1, null, 3, ""])).toBe("temporal");
+    it("numbers with null/empty gaps -> 'quantitative' (gaps filtered, remainder numeric)", () => {
+      expect(inferEncodingType(undefined, [1, null, 3, ""])).toBe(
+        "quantitative"
+      );
     });
 
-    it("the ONLY value-based path to 'quantitative': numbers that are NOT date-parseable (booleans)", () => {
-      // Number(true)===1, Number(false)===0, but new Date('true')/new Date('false')
-      // are Invalid Date -> areDates is false -> areNumbers is true -> 'quantitative'.
-      // This pins the narrow surviving quantitative value-path.
+    it("booleans infer 'quantitative' via the areNumbers branch (Number(true)===1)", () => {
+      // Number(String('true')) is NaN, so booleans are date candidates, but
+      // new Date('true')/new Date('false') are Invalid Date -> areDates is false
+      // -> areNumbers: Number(true)===1 / Number(false)===0 -> 'quantitative'.
+      // Unchanged by ADR 0035 (the boolean quantitative pin stays green).
       expect(inferEncodingType(undefined, [true, false])).toBe("quantitative");
     });
   });

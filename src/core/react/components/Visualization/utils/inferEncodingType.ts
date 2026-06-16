@@ -41,9 +41,18 @@ export function inferEncodingType(
     const nonNullValues = values.filter(v => v != null && v !== '');
     if (nonNullValues.length === 0) return 'nominal';
 
-    // Check if values are dates
+    // Check if values are dates.
+    // A value is a date candidate only when it is a Date instance OR it is NOT a
+    // finite number. Numeric tokens (real numbers and bare numeric strings like
+    // "2024") short-circuit OUT of date-candidacy so they prefer 'quantitative'
+    // below, instead of being swallowed by `new Date(String(n))` coercion
+    // (which returns a valid Date for stringified numbers). Genuine date strings
+    // ("2024-01-01", "Jan 2024") and Date objects still pass — Number(String(v))
+    // is NaN for them — preserving temporal detection. See ADR 0035.
     const areDates = nonNullValues.every(v => {
       if (v instanceof Date) return true;
+      // Numeric tokens are not date candidates: prefer 'quantitative'.
+      if (!Number.isNaN(Number(String(v)))) return false;
       const date = new Date(String(v));
       return !isNaN(date.getTime());
     });

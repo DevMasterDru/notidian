@@ -2,9 +2,15 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
-Awaiting an owner decision. Tracked by bd `Notidian-sp5` (discovered by the
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c). The
+recommended Option C/A hybrid is implemented in
+`src/core/react/components/Visualization/utils/inferEncodingType.ts` and the
+locked numeric `temporal` assertions were flipped to `quantitative` in the same
+commit. The rest of this ADR is kept verbatim as the decision record.
+
+Originally proposed (now decided); tracked by bd `Notidian-sp5` (discovered by the
 characterization net `Notidian-5hs`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of changing the heuristic blind**. `inferEncodingType` is on

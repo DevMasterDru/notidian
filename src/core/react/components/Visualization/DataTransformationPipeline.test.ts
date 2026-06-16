@@ -31,10 +31,10 @@ import i18n from "shared/i18n";
 // These tests CHARACTERIZE (lock) the CURRENT behavior; they are not a
 // redesign. Where the current behavior is surprising-but-intentional (e.g.
 // normalizeConfig MUTATES the caller's encoding object via a shallow copy;
-// small integers infer as `temporal` because date parsing is tried before
-// number parsing; the pipeline SWALLOWS a transformer throw into an error
-// result) the surprise is documented inline so a future change has to
-// consciously re-bless it.
+// the pipeline SWALLOWS a transformer throw into an error result) the surprise
+// is documented inline so a future change has to consciously re-bless it.
+// (Small integers now infer `quantitative` via value-based inference — ADR 0035
+// resolved the prior date-before-number ordering hazard.)
 //
 // KNOWN DEFECT (locked, not blind-fixed):
 //   - validateConfig dereferences `config.encoding.x` with no guard, so it
@@ -88,16 +88,18 @@ describe("DataTransformationPipeline.normalizeConfig — type inference", () => 
     expect(encOf(out, "x").type).toBe("temporal");
   });
 
-  it("LOCKED QUIRK: small integers infer as `temporal` (date parse is tried before number parse)", () => {
-    // new Date("1") is a valid date, so the pure value-based inference path
-    // classifies 1/2/3 as temporal, never reaching the numeric check. This is
-    // the documented quirk inherited from inferEncodingType ordering.
+  it("infers `quantitative` for small integers via value-based inference (ADR 0035)", () => {
+    // Number(String(n)) is finite for 1/2/3, so they short-circuit out of
+    // date-candidacy and reach the numeric check -> quantitative. Previously
+    // these classified as `temporal` because new Date("1") is a valid date and
+    // the date check ran first; ADR 0035 resolved that hazard inherited from
+    // inferEncodingType ordering.
     const data: Row[] = [{ n: 1 }, { n: 2 }, { n: 3 }];
     const out = DataTransformationPipeline.normalizeConfig(
       data,
       cfg("bar", { y: { field: "n" } })
     );
-    expect(encOf(out, "y").type).toBe("temporal");
+    expect(encOf(out, "y").type).toBe("quantitative");
   });
 
   it("uses SpaceProperty metadata over value sniffing (number -> quantitative)", () => {
@@ -110,8 +112,9 @@ describe("DataTransformationPipeline.normalizeConfig — type inference", () => 
       cfg("bar", { y: { field: "price" } }),
       props
     );
-    // Without the property this would sniff to temporal (small ints); the
-    // property forces quantitative.
+    // The property forces quantitative; value-based inference also yields
+    // quantitative for small ints since ADR 0035 (kept here to pin that the
+    // metadata path is authoritative regardless of values).
     expect(encOf(out, "y").type).toBe("quantitative");
   });
 
