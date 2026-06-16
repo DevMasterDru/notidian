@@ -220,6 +220,34 @@ describe("sanitizeSQLStatement", () => {
     expect(sanitizeSQLStatement("")).toBe("");
   });
 
+  // ---- NUL STRIP (ADR 0047 Option B — bd Notidian-dgo6) ----
+  // sql.js `db.exec(string)` is C-string-bound, so a NUL (0x00) spliced into the
+  // SQL text truncates the statement at the engine boundary and the whole save is
+  // silently lost (replaceDB swallows the throw -> false). sanitizeSQLStatement is
+  // the chokepoint every value write passes through, so a NUL-only strip here —
+  // BEFORE the single-quote doubling — removes that whole-table silent-loss
+  // footgun at the smallest blast radius. NUL is the ONLY byte that breaks the
+  // transport (0x01..0x1f round-trip intact, pinned in db.realengine.roundtrip),
+  // so the strip is NUL-only and does not touch any legitimately-round-tripping
+  // control byte. It IS lossy (the eventual byte-faithful fix is Option A, the
+  // parameter-bound API) — pinned here so the trade-off is explicit and stable.
+  it("strips a NUL (0x00) from the value (ADR 0047 B — the only transport-breaking byte)", () => {
+    expect(sanitizeSQLStatement("a\x00b")).toBe("ab");
+    expect(sanitizeSQLStatement("\x00")).toBe("");
+    // Multiple NULs are all removed.
+    expect(sanitizeSQLStatement("\x00x\x00y\x00")).toBe("xy");
+  });
+  it("strips NUL but PRESERVES every other C0 control byte 0x01..0x1f (NUL-only strip)", () => {
+    let ctrl = "";
+    for (let code = 0x01; code <= 0x1f; code += 1) ctrl += String.fromCharCode(code);
+    // 0x01..0x1f survive verbatim; only an interleaved NUL is removed.
+    expect(sanitizeSQLStatement(`a\x00${ctrl}\x00b`)).toBe(`a${ctrl}b`);
+  });
+  it("the NUL strip composes with single-quote doubling (strip THEN double)", () => {
+    // NUL removed first, then the surviving single quote is doubled.
+    expect(sanitizeSQLStatement("a\x00'b")).toBe("a''b");
+  });
+
   // ---- SECURITY INVARIANT (property) ----
   it("INVARIANT: output never contains a lone single quote; every `'` is part of a `''` pair (count is even)", () => {
     const rng = makeRng(0xabc123);
@@ -228,18 +256,24 @@ describe("sanitizeSQLStatement", () => {
       const out = sanitizeSQLStatement(input) ?? "";
       // Removing every doubled pair must leave no stray single quote.
       expect(out.replace(/''/g, "")).not.toContain("'");
-      // Un-escaping `''`->`'` must recover the original (round-trip).
-      expect(out.replace(/''/g, "'")).toBe(input);
+      // Un-escaping `''`->`'` must recover the input with NULs stripped (ADR
+      // 0047 B: the NUL strip is the ONLY value-altering step; everything else
+      // round-trips). The fuzz corpus includes \x00, so compare against the
+      // NUL-stripped input, not the raw input.
+      expect(out.replace(/''/g, "'")).toBe(input.replace(/\x00/g, ""));
+      // And the output itself NEVER contains a NUL (the transport-breaking byte).
+      expect(out).not.toContain("\x00");
     }
   });
 
-  it("INVARIANT: every input single-quote count doubles exactly", () => {
+  it("INVARIANT: every input single-quote count doubles exactly (NUL strip does not touch quotes)", () => {
     const rng = makeRng(0x246810);
     for (let i = 0; i < PROPERTY_RUNS; i++) {
       const input = fuzzString(rng);
       const inCount = (input.match(/'/g) || []).length;
       const out = sanitizeSQLStatement(input) ?? "";
       const outCount = (out.match(/'/g) || []).length;
+      // The NUL strip removes only 0x00, so the single-quote count is unaffected.
       expect(outCount).toBe(inCount * 2);
     }
   });
@@ -851,15 +885,19 @@ describe("UNIVERSAL cross-sanitizer property net (Notidian-yrx)", () => {
       }
     });
 
-    it("sanitizeSQLStatement: output has no lone single-quote (every `'` is part of a `''` pair)", () => {
+    it("sanitizeSQLStatement: output has no lone single-quote (every `'` is part of a `''` pair) and never contains a NUL (ADR 0047 B)", () => {
       const rng = makeRng(0x59c);
       for (let i = 0; i < PROPERTY_RUNS; i++) {
         const input = adversarialString(rng);
         const out = sanitizeSQLStatement(input);
         // Removing every doubled pair leaves no stray single quote, and
-        // un-escaping recovers the input exactly (no breakout, no loss).
+        // un-escaping recovers the input with NULs stripped (ADR 0047 B: the
+        // NUL strip is the ONLY value-altering step; the adversarial corpus
+        // includes \x00, so compare against the NUL-stripped input).
         expect(out.replace(/''/g, "")).not.toContain("'");
-        expect(out.replace(/''/g, "'")).toBe(input);
+        expect(out.replace(/''/g, "'")).toBe(input.replace(/\x00/g, ""));
+        // The transport-breaking byte never survives to the SQL text.
+        expect(out).not.toContain("\x00");
       }
     });
 

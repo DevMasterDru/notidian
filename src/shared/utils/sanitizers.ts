@@ -19,9 +19,26 @@
 // `''` contract is strictly compatible (and removes a latent throw on the path
 // surface). If a future caller genuinely needs to distinguish nullish, it must
 // do so BEFORE calling the sanitizer — that boundary stays out of this module.
+// NUL (0x00) STRIP — ADR 0047 Option B (interim), bd Notidian-dgo6.
+// sql.js `db.exec(sql: string)` hands the SQL TEXT to the WASM C engine as a
+// C-string, which is NUL-terminated: an embedded NUL truncates the statement at
+// the engine boundary, so a NUL-bearing value spliced into the SQL text makes
+// the whole statement fail to parse — and replaceDB's try/catch swallows that
+// throw and returns false, silently losing the WHOLE table's save for that one
+// anomalous byte (proven against the real engine in
+// db.realengine.roundtrip.test.ts). NUL is the ONLY byte that breaks the
+// C-string transport (the same net proves 0x01..0x1f round-trip byte-for-byte),
+// so we strip JUST NUL here — the one chokepoint every value write passes
+// through — BEFORE the single-quote doubling. This removes the whole-table
+// silent-loss footgun at the smallest blast radius; it is LOSSY (a value that
+// genuinely held a NUL loses that byte), acceptable for the file-canonical
+// frontmatter/markdown source (ADR 0001/0014/0017) where a literal NUL is an
+// anomaly. The eventual byte-faithful fix is Option A (parameter-bound writes,
+// db.prepare + bind), which the engine already exposes — sequenced as a
+// deliberate SQL-builder refactor, see the roadmap / bd remember.
 export const sanitizeSQLStatement = (name: string) => {
   try {
-    return (name ?? "").replace(/'/g, `''`);
+    return (name ?? "").replace(/\x00/g, "").replace(/'/g, `''`);
   } catch (e) {
     return "";
   }

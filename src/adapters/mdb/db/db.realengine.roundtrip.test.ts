@@ -124,9 +124,14 @@ describe("real engine: replaceDB -> selectDB value round-trip is byte-for-byte i
     roundTripValue(`O'Brien; SELECT 1; -- 日本 "x" ✓`));
 
   it("CONTROL BYTES 0x01..0x1f (excluding NUL) round-trip byte-for-byte", () => {
-    // The full C0 control range MINUS NUL (0x00). NUL is pinned separately below
-    // as a hard engine limitation (db.exec is C-string-bound). 0x01..0x1f survive
-    // intact through quoteIdent/sanitizeSQLStatement and the real engine.
+    // The full C0 control range MINUS NUL (0x00). 0x01..0x1f survive intact
+    // through quoteIdent/sanitizeSQLStatement and the real engine. NUL is the
+    // singular byte that breaks the C-string transport (db.exec is C-string-
+    // bound); per ADR 0047 Option B it is now STRIPPED at the sanitizer chokepoint
+    // (sanitizeSQLStatement) BEFORE it can reach the transport, rather than
+    // truncating the statement — pinned separately in section (6) below. So this
+    // 0x01..0x1f net deliberately EXCLUDES NUL: those bytes are round-tripped,
+    // NUL is stripped.
     let ctrl = "";
     for (let code = 0x01; code <= 0x1f; code += 1) {
       ctrl += String.fromCharCode(code);
@@ -485,42 +490,78 @@ describe("real engine: full CRUD round-trip with adversarial content", () => {
 });
 
 // =========================================================================
-// (6) NUL-BYTE HARD LIMITATION — characterization-pinned.
+// (6) NUL-BYTE TRANSPORT — engine limitation pinned at the RAW boundary,
+// DEFENDED at the value chokepoint (ADR 0047 Option B, bd Notidian-dgo6).
+//
 // sql.js `db.exec(sql: string)` is C-string-bound: an embedded NUL (0x00)
-// terminates the SQL string at the engine boundary, so a value containing NUL
-// CANNOT round-trip through these string-building builders. The constructed
-// statement is truncated at the NUL and fails to parse; replaceDB swallows the
-// error and returns FALSE. This is an engine/transport limitation, NOT a
-// db.ts escaping defect (quoteIdent/sanitizeSQLStatement have no NUL-safe
-// representation in a `db.exec(string)` API). Pinned so a future reader does not
-// mistake the swallowed failure for data loss in the escaping layer, and so any
-// future move to a parameter-bound API (db.run with bind params) flips this pin
-// deliberately. Filed as a follow-up bead.
+// terminates the SQL string at the engine boundary, so a NUL spliced into the
+// SQL TEXT truncates the statement and it fails to parse. That is an
+// engine/transport limitation, NOT a quoteIdent/sanitizeSQLStatement escaping
+// defect — there is no NUL-safe representation in a `db.exec(string)` API.
+//
+// Before ADR 0047(B), a NUL-bearing VALUE reached the transport: replaceDB's
+// try/catch swallowed the parse throw and returned FALSE, silently losing the
+// WHOLE table's save for that one anomalous byte. ADR 0047(B) strips NUL at the
+// single value chokepoint sanitizeSQLStatement (the only byte that breaks the
+// C-string transport — 0x01..0x1f round-trip intact, pinned at :126-147), so a
+// NUL-bearing value now SUCCEEDS, storing the value with the NUL(s) removed
+// (lossy-but-explicit interim; the eventual byte-faithful fix is the
+// parameter-bound API, Option A — see the ADR / bd remember).
+//
+// Two pins below: the FIRST characterizes the RAW ENGINE (db.exec of a literal
+// NUL still truncates+throws — B does not, and cannot, change the engine); the
+// SECOND pins the post-B builder behavior (NUL stripped, row stored, the rest of
+// the table's save preserved).
 // =========================================================================
-describe("real engine: NUL byte in a value is a hard transport limitation (pinned)", () => {
-  it("DIRECT exec truncates at the NUL and throws a parse error", () => {
+describe("real engine: NUL byte transport — engine limit at the raw boundary, stripped at the value chokepoint (ADR 0047 B)", () => {
+  it("DIRECT exec truncates at the NUL and throws a parse error (engine limit, unchanged by B)", () => {
     const db = freshDB();
     try {
       db.exec(`CREATE TABLE "t" ("v" char);`);
       // The literal `'a\x00b'` is cut to `'a` at the NUL -> unterminated literal.
+      // B strips NUL at the BUILDER chokepoint, not in a raw caller's own exec,
+      // so this raw-engine characterization stays as the record of WHY B exists.
       expect(() => db.exec(`INSERT INTO "t" VALUES ('a\x00b');`)).toThrow();
     } finally {
       db.close();
     }
   });
 
-  it("replaceDB swallows the NUL-induced failure and returns false; no row is stored", () => {
+  it("replaceDB NUL-strips the value, returns true, and stores the NUL-stripped value (ADR 0047 B — flips the former swallow-and-false pin)", () => {
     const db = freshDB();
     try {
       const ok = replaceDB(db, {
         t: { uniques: [], cols: ["v"], rows: [{ v: "a\x00b" }] },
       });
-      // The CREATE ran (its own exec, no NUL) but the REPLACE row failed at the
-      // NUL; replaceDB's try/catch returns false. selectDB then yields an empty
-      // table (the failed REPLACE inside the transaction stored nothing).
-      expect(ok).toBe(false);
+      // ADR 0047(B): sanitizeSQLStatement strips the NUL before the value reaches
+      // the C-string transport, so the REPLACE parses, succeeds, and replaceDB
+      // returns TRUE — the row (and the rest of the table's save) is preserved.
+      expect(ok).toBe(true);
       const sel = selectDB(db, "t");
-      expect(sel === null || sel.rows.length === 0).toBe(true);
+      expect(sel).not.toBeNull();
+      expect(sel!.rows).toHaveLength(1);
+      // The stored value is the input with the NUL removed: 'a\x00b' -> 'ab'.
+      expect(sel!.rows[0].v).toBe("ab");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("a NUL-bearing value no longer rolls back a SIBLING row's save in the same replaceDB (whole-table silent-loss footgun removed)", () => {
+    // The pre-B harm: one NUL value made replaceDB return false, rolling back the
+    // ENTIRE table's save. Post-B the NUL is stripped and BOTH rows persist.
+    const db = freshDB();
+    try {
+      const ok = replaceDB(db, {
+        t: {
+          uniques: [],
+          cols: ["v"],
+          rows: [{ v: "clean" }, { v: "x\x00y" }],
+        },
+      });
+      expect(ok).toBe(true);
+      const sel = selectDB(db, "t");
+      expect(sel!.rows).toEqual([{ v: "clean" }, { v: "xy" }]);
     } finally {
       db.close();
     }

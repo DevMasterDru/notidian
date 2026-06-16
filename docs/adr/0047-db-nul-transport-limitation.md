@@ -2,9 +2,13 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-dgo6` (DESIGN-OPEN,
+Resolved by implementing the **recommended Option B** (NUL strip in
+`sanitizeSQLStatement`) as the interim fix; Option A (parameter-bound writes) is
+recorded as the eventual byte-faithful fix (roadmap / `bd remember`). The
+original Proposed body is kept below as the decision record. Tracked by bd
+`Notidian-dgo6` (DESIGN-OPEN,
 characterized — not fixed — by the real-engine net of `Notidian-0jtp`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of blindly building a fix**: the bead itself says "Decision,
