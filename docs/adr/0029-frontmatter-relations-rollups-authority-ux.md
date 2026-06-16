@@ -2,9 +2,12 @@
 
 ## Status
 
-Proposed.
+Parked — build when the owner asks.
 
-Awaiting an owner decision. Tracked by bd `Notidian-tni`; queued in
+Parked to [docs/ROADMAP.md](../ROADMAP.md) — genuinely-speculative product
+direction the owner validates by *using* the tool and has not requested; this
+ADR is retained as grounding reference, not a decision that waits. Tracked by
+bd `Notidian-tni`; queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written instead of building anything blind. It is roadmap item (1) of epic
 `Notidian-2w0` ("frontmatter-link relations + rollups") — the headline Notion gap
