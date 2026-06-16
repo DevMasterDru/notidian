@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-9i9i` (the fix follow-up to
+Tracked by bd `Notidian-9i9i` (the fix follow-up to
 the characterization landed by `Notidian-u8yx`); queued in
 [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
 written **instead of blindly editing `filter.ts`**: the fix *looks* like a

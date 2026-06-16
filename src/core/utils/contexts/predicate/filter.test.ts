@@ -65,6 +65,17 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
     it("is case-sensitive", () => {
       expect(startsWith("Hello", "hello")).toBe(false);
     });
+
+    it("FAIL-CLOSED-EMPTY (ADR 0043): a non-string non-nullish value (0/false) is treated as an empty cell, no throw", () => {
+      // Number/Boolean have no .startsWith — formerly threw; asText() now treats a
+      // non-string cell as "" (empty cell). Latent matcher (not dispatched), so
+      // this is defensive hardening that pins the uniform contract.
+      expect(() => startsWith(0 as any, "abc")).not.toThrow();
+      expect(() => startsWith(false as any, "x")).not.toThrow();
+      expect(startsWith(0 as any, "abc")).toBe(false); // "".startsWith("abc")
+      expect(startsWith(0 as any, "")).toBe(true); // "".startsWith("")
+      expect(startsWith(false as any, "")).toBe(true);
+    });
   });
 
   describe("endsWith", () => {
@@ -85,6 +96,14 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
 
     it("is case-sensitive", () => {
       expect(endsWith("worlD", "world")).toBe(false);
+    });
+
+    it("FAIL-CLOSED-EMPTY (ADR 0043): a non-string non-nullish value (0/false) is treated as an empty cell, no throw", () => {
+      expect(() => endsWith(0 as any, "abc")).not.toThrow();
+      expect(() => endsWith(false as any, "x")).not.toThrow();
+      expect(endsWith(0 as any, "abc")).toBe(false); // "".endsWith("abc")
+      expect(endsWith(0 as any, "")).toBe(true); // "".endsWith("")
+      expect(endsWith(false as any, "")).toBe(true);
     });
   });
 
@@ -128,6 +147,17 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
       // A null/undefined value is length 0, so a non-zero length filter fails.
       expect(lengthEquals(null as any, "3")).toBe(false);
       expect(lengthEquals(undefined as any, "1")).toBe(false);
+    });
+
+    it("FAIL-CLOSED-EMPTY (ADR 0043): a non-string non-nullish value (0/false) measures as length 0, no throw", () => {
+      // asText() treats a numeric/boolean cell as an empty cell ("" has length 0),
+      // explicitly — not via the prior `undefined.length` accident. Latent matcher
+      // (not dispatched); this pins the uniform contract.
+      expect(() => lengthEquals(0 as any, "0")).not.toThrow();
+      expect(() => lengthEquals(false as any, "3")).not.toThrow();
+      expect(lengthEquals(0 as any, "0")).toBe(true); // length("") == 0
+      expect(lengthEquals(false as any, "0")).toBe(true);
+      expect(lengthEquals(0 as any, "3")).toBe(false); // length("") != 3
     });
   });
 
@@ -213,6 +243,16 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
     it("ignores filterValue entirely", () => {
       expect(empty("", "ignored")).toBe(true);
     });
+
+    it("PRESERVED (ADR 0043): a non-string non-nullish value (0/false) is a real value => NOT empty", () => {
+      // A 0/false flex cell is a present value, so isEmpty stays FALSE (preserved
+      // from the prior `undefined.length == 0 -> false` behavior — now explicit,
+      // not accidental). asText() is NOT applied to flip a real value to empty.
+      expect(() => empty(0 as any, "")).not.toThrow();
+      expect(() => empty(false as any, "")).not.toThrow();
+      expect(empty(0 as any, "")).toBe(false);
+      expect(empty(false as any, "")).toBe(false);
+    });
   });
 
   // ----------------------------------------------------------------------- //
@@ -233,6 +273,23 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
 
     it("empty filter matches any value", () => {
       expect(stringCompare("anything", "")).toBe(true);
+    });
+
+    it("FAIL-CLOSED-EMPTY (ADR 0043, Notidian-9i9i): a non-string non-nullish value (0/false) is an empty cell, no throw", () => {
+      // Formerly threw a TypeError (.toLowerCase on a number/boolean), crashing the
+      // whole filter pass (filterReturnForCol has no try/catch). asText() treats a
+      // numeric/boolean cell as "" — fail-closed-empty, never a surprising
+      // cross-type substring match (Option B rejected).
+      expect(() => stringCompare(0 as any, "abc")).not.toThrow();
+      expect(() => stringCompare(false as any, "")).not.toThrow();
+      expect(() => stringCompare(42 as any, "4")).not.toThrow();
+      expect(stringCompare(0 as any, "abc")).toBe(false); // "" does not contain "abc"
+      expect(stringCompare(0 as any, "")).toBe(true); // "" contains ""
+      expect(stringCompare(false as any, "false")).toBe(false); // NOT "false" (no coerce-to-string)
+      expect(stringCompare(42 as any, "4")).toBe(false); // a number never matches its own digits
+      // A non-string filterValue is likewise treated as "" (the empty filter
+      // matches any value) — preserves the both-sides-guarded contract.
+      expect(stringCompare("text", 0 as any)).toBe(true); // includes ""
     });
   });
 

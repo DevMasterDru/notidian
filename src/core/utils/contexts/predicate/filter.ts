@@ -11,30 +11,50 @@ export type FilterFunctionType = Record<
 >;
 type FilterFunction = (v: any, f: any) => boolean;
 
+// FAIL-CLOSED-EMPTY value guard for the TEXT matcher family (ADR 0043, Option A,
+// Notidian-9i9i). The bare `(value ?? "")` guard caught null/undefined but NOT a
+// non-string non-nullish primitive: a number `0` or boolean `false` flowed
+// through unchanged and then hit a String.prototype method (.toLowerCase /
+// .startsWith / .endsWith / .length), which numbers/booleans do not have — a
+// TypeError that crashed the WHOLE table-view filter pass (filterReturnForCol has
+// no try/catch; reachable live via a flex cell whose JSON value is a real 0/false).
+//
+// asText normalizes a non-string non-nullish operand to "" — i.e. a TEXT matcher
+// treats a numeric/boolean cell as an EMPTY cell. Strings and null/undefined
+// behave EXACTLY as before. This obeys the family's value-level fail-closed
+// convention (a non-matching operand never spuriously matches, never throws —
+// lessThan/greaterThan/lengthEquals/date), and deliberately does NOT coerce-to-
+// string (rejected Option B: `0` would substring-match "0", `false` match
+// "false" — surprising cross-type matching with no user signal).
+const asText = (value: any): string =>
+  typeof value === "string" ? value : "";
+
 export const startsWith: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  return (value ?? "").startsWith(filterValue);
+  return asText(value).startsWith(filterValue);
 }
 
 export const endsWith: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  return (value ?? "").endsWith(filterValue);
+  return asText(value).endsWith(filterValue);
 }
 
 export const lengthEquals: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  // Nullish-guard the value like every sibling text predicate ((value ?? "")) so
-  // an empty cell measures as length 0 instead of throwing on value.length. NaN
+  // asText-guard the value like every sibling text predicate so an empty cell
+  // measures as length 0 instead of throwing on value.length, AND a non-string
+  // non-nullish cell (number 0 / boolean false) measures as length 0 — explicitly
+  // (ADR 0043), not by relying on `undefined.length` evaluating falsey. NaN
   // contract: a non-numeric filterValue parses to NaN and length == NaN is always
   // false, so a non-numeric operand makes every length fail (fail-closed) — mirrors
   // the NaN convention documented on lessThan/greaterThan.
-  return (value ?? "").length == parseInt(filterValue);
+  return asText(value).length == parseInt(filterValue);
 }
 
 export const listEquals: FilterFunction = (
@@ -57,16 +77,27 @@ export const empty: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  return (value ?? "").length == 0;
+  // asText-guard (ADR 0043): a non-string non-nullish cell (number 0 / boolean
+  // false) measures length 0 -> would read as "empty". Today this was the
+  // accidental `undefined.length == 0 -> false` (non-empty) result. We KEEP the
+  // observed "a 0/false cell is NOT empty" verdict by measuring asText only when
+  // the value IS nullish-or-string; a real non-string value is a real value, so
+  // it stays non-empty. (asText(0) === "" would flip it to empty, which is
+  // wrong — a 0 is a real value.) So `empty` measures the ORIGINAL value's
+  // emptiness for non-strings: a non-string non-nullish primitive is a present
+  // value => NOT empty.
+  if (value !== null && value !== undefined && typeof value !== "string")
+    return false; // a real non-string value (0 / false / {}) is present => not empty
+  return asText(value).length == 0;
 };
 
 export const stringCompare: FilterFunction = (
   value: string,
   filterValue: string
 ): boolean => {
-  return (value ?? "")
+  return asText(value)
     .toLowerCase()
-    .includes((filterValue ?? "").toLowerCase());
+    .includes(asText(filterValue).toLowerCase());
 };
 
 export const greaterThan: FilterFunction = (

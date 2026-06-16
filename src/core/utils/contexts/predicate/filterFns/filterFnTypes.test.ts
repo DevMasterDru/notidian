@@ -175,18 +175,30 @@ describe("filterFnTypes dispatch map — characterization + adversarial/property
       expect(notInclude("Hello World", "zzz")).toBe(true);
     });
 
-    it("DEFECT-PIN: a non-string non-nullish cell value (0 / false) THROWS through include/notInclude", () => {
-      // stringCompare guards with `(value ?? "")`, which catches null/undefined
-      // but NOT a number 0 or boolean false — those reach `.toLowerCase()` on a
-      // non-string and throw a TypeError. A flex/number cell whose raw value is 0
-      // (or a boolean cell mis-routed to a text-style filter) crashes the filter
-      // pass via this dispatch entry. CHARACTERIZED, not fixed (decision-adjacent
-      // follow-up): see end-of-file note.
-      expect(() => include(0 as any, "abc")).toThrow(TypeError);
-      expect(() => include(false as any, "")).toThrow(TypeError);
-      expect(() => notInclude(0 as any, "abc")).toThrow(TypeError);
-      expect(() => notInclude(false as any, "")).toThrow(TypeError);
-      // …but a numeric STRING "0" is fine (it is a string, so the guard path holds).
+    it("RE-BLESSED (ADR 0043, Notidian-9i9i): a non-string non-nullish cell value (0 / false) is FAIL-CLOSED-EMPTY, no throw", () => {
+      // Formerly a DEFECT-PIN asserting toThrow(TypeError): stringCompare guarded
+      // with `(value ?? "")`, which caught null/undefined but NOT a number 0 or
+      // boolean false — those reached `.toLowerCase()` on a non-string and threw,
+      // crashing the WHOLE table-view filter pass (filterReturnForCol has no
+      // try/catch). ADR 0043 Option A ratifies the fix: asText(value) coerces a
+      // non-string non-nullish operand to "" (treats a numeric/boolean cell as an
+      // EMPTY cell for a TEXT matcher), so a 0/false cell NEVER spuriously matches
+      // a substring and NEVER throws — matching the family's value-level
+      // fail-closed convention (lessThan/greaterThan/lengthEquals/date). This
+      // assertion is the deliberate re-blessing of the locked characterization.
+      expect(() => include(0 as any, "abc")).not.toThrow();
+      expect(() => include(false as any, "")).not.toThrow();
+      expect(() => notInclude(0 as any, "abc")).not.toThrow();
+      expect(() => notInclude(false as any, "")).not.toThrow();
+      // Positive verdicts: a 0/false cell is treated as "" (empty cell).
+      expect(include(0 as any, "abc")).toBe(false); // "" does not contain "abc"
+      expect(include(0 as any, "")).toBe(true); // "" contains "" (same as include(null,""))
+      expect(include(false as any, "")).toBe(true);
+      expect(include(false as any, "false")).toBe(false); // NOT coerce-to-string (Option B rejected)
+      expect(include(42 as any, "4")).toBe(false); // a number never substring-matches its digits
+      expect(notInclude(0 as any, "abc")).toBe(true); // complement
+      expect(notInclude(0 as any, "")).toBe(false);
+      // …and a numeric STRING "0" is unchanged (it is a string, guard path holds).
       expect(() => include("0" as any, "0")).not.toThrow();
       expect(notInclude("0" as any, "0")).toBe(false); // "0" includes "0" -> include true
     });
@@ -361,33 +373,23 @@ describe("filterFnTypes dispatch map — characterization + adversarial/property
       date: [null, "", "2024-03-15T12:00:00"],
     };
 
-    // DEFECT-PIN: stringCompare (the include/notInclude matcher) guards its
-    // operands only with `(value ?? "")`, which catches null/undefined but NOT
-    // a non-string non-nullish primitive. A numeric `0` or boolean `false` cell
-    // value reaches `.toLowerCase()` on a number/boolean and THROWS a TypeError.
-    // filter.test.ts never exercised stringCompare with 0/false (only strings &
-    // null), so this throw was previously unpinned. It is CHARACTERIZED here, not
-    // fixed — a flex/number cell whose raw value is 0/false, filtered by a
-    // text-style include/notInclude, crashes the table-view filter pass. Recorded
-    // as a decision-adjacent follow-up bead rather than blind-fixed.
-    const throwsTypeError = (key: string, v: any) =>
-      (key === "include" || key === "notInclude") &&
-      (v === 0 || v === false);
-
+    // RE-BLESSED (ADR 0043, Notidian-9i9i): formerly a DEFECT-PIN special-cased
+    // include/notInclude to assert toThrow(TypeError) on a numeric `0` / boolean
+    // `false` cell value (stringCompare's `(value ?? "")` guard caught
+    // null/undefined but NOT a non-string non-nullish primitive, so `.toLowerCase`
+    // threw on a number/boolean and crashed the whole filter pass). ADR 0043
+    // Option A's asText(value) guard removes that throw uniformly, so the
+    // load-bearing invariant is now its strongest form: EVERY dispatch entry,
+    // including include/notInclude on 0/false, is no-throw. The throwsTypeError
+    // special-case is deleted — no entry is exempt.
     describe("null-safety net: hostile cell values across every dispatch entry (load-bearing — filterReturnForCol has no try/catch)", () => {
       for (const [key, entry] of entries) {
         const operands = operandsByValueType[entry.valueType] ?? [null, "", "x"];
         for (const [label, v] of hostileValues) {
           for (const f of operands) {
-            if (throwsTypeError(key, v)) {
-              it(`DEFECT-PIN: ${key}(${label}, ${JSON.stringify(f)}) THROWS (stringCompare non-string-coercion gap)`, () => {
-                expect(() => entry.fn(v, f)).toThrow(TypeError);
-              });
-            } else {
-              it(`${key}(${label}, ${JSON.stringify(f)}) does not throw`, () => {
-                expect(() => entry.fn(v, f)).not.toThrow();
-              });
-            }
+            it(`${key}(${label}, ${JSON.stringify(f)}) does not throw`, () => {
+              expect(() => entry.fn(v, f)).not.toThrow();
+            });
           }
         }
       }
@@ -423,20 +425,22 @@ describe("filterFnTypes dispatch map — characterization + adversarial/property
 });
 
 /*
- * DEFECT discovered + characterized by this net (decision-adjacent follow-up;
- * src deliberately UNCHANGED in Notidian-u8yx per the characterization mandate):
+ * D1 (RESOLVED — ADR 0043, Option A, Notidian-9i9i; src filter.ts FIXED):
  *
- *  D1. include / notInclude (matcher: stringCompare in filter.ts) throw a
+ *  D1. include / notInclude (matcher: stringCompare in filter.ts) USED TO throw a
  *      TypeError on a NON-STRING, NON-NULLISH cell value. The `(value ?? "")`
- *      guard catches null/undefined but not a number `0` or boolean `false`,
- *      which then hit `.toLowerCase()` on a non-string. A flex/number cell whose
- *      raw value is the number 0, or a boolean cell mis-routed to a text-style
- *      include/notInclude filter, crashes the entire table-view filter pass
- *      (filterReturnForCol has no try/catch). filter.test.ts never exercised
- *      stringCompare with 0/false (only strings & null), so this was unpinned.
- *      A fix would coerce the value to a string before .toLowerCase() — e.g.
- *      `String(value ?? "")` — but that changes observable behavior, so it is
- *      filed as a separate decision rather than blind-fixed here.
+ *      guard caught null/undefined but not a number `0` or boolean `false`, which
+ *      then hit `.toLowerCase()` on a non-string and crashed the entire
+ *      table-view filter pass (filterReturnForCol has no try/catch; reachable live
+ *      via a flex cell whose JSON value is a real 0/false). RESOLVED by routing
+ *      the TEXT-matcher family (stringCompare/startsWith/endsWith/empty/
+ *      lengthEquals) through a shared asText helper
+ *      (`typeof v === "string" ? v : ""`) that treats a numeric/boolean cell as an
+ *      EMPTY cell — FAIL-CLOSED-EMPTY, so a 0/false cell never spuriously matches
+ *      and never throws. NOT coerce-to-string (rejected Option B: `0` would
+ *      substring-match "0"). The locked DEFECT-PIN assertions above were
+ *      deliberately re-blessed from toThrow(TypeError) to no-throw + positive
+ *      verdicts as part of that decision.
  *
  * ALSO pinned (existing intentional designs, not defects, surfaced through the
  * dispatch entry for the first time):
