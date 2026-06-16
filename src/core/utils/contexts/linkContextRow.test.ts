@@ -29,11 +29,15 @@ const makeRunContext = (): MathJsInstance => {
 
 const emptySettings = {} as MakeMDSettings;
 
-const pathState = (property: Record<string, unknown>): PathState =>
+const pathState = (
+  property: Record<string, unknown>,
+  tags?: string[]
+): PathState =>
   ({
     path: "Folder/A.md",
     type: "path",
     metadata: { property },
+    ...(tags ? { tags } : {}),
   } as unknown as PathState);
 
 const spaceState = {
@@ -81,6 +85,50 @@ describe("syncContextRow", () => {
     expect(row.refText).toBe("[[Home]]");
     expect(row.refLink).toBe("Home");
     expect(row.done).toBe("false");
+  });
+
+  it("serializes the PathState's .tags into a 'tags' field (case-insensitive name match)", () => {
+    // linkContextRow.ts:107 — when `fields` contains a column whose name matches
+    // /tags/i, syncContextRow projects the resolved PathState's `.tags` (a vault
+    // authority value, not frontmatter) onto the row as a serialized multi-string.
+    // The field is declared as "Tags" (capital) to pin the line-105
+    // `name?.toLowerCase() == 'tags'` case-insensitive lookup; the emitted key
+    // keeps the field's own casing (tagField.name), so the row carries "Tags".
+    const tags = ["alpha", "beta", "alpha"];
+    const paths = new Map<string, PathState>([
+      ["Folder", spaceState],
+      ["Folder/A.md", pathState({ title: "A" }, tags)],
+    ]);
+
+    const row = syncContextRow(
+      paths,
+      { [PathPropertyName]: "Folder/A.md" },
+      [frontmatterField("Tags", "tags-multi")],
+      spaceState
+    );
+
+    // The whole `.tags` list is spread + serialized verbatim (no dedupe/filter at
+    // this layer — serializeMultiString round-trips the exact array).
+    expect(row.Tags).toBe(serializeMultiString([...tags]));
+    expect(JSON.parse(row.Tags as string)).toEqual(tags);
+  });
+
+  it("emits a serialized empty list for a 'tags' field when the PathState carries no tags", () => {
+    // Same branch (line 107) with the `?? []` fallback: a resolved PathState with
+    // no `.tags` yields an empty serialized multi-string, not an absent key.
+    const paths = new Map<string, PathState>([
+      ["Folder", spaceState],
+      ["Folder/A.md", pathState({ title: "A" })],
+    ]);
+
+    const row = syncContextRow(
+      paths,
+      { [PathPropertyName]: "Folder/A.md" },
+      [frontmatterField("tags", "tags-multi")],
+      spaceState
+    );
+
+    expect(row.tags).toBe(serializeMultiString([]));
   });
 });
 
