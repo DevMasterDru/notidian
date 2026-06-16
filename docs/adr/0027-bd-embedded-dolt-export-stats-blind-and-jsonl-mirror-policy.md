@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed. Awaiting owner direction (bd Notidian-nir). This is an **owner/upstream
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+This is an **owner/upstream
 action item, not an in-repo code change** — there is no Notidian source to edit.
 The autonomous loop refused to fabricate a passive `.beads/issues.jsonl` mirror
 to "make the file non-empty," because a hand-built mirror would be lossy and
