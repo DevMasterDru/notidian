@@ -299,3 +299,223 @@ describe("runFormulaNode — determinism", () => {
     expect(row).toEqual(snapshot);
   });
 });
+
+// ===========================================================================
+// Adversarial depth-hardening of the conditional / operator / symbol walker
+// (Notidian-4byr — lands with/after the Notidian-ie5r boolean-conditional fix).
+//
+// These blocks are PURE/offline/deterministic and assert OBSERVED runtime
+// behavior (every assertion below was empirically pinned against the live
+// engine, not assumed). They cover the partial-evaluator's branch-selection,
+// nested-conditional, operator-concatenation, and symbol-constant semantics
+// at the boundaries the earlier blocks only touched. No behavior change.
+// ===========================================================================
+
+describe("runFormulaNode — conditional branch selection across every boolean-yielding condition shape (Notidian-4byr)", () => {
+  // String-literal branch values round-trip WITH their quotes through the
+  // partial evaluator (see the lost-quotes note at the top of the file), so the
+  // selected branch's observable output is the quoted form — that is exactly
+  // what pins "which branch was taken".
+  it("OPERATOR condition: equality (1==1) selects ifTrue; (1==2) selects ifFalse", () => {
+    expect(run('1==1 ? "a" : "b"')).toBe('"a"');
+    expect(run('1==2 ? "a" : "b"')).toBe('"b"');
+  });
+
+  it("OPERATOR condition: relational (2>1) selects ifTrue; (1>2) selects ifFalse", () => {
+    expect(run('2>1 ? "a" : "b"')).toBe('"a"');
+    expect(run('1>2 ? "a" : "b"')).toBe('"b"');
+  });
+
+  it("OPERATOR condition: inequality (1!=2) selects ifTrue; (1!=1) selects ifFalse", () => {
+    expect(run('1!=2 ? "a" : "b"')).toBe('"a"');
+    expect(run('1!=1 ? "a" : "b"')).toBe('"b"');
+  });
+
+  it("FUNCTION-as-condition: contains(...) truthy selects ifTrue; falsy selects ifFalse", () => {
+    expect(run('contains("hello","ell") ? "a" : "b"')).toBe('"a"');
+    expect(run('contains("hello","zzz") ? "a" : "b"')).toBe('"b"');
+  });
+
+  it("PARENTHESIZED condition: (true)/(1==1) unwrap to the inner boolean and select ifTrue", () => {
+    // ParenthesisNode lowers to its inner expression (no parentheses node
+    // survives), so a wrapped condition behaves identically to the bare one.
+    expect(run('(true) ? "a" : "b"')).toBe('"a"');
+    expect(run('(false) ? "a" : "b"')).toBe('"b"');
+    expect(run('(1==1) ? "a" : "b"')).toBe('"a"');
+    expect(run('(1==2) ? "a" : "b"')).toBe('"b"');
+  });
+
+  it("SYMBOL-node condition (hand-built true/false symbol): the string-form 'true' selects ifTrue", () => {
+    // The true/false KEYWORDS lower to boolean literal nodes, so to exercise the
+    // symbol path as a condition we build the node directly. A symbol `true`
+    // evaluates to the STRING "true" (caught by `condition === "true"`); a symbol
+    // `false` evaluates to "false" (falls through to ifFalse). This pins the
+    // string-arm of the corrected `condition === "true" || condition === true`.
+    const withSymbolCond = (name: "true" | "false"): FormulaNode => ({
+      type: "conditional",
+      condition: { type: "symbol", name },
+      ifTrue: { type: "literal", value: '"yes"' },
+      ifFalse: { type: "literal", value: '"no"' },
+    });
+    expect(runFormulaNode(withSymbolCond("true"), {})).toBe('"yes"');
+    expect(runFormulaNode(withSymbolCond("false"), {})).toBe('"no"');
+  });
+
+  it("hand-built OPERATOR condition yields a real JS boolean — pins the `=== true` arm of the fix", () => {
+    // 1 == 1 re-evaluates to the JS boolean `true`, which is caught ONLY by the
+    // `condition === true` arm (not the string arm). This is the exact case the
+    // Notidian-ie5r fix added; before the fix it fell through to ifFalse.
+    const opCond = (operator: string, lhs: number, rhs: number): FormulaNode => ({
+      type: "conditional",
+      condition: {
+        type: "operator",
+        operator,
+        args: [
+          { type: "literal", value: lhs as unknown as string },
+          { type: "literal", value: rhs as unknown as string },
+        ],
+      },
+      ifTrue: { type: "literal", value: '"T"' },
+      ifFalse: { type: "literal", value: '"F"' },
+    });
+    expect(runFormulaNode(opCond("==", 1, 1), {})).toBe('"T"');
+    expect(runFormulaNode(opCond("==", 1, 2), {})).toBe('"F"');
+    expect(runFormulaNode(opCond(">", 2, 1), {})).toBe('"T"');
+    expect(runFormulaNode(opCond(">", 1, 2), {})).toBe('"F"');
+  });
+
+  it("guards the exact-match contract: a non-'true' string / number / 0 condition takes ifFalse (NOT a truthy broadening)", () => {
+    // The fix is deliberately exact-match, NOT truthy. A condition that
+    // evaluates to a non-empty string like "false", or a number, must still
+    // fall through to ifFalse — otherwise "false"/0/"" semantics would change.
+    const withCond = (condition: FormulaNode): FormulaNode => ({
+      type: "conditional",
+      condition,
+      ifTrue: { type: "literal", value: '"T"' },
+      ifFalse: { type: "literal", value: '"F"' },
+    });
+    // a symbol `false` -> string "false" (a NON-empty, truthy JS string) -> ifFalse
+    expect(runFormulaNode(withCond({ type: "symbol", name: "false" }), {})).toBe('"F"');
+    // a numeric literal `1` (truthy in JS) is NOT === "true" and NOT === true -> ifFalse
+    expect(runFormulaNode(withCond({ type: "literal", value: 1 as unknown as string }), {})).toBe('"F"');
+  });
+});
+
+describe("runFormulaNode — nested conditionals (Notidian-4byr)", () => {
+  // cond ? (c2 ? a : b) : c  — exercise every leaf with both outer arms.
+  it("selects through a nested conditional in the ifTrue arm", () => {
+    expect(run('true ? (true ? "a" : "b") : "c"')).toBe('"a"');
+    expect(run('true ? (false ? "a" : "b") : "c"')).toBe('"b"');
+  });
+
+  it("selects through a nested conditional in the ifFalse arm", () => {
+    expect(run('false ? "a" : (true ? "b" : "c")')).toBe('"b"');
+    expect(run('false ? "a" : (false ? "b" : "c")')).toBe('"c"');
+  });
+
+  it("nests under an OPERATOR condition at both levels", () => {
+    // 1==1 -> true (outer ifTrue) ; inner 2>3 -> false (inner ifFalse)
+    expect(run('1==1 ? (2>3 ? "a" : "b") : "c"')).toBe('"b"');
+    // 1==2 -> false (outer ifFalse), which is itself a nested conditional
+    expect(run('1==2 ? "a" : (3>2 ? "b" : "c")')).toBe('"b"');
+  });
+
+  it("a 3-deep nest resolves to the single reachable leaf", () => {
+    // true -> false -> true : a/b/c/d ladder, only "c" is reachable.
+    expect(run('true ? (false ? "a" : (true ? "c" : "d")) : "e"')).toBe('"c"');
+  });
+});
+
+describe("runFormulaNode — operator re-eval / args.join(operator) concatenation semantics (Notidian-4byr)", () => {
+  // The operator path does `runContext.evaluate(args.join(operator))`. String
+  // LITERAL args keep their quotes (so they round-trip as mathjs strings and
+  // concatenate cleanly), while a string PROPERTY value loses its quotes and
+  // becomes an undefined mathjs symbol — pinned here for + and == as well as
+  // the already-covered nested-function case.
+  it("string-LITERAL args round-trip their quotes and concatenate via +", () => {
+    expect(run('"a" + "b"')).toBe("ab");
+    expect(run('"x" + 1')).toBe("x1");
+  });
+
+  it("numeric args add arithmetically (no quote round-trip needed)", () => {
+    expect(run("1 + 2")).toBe(3);
+    expect(run('prop("Count") + 1', { Count: "5" })).toBe(6);
+  });
+
+  it("a string PROPERTY value loses its quotes under + and THROWS (undefined mathjs symbol)", () => {
+    // prop("Title") -> "world" (no surrounding quotes) -> re-evaluated as
+    // world + "!" ; `world` is an undefined symbol. Extends the lost-quotes
+    // boundary from the function case to the + operator, on BOTH sides.
+    expect(() => run('prop("Title") + "!"', { Title: "world" })).toThrow();
+    expect(() => run('"!" + prop("Title")', { Title: "world" })).toThrow();
+  });
+
+  it("comparison operators over literals collapse to a real JS boolean", () => {
+    expect(run("1==1")).toBe(true);
+    expect(run("1!=2")).toBe(true);
+    expect(run("2>1")).toBe(true);
+    expect(run('"a"=="a"')).toBe(true);
+    expect(run('"a"=="b"')).toBe(false);
+  });
+
+  it("a string PROPERTY value loses its quotes under == and THROWS too", () => {
+    expect(() => run('prop("Title") == "world"', { Title: "world" })).toThrow();
+  });
+});
+
+describe("runFormulaNode — symbol constants exact string outputs (Notidian-4byr)", () => {
+  // The four supported symbols resolve to fixed strings; pin the EXACT digit
+  // strings so a future refactor of the symbol arm can't silently drift them.
+  it("pi resolves to the exact string '3.141592653589793'", () => {
+    expect(runFormulaNode({ type: "symbol", name: "pi" }, {})).toBe("3.141592653589793");
+  });
+
+  it("e resolves to the exact string '2.718281828459045'", () => {
+    expect(runFormulaNode({ type: "symbol", name: "e" }, {})).toBe("2.718281828459045");
+  });
+
+  it("true / false resolve to the exact lowercase strings", () => {
+    expect(runFormulaNode({ type: "symbol", name: "true" }, {})).toBe("true");
+    expect(runFormulaNode({ type: "symbol", name: "false" }, {})).toBe("false");
+  });
+
+  it("the symbol outputs are plain strings (never JS booleans/numbers)", () => {
+    for (const name of ["pi", "e", "true", "false"] as const) {
+      expect(typeof runFormulaNode({ type: "symbol", name }, {})).toBe("string");
+    }
+  });
+});
+
+describe("runFormulaNode — determinism + no row mutation over conditional / operator cases (Notidian-4byr)", () => {
+  const conditionalAndOperatorCases = [
+    '1==1 ? "a" : "b"',
+    '2>1 ? "a" : "b"',
+    'contains("hello","ell") ? "a" : "b"',
+    '(true) ? "a" : "b"',
+    'true ? (false ? "a" : "b") : "c"',
+    '"a" + "b"',
+    "1 + 2",
+    'prop("Count") + 1',
+  ];
+
+  it("same conditional/operator node + same row => identical output (pure, repeatable)", () => {
+    for (const src of conditionalAndOperatorCases) {
+      const n = node(src);
+      const row: DBRow = { Title: "x", Count: "5" };
+      const a = runFormulaNode(n, { ...row });
+      const b = runFormulaNode(n, { ...row });
+      const c = runFormulaNode(n, { ...row });
+      expect(a).toStrictEqual(b);
+      expect(b).toStrictEqual(c);
+    }
+  });
+
+  it("evaluating conditional/operator nodes never mutates the input row", () => {
+    const row: DBRow = { Title: "world", Count: "5", When: "2026-06-16" };
+    const snapshot = { ...row };
+    for (const src of conditionalAndOperatorCases) {
+      runFormulaNode(node(src), row);
+    }
+    expect(row).toEqual(snapshot);
+  });
+});
