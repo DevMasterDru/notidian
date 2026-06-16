@@ -162,11 +162,93 @@ const NON_PSEUDO_STATES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Escape a class name for safe interpolation into a CSS selector.
+ *
+ * `generateStatefulCSS` builds selectors via string interpolation
+ * (`.${className} { ... }`). Without escaping, a className containing CSS
+ * metacharacters (spaces, `{`, `}`, `.`, `#`, `:`, `[`, `]`, etc.) would break
+ * out of the intended `.class` selector and inject arbitrary rules into the
+ * emitted stylesheet — e.g. `frame-1 .evil { } .injected` would emit a rule for
+ * a *different* element plus a dangling rule. This is a CSS-injection sink.
+ *
+ * Strategy:
+ *  - Prefer the platform `CSS.escape` (CSSOM `serializeIdentifier`), the
+ *    spec-correct identifier serializer, when it exists (real browser DOM).
+ *  - Otherwise fall back to a spec-aligned manual escape: the jest test
+ *    environment is `node` (and even jsdom does not expose `window.CSS`), so a
+ *    self-contained fallback is mandatory, not optional. It backslash-escapes
+ *    every character outside the CSS "safe" identifier set `[A-Za-z0-9_-]` and
+ *    hex-escapes the two positional hazards the spec calls out (a leading digit,
+ *    and a leading hyphen followed by a digit), so the result is always a single
+ *    valid CSS identifier that cannot terminate the selector early.
+ */
+const escapeClassName = (className: string): string => {
+  // Prefer the platform serializer when present (real DOM contexts).
+  const platformCSS = (globalThis as { CSS?: { escape?: (value: string) => string } }).CSS;
+  if (platformCSS && typeof platformCSS.escape === "function") {
+    return platformCSS.escape(className);
+  }
+
+  // Self-contained, spec-aligned fallback (node/jsdom — no `CSS.escape`).
+  // Mirrors CSSOM serializeIdentifier for the cases that matter here.
+  let result = "";
+  for (let i = 0; i < className.length; i++) {
+    const ch = className[i];
+    const code = className.charCodeAt(i);
+
+    // NULL -> U+FFFD REPLACEMENT CHARACTER (per the serialize-identifier algorithm).
+    if (code === 0x0000) {
+      result += "�";
+      continue;
+    }
+
+    // A leading digit, or a leading hyphen followed by a digit, must be
+    // hex-escaped so the identifier cannot be read as a number.
+    const isDigit = code >= 0x0030 && code <= 0x0039;
+    if (i === 0 && isDigit) {
+      result += `\\${code.toString(16)} `;
+      continue;
+    }
+    if (i === 1 && isDigit && className.charCodeAt(0) === 0x002d /* - */) {
+      result += `\\${code.toString(16)} `;
+      continue;
+    }
+
+    // Control characters (incl. DEL) are hex-escaped.
+    if ((code >= 0x0001 && code <= 0x001f) || code === 0x007f) {
+      result += `\\${code.toString(16)} `;
+      continue;
+    }
+
+    // The CSS-safe identifier set passes through unescaped.
+    const isSafe =
+      (code >= 0x0041 && code <= 0x005a) || // A-Z
+      (code >= 0x0061 && code <= 0x007a) || // a-z
+      isDigit ||
+      code === 0x002d || // -
+      code === 0x005f || // _
+      code >= 0x0080; // non-ASCII passes through (valid in identifiers)
+    if (isSafe) {
+      result += ch;
+      continue;
+    }
+
+    // Everything else (space, {, }, ., #, :, [, ], (, ), etc.) is backslash-escaped.
+    result += `\\${ch}`;
+  }
+  return result;
+};
+
+/**
  * Build the CSS selector that targets `className` for a given interaction
  * state. Real pseudo-classes use a `:state` suffix; the four non-pseudo states
  * use a deterministic `[data-state~="state"]` attribute selector. Returns null
  * for any state that is neither (so unknown states are skipped, not emitted as
  * malformed CSS).
+ *
+ * `className` is assumed to be ALREADY escaped by the caller (see
+ * `generateStatefulCSS`), so it is interpolated directly here — escape once at
+ * the source, not per selector.
  */
 const selectorForState = (className: string, stateType: string): string | null => {
   const pseudoSelector = STATE_PSEUDO_SELECTOR_MAP[stateType];
@@ -195,17 +277,24 @@ const selectorForState = (className: string, stateType: string): string | null =
 export const generateStatefulCSS = (styles: FrameTreeProp, className: string): string => {
   const { baseStyles, stateStyles } = parseStateStyles(styles);
 
+  // Escape ONCE at the source. `className` is interpolated raw into every
+  // emitted selector (the base `.cls` rule and every pseudo / data-state rule
+  // built by selectorForState), so an unescaped className containing CSS
+  // metacharacters would inject arbitrary rules into the stylesheet. Escaping
+  // here neutralizes the injection for both the base rule and all state rules.
+  const safeClassName = escapeClassName(className);
+
   let css = '';
 
   // Base styles
   if (Object.keys(baseStyles).length > 0) {
-    css += `.${className} { ${convertToCSS(baseStyles)} }\n`;
+    css += `.${safeClassName} { ${convertToCSS(baseStyles)} }\n`;
   }
 
   // State-specific CSS: real pseudo-classes get a ':state' selector, the four
   // non-pseudo states get a deterministic '[data-state~="state"]' selector.
   for (const [stateType, stateStyleObj] of Object.entries(stateStyles)) {
-    const selector = selectorForState(className, stateType);
+    const selector = selectorForState(safeClassName, stateType);
     if (selector && Object.keys(stateStyleObj).length > 0) {
       css += `${selector} { ${convertToCSS(stateStyleObj)} }\n`;
     }

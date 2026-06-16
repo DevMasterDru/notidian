@@ -37,9 +37,14 @@
 //        press/selected/loading/error — which are NOT real CSS pseudo-classes —
 //        emit deterministic `[data-state~="state"]` attribute selectors. None
 //        are silently dropped anymore. The tests below assert the new behavior.
-//   (B2) generateStatefulCSS interpolates `className` into the selector with NO
-//        escaping, so an adversarial className injects raw text into the CSS.
-//        STILL PINNED here — owned by follow-up bead Notidian-myrt.
+//   (B2) FIXED (Notidian-myrt): generateStatefulCSS now runs `className` through
+//        escapeClassName (CSS.escape when a DOM exposes it, else a spec-aligned
+//        manual fallback for the node/jsdom test env) ONCE before interpolating
+//        it into every emitted selector — the base `.cls` rule AND every
+//        pseudo / `[data-state~]` rule. An adversarial className can no longer
+//        break out of its selector to inject extra CSS rules; a normal
+//        kebab-case className round-trips untouched. The tests below assert the
+//        escaped/sanitized behavior.
 // ===========================================================================
 
 import { FrameTreeProp } from "shared/types/mframe";
@@ -460,13 +465,72 @@ describe("generateStatefulCSS", () => {
     expect(errorBlock).not.toContain("blue");
   });
 
-  it("CHARACTERIZATION (B2): interpolates an adversarial className into the selector WITHOUT escaping", () => {
-    // No CSS escaping today -> the raw className lands verbatim in the selector.
+  it("B2 (Notidian-myrt): escapes an adversarial className so it CANNOT inject extra CSS rules", () => {
+    // FIXED: className is now run through escapeClassName before interpolation,
+    // so CSS metacharacters (space, '.', '{', '}') are backslash-escaped and the
+    // whole value stays a single class selector — no break-out into a `.evil`
+    // rule or a dangling `.injected` rule.
     const css = generateStatefulCSS(
       { "hover:color": "blue" },
       "frame-1 .evil { } .injected"
     );
-    expect(css).toContain(".frame-1 .evil { } .injected:hover { color: blue; }");
+    // The raw, unescaped injection string must NOT appear verbatim.
+    expect(css).not.toContain(".frame-1 .evil { } .injected:hover");
+    // The metacharacters are escaped (no UNescaped space/brace survives inside
+    // the selector portion that precedes the `:hover`).
+    expect(css).toContain("\\ "); // spaces are backslash-escaped
+    expect(css).toContain("\\{"); // '{' is backslash-escaped
+    expect(css).toContain("\\}"); // '}' is backslash-escaped
+    expect(css).toContain("\\."); // '.' is backslash-escaped
+    // The only unescaped braces/colon are the rule's own delimiters: exactly one
+    // opening and one closing brace for the single emitted :hover rule.
+    const unescapedOpen = (css.match(/(?<!\\)\{/g) || []).length;
+    const unescapedClose = (css.match(/(?<!\\)\}/g) || []).length;
+    expect(unescapedOpen).toBe(1);
+    expect(unescapedClose).toBe(1);
+    // The declaration still lands correctly for the (escaped) class on :hover.
+    expect(css).toContain(":hover { color: blue; }");
+  });
+
+  it("B2 (Notidian-myrt): escapes className in the BASE rule and EVERY state rule (pseudo + data-state)", () => {
+    // Escaping happens once at the source, so it must cover the base `.cls` rule,
+    // the pseudo-class rule, AND the [data-state~] attribute rule alike.
+    const css = generateStatefulCSS(
+      {
+        color: "black", // base rule
+        "hover:color": "blue", // pseudo selector
+        "selected:color": "gold", // [data-state~] selector
+      },
+      "a{}b"
+    );
+    // Adversarial braces never survive UNescaped in any selector. The only
+    // unescaped braces are the three rules' own delimiters (base + hover +
+    // selected = 3 open / 3 close).
+    expect((css.match(/(?<!\\)\{/g) || []).length).toBe(3);
+    expect((css.match(/(?<!\\)\}/g) || []).length).toBe(3);
+    // Each rule still emits with the escaped class and correct declaration.
+    expect(css).toContain("a\\{\\}b { color: black; }");
+    expect(css).toContain("a\\{\\}b:hover { color: blue; }");
+    expect(css).toContain('a\\{\\}b[data-state~="selected"] { color: gold; }');
+  });
+
+  it("B2 (Notidian-myrt): leaves a normal kebab-case className untouched (no spurious escaping)", () => {
+    // The common, valid case must round-trip byte-for-byte — escaping only the
+    // dangerous characters, never the safe `[A-Za-z0-9_-]` identifier set.
+    const css = generateStatefulCSS(
+      { color: "black", "hover:color": "blue" },
+      "frame-node_1-abc"
+    );
+    expect(css).toContain(".frame-node_1-abc { color: black; }");
+    expect(css).toContain(".frame-node_1-abc:hover { color: blue; }");
+    expect(css).not.toContain("\\");
+  });
+
+  it("B2 (Notidian-myrt): hex-escapes a leading digit so the class cannot be read as a number", () => {
+    // A leading digit is a positional hazard the serialize-identifier algorithm
+    // hex-escapes; the rest passes through.
+    const css = generateStatefulCSS({ color: "black" }, "1frame");
+    expect(css).toContain(".\\31 frame { color: black; }");
   });
 
   it("emits the base block plus a data-state block for a base + non-pseudo state object", () => {
