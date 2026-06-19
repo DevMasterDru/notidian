@@ -330,10 +330,25 @@ export const sortFnTypes: SortFunctionType = {
  * parseFlexValue returns { value: undefined } for a non-JSON string, so we fall
  * back to the first parseMultiString element when no wrapped value is present.
  * Exported so the TanStack adapter path (Notidian-xy0s) can reuse the same key.
+ *
+ * CRITICAL (Notidian-av6s): parseFlexValue's `.value` is the RAW parsed JSON
+ * value (typed `any`) — for a wrapper like '{"value":5,"type":"number"}' or
+ * '{"value":false,"type":"boolean"}' it is the NUMBER 5 / BOOLEAN false, NOT a
+ * string. The old `return parsed.value as string` was a no-op type ASSERTION
+ * that cast the type away without coercing the runtime value, so flexSortKey's
+ * `: string` contract was a lie: a numeric/boolean flex cell leaked a number/
+ * boolean to stringSort/linkSort, whose `.localeCompare` / `.split` calls threw
+ * a TypeError. Array.prototype.sort has no try/catch around its comparator, so
+ * ONE such column aborted the WHOLE table-view sort pass — the identical crash
+ * class this branch set out to kill, merely moved from 'Array.localeCompare' to
+ * 'number.localeCompare'. We therefore COERCE with String(...) (the value is
+ * present-but-non-string here), mirroring filter.ts's asText discipline — and
+ * the `!= null` guard still admits present-but-falsy values (false/0/'') while
+ * falling through to the multi-string fallback only for null/undefined.
  */
 export const flexSortKey = (raw: string): string => {
   const parsed = parseFlexValue(raw);
-  if (parsed?.value != null) return parsed.value as string;
+  if (parsed?.value != null) return String(parsed.value);
   return parseMultiString(raw)[0] ?? '';
 };
 

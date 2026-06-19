@@ -743,6 +743,55 @@ describe("sortReturnForCol field & column resolution", () => {
     ).toBe(-1);
   });
 
+  // ---- av6s REGRESSION: a flex wrapper whose .value is a NON-STRING primitive
+  // (real number / boolean, as parseFieldValue.test.ts pins parseFlexValue to
+  // preserve) must NOT reach a string-family fn as a number/boolean and throw on
+  // .localeCompare / .split. flexSortKey now String()-coerces, so the comparator
+  // gets a real string and the whole-sort-pass abort is gone. These feed the
+  // NUMERIC-typed JSON value (5 / false), not the stringified ones above.
+  it("does NOT throw when a flex wrapper carries a real NUMBER value under a string family (alphabetical)", () => {
+    let result: any = NaN;
+    expect(() => {
+      result = sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "alphabetical" },
+        { tags: JSON.stringify({ value: 5, type: "number" }) },
+        { tags: JSON.stringify({ value: "apple", type: "text" }) }
+      );
+    }).not.toThrow();
+    // String(5) -> '5' collates BEFORE 'apple' (digits before letters) -> -1.
+    expect(result).toBe(-1);
+  });
+
+  it("does NOT throw when a flex wrapper carries a real BOOLEAN value under a string family (alphabetical)", () => {
+    let result: any = NaN;
+    expect(() => {
+      result = sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "alphabetical" },
+        { tags: JSON.stringify({ value: false, type: "boolean" }) },
+        { tags: JSON.stringify({ value: "zebra", type: "text" }) }
+      );
+    }).not.toThrow();
+    // String(false) -> 'false' collates BEFORE 'zebra' -> -1.
+    expect(result).toBe(-1);
+  });
+
+  it("does NOT throw when a flex wrapper carries a real NUMBER value under the LINK family (linkAlphabetical)", () => {
+    // linkSort calls value.split('/') — a number has no .split. String(5) -> '5'.
+    let result: any = NaN;
+    expect(() => {
+      result = sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "linkAlphabetical" },
+        { tags: JSON.stringify({ value: 5, type: "number" }) },
+        { tags: JSON.stringify({ value: "space/folder/note", type: "link" }) }
+      );
+    }).not.toThrow();
+    // '5'.split('/').pop() -> '5'; 'note' basename -> '5' before 'note' -> -1.
+    expect(result).toBe(-1);
+  });
+
   it("falls back to the first multi-string element for a bare (non-JSON) flex string cell", () => {
     // sort.test feeds the count path a bare 'a,b'; the string family must also
     // tolerate it -> flexSortKey('a,b') -> 'a'. 'a' vs 'b' -> -1.
@@ -861,6 +910,31 @@ describe("flexSortKey", () => {
     ];
     for (const i of inputs) {
       expect(typeof flexSortKey(i)).toBe("string");
+    }
+  });
+
+  // av6s: the contract's TEETH — a wrapper whose .value is a real NON-STRING
+  // primitive (number / boolean / 0 / false, which parseFieldValue.test.ts pins
+  // parseFlexValue to PRESERVE rather than stringify) must still yield a STRING.
+  // The old `as string` assertion let these through unchanged and crashed the
+  // sort; String() coercion fixes it. Pin both the type AND the exact value.
+  it("String-coerces a NON-STRING primitive .value (number / boolean / falsy 0/false)", () => {
+    expect(flexSortKey(JSON.stringify({ value: 5, type: "number" }))).toBe("5");
+    expect(flexSortKey(JSON.stringify({ value: 0, type: "number" }))).toBe("0");
+    expect(flexSortKey(JSON.stringify({ value: false, type: "boolean" }))).toBe(
+      "false"
+    );
+    expect(flexSortKey(JSON.stringify({ value: true, type: "boolean" }))).toBe(
+      "true"
+    );
+    // Every one is a string -> stringSort/linkSort never see a number/boolean.
+    for (const raw of [
+      JSON.stringify({ value: 5, type: "number" }),
+      JSON.stringify({ value: 0, type: "number" }),
+      JSON.stringify({ value: false, type: "boolean" }),
+      JSON.stringify({ value: true, type: "boolean" }),
+    ]) {
+      expect(typeof flexSortKey(raw)).toBe("string");
     }
   });
 });
