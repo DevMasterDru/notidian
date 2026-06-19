@@ -2,6 +2,7 @@ import { SpaceTableSchema } from "shared/types/mdb";
 import { Filter, Predicate, Sort } from "shared/types/predicate";
 import { defaultPredicate } from "../../../../shared/schemas/predicate";
 import { columnDataAnchorModeForValue } from "../propertyDataAnchor";
+import { columnWrapModeForValue } from "../propertyColumnWrap";
 import { propertyHeaderDisplayModeForValue } from "../propertyHeaderDisplayMode";
 import { FilterFunctionType } from "./filter";
 import { filterFnTypes } from "./filterFns/filterFnTypes";
@@ -99,6 +100,19 @@ export const validatePredicate = (
       [columnId]: dataAnchorMode,
     };
   }, {} as Predicate["colsDataAnchor"]);
+  // Carry per-column wrap modes through validation, dropping the default
+  // ("clip") so only opted-in "wrap" columns persist.
+  const colsWrap = Object.entries(prevPredicate.colsWrap ?? {}).reduce(
+    (result, [columnId, mode]) => {
+      const wrapMode = columnWrapModeForValue(mode);
+      if (wrapMode == "clip" || wrapMode != mode) return result;
+      return {
+        ...result,
+        [columnId]: wrapMode,
+      };
+    },
+    {} as NonNullable<Predicate["colsWrap"]>
+  );
   const tableDirection =
     prevPredicate.tableDirection == "rtl"
       ? "rtl"
@@ -130,6 +144,7 @@ export const validatePredicate = (
     colsCalc: prevPredicate.colsCalc ?? {},
     colsHeaderDisplay,
     colsDataAnchor,
+    colsWrap,
     tableDirection,
     frozenColumnCount:
       typeof prevPredicate.frozenColumnCount === "number" &&

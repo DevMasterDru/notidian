@@ -24,9 +24,11 @@ import { Anchors, Rect } from "shared/types/Pos";
 import {
   ColumnDataAnchorMode,
   ColumnHeaderDisplayMode,
+  ColumnWrapMode,
   Sort,
 } from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
+import { PropertyWrapTextMenuComponent } from "./PropertyWrapTextMenu";
 import StickerModal from "../../../../../../shared/components/StickerModal";
 import { defaultMenu, menuSeparator } from "../menu/SelectionMenu";
 import { PropertyDataAnchorMenuComponent } from "./PropertyDataAnchorMenu";
@@ -246,6 +248,8 @@ type PropertyMenuProps = {
   setHeaderDisplayMode?: (mode: ColumnHeaderDisplayMode) => void;
   dataAnchorMode?: ColumnDataAnchorMode;
   setDataAnchorMode?: (mode: ColumnDataAnchorMode) => void;
+  wrapMode?: ColumnWrapMode;
+  setWrapMode?: (mode: ColumnWrapMode) => void;
   preserveColumnWidth?: () => void;
   frozenColumnCount?: number;
   hidden?: boolean;
@@ -283,6 +287,8 @@ export const showPropertyMenu = (
     setHeaderDisplayMode,
     dataAnchorMode = "auto",
     setDataAnchorMode,
+    wrapMode = "clip",
+    setWrapMode,
     preserveColumnWidth,
     frozenColumnCount,
     editCode,
@@ -366,7 +372,20 @@ export const showPropertyMenu = (
         ),
       });
     }
-    if (setHeaderDisplayMode || setDataAnchorMode) {
+    if (setWrapMode) {
+      menuOptions.push({
+        name: "",
+        type: SelectOptionType.Custom,
+        fragment: (props: { hide: () => void }) => (
+          <PropertyWrapTextMenuComponent
+            wrapMode={wrapMode}
+            setWrapMode={setWrapMode}
+            hide={props.hide}
+          />
+        ),
+      });
+    }
+    if (setHeaderDisplayMode || setDataAnchorMode || setWrapMode) {
       menuOptions.push(menuSeparator);
     }
   }

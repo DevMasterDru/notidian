@@ -57,9 +57,12 @@ describe("propertyHeaderDisplayParts", () => {
     });
   });
 
-  it("adapts from full to text-only to icon-only as width shrinks", () => {
+  it("keeps a dense icon+name and only collapses to icon-only when very narrow", () => {
+    // Adaptive favours a dense icon+name (the icon never disappears across a
+    // mid-width band); it drops to icon-only only at/below the compact
+    // threshold (iconOnlyMaxWidth, 47). There is no text-only adaptive band.
     expect(
-      [120, 72, 36].map((columnWidth) =>
+      [120, 72, 48, 47, 36].map((columnWidth) =>
         propertyHeaderDisplayParts({
           mode: "adaptive",
           columnWidth,
@@ -73,10 +76,22 @@ describe("propertyHeaderDisplayParts", () => {
         effectiveMode: "full",
       },
       {
-        showIcon: false,
+        showIcon: true,
         showText: true,
         showContextMarker: true,
-        effectiveMode: "text",
+        effectiveMode: "full",
+      },
+      {
+        showIcon: true,
+        showText: true,
+        showContextMarker: true,
+        effectiveMode: "full",
+      },
+      {
+        showIcon: true,
+        showText: false,
+        showContextMarker: false,
+        effectiveMode: "icon",
       },
       {
         showIcon: true,

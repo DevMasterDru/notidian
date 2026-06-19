@@ -126,6 +126,7 @@ import {
   columnDataAnchorForCells,
   columnDataAnchorModeForValue,
 } from "core/utils/contexts/propertyDataAnchor";
+import { columnWrapModeForValue } from "core/utils/contexts/propertyColumnWrap";
 import {
   isRowDndId,
   resolveRowDropTargetId,
@@ -161,6 +162,7 @@ import { PathPropertyName } from "shared/types/context";
 import {
   ColumnDataAnchorMode,
   ColumnHeaderDisplayMode,
+  ColumnWrapMode,
   Filter,
 } from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
@@ -484,6 +486,9 @@ export const TableView = (props: { superstate: Superstate }) => {
   const rowMarqueeRef = useRef<TableRowMarqueeState>(null);
   const activeDragTypeRef = useRef<"column" | "row" | null>(null);
   const rowDragPointerRef = useRef<RowDragPoint | null>(null);
+  // Tracks the last resize-handle mousedown (per column) to detect a
+  // double-click and route it to auto-fit instead of a resize.
+  const lastResizerDownRef = useRef<{ key: string; time: number } | null>(null);
   const [rowMarqueeRect, setRowMarqueeRect] =
     useState<TableMarqueeRect>(null);
   const [overId, setOverId] = useState(null);
@@ -609,6 +614,74 @@ export const TableView = (props: { superstate: Superstate }) => {
     activeDragTypeRef.current = activeDragType;
   }, [activeDragType]);
 
+  // Full-page sizing for the sticky header.
+  //
+  // The table must be a bounded scroll box for the header to stay sticky — its
+  // header shares the table's horizontal scroller, and per CSS a horizontal
+  // overflow:auto element is necessarily a vertical scrollport too, so the only
+  // way to keep horizontal scroll AND pin the header is to scroll the table
+  // internally against a bounded height. But a fixed cap (the 70vh CSS
+  // fallback) reads as a small box floating in the page. Instead we size the
+  // box to fill the visible pane down to its bottom edge, so an opened database
+  // reads as a full-page table. The table is embedded in a CodeMirror note
+  // whose height chain is content-driven, so CSS can't express this; we measure
+  // the nearest scrollable ancestor (the pane viewport) and write the result to
+  // the --mk-table-max-height variable the CSS already consumes.
+  useEffect(() => {
+    const tableEl = ref.current as HTMLElement | null;
+    if (!tableEl) return;
+
+    const findScrollViewport = (start: HTMLElement): HTMLElement | null => {
+      let el = start.parentElement;
+      while (el && el !== document.body) {
+        const oy = getComputedStyle(el).overflowY;
+        const scrolls = oy === "auto" || oy === "scroll" || oy === "overlay";
+        // Skip the table's own inner wrapper — we want the outer pane scroller,
+        // not the container that merely wraps this table.
+        const isInnerWrapper = el.classList.contains("mk-context-container");
+        if (scrolls && !isInnerWrapper && el.clientHeight > 0) return el;
+        el = el.parentElement;
+      }
+      return null;
+    };
+
+    const apply = () => {
+      const el = ref.current as HTMLElement | null;
+      if (!el) return;
+      const viewport = findScrollViewport(el);
+      if (!viewport) return;
+      // One pane tall: the box fills a full screen of the pane it lives in, so
+      // scrolling a long database to the top makes the table take over the
+      // viewport with its header pinned. We deliberately do NOT subtract the
+      // table's offset within the note — the content above scrolls away, and a
+      // table embedded partway down a note should still go full-page when you
+      // reach it rather than shrink to whatever room is left below its start.
+      const available = viewport.clientHeight - 16;
+      const maxH = Math.max(240, Math.round(available));
+      const prev =
+        parseInt(el.style.getPropertyValue("--mk-table-max-height"), 10) || 0;
+      // Guard against re-setting the same value, which would otherwise let the
+      // ResizeObserver (the table itself resizes when we cap it) feed back.
+      if (Math.abs(prev - maxH) <= 1) return;
+      el.style.setProperty("--mk-table-max-height", maxH + "px");
+    };
+
+    apply();
+    const raf = requestAnimationFrame(apply);
+
+    const ro = new ResizeObserver(() => apply());
+    ro.observe(tableEl);
+    if (tableEl.parentElement) ro.observe(tableEl.parentElement);
+    const viewport = findScrollViewport(tableEl);
+    if (viewport) ro.observe(viewport);
+    window.addEventListener("resize", apply);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener("resize", apply);
+    };
+  }, []);
+
   // useEffect(() => {
   //   if (currentEdit == null) {
   //     ref.current.focus();
@@ -623,6 +696,62 @@ export const TableView = (props: { superstate: Superstate }) => {
     );
     setColsSize(newColSize);
     debouncedSavePredicate(newColSize);
+  };
+
+  // Double-clicking a column's resize handle auto-fits the column to its widest
+  // loaded content (Excel/Notion behaviour).
+  //
+  // We measure each cell's natural single-line content width in a DETACHED clone
+  // rather than by manipulating the live cells. In an auto-layout table the cells
+  // share the column width, so a cell can neither shrink below nor (reliably)
+  // report narrower than the current column — which made the previous in-place
+  // measurement read back the current width and creep wider by the padding on
+  // every double-click. The clone carries the cell's classes (so fonts/padding
+  // match) and is `white-space: nowrap; width: auto`, fully decoupled from the
+  // table, so the measured width is the TRUE content width and repeated fits
+  // converge to the same value.
+  const autoFitColumn = (accessorKey: string, resizerEl: HTMLElement) => {
+    const th = resizerEl.parentElement as HTMLTableCellElement | null;
+    const tableEl = ref.current as HTMLElement | null;
+    if (!th || !tableEl || th.cellIndex < 0) return;
+    const colIndex = th.cellIndex;
+    const bodyCells: HTMLElement[] = [];
+    tableEl.querySelectorAll("tbody tr").forEach((tr) => {
+      const cell = (tr as HTMLElement).children[colIndex] as
+        | HTMLElement
+        | undefined;
+      if (cell) bodyCells.push(cell);
+    });
+    // Fit to the DATA, not the header. A header label wider than its values
+    // (e.g. "Sensor Supply Voltage" over "5V" cells) would otherwise bloat the
+    // column with empty space; instead we size to the widest body cell and let
+    // the header truncate — its icon still shows via the dense adaptive mode,
+    // and the full name is a hover away. Fall back to the header only when there
+    // are no rows to measure.
+    const cells: HTMLElement[] = bodyCells.length > 0 ? bodyCells : [th];
+    // Live inside .mk-table so the clone inherits the table's font/CSS-variable
+    // context; off-screen + hidden so it never shows.
+    const measurer = tableEl.ownerDocument.createElement("div");
+    measurer.style.cssText =
+      "position:absolute;left:-99999px;top:0;white-space:nowrap;display:inline-block;width:auto;max-width:none;visibility:hidden;pointer-events:none";
+    tableEl.appendChild(measurer);
+    let natural = 0;
+    cells.forEach((cell) => {
+      measurer.className = cell.className;
+      measurer.innerHTML = cell.innerHTML;
+      natural = Math.max(natural, measurer.offsetWidth);
+    });
+    measurer.remove();
+    if (!natural) return;
+    const AUTO_FIT_PADDING = 4;
+    const MAX_AUTO_FIT_WIDTH = 600;
+    const nextWidth = Math.min(natural + AUTO_FIT_PADDING, MAX_AUTO_FIT_WIDTH);
+    const nextColsSize = propertyHeaderColumnSizingWithMinimum({
+      ...colsSize,
+      [accessorKey]: nextWidth,
+    });
+    setColsSize(nextColsSize);
+    savePredicate({ colsSize: nextColsSize });
   };
 
   const debouncedSavePredicate = useCallback(
@@ -1970,6 +2099,22 @@ export const TableView = (props: { superstate: Superstate }) => {
                       colsDataAnchor: nextDataAnchor,
                     });
                   };
+                  const wrapMode = columnWrapModeForValue(
+                    predicate?.colsWrap?.[accessorKey]
+                  );
+                  const setWrapMode = (mode: ColumnWrapMode) => {
+                    const nextWrap = {
+                      ...(predicate?.colsWrap ?? {}),
+                    };
+                    if (mode == "clip") {
+                      delete nextWrap[accessorKey];
+                    } else {
+                      nextWrap[accessorKey] = mode;
+                    }
+                    savePredicate({
+                      colsWrap: nextWrap,
+                    });
+                  };
 
                   return (
                     <th
@@ -2015,6 +2160,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                             setHeaderDisplayMode={setHeaderDisplayMode}
                             dataAnchorMode={dataAnchorMode}
                             setDataAnchorMode={setDataAnchorMode}
+                            wrapMode={wrapMode}
+                            setWrapMode={setWrapMode}
                           ></ColumnHeader>
                         )
                       ) : (
@@ -2032,8 +2179,40 @@ export const TableView = (props: { superstate: Superstate }) => {
                       )}
                       <div
                         {...{
-                          onMouseDown: header.getResizeHandler(),
+                          // Detect a double-click in mousedown so we can suppress
+                          // the resize gesture entirely on the second press.
+                          // Using onDoubleClick instead lets the gesture's
+                          // mousedowns re-commit the original width (immediately
+                          // via setColsSize and via the 1s debounced predicate
+                          // save), which clobbered the fitted width right after.
+                          onMouseDown: (e: React.MouseEvent) => {
+                            const prev = lastResizerDownRef.current;
+                            if (
+                              prev &&
+                              prev.key === accessorKey &&
+                              e.timeStamp - prev.time < 400
+                            ) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              lastResizerDownRef.current = null;
+                              // Drop any pending width write the first click's
+                              // (zero-distance) resize scheduled so it cannot
+                              // overwrite the auto-fit.
+                              debouncedSavePredicate.cancel();
+                              autoFitColumn(
+                                accessorKey,
+                                e.currentTarget as HTMLElement
+                              );
+                              return;
+                            }
+                            lastResizerDownRef.current = {
+                              key: accessorKey,
+                              time: e.timeStamp,
+                            };
+                            header.getResizeHandler()(e);
+                          },
                           onTouchStart: header.getResizeHandler(),
+                          title: "Double-click to auto-fit column width",
                           className: `mk-resizer ${
                             header.column.getIsResizing() ? "isResizing" : ""
                           }`,
@@ -2170,6 +2349,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                           .rows.map((row) => row.getValue(accessorKey)),
                         tableDirection,
                       });
+                      const wrap = columnWrapModeForValue(
+                        predicate?.colsWrap?.[accessorKey]
+                      );
                       const feedback =
                         rowOriginalIndex !== undefined
                           ? cellEditFeedback[
@@ -2218,6 +2400,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                               "mk-cell-conflict",
                             compactCell && "mk-td-compact",
                             `mk-td-anchor-${dataAnchor}`,
+                            `mk-td-wrap-${wrap}`,
                             fieldType == "boolean" && "mk-td-boolean",
                             frozenOffset && "mk-frozen-column",
                             frozenOffset?.isLast && "mk-frozen-column-last"

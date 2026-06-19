@@ -40,6 +40,7 @@ import { SpaceTableColumn } from "shared/types/mdb";
 import {
   ColumnDataAnchorMode,
   ColumnHeaderDisplayMode,
+  ColumnWrapMode,
 } from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
 
@@ -115,6 +116,8 @@ export const ColumnHeader = (props: {
   setHeaderDisplayMode?: (mode: ColumnHeaderDisplayMode) => void;
   dataAnchorMode?: ColumnDataAnchorMode;
   setDataAnchorMode?: (mode: ColumnDataAnchorMode) => void;
+  wrapMode?: ColumnWrapMode;
+  setWrapMode?: (mode: ColumnWrapMode) => void;
 }) => {
   const [field, setField] = useState(props.column);
   const menuRef = useRef(null);
@@ -189,6 +192,14 @@ export const ColumnHeader = (props: {
         },
         schemaId: tableData.schema.id,
         contextPath: spaceInfo.path,
+        // Columns that already exist but are hidden — surfaced in the "Add
+        // existing property" picker so they can be re-shown rather than being
+        // unreachable (all frontmatter keys are persisted columns, so the
+        // discover-only list is otherwise empty). Picking one un-hides it.
+        hiddenColumns: cols.filter((c) =>
+          (predicate?.colsHidden ?? []).includes(c.name + c.table)
+        ),
+        showColumn: (col) => hideColumn(col, false),
       }
     );
   };
@@ -273,6 +284,8 @@ export const ColumnHeader = (props: {
         setHeaderDisplayMode: props.setHeaderDisplayMode,
         dataAnchorMode: props.dataAnchorMode ?? "auto",
         setDataAnchorMode: props.setDataAnchorMode,
+        wrapMode: props.wrapMode ?? "clip",
+        setWrapMode: props.setWrapMode,
         preserveColumnWidth,
         frozenColumnCount: predicate?.frozenColumnCount ?? 0,
         hidden: predicate?.colsHidden.includes(field.name + field.table),

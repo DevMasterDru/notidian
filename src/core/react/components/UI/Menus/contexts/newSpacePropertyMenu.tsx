@@ -41,6 +41,12 @@ export type NewPropertyMenuProps = {
   contextPath?: string;
   fileMetadata?: boolean;
   isSpace?: boolean;
+  // Existing columns that are currently hidden. They are offered in the "Add
+  // existing property" picker (every frontmatter key is already a column, so the
+  // discover-only list is otherwise empty); picking one re-shows it via
+  // showColumn instead of creating a duplicate column.
+  hiddenColumns?: SpaceTableColumn[];
+  showColumn?: (column: SpaceTableColumn) => void;
 };
 
 const NewPropertyMenuComponent = (
@@ -370,7 +376,14 @@ const NewPropertyMenuComponent = (
     const source = existingPropertySource();
     e.stopPropagation();
     const existingProps: SpaceProperty[] = discoverExistingProperties(source);
-    if (existingProps.length == 0) {
+    // Hidden columns are offered alongside not-yet-added frontmatter keys so the
+    // picker is never a dead end when every property is already a column. Picking
+    // one re-shows it (showColumn) rather than creating a duplicate.
+    const hiddenColumns = props.hiddenColumns ?? [];
+    const hiddenColumnIds = new Set(
+      hiddenColumns.map((f) => f.name + f.table)
+    );
+    if (existingProps.length == 0 && hiddenColumns.length == 0) {
       props.superstate.ui.notify(i18n.notice.noPropertiesFound);
       return;
     }
@@ -389,17 +402,41 @@ const NewPropertyMenuComponent = (
             addAllDiscoveredProperties(source, existingProps);
             return;
           }
-          const result = props.saveField(fieldSource, value[0]);
+          const picked = value[0];
+          // A hidden existing column: re-show it instead of re-adding.
+          if (
+            picked &&
+            typeof picked == "object" &&
+            hiddenColumnIds.has(picked.name + picked.table)
+          ) {
+            props.showColumn?.(picked);
+            props.hide();
+            return;
+          }
+          const result = props.saveField(fieldSource, picked);
           if (result) props.hide();
         },
         value: [],
         showAll: true,
         options: [
-          { name: i18n.labels.all, value: "all", icon: "ui//plus" },
-          menuSeparator,
-          ...existingProps.map((f, i) => ({
-            id: i + 1,
-            name: f.name,
+          ...(existingProps.length > 0
+            ? [
+                { name: i18n.labels.all, value: "all", icon: "ui//plus" },
+                menuSeparator,
+                ...existingProps.map((f, i) => ({
+                  id: i + 1,
+                  name: f.name,
+                  value: f,
+                  icon: stickerForField(f),
+                })),
+              ]
+            : []),
+          ...(existingProps.length > 0 && hiddenColumns.length > 0
+            ? [menuSeparator]
+            : []),
+          ...hiddenColumns.map((f, i) => ({
+            id: 1000 + i,
+            name: `${f.name} (hidden)`,
             value: f,
             icon: stickerForField(f),
           })),

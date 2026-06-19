@@ -286,8 +286,30 @@ body.mk-property-header-tooltip-visible > .tooltip {
 }
 .mk-table {
   width: 100%;
-  overflow-x: auto;
+  /* The table is its own bounded both-axis scroll box (Notion inline-database
+     pattern). This is what makes the sticky header work: the header shares the
+     table's horizontal scroller, and per CSS spec a horizontal overflow:auto
+     element is also a vertical scrollport — so the only way to keep horizontal
+     scroll AND a sticky vertical header is for the table to scroll internally
+     against a bounded height rather than growing to full content height inside
+     the note/view scroller. */
+  overflow: auto;
+  max-height: var(--mk-table-max-height, 70vh);
+  overscroll-behavior: contain;
   position: relative;
+  /* Hide the scrollbar chrome so the full-page table reads as a seamless
+     surface rather than a boxed scroll widget. The region still scrolls by
+     wheel/trackpad (and keyboard) on both axes — only the visible scrollbar is
+     suppressed. */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge */
+}
+
+.mk-table::-webkit-scrollbar {
+  /* Chromium/Electron (Obsidian) */
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .mk-table-rtl {
@@ -404,6 +426,27 @@ body.mk-property-header-tooltip-visible > .tooltip {
     inset 0 -0.5px 0 var(--background-modifier-border),
     -1px 0 0 var(--background-modifier-border),
     -10px 0 14px -14px rgba(0, 0, 0, 0.45);
+}
+
+/* Sticky header row: as the table body scrolls vertically the property-name
+   header stays pinned to the top of the table's scroll box. This is the
+   vertical counterpart to the horizontal column-freeze above; frozen header
+   cells (which already carry position:sticky for their left/right offset) pick
+   up `top: 0` here too and become two-axis-sticky corners. The z-index sits
+   above every body cell (body frozen cells top out at 5) but below the frozen
+   header cells (7/8) so the frozen corner stays on top while scrolling both
+   ways. Non-frozen header cells get the opaque background + bottom divider that
+   the frozen header cells already define, so the whole pinned row reads as one
+   solid edge over the scrolling rows beneath it. */
+.mk-table thead th {
+  position: sticky;
+  top: 0;
+}
+
+.mk-table thead th:not(.mk-frozen-column):not(.mk-frozen-row-gutter) {
+  z-index: 6;
+  background: var(--mk-ui-background);
+  box-shadow: inset 0 -0.5px 0 var(--background-modifier-border);
 }
 
 .mk-row-gutter-inner {
@@ -772,6 +815,26 @@ body.mk-property-header-tooltip-visible > .tooltip {
 
 .mk-table .mk-cell-text {
   padding: 4px;
+}
+
+/* Per-column text wrap (Notion-style, predicate.colsWrap). Every body cell
+   carries mk-td-wrap-clip (default) or mk-td-wrap-wrap. "clip" keeps the cell
+   to a single truncated line for clean, uniform rows; "wrap" lets the text flow
+   onto multiple lines and the row grow to fit. */
+.mk-td.mk-td-wrap-clip .mk-cell-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mk-td.mk-td-wrap-wrap .mk-cell-text {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  -webkit-line-clamp: unset;
+  height: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .mk-cell-number {
   padding: 4px;

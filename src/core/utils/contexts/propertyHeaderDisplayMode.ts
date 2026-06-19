@@ -39,12 +39,20 @@ export const propertyHeaderDisplayParts = ({
   textOnlyMaxWidth?: number;
   iconOnlyMaxWidth?: number;
 }): PropertyHeaderDisplayParts => {
+  // Adaptive favours a DENSE icon+name: the property icon stays visible as the
+  // column narrows (it is the fastest way to recognise a column at a glance) and
+  // only the name truncates with an ellipsis. We collapse to icon-only just
+  // below the compact threshold, where there is no longer room for meaningful
+  // name text. Previously adaptive stepped icon-only → text-only (icon dropped)
+  // → full, so the icon vanished across the whole mid-width band; the icon now
+  // persists instead. The explicit "text"/"icon"/"full" modes are still
+  // selectable for manual overrides. (textOnlyMaxWidth is retained for callers
+  // that pass a custom value but no longer gates the adaptive icon.)
+  void textOnlyMaxWidth;
   const resolvedMode =
     mode == "adaptive"
-      ? (columnWidth ?? textOnlyMaxWidth + 1) <= iconOnlyMaxWidth
+      ? (columnWidth ?? iconOnlyMaxWidth + 1) <= iconOnlyMaxWidth
         ? "icon"
-        : (columnWidth ?? textOnlyMaxWidth + 1) <= textOnlyMaxWidth
-        ? "text"
         : "full"
       : mode;
 

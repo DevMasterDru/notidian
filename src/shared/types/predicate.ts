@@ -3,6 +3,11 @@
 export type ColumnHeaderDisplayMode = "adaptive" | "full" | "text" | "icon";
 export type ColumnDataAnchor = "left" | "center" | "right";
 export type ColumnDataAnchorMode = "auto" | ColumnDataAnchor;
+// Per-column text-wrap mode (Notion-style). "clip" keeps cells to a single
+// truncated line (clean, uniform rows); "wrap" lets the cell grow to multiple
+// lines. Stored per column in Predicate.colsWrap; the default ("clip") is
+// dropped on save so only opted-in columns carry a value.
+export type ColumnWrapMode = "clip" | "wrap";
 export type TableDirection = "ltr" | "rtl";
 
 export type Filter = {
@@ -31,6 +36,7 @@ export type Filter = {
     colsCalc: Record<string, string>;
     colsHeaderDisplay: Record<string, ColumnHeaderDisplayMode>;
     colsDataAnchor: Record<string, ColumnDataAnchor>;
+    colsWrap?: Record<string, ColumnWrapMode>;
     tableDirection: TableDirection;
     frozenColumnCount: number;
     limit: number;
