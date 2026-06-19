@@ -50,7 +50,7 @@ export const listItemVisibleProperties = (
 // item today (`visibleCols`, already filtered to non-hidden columns), return
 // the columns to actually render.
 //
-//  - flag OFF (default): return `visibleCols` UNCHANGED (the SAME array
+//  - flag OFF (kill-switch): return `visibleCols` UNCHANGED (the SAME array
 //    reference) — the owner's vault is byte-for-byte identical to today.
 //  - flag ON but no allowlist configured: also return `visibleCols` unchanged.
 //  - flag ON with an allowlist: keep only the columns whose key is in the

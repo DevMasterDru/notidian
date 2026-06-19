@@ -83,7 +83,7 @@ describe("applyListItemVisibleProperties (flag-gated render chokepoint)", () => 
   ];
 
   it("FLAG OFF: returns the SAME array reference unchanged (byte-identity)", () => {
-    // This is the core safety guarantee: with the default-OFF flag, the
+    // This is the core safety guarantee: with the kill-switch OFF, the
     // per-item field set is untouched no matter what the predicate stores.
     expect(
       applyListItemVisibleProperties(cols, withVisible(["Status"]), false)
