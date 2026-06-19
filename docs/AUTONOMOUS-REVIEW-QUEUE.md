@@ -18,9 +18,24 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ---
 
-## Pending — flag-gated (enable + live-verify)
+## Verified — flag-gated changes (live-verified 2026-06-20)
+
+> **Both items below were enabled in the Atlas Vault (`.obsidian/plugins/notidian/data.json`)
+> and live-verified at the owner's request on 2026-06-20.** Sequence: fresh build
+> (carries the `Notidian-eedq` header-persistence fix) installed → both flags set
+> `true` + persisted → `plugin:reload` onto the new build (manifest **v1.3.4**, the
+> version-bump path that used to wipe config). **Result:** both flags `true` in
+> `data.json` and live runtime; clean render across an inline context table
+> (stickers/icons/colored pills/checkboxes/12 frames) and a full folder-space view
+> (hub note body + properties + Type Profile + context table); **no console errors,
+> no `dev:errors`, frame text not double-escaped**; the `eedq` predicate
+> (`colsOrder`×20, `colsHidden`×10) survived the rebuild+version-bump+reload that
+> previously NULLed it. Detail retained below for reference; full original
+> write-ups are in git history.
 
 ### Notidian-vke — Frame-execution sink hardening (trust boundary + frame-text sanitization)
+
+✅ **Live-verified 2026-06-20** — `hardenFrameExecution: true` in the Atlas Vault. Default-kit frames keep `$api`, so default rendering (covers/stickers/colors/badges) is unchanged; frame text renders through the active `sanitizeFrameText` sink with no double-escaping and no errors. Owner can still refine the trust model (vault-trusted-frame allowlist, [ADR 0022](adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md)) if a custom `$api`-in-prop frame they use ever needs re-trusting.
 
 - **Setting:** `hardenFrameExecution` (default `false`) — `src/shared/types/settings.ts`,
   defaulted in `src/core/schemas/settings.ts`.
@@ -76,6 +91,8 @@ queueing more and pivots to safe work — so this list stays reviewable.
   ON after live-verify, so it waits until the owner asks.
 
 ### Notidian-bnb — Remove dead MKit preview runtime from core SpaceManagerContext
+
+✅ **Live-verified 2026-06-20** — `removeMKitPreviewRuntime: true` in the Atlas Vault. Folder-space views (`SpaceManagerContext` path) render unchanged with the flag ON — hub note body, properties panel, Type Profile, context tables, frames, sidebar navigation all resolve through the normal `superstate.spaceManager` path; no errors. Bead `Notidian-bnb` closed. The residual-dead-branch prune (parked → `docs/ROADMAP.md`) is now unblocked — build when the owner asks.
 
 - **Setting:** `removeMKitPreviewRuntime` (default `false`) —
   `src/shared/types/settings.ts`, defaulted in `src/core/schemas/settings.ts`.
