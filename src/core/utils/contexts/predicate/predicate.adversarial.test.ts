@@ -448,32 +448,45 @@ describe("cleanPredicateType + dispatcher field type-robustness (Notidian-gmzn)"
     }
   );
 
-  // ---- DEFECT-PIN (discovered by Notidian-gmzn; follow-up filed) -------------
-  // sortReturnForCol on a FLEX column under a STRING/NUMBER sort (alphabetical,
-  // number, …) THROWS — independently of `.field` validity. The flex branch wraps
-  // the cell in parseMultiString (which always returns an array), but stringSort
-  // does `value.localeCompare(...)` and numSort treats it numerically; an array
-  // has no .localeCompare, so Array.prototype.sort's comparator throws and aborts
-  // the WHOLE sort pass. Locked as characterization (current behavior), NOT fixed
-  // here: this is outside gmzn's persistence-validation scope. Flipping it is a
-  // deliberate, reviewed fix on the discovered follow-up bead.
-  it("DEFECT-PIN: a flex column under an `alphabetical` sort throws (parseMultiString array vs stringSort.localeCompare)", () => {
+  // ---- FIXED by Notidian-av6s (was a Notidian-gmzn DEFECT-PIN) ---------------
+  // Previously sortReturnForCol on a FLEX column under a STRING/NUMBER sort
+  // (alphabetical, number, …) THREW: the flex branch wrapped the cell in
+  // parseMultiString (always a string[]) and fed that array to stringSort, whose
+  // `value.localeCompare(...)` blew up on an Array — and Array.prototype.sort has
+  // no try/catch around its comparator, so one flex column aborted the WHOLE sort
+  // pass. av6s derives a SCALAR key (flexSortKey: parseFlexValue(...).value, with
+  // a multi-string fallback) for the string/number families while keeping the
+  // count-family (multi:true) on the raw multi-string for .length. This pins the
+  // CORRECT ordering: a flex cell {value:"a"} sorts before {value:"b"} (=> -1),
+  // no throw — the inverse of the old DEFECT-PIN.
+  it("a flex column under an `alphabetical` sort yields correct ordering (av6s fix; was the parseMultiString-array throw)", () => {
     const validFlexRow = {
       Mixed: JSON.stringify({ value: "a", type: "text" }),
     } as any;
     const validFlexRow2 = {
       Mixed: JSON.stringify({ value: "b", type: "text" }),
     } as any;
-    // Throws even with a perfectly VALID string field — so it is a flex+string-sort
-    // defect, not a `.field` type problem.
-    expect(() =>
-      sortReturnForCol(
+    // 'a' < 'b' on a flex string column => -1, and it does not throw on a
+    // perfectly VALID string field.
+    let result: any;
+    expect(() => {
+      result = sortReturnForCol(
         flexCol,
         { fn: "alphabetical", field: "Mixed" } as any,
         validFlexRow,
         validFlexRow2
+      );
+    }).not.toThrow();
+    expect(result).toBe(-1);
+    // Antisymmetric: swapping the rows flips the sign.
+    expect(
+      sortReturnForCol(
+        flexCol,
+        { fn: "alphabetical", field: "Mixed" } as any,
+        validFlexRow2,
+        validFlexRow
       )
-    ).toThrow(TypeError);
+    ).toBe(1);
   });
 
   it("end-to-end: a validated predicate carrying a non-string-field filter does not crash the dispatcher", () => {

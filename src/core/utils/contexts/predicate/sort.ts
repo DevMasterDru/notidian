@@ -2,6 +2,7 @@ import i18n from "shared/i18n";
 import { DBRow, SpaceTableColumn, SpaceProperty } from "shared/types/mdb";
 import { Sort } from "shared/types/predicate";
 import { parseMultiString } from "utils/parsers";
+import { parseFlexValue } from "core/schemas/parseFieldValue";
 import { safelyParseJSON } from "shared/utils/json";
 
 
@@ -20,6 +21,13 @@ export type SortFunctionType = Record<
     // variant is reachable through the resolver instead of being shadowed by the
     // first insertion-order match. Entries without a subKey are the default.
     subKey?: string;
+    // Whether this fn compares the RAW multi-string of a flex cell (it measures
+    // cardinality via parseMultiString(...).length) rather than a scalar key.
+    // sortReturnForCol consults this to decide what to feed a flex column: the
+    // count-family (multi:true) gets the raw multi-string for .length, every
+    // other family gets a scalar key (see flexSortKey). Mirrors how filter.ts
+    // and aggregates.ts unwrap a flex cell to its scalar `.value`.
+    multi?: boolean;
   }
 >;
 export type SortFunction = (v: any, f: any, fieldDef?: SpaceProperty) => SortResultType;
@@ -275,12 +283,14 @@ export const sortFnTypes: SortFunctionType = {
     fn: countSort,
     label: i18n.sortTypes.itemsDesc,
     desc: true,
+    multi: true,
   },
   reverseCount: {
     type: ["context-multi", "link-multi", "tags-multi"],
     fn: (v, f) => (countSort(v, f) * -1) as SortResultType,
     label: i18n.sortTypes.itemsAsc,
     desc: false,
+    multi: true,
   },
   optionMultiCount: {
     type: ["option-multi"],
@@ -288,6 +298,7 @@ export const sortFnTypes: SortFunctionType = {
     label: i18n.sortTypes.itemsDesc,
     desc: true,
     subKey: "count",
+    multi: true,
   },
   reverseOptionMultiCount: {
     type: ["option-multi"],
@@ -295,7 +306,35 @@ export const sortFnTypes: SortFunctionType = {
     label: i18n.sortTypes.itemsAsc,
     desc: false,
     subKey: "count",
+    multi: true,
   },
+};
+
+/**
+ * Derive a SCALAR comparison key from a flex cell's raw stored string, for the
+ * string/number sort families (alphabetical, number, earliest/latest, option…).
+ *
+ * The flex branch USED to feed parseMultiString (always a string[]) straight to
+ * stringSort/numSort, but those call `value.localeCompare(...)` / parseFloat —
+ * an Array has no .localeCompare, so the comparator threw a TypeError. Because
+ * Array.prototype.sort has no try/catch around its comparator, one flex column
+ * under any string/number-family sort aborted the WHOLE table-view sort pass.
+ *
+ * The fix mirrors the unwrap convention already used by filter.ts:242
+ * (parseFlexValue(...)?.value) and aggregates.ts:46 — derive the scalar `.value`.
+ *
+ * It must accept BOTH on-disk shapes a flex cell can carry:
+ *   1. the JSON wrapper  '{"value":"a","type":"text"}'  -> parseFlexValue().value
+ *   2. a bare multi-string  'a,b'  (as sort.test.ts feeds the count path) ->
+ *      first parsed element.
+ * parseFlexValue returns { value: undefined } for a non-JSON string, so we fall
+ * back to the first parseMultiString element when no wrapped value is present.
+ * Exported so the TanStack adapter path (Notidian-xy0s) can reuse the same key.
+ */
+export const flexSortKey = (raw: string): string => {
+  const parsed = parseFlexValue(raw);
+  if (parsed?.value != null) return parsed.value as string;
+  return parseMultiString(raw)[0] ?? '';
 };
 
 export const sortReturnForCol = (
@@ -307,8 +346,16 @@ export const sortReturnForCol = (
   if (!col) return 0;
   const sortType = sortFnTypes[sort.fn];
   if (sortType) {
-    const value = col.type == "flex" ? parseMultiString(row[sort.field]) : row[sort.field];
-    const value2 = col.type == "flex" ? parseMultiString(row2[sort.field]) : row2[sort.field];
+    // For a flex column, count-family fns (multi:true) want the RAW multi-string
+    // so countSort can measure parseMultiString(...).length; every other family
+    // wants a SCALAR key (flexSortKey) so stringSort/numSort don't receive an
+    // array and throw. Non-flex columns pass the raw cell through unchanged.
+    const flexValue = (cell: string) =>
+      sortType.multi ? cell : flexSortKey(cell);
+    const value =
+      col.type == "flex" ? flexValue(row[sort.field]) : row[sort.field];
+    const value2 =
+      col.type == "flex" ? flexValue(row2[sort.field]) : row2[sort.field];
     // Pass the column as field definition for option sorting
     return sortType.fn(value, value2, col);
   }

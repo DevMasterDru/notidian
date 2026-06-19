@@ -2,6 +2,7 @@ import {
   sortFnTypes,
   normalizedSortForType,
   sortReturnForCol,
+  flexSortKey,
   SortFunction,
 } from "./sort";
 import { SpaceProperty, SpaceTableColumn } from "shared/types/mdb";
@@ -695,8 +696,9 @@ describe("sortReturnForCol field & column resolution", () => {
     ).toBe(-1);
   });
 
-  it("parses flex columns via parseMultiString before comparing", () => {
-    // flex -> value is an array; count fn measures cardinality.
+  it("parses flex columns via the raw multi-string for the COUNT family before comparing", () => {
+    // count is multi:true -> the flex cell is fed RAW so countSort measures
+    // parseMultiString(...).length. 'a,b' (2) vs 'a' (1) -> 2 > 1 -> 1.
     expect(
       sortReturnForCol(
         flexCol,
@@ -705,6 +707,69 @@ describe("sortReturnForCol field & column resolution", () => {
         { tags: "a" }
       )
     ).toBe(1);
+  });
+
+  // ---- av6s: flex string/number families compare a SCALAR key, not the array --
+  it("compares a flex JSON-wrapped string cell by its scalar .value (alphabetical)", () => {
+    // {value:'a'} vs {value:'b'} -> stringSort('a','b') -> -1 (no array throw).
+    expect(
+      sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "alphabetical" },
+        { tags: JSON.stringify({ value: "a", type: "text" }) },
+        { tags: JSON.stringify({ value: "b", type: "text" }) }
+      )
+    ).toBe(-1);
+    // Reverse direction flips the sign.
+    expect(
+      sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "reverseAlphabetical" },
+        { tags: JSON.stringify({ value: "a", type: "text" }) },
+        { tags: JSON.stringify({ value: "b", type: "text" }) }
+      )
+    ).toBe(1);
+  });
+
+  it("compares a flex JSON-wrapped number cell by its scalar .value (number)", () => {
+    // numeric scalar: 2 vs 10 -> numSort(2,10) -> -1 (NOT lexical, NOT array).
+    expect(
+      sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "number" },
+        { tags: JSON.stringify({ value: "2", type: "number" }) },
+        { tags: JSON.stringify({ value: "10", type: "number" }) }
+      )
+    ).toBe(-1);
+  });
+
+  it("falls back to the first multi-string element for a bare (non-JSON) flex string cell", () => {
+    // sort.test feeds the count path a bare 'a,b'; the string family must also
+    // tolerate it -> flexSortKey('a,b') -> 'a'. 'a' vs 'b' -> -1.
+    expect(
+      sortReturnForCol(
+        flexCol,
+        { field: "tags", fn: "alphabetical" },
+        { tags: "a" },
+        { tags: "b" }
+      )
+    ).toBe(-1);
+  });
+
+  it("treats a missing flex field as empty (no throw, equal for alphabetical)", () => {
+    // row[field] undefined -> parseFlexValue(undefined).value == null ->
+    // parseMultiString(undefined)[0] ?? '' -> '' on both sides -> stringSort
+    // sees '' == '' -> 0. Critically: it does NOT throw.
+    let result: any = NaN;
+    expect(() => {
+      result = sortReturnForCol(
+        flexCol,
+        { field: "ghost", fn: "alphabetical" },
+        { tags: "x" },
+        { tags: "y" }
+      );
+    }).not.toThrow();
+    expect(result).toBe(0);
   });
 
   it("is antisymmetric end-to-end (swapping rows flips the sign)", () => {
@@ -755,6 +820,47 @@ describe("sortFnTypes table integrity", () => {
         const r = entry.fn(a, b, optionFieldDef);
         expect([-1, 0, 1]).toContain(r === 0 ? 0 : r); // normalize -0 -> 0
       }
+    }
+  });
+});
+
+// =========================================================================
+// flexSortKey — scalar flex-cell key for string/number sort families (av6s)
+// Exported so the TanStack adapter path (Notidian-xy0s) can reuse it.
+// =========================================================================
+describe("flexSortKey", () => {
+  it("unwraps a JSON-wrapped flex cell to its scalar .value", () => {
+    expect(flexSortKey(JSON.stringify({ value: "hello", type: "text" }))).toBe(
+      "hello"
+    );
+    expect(flexSortKey(JSON.stringify({ value: "42", type: "number" }))).toBe(
+      "42"
+    );
+  });
+
+  it("falls back to the first element of a bare multi-string", () => {
+    expect(flexSortKey("a,b,c")).toBe("a");
+    expect(flexSortKey("solo")).toBe("solo");
+  });
+
+  it("returns '' for empty / missing / value-less input (never throws)", () => {
+    expect(flexSortKey("")).toBe("");
+    expect(flexSortKey(undefined as unknown as string)).toBe("");
+    // A JSON object with no `.value` -> parseFlexValue.value is undefined ->
+    // multi-string fallback on the raw '{}' -> first element of parseMultiString.
+    expect(typeof flexSortKey("{}")).toBe("string");
+  });
+
+  it("never returns a non-string (so stringSort/numSort never see an array)", () => {
+    const inputs = [
+      JSON.stringify({ value: "x" }),
+      "a,b",
+      "",
+      "plain",
+      JSON.stringify({ value: "5", type: "number" }),
+    ];
+    for (const i of inputs) {
+      expect(typeof flexSortKey(i)).toBe("string");
     }
   });
 });
