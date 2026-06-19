@@ -1336,7 +1336,7 @@ export const FilterBar = (props: {
   // (Notion "Properties" parity). Reuses showPropertyVisibilityMenu unchanged by
   // adapting between its (colsHidden/colsOrder) contract and the allowlist stored
   // in predicate.listItemProps.visibleProperties. The render half is gated behind
-  // the default-OFF listItemPropertyPicker setting; this menu only ever writes
+  // the default-ON kill-switch listItemPropertyPicker setting; this menu only ever writes
   // VIEW CONFIG (listItemProps) via savePredicate — never row data (ADR 0016).
   const showItemPropertiesMenu = (
     offset: Rect,

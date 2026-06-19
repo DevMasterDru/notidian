@@ -118,7 +118,7 @@ export const contextNodeToInstances = async (superstate: Superstate, node: Frame
     const visibleCols = cols.filter((f) => predicate.colsHidden.indexOf(f.name) == -1);
     // bd Notidian-543 (flag-gated): mirror the live ContextListView render path
     // so an export honors the per-item display-property allowlist when the
-    // default-OFF listItemPropertyPicker setting is ON. OFF/unconfigured =>
+    // default-ON kill-switch listItemPropertyPicker setting is ON. OFF =>
     // visibleCols unchanged (byte-for-byte today's export).
     const itemProperties = applyListItemVisibleProperties(
       visibleCols,

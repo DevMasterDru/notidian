@@ -194,10 +194,10 @@ export const ContextListView = (props: {
   const visibleCols = useMemo(() => {
     return sortedColumns.filter((f) => !predicate?.colsHidden.includes(f.name));
   }, [predicate, sortedColumns]);
-  // bd Notidian-543 (flag-gated): when the default-OFF listItemPropertyPicker
+  // bd Notidian-543 (flag-gated): when the default-ON kill-switch listItemPropertyPicker
   // setting is ON and the view configured a per-item allowlist
   // (predicate.listItemProps.visibleProperties), filter the per-item field set
-  // to that allowlist. When OFF (default) or unconfigured, this returns
+  // to that allowlist. When OFF (kill-switch) or unconfigured, this returns
   // visibleCols UNCHANGED, so the per-item render is byte-for-byte today's.
   const itemProperties = useMemo(
     () =>

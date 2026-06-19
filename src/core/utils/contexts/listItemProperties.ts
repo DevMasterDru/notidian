@@ -3,7 +3,7 @@ import { Predicate } from "shared/types/predicate";
 
 // ---------------------------------------------------------------------------
 // List-view per-item display-property picker (Notion "Properties" parity).
-// bd Notidian-543 — flag-gated (Q3) behind the default-OFF `listItemPropertyPicker`
+// bd Notidian-543 — flag-gated (Q3) behind the default-ON kill-switch `listItemPropertyPicker`
 // setting. The model + menu adapter + persistence half is pure, offline-testable
 // logic (this module). The frame-render half — applying the allowlist to the
 // `_properties` array the list kit's `fieldsView` renders — is the core
