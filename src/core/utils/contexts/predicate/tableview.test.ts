@@ -317,6 +317,155 @@ describe("tableview.ts predicate dispatcher — characterization + adversarial n
       expect(fn(row({ Title: "apple" }), row({ Title: "apple" }), "Title")).toBe(0);
     });
   });
+
+  // ----------------------------------------------------------------------- //
+  // (5) FLEX-CELL EXTRACTION PARITY (Notidian-xy0s)                          //
+  //                                                                          //
+  // The TanStack adapters are the PARALLEL integration to the live render    //
+  // path (filterReturnForCol / sortReturnForCol). The live path UNWRAPS a    //
+  // flex cell — sort.ts:368 derives flexSortKey for scalar families / keeps  //
+  // the raw multi-string for count families; filter.ts:242 extracts          //
+  // parseFlexValue(cell)?.value. The adapter USED to feed the RAW stored     //
+  // flex string (a JSON wrapper like '{"value":5,"type":"number"}', or a     //
+  // non-string) straight to the comparator/predicate — the same flex-throw / //
+  // wrong-sort class av6s (sort) and 9i9i (filter) killed on the live path:  //
+  // at best a sort by the JSON wrapper TEXT, at worst a comparator TypeError //
+  // that — Array.prototype.sort has no try/catch around its comparator —     //
+  // aborts the WHOLE table-view sort pass.                                   //
+  //                                                                          //
+  // These cases mirror av6s's DEFECT-PIN FLIP: a flex column under an        //
+  // alphabetical/number sort now yields CORRECT ordering and never throws; a //
+  // flex column under a text filter never throws. A regression here would    //
+  // re-feed the raw wrapper and flip these back to throwing / wrong order.   //
+  // ----------------------------------------------------------------------- //
+  describe("flex-cell extraction parity through the dispatcher", () => {
+    // Build the on-disk JSON wrapper a flex cell actually stores.
+    const flex = (value: any, type = "text") =>
+      JSON.stringify({ value, type });
+
+    it("flex column under `alphabetical` sort orders by the unwrapped value, not the JSON wrapper text", () => {
+      const p = predicate({ sort: [{ field: "Mixeddb", fn: "alphabetical" }] });
+      const fn = sortFnForCol(p, col("Mixed", "db", "flex"));
+      expect(fn).not.toBeNull();
+      const ra = row({ Mixed: flex("a") });
+      const rb = row({ Mixed: flex("b") });
+      // Unwrapped 'a' < 'b' => -1. If the raw wrappers leaked through, both
+      // strings start with '{"value":"…' so they would compare by the wrapper
+      // body ('a' vs 'b' is still the discriminator HERE, but a numeric wrapper
+      // below proves the unwrap) — and a non-string value would THROW.
+      expect(() => fn(ra, rb, "Mixed")).not.toThrow();
+      expect(fn(ra, rb, "Mixed")).toBe(-1);
+      expect(fn(rb, ra, "Mixed")).toBe(1);
+      expect(fn(ra, row({ Mixed: flex("a") }), "Mixed")).toBe(0);
+    });
+
+    it("flex column under `number` sort compares NUMERICALLY on the unwrapped value (wrapper-text order would be wrong) and never throws", () => {
+      const p = predicate({ sort: [{ field: "Mixeddb", fn: "number" }] });
+      const fn = sortFnForCol(p, col("Mixed", "db", "flex"));
+      expect(fn).not.toBeNull();
+      // A real number value (NOT a string) — feeding the raw wrapper to numSort's
+      // parseFloat('{"value":9,…}') => NaN for BOTH, collapsing the order; feeding
+      // a bare number to stringSort (the OLD av6s throw class) would blow up. With
+      // the unwrap, 9 > 80 is FALSE numerically (9 < 80 => -1), but TRUE as text
+      // ("9" > "80"). Pin the numeric verdict.
+      const r9 = row({ Mixed: flex(9, "number") });
+      const r80 = row({ Mixed: flex(80, "number") });
+      expect(() => fn(r9, r80, "Mixed")).not.toThrow();
+      expect(fn(r9, r80, "Mixed")).toBe(-1); // 9 < 80 numerically
+      expect(fn(r80, r9, "Mixed")).toBe(1);
+    });
+
+    it("count-family flex sort keeps the RAW multi-string (measures cardinality), not flexSortKey", () => {
+      // optionMultiCount / count are multi:true — they must still receive the raw
+      // cell so countSort can measure parseMultiString(...).length. A 2-item cell
+      // sorts vs a 1-item cell by length; reverseCount is ascending-by-count.
+      const p = predicate({
+        sort: [{ field: "Tagsdb", fn: "reverseCount" }],
+      });
+      const fn = sortFnForCol(p, col("Tags", "db", "flex"));
+      expect(fn).not.toBeNull();
+      const one = row({ Tags: "a" });
+      const two = row({ Tags: "a,b" });
+      // The load-bearing assertion: the comparator MEASURES CARDINALITY (1 vs 2
+      // items) and never throws — only possible because the raw multi-string (NOT
+      // flexSortKey, which would yield the scalar "a" for both and collapse the
+      // order to 0) reaches countSort. reverseCount = countSort(...) * -1, so the
+      // 1-item cell sorts AFTER the 2-item cell (=> +1); antisymmetric on swap.
+      expect(() => fn(one, two, "Tags")).not.toThrow();
+      expect(fn(one, two, "Tags")).toBe(1);
+      expect(fn(two, one, "Tags")).toBe(-1);
+      // If flexSortKey had (wrongly) been applied, both cells would unwrap to the
+      // same scalar key and the comparator would return 0 — assert it does NOT.
+      expect(fn(one, two, "Tags")).not.toBe(0);
+    });
+
+    it("flex column under a TEXT filter (`include`) extracts the value and never throws on a numeric/boolean cell", () => {
+      const p = predicate({
+        filters: [{ field: "Mixeddb", fn: "include", value: "ell", fType: "text" }],
+      });
+      const fn = filterFnForCol(p, col("Mixed", "db", "flex"));
+      // Wrapped string value: substring match runs on "hello", not the wrapper.
+      expect(
+        fn(row({ Mixed: flex("hello") }), "Mixed", "ell", undefined as any)
+      ).toBe(true);
+      expect(
+        fn(row({ Mixed: flex("world") }), "Mixed", "ell", undefined as any)
+      ).toBe(false);
+      // A numeric/boolean wrapped value previously hit a String.prototype method
+      // on a number/boolean => TypeError that crashed the whole filter pass. With
+      // the asText guard on the unwrapped value, it must NOT throw (treated as an
+      // empty text cell => no substring match).
+      expect(() =>
+        fn(row({ Mixed: flex(0, "number") }), "Mixed", "ell", undefined as any)
+      ).not.toThrow();
+      expect(
+        fn(row({ Mixed: flex(0, "number") }), "Mixed", "ell", undefined as any)
+      ).toBe(false);
+      expect(() =>
+        fn(row({ Mixed: flex(false, "boolean") }), "Mixed", "ell", undefined as any)
+      ).not.toThrow();
+    });
+
+    it("flex column under a NUMBER filter (`isGreatThan`) compares the unwrapped numeric value", () => {
+      const p = predicate({
+        filters: [{ field: "Numdb", fn: "isGreatThan", value: "10", fType: "number" }],
+      });
+      const fn = filterFnForCol(p, col("Num", "db", "flex"));
+      // Unwrapped 42 > 10 => visible; unwrapped 5 > 10 => filtered out. Feeding the
+      // raw wrapper would parseFloat('{"value":42,…}') => NaN > 10 => false for all.
+      expect(
+        fn(row({ Num: flex(42, "number") }), "Num", "10", undefined as any)
+      ).toBe(true);
+      expect(
+        fn(row({ Num: flex(5, "number") }), "Num", "10", undefined as any)
+      ).toBe(false);
+    });
+
+    it("a NON-flex column is unaffected: the cell threads through verbatim (no unwrap)", () => {
+      // Regression guard that the flex branch is gated strictly on col.type.
+      const seen: any[] = [];
+      const pSort = predicate({ sort: [{ field: "Plaindb", fn: "alphabetical" }] });
+      const sFn = sortFnForCol(pSort, col("Plain", "db", "text"));
+      // A JSON-looking string in a TEXT column must NOT be unwrapped — it sorts
+      // as the literal string it is.
+      const wrapperish = flex("zzz");
+      expect(sFn(row({ Plain: wrapperish }), row({ Plain: "zzz" }), "Plain")).not.toBe(
+        0
+      ); // literal wrapper text != "zzz" => some ordering, not equal
+      // And the manual adapter with no col threads the raw cell unchanged.
+      const underlying = (v: any, v2: any) => {
+        seen.push([v, v2]);
+        return 0;
+      };
+      tableViewFilterFn(underlying as any)(
+        row({ c: wrapperish }),
+        "c",
+        "x",
+        undefined as any
+      );
+      expect(seen[0][0]).toBe(wrapperish);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
