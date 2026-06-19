@@ -729,12 +729,28 @@ export const TableView = (props: { superstate: Superstate }) => {
     // and the full name is a hover away. Fall back to the header only when there
     // are no rows to measure.
     const cells: HTMLElement[] = bodyCells.length > 0 ? bodyCells : [th];
-    // Live inside .mk-table so the clone inherits the table's font/CSS-variable
+    // Live inside .mk-table so the clone inherits the table's CSS-variable
     // context; off-screen + hidden so it never shows.
     const measurer = tableEl.ownerDocument.createElement("div");
     measurer.style.cssText =
       "position:absolute;left:-99999px;top:0;white-space:nowrap;display:inline-block;width:auto;max-width:none;visibility:hidden;pointer-events:none";
     tableEl.appendChild(measurer);
+    // Match the real cell's font. A bare <div> under .mk-table inherits the
+    // editor's font-size (16px) rather than the 13px the cells actually render
+    // at (their font-size: var(--font-text-size) resolves to inherited), which
+    // otherwise inflated every measured width by ~23% — the "too much extra
+    // space" on auto-fit. Copy the rendered font from a real cell so the clone
+    // measures at the true on-screen size.
+    const fontSrc = tableEl.ownerDocument.defaultView?.getComputedStyle(
+      cells[0]
+    );
+    if (fontSrc) {
+      measurer.style.fontSize = fontSrc.fontSize;
+      measurer.style.fontFamily = fontSrc.fontFamily;
+      measurer.style.fontWeight = fontSrc.fontWeight;
+      measurer.style.fontStyle = fontSrc.fontStyle;
+      measurer.style.letterSpacing = fontSrc.letterSpacing;
+    }
     let natural = 0;
     cells.forEach((cell) => {
       measurer.className = cell.className;
@@ -744,7 +760,10 @@ export const TableView = (props: { superstate: Superstate }) => {
     measurer.remove();
     if (!natural) return;
     const AUTO_FIT_PADDING = 4;
-    const MAX_AUTO_FIT_WIDTH = 600;
+    // Comfortable upper bound so a single very long value (e.g. a long sentence
+    // in a notes column) can't stretch the column across the viewport; the
+    // longest values then truncate (or wrap, if wrap is on) rather than bloat.
+    const MAX_AUTO_FIT_WIDTH = 450;
     const nextWidth = Math.min(natural + AUTO_FIT_PADDING, MAX_AUTO_FIT_WIDTH);
     const nextColsSize = propertyHeaderColumnSizingWithMinimum({
       ...colsSize,
