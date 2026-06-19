@@ -158,6 +158,52 @@ describe("pad: format() coercion so a numeric value stops crashing (Notidian-y0w
     expect(fx.pad(new Date(2024, 0, 2), 12, "*")).toBe("**2024-01-02"); // "2024-01-02" -> 12
     expect(fx.pad(null, 3, "0")).toBe("000"); // format(null) -> "", padded to 3
   });
+
+  it("fails SOFT on a NON-FINITE length (Infinity / -Infinity / NaN) — padStart THROWS on Infinity", () => {
+    // Runtime-confirmed: ('ab').padStart(Infinity,'0') throws RangeError
+    // "Invalid string length". A formula like pad(x, otherProp/0, '0') passes
+    // Infinity (5/0 === Infinity in JS) straight into padStart. NaN already
+    // no-ops natively; we normalize all non-finite lengths to the same defined
+    // no-op (return the coerced string unchanged).
+    expect(() => fx.pad("7", Infinity, "0")).not.toThrow();
+    expect(fx.pad("7", Infinity, "0")).toBe("7");
+    expect(() => fx.pad("7", -Infinity, "0")).not.toThrow();
+    expect(fx.pad("7", -Infinity, "0")).toBe("7");
+    expect(() => fx.pad("7", NaN, "0")).not.toThrow();
+    expect(fx.pad("7", NaN, "0")).toBe("7");
+  });
+
+  it("fails SOFT on an OVER-CAP length (padStart THROWS near 2^30; even a valid 1e8 OOMs)", () => {
+    // ('ab').padStart(2**30,'0') throws RangeError; a "valid" enormous length
+    // like 1e8 allocates a ~100MB string that freezes the render. The defensive
+    // cap (mirrors repeat()'s n > 10000) returns the coerced string unchanged.
+    expect(() => fx.pad("7", 2 ** 30, "0")).not.toThrow();
+    expect(fx.pad("7", 2 ** 30, "0")).toBe("7");
+    expect(() => fx.pad("x", 1e9, "0")).not.toThrow();
+    expect(fx.pad("x", 1e9, "0")).toBe("x");
+    expect(() => fx.pad("x", 1e8, "0")).not.toThrow();
+    expect(fx.pad("x", 1e8, "0")).toBe("x");
+    expect(fx.pad("abc", 10001, "0")).toBe("abc"); // just over the defensive cap
+  });
+
+  it("a negative or zero length is a no-op (returns the coerced string unchanged)", () => {
+    expect(fx.pad("ab", -5, "0")).toBe("ab");
+    expect(fx.pad("ab", 0, "0")).toBe("ab");
+    expect(fx.pad("ab", 2, "0")).toBe("ab"); // length === str.length: unchanged
+  });
+
+  it("floors a fractional length ToLength-style before padding (no throw)", () => {
+    expect(() => fx.pad("7", 3.9, "0")).not.toThrow();
+    expect(fx.pad("7", 3.9, "0")).toBe("007"); // floor(3.9) = 3
+    expect(fx.pad("7", 1.9, "0")).toBe("7"); // floor(1.9) = 1 <= str.length -> unchanged
+  });
+
+  it("pads up to the defensive cap (a large-but-in-range length still works)", () => {
+    const out = fx.pad("ab", 100, "0");
+    expect(out).toHaveLength(100);
+    expect(out.endsWith("ab")).toBe(true);
+    expect(out.startsWith("0")).toBe(true);
+  });
 });
 
 describe("regex helpers fail SOFT on a malformed pattern (no computed-cell crash)", () => {

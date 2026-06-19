@@ -520,12 +520,26 @@ export const formulas = {
 	},
 	'pad': (str: string, length: number, char: string) => {
 		// Coerce via format() like every sibling string helper so pad(numericValue,
-		// 5, '0') stops throwing a TypeError ((5).padStart is undefined). padStart
-		// itself is total over any finite length (negative/0 -> the string
-		// unchanged, fractional -> ToLength-floored), so coercion is the only fix
-		// the cell needs here.
+		// 5, '0') stops throwing a TypeError ((5).padStart is undefined).
 		str = format(str);
-		return str.padStart(length, char);
+		// String.prototype.padStart is NOT total over every finite length: a
+		// large-but-finite or non-finite target length THROWS a RangeError
+		// ("Invalid string length") — runtime-confirmed ('ab').padStart(2**30,'0')
+		// and ('ab').padStart(Infinity,'0') both throw — and even a "valid"
+		// enormous length (e.g. 1e8) allocates a ~100MB string that OOMs/freezes
+		// the render. `length` is a user-authored formula argument
+		// (formulasInfos.ts: pad's 'length' arg), so guard it the same way the
+		// sibling repeat() guards its count: floor ToInteger-style, then fail soft
+		// (return the coerced string unchanged) on any length that isn't a sane,
+		// in-range integer. NaN/negative/0 already no-op in padStart; we also clamp
+		// non-finite and over-cap lengths to the same defensive ceiling repeat()
+		// uses so a single odd formula can't crash or OOM the computed cell
+		// (mirrors the safeRegExp / ADR-0033 degrade-gracefully doctrine).
+		const n = Math.floor(Number(length));
+		if (!Number.isFinite(n) || n <= str.length || n > 10000) {
+			return str;
+		}
+		return str.padStart(n, char);
 	},
 	"range": (arr: number[]) => {
 		return Math.max(...arr) - Math.min(...arr);
