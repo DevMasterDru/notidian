@@ -93,15 +93,12 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   skipFolderNames: [],
   enhancedLogs: false,
   basics: true,
-  // Default-OFF frame-execution hardening (bd Notidian-vke / ADR 0018). Core
-  // render-path change; needs live vault verification before the owner enables
-  // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
-  hardenFrameExecution: false,
-  // Default-OFF dead-MKit-preview-runtime removal (bd Notidian-bnb / ADR 0018).
-  // Core render-path change; file deletion is behavior-preserving, but the
-  // branch short-circuit needs live vault verification before the owner enables
-  // it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
-  removeMKitPreviewRuntime: false,
+  // Default-ON frame-execution hardening as of the owner live-verify 2026-06-20
+  // (ADR 0018 / Notidian-vke). Routes frame text through sanitizeFrameText and
+  // withholds $api from non-default-kit frames (and enables the jsonWithUnquoted
+  // tolerant tokenizer, ADR 0026). The flag is RETAINED as a KILL-SWITCH: set it
+  // false to restore byte-for-byte legacy frame execution.
+  hardenFrameExecution: true,
   // Default-ON list-view per-item display-property picker (bd Notidian-543 /
   // ADR 0016) — an owner-requested ("very important") Notion-'Properties'
   // parity feature; the owner verifies it by USE. The flag is RETAINED as a

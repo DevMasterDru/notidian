@@ -35,7 +35,7 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ### Notidian-vke — Frame-execution sink hardening (trust boundary + frame-text sanitization)
 
-✅ **Live-verified 2026-06-20** — `hardenFrameExecution: true` in the Atlas Vault. Default-kit frames keep `$api`, so default rendering (covers/stickers/colors/badges) is unchanged; frame text renders through the active `sanitizeFrameText` sink with no double-escaping and no errors. Owner can still refine the trust model (vault-trusted-frame allowlist, [ADR 0022](adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md)) if a custom `$api`-in-prop frame they use ever needs re-trusting.
+✅ **Live-verified 2026-06-20 → now default-ON in code (Notidian-gbpu).** Default-kit frames keep `$api`, so default rendering (covers/stickers/colors/badges) is unchanged; frame text renders through the active `sanitizeFrameText` sink with no double-escaping and no errors. After verification the code default was flipped `false → true` (kill-switch retained) so all installs get the sink hardening + the jsonWithUnquoted tolerant tokenizer (ADR 0026) cascade. Owner can still refine the trust model (vault-trusted-frame allowlist, [ADR 0022](adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md)) if a custom `$api`-in-prop frame they use ever needs re-trusting.
 
 - **Setting:** `hardenFrameExecution` (default `false`) — `src/shared/types/settings.ts`,
   defaulted in `src/core/schemas/settings.ts`.
@@ -92,7 +92,7 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ### Notidian-bnb — Remove dead MKit preview runtime from core SpaceManagerContext
 
-✅ **Live-verified 2026-06-20** — `removeMKitPreviewRuntime: true` in the Atlas Vault. Folder-space views (`SpaceManagerContext` path) render unchanged with the flag ON — hub note body, properties panel, Type Profile, context tables, frames, sidebar navigation all resolve through the normal `superstate.spaceManager` path; no errors. Bead `Notidian-bnb` closed. The residual-dead-branch prune (parked → `docs/ROADMAP.md`) is now unblocked — build when the owner asks.
+✅ **Live-verified 2026-06-20 → dead runtime now fully pruned (Notidian-rzv).** Folder-space (`mk-space`) views render unchanged — `mk-space` table renders identically (275 cells, 27 rows × 20 cols via `readAllTables`), hub note body, properties panel, Type Profile, frames, sidebar nav all resolve through `superstate.spaceManager`; no errors. After verification the ~14 inert `mkitContext?.isPreviewMode` branches + the `INERT_MKIT_PREVIEW_CONTEXT`/`InertProcessedSpaceData` scaffolding + the `isMKitPath`/`convertMKitPath` helpers were deleted and the `removeMKitPreviewRuntime` setting retired (public value keeps the constant `isPreviewMode: false` external consumers gate on). Guarded by `deadMKitRemoval.guard.test.ts`. Beads `Notidian-bnb` + `Notidian-rzv` closed.
 
 - **Setting:** `removeMKitPreviewRuntime` (default `false`) —
   `src/shared/types/settings.ts`, defaulted in `src/core/schemas/settings.ts`.

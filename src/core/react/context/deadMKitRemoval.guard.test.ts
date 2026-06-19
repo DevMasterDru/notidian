@@ -69,4 +69,31 @@ describe("dead MKit preview runtime removal — static guard (Notidian-bnb)", ()
     }
     expect(offenders).toEqual([]);
   });
+
+  it("the dead MKit-preview scaffolding is fully pruned (Notidian-rzv): no source file references INERT_MKIT_PREVIEW_CONTEXT / InertProcessedSpaceData / InertMKitPreviewContext / removeMKitPreviewRuntime in CODE", () => {
+    // The residual-prune (Notidian-rzv) deleted the local inert scaffolding and
+    // retired the removeMKitPreviewRuntime setting. If a future change resurrects
+    // any of them, this guard fails. Comments are stripped first so the guard
+    // file's own needles and any prose are ignored — only live code counts.
+    const prunedSymbols = [
+      "INERT_MKIT_PREVIEW_CONTEXT",
+      "InertProcessedSpaceData",
+      "InertMKitPreviewContext",
+      "removeMKitPreviewRuntime",
+    ];
+    const offenders: { file: string; symbol: string }[] = [];
+    for (const f of files) {
+      if (f === __filename) continue;
+      const raw = fs.readFileSync(f, "utf8");
+      const code = raw
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+      for (const sym of prunedSymbols) {
+        if (new RegExp(`\\b${sym}\\b`).test(code)) {
+          offenders.push({ file: f, symbol: sym });
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

@@ -17,7 +17,7 @@ import {
   SpaceTables,
   SpaceTableSchema,
 } from "shared/types/mdb";
-import { FrameSchema, MDBFrame, MDBFrames } from "shared/types/mframe";
+import { MDBFrame, MDBFrames } from "shared/types/mframe";
 import { URI } from "shared/types/path";
 import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
@@ -26,79 +26,29 @@ import { SpaceInfo } from "shared/types/spaceInfo";
 import { SpaceManagerInterface } from "shared/types/spaceManager";
 import { ContextState } from "shared/types/superstate";
 
-/**
- * Inert MKit-preview context (bd Notidian-bnb / ADR 0018).
- *
- * Background: the MKit *installer* (MKitFileViewer) was the only thing that ever
- * mounted a real MKitProvider, and it was removed in Notidian-ala. With no
- * provider mounted, the old `useMKitPreviewContext()` (a `useContext` read of
- * MKitContext) returned the `createContext` default on every core render — an
- * object whose `isPreviewMode` is `false` and whose helpers are no-ops, so every
- * `mkitContext?.isPreviewMode && …` branch in SpaceManagerProvider was already
- * dead at runtime.
- *
- * This const reproduces that exact runtime default *locally*, which lets us
- * delete MKitContext.tsx + MKitSpaceManagerProvider (breaking a circular import:
- * SpaceManagerContext imported useMKitPreviewContext; MKitContext imported
- * MKitSpaceManagerProvider) WITHOUT changing what the core provider observes.
- * The public SpaceManager context value still carries `isPreviewMode`/
- * `isMKitPath`/`convertMKitPath` (external consumers — SpaceContext, PathCrumb,
- * SpaceFragmentView — read `spaceManager.isPreviewMode`), all evaluating to the
- * same inert values as before.
- */
-// The subset of the old ProcessedSpaceData that the (now-dead) mkit branches in
-// SpaceManagerProvider read off a space lookup. Reproduced locally so the dead
-// branches keep their ORIGINAL element typing (e.g. frameSchemas: FrameSchema[],
-// contextTables: SpaceTables) instead of degrading to `any` after MKitContext.tsx
-// was deleted — preserving the file's type-check surface exactly.
-interface InertProcessedSpaceData {
-  contextTables: SpaceTables;
-  frameData: MDBFrames;
-  frameSchemas?: FrameSchema[];
-  contextSchemas?: SpaceTableSchema[];
-  pathState: PathState;
-}
-
-interface InertMKitPreviewContext {
-  isPreviewMode: boolean;
-  rootPath: string;
-  getContextsIndexMap: () => Map<string, ContextState>;
-  getPathsIndexMap: () => Map<string, PathState>;
-  getPathState: (path: string) => PathState | null;
-  resolvePath: (path: string, source?: string) => string;
-  getSpaceByFullPath: (path: string) => InertProcessedSpaceData | undefined;
-  getSpaceByRelativePath: (path: string) => InertProcessedSpaceData | undefined;
-}
-
-const INERT_MKIT_PREVIEW_CONTEXT: InertMKitPreviewContext = {
-  // isPreviewMode is the dead-branch guard; it is always false (no provider is
-  // ever mounted), but its STATIC type stays `boolean` so the mkit branches
-  // remain type-checked as reachable code rather than being narrowed away.
-  isPreviewMode: false,
-  rootPath: "",
-  getContextsIndexMap: () => new Map<string, ContextState>(),
-  getPathsIndexMap: () => new Map<string, PathState>(),
-  getPathState: () => null,
-  resolvePath: (path: string) => path,
-  getSpaceByFullPath: () => undefined,
-  getSpaceByRelativePath: () => undefined,
-};
+// The dead MKit-preview runtime was fully removed (bd Notidian-rzv, post the
+// Notidian-bnb live-verify / ADR 0018). The .mkit installer that once mounted
+// MKitProvider was gone (Notidian-ala) and MKitContext.tsx deleted (Notidian-bnb),
+// so every `mkit://preview/` branch here was already dead at runtime; this file
+// now delegates straight to `superstate.spaceManager`. The public value keeps a
+// literal `isPreviewMode: false` because external consumers (SpaceContext,
+// PathCrumb, SpaceFragmentView) still gate on `spaceManager.isPreviewMode`.
 
 /**
- * Enhanced SpaceManager interface that handles both regular and MKit operations
+ * Enhanced SpaceManager interface (delegates to superstate.spaceManager)
  */
 interface SpaceManagerContextType extends APISpaceManager {
-  // Core data operations (MKit-aware)
+  // Core data operations
   readTable(path: string, schema: string): Promise<SpaceTable | null>;
   saveTable(path: string, table: SpaceTable, force?: boolean): Promise<boolean>;
   readFrame(path: string, schema: string): Promise<MDBFrame | null>;
   saveFrame(path: string, frame: MDBFrame): Promise<void>;
 
-  // Schema operations (MKit-aware)
+  // Schema operations
   tablesForSpace(path: string): Promise<SpaceTableSchema[]>;
   framesForSpace(path: string): Promise<SpaceTableSchema[]>;
 
-  // Path operations (MKit-aware)
+  // Path operations
   resolvePath(path: string, source?: string): string;
   uriByString(uri: string, source?: string): URI;
   pathExists(path: string): Promise<boolean>;
@@ -171,10 +121,9 @@ interface SpaceManagerContextType extends APISpaceManager {
   ): Promise<void>;
   deleteFrame(path: string, name: string): Promise<void>;
 
-  // MKit-specific utilities
+  // Inert MKit-preview flag — always false; external consumers (SpaceContext,
+  // PathCrumb, SpaceFragmentView) gate on `spaceManager.isPreviewMode`.
   isPreviewMode: boolean;
-  convertMKitPath(path: string): string;
-  isMKitPath(path: string): boolean;
 
   // Context access map
   getContextsIndexMap: () => Map<string, ContextState>;
@@ -197,18 +146,6 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
   superstate,
   children,
 }) => {
-  // MKit preview runtime is dead post-installer-removal (bd Notidian-bnb / ADR
-  // 0018). Default-OFF: feed the now-orphaned mkit branches the LOCAL inert
-  // default — identical to the value the deleted useMKitPreviewContext()
-  // returned, so runtime behavior is byte-for-byte unchanged. Flag ON: force it
-  // null so the branches short-circuit (the clean state for live verification).
-  // Either way no real MKit provider exists, so isPreviewMode is always false.
-  const removeMKitPreviewRuntime =
-    superstate?.settings?.removeMKitPreviewRuntime === true;
-  const mkitContext = removeMKitPreviewRuntime
-    ? null
-    : INERT_MKIT_PREVIEW_CONTEXT;
-
   // Create formula context for regular provider
   const formulaContext = useMemo(() => {
     // Use superstate's formula context if available, otherwise create one
@@ -223,119 +160,27 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
     return runContext;
   }, [superstate]);
 
-  // MKit path utilities
-  const isMKitPath = useCallback((path: string): boolean => {
-    return path?.startsWith("mkit://preview/") || false;
-  }, []);
-
-  const convertMKitPath = useCallback(
-    (path: string): string => {
-      if (!isMKitPath(path)) {
-        return path;
-      }
-
-      const pathAfterPrefix = path.replace("mkit://preview/", "");
-      const kitId = mkitContext?.rootPath?.replace("mkit://preview/", "") || "";
-
-      if (pathAfterPrefix === kitId || pathAfterPrefix === "") {
-        return ".";
-      } else if (pathAfterPrefix.startsWith(kitId + "/")) {
-        let relativePath = pathAfterPrefix.slice((kitId + "/").length);
-        // Remove trailing slashes
-        relativePath = relativePath.replace(/\/+$/, "");
-        return relativePath || ".";
-      }
-
-      // Remove trailing slashes from the result
-      let result = pathAfterPrefix.replace(/\/+$/, "");
-      return result || ".";
-    },
-    [mkitContext?.rootPath, isMKitPath]
-  );
-
   // Define getContextsIndexMap before readTable to avoid reference errors
   const getContextsIndexMap = useCallback((): Map<string, ContextState> => {
-    if (mkitContext?.isPreviewMode && mkitContext?.getContextsIndexMap) {
-      // In MKit preview mode, use MKit context's map
-      return mkitContext.getContextsIndexMap();
-    } else if (superstate?.contextsIndex) {
-      // In regular mode, return superstate's contexts index
+    if (superstate?.contextsIndex) {
       return superstate.contextsIndex;
     }
     // Fallback to empty map
     return new Map<string, ContextState>();
-  }, [mkitContext, superstate]);
+  }, [superstate]);
 
   // Define getPathsIndexMap before readTable to avoid reference errors
   const getPathsIndexMap = useCallback((): Map<string, PathState> => {
-    if (mkitContext?.isPreviewMode && mkitContext?.getPathsIndexMap) {
-      // In MKit preview mode, use MKit context's map
-      return mkitContext.getPathsIndexMap();
-    } else if (superstate?.pathsIndex) {
-      // In regular mode, return superstate's paths index
+    if (superstate?.pathsIndex) {
       return superstate.pathsIndex;
     }
     // Fallback to empty map
     return new Map<string, PathState>();
-  }, [mkitContext, superstate]);
+  }, [superstate]);
 
   // Core data operations
   const readTable = useCallback(
     async (path: string, schema: string): Promise<SpaceTable | null> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        // Handle MKit preview mode
-        const lookupPath = convertMKitPath(path);
-
-        const mkitSpaceData =
-          mkitContext.getSpaceByFullPath(lookupPath) ||
-          mkitContext.getSpaceByRelativePath(lookupPath);
-
-        if (mkitSpaceData?.contextTables?.[schema]) {
-          const table = mkitSpaceData.contextTables[schema];
-
-          // Apply linkContextRow for MKit data
-          if (table.rows && table.cols && table.cols.length > 0) {
-            // Use getPathsIndexMap and getContextsIndexMap from MKit context
-            const pathsMap = mkitContext?.getPathsIndexMap
-              ? mkitContext.getPathsIndexMap()
-              : new Map<string, PathState>();
-            const contextsMap = mkitContext?.getContextsIndexMap
-              ? mkitContext.getContextsIndexMap()
-              : new Map<string, ContextState>();
-            const spacesMap = new IndexMap();
-
-            // Calculate dependencies once
-            const dependencies = propertyDependencies(table.cols);
-
-            // Use superstate settings if available
-            const settings = superstate?.settings || ({} as MakeMDSettings);
-
-            // Apply linkContextRow to each row
-            const processedRows = table.rows.map((row: any) =>
-              linkContextRow(
-                formulaContext,
-                pathsMap,
-                contextsMap,
-                spacesMap,
-                row,
-                table.cols,
-                mkitSpaceData.pathState,
-                settings,
-                dependencies
-              )
-            );
-
-            return {
-              ...table,
-              rows: processedRows,
-            };
-          }
-
-          return table;
-        }
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         const table = await superstate.spaceManager.readTable(path, schema);
 
@@ -374,15 +219,7 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
       return null;
     },
-    [
-      mkitContext,
-      isMKitPath,
-      convertMKitPath,
-      superstate,
-      formulaContext,
-      getPathsIndexMap,
-      getContextsIndexMap,
-    ]
+    [superstate, formulaContext, getPathsIndexMap, getContextsIndexMap]
   );
 
   const saveTable = useCallback(
@@ -391,78 +228,38 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
       table: SpaceTable,
       force?: boolean
     ): Promise<boolean> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        return false;
-      }
-
-      // Regular mode
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.saveTable(path, table, force);
       }
 
       return false;
     },
-    [mkitContext, isMKitPath, superstate]
+    [superstate]
   );
 
   const readFrame = useCallback(
     async (path: string, schema: string): Promise<MDBFrame | null> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        // Handle MKit preview mode
-        const lookupPath = convertMKitPath(path);
-
-        const mkitSpaceData =
-          mkitContext.getSpaceByFullPath(lookupPath) ||
-          mkitContext.getSpaceByRelativePath(lookupPath);
-
-        if (mkitSpaceData?.frameData?.[schema]) {
-          return mkitSpaceData.frameData[schema];
-        } else {
-        }
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.readFrame(path, schema);
       }
 
       return null;
     },
-    [mkitContext, isMKitPath, convertMKitPath, superstate]
+    [superstate]
   );
 
   const saveFrame = useCallback(
     async (path: string, frame: MDBFrame): Promise<void> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        return;
-      }
-
-      // Regular mode
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.saveFrame(path, frame);
       }
     },
-    [mkitContext, isMKitPath, superstate]
+    [superstate]
   );
 
   // Schema operations
   const tablesForSpace = useCallback(
     async (path: string): Promise<SpaceTableSchema[]> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        // Handle MKit preview mode
-        const lookupPath = convertMKitPath(path);
-
-        const mkitSpaceData =
-          mkitContext.getSpaceByFullPath(lookupPath) ||
-          mkitContext.getSpaceByRelativePath(lookupPath);
-
-        if (mkitSpaceData?.contextSchemas) {
-          return mkitSpaceData.contextSchemas;
-        } else {
-        }
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         const schemas = await superstate.spaceManager.tablesForSpace(path);
         return schemas || [];
@@ -470,28 +267,11 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
       return [];
     },
-    [mkitContext, isMKitPath, convertMKitPath, superstate]
+    [superstate]
   );
 
   const framesForSpace = useCallback(
     async (path: string): Promise<SpaceTableSchema[]> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        // Handle MKit preview mode
-        const lookupPath = convertMKitPath(path);
-
-        const mkitSpaceData =
-          mkitContext.getSpaceByFullPath(lookupPath) ||
-          mkitContext.getSpaceByRelativePath(lookupPath);
-
-        if (mkitSpaceData?.frameSchemas) {
-          return mkitSpaceData.frameSchemas.map(
-            (fs) => fs as any as SpaceTableSchema
-          );
-        } else {
-        }
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         const schemas = await superstate.spaceManager.framesForSpace(path);
         return schemas || [];
@@ -499,25 +279,19 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
       return [];
     },
-    [mkitContext, isMKitPath, convertMKitPath, superstate]
+    [superstate]
   );
 
   // Path operations
   const resolvePath = useCallback(
     (path: string, source?: string): string => {
-      if (mkitContext?.isPreviewMode) {
-        // Let MKit context handle path resolution for preview mode
-        return mkitContext.resolvePath(path, source);
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         return superstate.spaceManager.resolvePath(path, source);
       }
 
       return path;
     },
-    [mkitContext, superstate]
+    [superstate]
   );
 
   const uriByString = useCallback(
@@ -543,23 +317,13 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
   const pathExists = useCallback(
     async (path: string): Promise<boolean> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        // For MKit paths, check if space data exists
-        const lookupPath = convertMKitPath(path);
-        const mkitSpaceData =
-          mkitContext.getSpaceByFullPath(lookupPath) ||
-          mkitContext.getSpaceByRelativePath(lookupPath);
-        return !!mkitSpaceData;
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.pathExists(path);
       }
 
       return false;
     },
-    [mkitContext, isMKitPath, convertMKitPath, superstate]
+    [superstate]
   );
 
   // Space operations (always use regular spaceManager)
@@ -594,31 +358,6 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
   const contextForSpace = useCallback(
     async (path: string): Promise<SpaceTable> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        // Handle MKit preview mode - return default context table
-        const lookupPath = convertMKitPath(path);
-
-        const mkitSpaceData =
-          mkitContext.getSpaceByFullPath(lookupPath) ||
-          mkitContext.getSpaceByRelativePath(lookupPath);
-
-        if (mkitSpaceData?.contextTables) {
-          // Return the first context table or create a default one
-          const tables = Object.values(mkitSpaceData.contextTables);
-          if (tables.length > 0) {
-            return tables[0];
-          }
-        }
-
-        // Return empty context table for MKit
-        return {
-          schema: null,
-          cols: [],
-          rows: [],
-        };
-      }
-
-      // Fallback to regular spaceManager
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.contextForSpace(path);
       }
@@ -629,7 +368,7 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
         rows: [],
       };
     },
-    [mkitContext, isMKitPath, convertMKitPath, superstate]
+    [superstate]
   );
 
   // Property operations (always use regular spaceManager)
@@ -785,44 +524,22 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
   const readAllTables = useCallback(
     async (path: string): Promise<SpaceTables> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        const convertedPath = convertMKitPath(path);
-        const spaceData =
-          mkitContext.getSpaceByFullPath(convertedPath) ||
-          mkitContext.getSpaceByRelativePath(convertedPath);
-
-        if (spaceData?.contextTables) {
-          return spaceData.contextTables;
-        }
-      }
-
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.readAllTables(path);
       }
       return {};
     },
-    [superstate, mkitContext, isMKitPath, convertMKitPath]
+    [superstate]
   );
 
   const readAllFrames = useCallback(
     async (path: string): Promise<MDBFrames> => {
-      if (mkitContext?.isPreviewMode && isMKitPath(path)) {
-        const convertedPath = convertMKitPath(path);
-        const spaceData =
-          mkitContext.getSpaceByFullPath(convertedPath) ||
-          mkitContext.getSpaceByRelativePath(convertedPath);
-
-        if (spaceData?.frameData) {
-          return spaceData.frameData;
-        }
-      }
-
       if (superstate?.spaceManager) {
         return await superstate.spaceManager.readAllFrames(path);
       }
       return {};
     },
-    [superstate, mkitContext, isMKitPath, convertMKitPath]
+    [superstate]
   );
 
   const saveSpace = useCallback(
@@ -918,24 +635,13 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
 
   const getPathState = useCallback(
     (path: string): PathState | null => {
-      if (mkitContext?.isPreviewMode && mkitContext?.getPathState) {
-        // In MKit preview mode, use MKit context's getPathState
-        if (isMKitPath(path)) {
-          const convertedPath = convertMKitPath(path);
-          return mkitContext.getPathState(convertedPath) || null;
-        }
-        // For non-MKit paths in preview mode, still try MKit context
-        return mkitContext.getPathState(path) || null;
-      }
-
-      // In regular mode, use superstate's paths index
       if (superstate?.pathsIndex) {
         return superstate.pathsIndex.get(path) || null;
       }
 
       return null;
     },
-    [mkitContext, isMKitPath, convertMKitPath, superstate]
+    [superstate]
   );
 
   const childrenForPath = useCallback(
@@ -1038,10 +744,8 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
       saveFrameSchema,
       deleteFrame,
 
-      // MKit utilities
-      isPreviewMode: !!mkitContext?.isPreviewMode,
-      convertMKitPath,
-      isMKitPath,
+      // Inert MKit-preview flag — always false (external consumers gate on it).
+      isPreviewMode: false,
 
       // Context access map
       getContextsIndexMap,
@@ -1095,9 +799,6 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
       childrenForPath,
       saveFrameSchema,
       deleteFrame,
-      mkitContext?.isPreviewMode,
-      convertMKitPath,
-      isMKitPath,
       getContextsIndexMap,
       superstate?.spaceManager,
       formulaContext,

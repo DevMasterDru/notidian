@@ -1,28 +1,30 @@
 /**
  * @jest-environment jsdom
  */
-// Offline (jsdom) coverage for the dead-MKit-preview-runtime removal
-// (bd Notidian-bnb / ADR 0018).
+// Offline (jsdom) regression coverage for the dead-MKit-preview-runtime removal
+// (bd Notidian-rzv, finalizing the Notidian-bnb live-verify / ADR 0018).
 //
 // WHY THIS TEST EXISTS: SpaceManagerContext is a core render-path context
 // (consumed by SpaceView, MDBFileViewer, inlineContextLoader, NavigatorView, …)
 // and the repo has no live render coverage, so a deletion's render-correctness
-// cannot be proven by tsc/build alone (this is why the bead is flag-gated, per
-// AGENTS.md "Autonomous Implementation Mode"). The deletion is, however,
-// provably behavior-preserving by construction: the only thing that EVER mounted
-// a real MKitProvider was the .mkit installer (MKitFileViewer), removed in
-// Notidian-ala. With no provider mounted, the old `useMKitPreviewContext()`
-// returned the inert createContext default (isPreviewMode:false), so every
-// `mkit://preview/` branch in the non-MKit SpaceManagerProvider was already
-// dead. These tests render the REAL provider (no mocked module internals) and
-// assert that, in BOTH flag states:
+// cannot be proven by tsc/build alone. The deletion is provably
+// behavior-preserving by construction: the only thing that EVER mounted a real
+// MKitProvider was the .mkit installer (MKitFileViewer), removed in Notidian-ala;
+// MKitContext.tsx was then deleted (Notidian-bnb). With no provider mounted, the
+// old `useMKitPreviewContext()` returned the inert createContext default
+// (isPreviewMode:false), so every `mkit://preview/` branch in the non-MKit
+// SpaceManagerProvider was already dead. The owner live-verified the
+// short-circuited state, so this change DELETES those dead branches outright; the
+// `removeMKitPreviewRuntime` flag is retired. This test now pins the SINGLE
+// post-prune state: render the REAL provider (no mocked module internals) and
+// assert that:
 //   - the public SpaceManager API shape is intact and stable,
-//   - isPreviewMode is false (no preview branch is ever reached),
-//   - read/resolve operations delegate to superstate.spaceManager — i.e. the
-//     non-MKit "fallback" path that the live vault actually uses,
-//   - the external-consumer contract (spaceManager.isPreviewMode /
-//     isMKitPath / convertMKitPath) still resolves to the same inert values
-//     that SpaceContext / PathCrumb / SpaceFragmentView depend on.
+//   - isPreviewMode is false (no preview branch exists),
+//   - read/resolve/pathState operations delegate to superstate.spaceManager —
+//     i.e. the non-MKit path the live vault actually uses,
+//   - the external-consumer contract (spaceManager.isPreviewMode, read by
+//     SpaceContext / PathCrumb / SpaceFragmentView) still resolves to the same
+//     inert `false` those consumers depend on.
 import React from "react";
 import { act } from "react-dom/test-utils";
 import { createRoot, Root } from "react-dom/client";
@@ -39,9 +41,9 @@ import {
 type Captured = ReturnType<typeof useSpaceManager>;
 
 const makeSpaceManagerStub = (record: string[]) => ({
-  // The methods the provider delegates to in non-preview (live) mode. Each
-  // records the call so we can prove the fallback path — not a mkit branch —
-  // was taken, and returns a recognizable sentinel.
+  // The methods the provider delegates to in the live (non-preview) path. Each
+  // records the call so we can prove the fallback path was taken, and returns a
+  // recognizable sentinel.
   readTable: jest.fn(async (path: string, _schema: string) => {
     record.push(`readTable:${path}`);
     return {
@@ -83,10 +85,7 @@ const makeSpaceManagerStub = (record: string[]) => ({
   })),
 });
 
-const makeSuperstate = (
-  removeMKitPreviewRuntime: boolean,
-  record: string[]
-): any => {
+const makeSuperstate = (record: string[]): any => {
   const pathsIndex = new Map<string, any>([
     ["note.md", { path: "note.md", name: "note", type: "file" }],
   ]);
@@ -94,7 +93,9 @@ const makeSuperstate = (
     ["space", { path: "space" } as any],
   ]);
   return {
-    settings: { removeMKitPreviewRuntime },
+    // No removeMKitPreviewRuntime flag exists post-prune; the provider must
+    // behave identically regardless of any leftover setting.
+    settings: {},
     spaceManager: makeSpaceManagerStub(record),
     pathsIndex,
     contextsIndex,
@@ -165,11 +166,9 @@ const PUBLIC_API_KEYS = [
   "childrenForPath",
   "saveFrameSchema",
   "deleteFrame",
-  // The external-consumer contract (read off spaceManager by SpaceContext /
-  // PathCrumb / SpaceFragmentView) — must survive the runtime removal.
+  // The external-consumer contract (spaceManager.isPreviewMode, read by
+  // SpaceContext / PathCrumb / SpaceFragmentView) — must survive the prune.
   "isPreviewMode",
-  "convertMKitPath",
-  "isMKitPath",
   "getContextsIndexMap",
   "api",
   "spaceManager",
@@ -177,10 +176,7 @@ const PUBLIC_API_KEYS = [
 
 // ---- Tests -----------------------------------------------------------------
 
-describe.each([
-  ["flag OFF (default — dead branches present, inert)", false],
-  ["flag ON (branches short-circuited)", true],
-])("SpaceManagerProvider — %s", (_label, removeFlag) => {
+describe("SpaceManagerProvider — dead MKit-preview runtime pruned (Notidian-rzv)", () => {
   let record: string[];
   let value: Captured;
   let root: Root;
@@ -189,7 +185,7 @@ describe.each([
 
   beforeEach(() => {
     record = [];
-    superstate = makeSuperstate(removeFlag as boolean, record);
+    superstate = makeSuperstate(record);
     ({ value, root, container } = renderProvider(superstate));
   });
 
@@ -205,18 +201,11 @@ describe.each([
     }
   });
 
-  it("is never in preview mode (no MKit provider is ever mounted)", () => {
+  it("is never in preview mode (the MKit preview runtime no longer exists)", () => {
     expect(value.isPreviewMode).toBe(false);
   });
 
-  it("isMKitPath/convertMKitPath degrade to inert non-preview values", () => {
-    // No path is an mkit path in a real vault; the helpers must not rewrite it.
-    expect(value.isMKitPath("note.md")).toBe(false);
-    expect(value.isMKitPath("spaces://x")).toBe(false);
-    expect(value.convertMKitPath("note.md")).toBe("note.md");
-  });
-
-  it("readTable delegates to superstate.spaceManager (the live fallback path)", async () => {
+  it("readTable delegates to superstate.spaceManager (the live path)", async () => {
     await act(async () => {
       await value.readTable("note.md", "main");
     });
@@ -265,37 +254,15 @@ describe.each([
     expect(value.getContextsIndexMap()).toBe(superstate.contextsIndex);
   });
 
-  it("exposes the superstate api reference unchanged", () => {
+  it("exposes the superstate api + spaceManager references unchanged", () => {
     expect(value.api).toBe(superstate.api);
     expect(value.spaceManager).toBe(superstate.spaceManager);
   });
-});
 
-describe("SpaceManagerProvider — flag equivalence (OFF vs ON)", () => {
-  it("produces identical observable behavior in both flag states", async () => {
-    const recOff: string[] = [];
-    const recOn: string[] = [];
-    const ssOff = makeSuperstate(false, recOff);
-    const ssOn = makeSuperstate(true, recOn);
-
-    const a = renderProvider(ssOff);
-    const b = renderProvider(ssOn);
-
-    // Same public surface.
-    expect(Object.keys(a.value).sort()).toEqual(Object.keys(b.value).sort());
-    // Same preview state.
-    expect(a.value.isPreviewMode).toBe(b.value.isPreviewMode);
-    // Same delegation behavior.
-    expect(a.value.resolvePath("./x", "space/")).toBe(
-      b.value.resolvePath("./x", "space/")
-    );
-    expect(a.value.convertMKitPath("note.md")).toBe(
-      b.value.convertMKitPath("note.md")
-    );
-
-    act(() => a.root.unmount());
-    act(() => b.root.unmount());
-    a.container.remove();
-    b.container.remove();
+  it("no longer exposes the removed MKit path helpers", () => {
+    // isMKitPath / convertMKitPath were internal-only (besides the value) and are
+    // gone after the prune; only the inert isPreviewMode contract remains.
+    expect(value).not.toHaveProperty("isMKitPath");
+    expect(value).not.toHaveProperty("convertMKitPath");
   });
 });
