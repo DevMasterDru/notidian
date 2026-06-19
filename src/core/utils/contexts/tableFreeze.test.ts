@@ -3,6 +3,7 @@ import {
   clampFrozenColumnCount,
   frozenColumnCountForColumn,
   frozenTableColumnIds,
+  rowGutterWidthForRowCount,
   stickyOffsetsForFrozenColumns,
 } from "./tableFreeze";
 
@@ -55,8 +56,57 @@ describe("tableFreeze", () => {
         rowGutterWidth: 42,
       })
     ).toEqual({
-      [PathPropertyName]: { left: 42, width: 220, isLast: false },
-      status: { left: 262, width: 90, isLast: true },
+      [PathPropertyName]: {
+        side: "left",
+        offset: 42,
+        width: 220,
+        isLast: false,
+      },
+      status: {
+        side: "left",
+        offset: 262,
+        width: 90,
+        isLast: true,
+      },
     });
+  });
+
+  it("computes right-side sticky offsets for rtl tables", () => {
+    expect(
+      stickyOffsetsForFrozenColumns({
+        columns,
+        hiddenColumnIds: [],
+        frozenColumnCount: 2,
+        columnSizes: {
+          [PathPropertyName]: 220,
+          status: 90,
+        },
+        rowGutterWidth: 42,
+        tableDirection: "rtl",
+      })
+    ).toEqual({
+      [PathPropertyName]: {
+        side: "right",
+        offset: 42,
+        width: 220,
+        isLast: false,
+      },
+      status: {
+        side: "right",
+        offset: 262,
+        width: 90,
+        isLast: true,
+      },
+    });
+  });
+
+  it("sizes the row gutter from the visible row-number digit count", () => {
+    expect(rowGutterWidthForRowCount(0)).toBe(24);
+    expect(rowGutterWidthForRowCount(9)).toBe(24);
+    expect(rowGutterWidthForRowCount(10)).toBe(30);
+    expect(rowGutterWidthForRowCount(99)).toBe(30);
+    expect(rowGutterWidthForRowCount(100)).toBe(36);
+    expect(rowGutterWidthForRowCount(999)).toBe(36);
+    expect(rowGutterWidthForRowCount(1000)).toBe(42);
   });
 });

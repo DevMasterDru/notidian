@@ -1,4 +1,5 @@
 import { openPathFixer } from "adapters/obsidian/fileSystemPathFixer";
+import { registerNotidianEmbedCommands } from "adapters/obsidian/utils/notidianEmbedCommands";
 import { FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidian/ui/explorer/ContextExplorerLeafView";
 import { showWarningsModal } from "core/react/components/Navigator/SyncWarnings";
 import {
@@ -67,6 +68,7 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
       openPathFixer(plugin);
     },
   });
+  registerNotidianEmbedCommands(plugin);
   // The move-space-folder command was removed to lock runtime storage to
   // `.notidian` (ADR 0017/0018; bd Notidian-409). spaceSubFolder is normalized
   // to the plugin storage root on load (main.ts), so allowing it to be relocated

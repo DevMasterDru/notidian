@@ -26,6 +26,7 @@ export interface SpaceFragmentViewComponentProps {
   source?: string;
   minMode?: boolean;
   showTitle?: boolean;
+  readMode?: boolean;
   containerRef?: React.RefObject<HTMLDivElement>;
   setFrameSchema?: (schema: string) => void;
   predicate?: Predicate;
@@ -128,7 +129,7 @@ export const SpaceFragmentViewComponent = (
           <PathProvider
             superstate={props.superstate}
             path={spaceFragment.path}
-            readMode={false}
+            readMode={props.readMode ?? false}
           >
             <SpaceProvider superstate={props.superstate}>
               <FramesMDBProvider
@@ -171,7 +172,7 @@ export const SpaceFragmentViewComponent = (
           <PathProvider
             superstate={props.superstate}
             path={spaceFragment.path}
-            readMode={false}
+            readMode={props.readMode ?? false}
           >
             <SpaceProvider superstate={props.superstate}>
               <FramesMDBProvider

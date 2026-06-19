@@ -62,6 +62,7 @@ import { FilesystemMiddleware, FilesystemSpaceAdapter, SpaceManager, UIManager }
 
 import { mkLogo } from "adapters/obsidian/ui/icons";
 import { patchFilesPlugin, patchWorkspace } from "adapters/obsidian/utils/patches";
+import { registerNotidianMarkdownEmbedProcessor } from "adapters/obsidian/utils/notidianMarkdownEmbed";
 import { safelyParseJSON } from "shared/utils/json";
 import { modifyFlowDom } from "./adapters/obsidian/inlineContextLoader";
 
@@ -433,7 +434,8 @@ loadViews () {
         }
         setTimeout(() => this.activeFileChange(), 2000);
       });
-      
+      registerNotidianMarkdownEmbedProcessor(this);
+
     }
     if (this.superstate.settings.inlineContext) {
       this.registerMarkdownPostProcessor((element, context) => {

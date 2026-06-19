@@ -27,11 +27,10 @@ export const fieldForPropertyNameInput = ({
   editable: boolean;
 }): SpaceTableColumn => {
   const sanitizedName = sanitizeColumnName(value);
-  if (
-    sanitizedName != value ||
-    !editable ||
-    isFrontmatterBackedProperty(field)
-  ) {
+  if (isFrontmatterBackedProperty(field)) {
+    return { ...field };
+  }
+  if (sanitizedName != value || !editable) {
     return fieldWithAlias(field, value);
   }
   return { ...field, name: value };

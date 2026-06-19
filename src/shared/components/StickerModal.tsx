@@ -14,6 +14,8 @@ import { IUIManager as UIManager } from "../types/uiManager";
 interface StickerModalProps {
   ui: UIManager;
   selectedSticker: (path: string) => void;
+  resetSticker?: () => void;
+  canResetSticker?: boolean;
   hide?: () => void;
 }
 
@@ -98,7 +100,7 @@ const StickerModal: React.FC<StickerModalProps> = (props) => {
       props.selectedSticker(
         stickers[selectedSticker].type + "//" + stickers[selectedSticker].value
       );
-      props.hide();
+      props.hide?.();
     }
   };
 
@@ -124,7 +126,22 @@ const StickerModal: React.FC<StickerModalProps> = (props) => {
           placeholder={i18n.labels.findStickers}
           ref={ref}
         />
-        <button className="mk-toolbar-button"></button>
+        {props.resetSticker ? (
+          <button
+            type="button"
+            className="mk-sticker-reset-button"
+            disabled={!(props.canResetSticker ?? true)}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!(props.canResetSticker ?? true)) return;
+              props.resetSticker();
+              props.hide?.();
+            }}
+          >
+            {i18n.menu.defaultIcon}
+          </button>
+        ) : null}
       </div>
       <div className="mk-menu-sections">
         <div
@@ -156,7 +173,7 @@ const StickerModal: React.FC<StickerModalProps> = (props) => {
               props.selectedSticker(
                 stickers[i].type + "//" + stickers[i].value
               );
-              props.hide();
+              props.hide?.();
             }}
             className={
               selectedSticker === i

@@ -171,6 +171,35 @@
   .mk-palette-search input {
     border:none;
     background: none;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .mk-sticker-reset-button {
+    appearance: none;
+    flex: 0 0 auto;
+    border: 1px solid var(--mk-ui-border);
+    border-radius: 999px;
+    background: var(--mk-ui-background);
+    color: var(--mk-ui-text-secondary);
+    cursor: var(--cursor);
+    font-size: 11px;
+    line-height: 1.2;
+    max-width: 82px;
+    overflow: hidden;
+    padding: 4px 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mk-sticker-reset-button:not(:disabled):hover {
+    background: var(--mk-ui-background-hover);
+    color: var(--mk-ui-text-primary);
+  }
+
+  .mk-sticker-reset-button:disabled {
+    opacity: 0.38;
+    cursor: default;
   }
 
 .mk-modal-wrapper {

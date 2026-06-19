@@ -1,5 +1,10 @@
 
 
+export type ColumnHeaderDisplayMode = "adaptive" | "full" | "text" | "icon";
+export type ColumnDataAnchor = "left" | "center" | "right";
+export type ColumnDataAnchorMode = "auto" | ColumnDataAnchor;
+export type TableDirection = "ltr" | "rtl";
+
 export type Filter = {
     field: string;
     fn: string;
@@ -24,6 +29,9 @@ export type Filter = {
     colsHidden: string[];
     colsSize: Record<string, number>;
     colsCalc: Record<string, string>;
+    colsHeaderDisplay: Record<string, ColumnHeaderDisplayMode>;
+    colsDataAnchor: Record<string, ColumnDataAnchor>;
+    tableDirection: TableDirection;
     frozenColumnCount: number;
     limit: number;
     // Notidian-4j7: optional read-only chart over the filtered rows.

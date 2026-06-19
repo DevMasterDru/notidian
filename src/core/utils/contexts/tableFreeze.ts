@@ -1,13 +1,27 @@
 import { SpaceTableColumn } from "shared/types/mdb";
+import { TableDirection } from "shared/types/predicate";
 
 export type FrozenColumnOffset = {
-  left: number;
+  side: "left" | "right";
+  offset: number;
   width: number;
   isLast: boolean;
 };
 
+export const rowGutterBaseWidth = 18;
+export const rowGutterDigitWidth = 6;
+
 export const tableColumnId = (column: Pick<SpaceTableColumn, "name" | "table">): string =>
   column.name + (column.table ?? "");
+
+export const rowGutterWidthForRowCount = (rowCount: number): number => {
+  const count = Number.isFinite(rowCount)
+    ? Math.max(0, Math.floor(rowCount))
+    : 0;
+  const digitCount = Math.max(1, count.toString().length);
+
+  return rowGutterBaseWidth + digitCount * rowGutterDigitWidth;
+};
 
 export const visibleTableColumnIds = ({
   columns,
@@ -80,6 +94,7 @@ export const stickyOffsetsForFrozenColumns = ({
   columnSizes,
   rowGutterWidth,
   defaultColumnWidth = 150,
+  tableDirection = "ltr",
 }: {
   columns: SpaceTableColumn[];
   hiddenColumnIds: string[];
@@ -87,6 +102,7 @@ export const stickyOffsetsForFrozenColumns = ({
   columnSizes: Record<string, number>;
   rowGutterWidth: number;
   defaultColumnWidth?: number;
+  tableDirection?: TableDirection;
 }): Record<string, FrozenColumnOffset> => {
   const frozenColumnIds = frozenTableColumnIds({
     columns,
@@ -94,16 +110,18 @@ export const stickyOffsetsForFrozenColumns = ({
     frozenColumnCount,
   });
   const offsets: Record<string, FrozenColumnOffset> = {};
-  let left = rowGutterWidth;
+  const side = tableDirection == "rtl" ? "right" : "left";
+  let offset = rowGutterWidth;
 
   frozenColumnIds.forEach((columnId, index) => {
     const width = columnSizes[columnId] ?? defaultColumnWidth;
     offsets[columnId] = {
-      left,
+      side,
+      offset,
       width,
       isLast: index == frozenColumnIds.length - 1,
     };
-    left += width;
+    offset += width;
   });
 
   return offsets;
