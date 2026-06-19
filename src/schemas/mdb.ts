@@ -301,6 +301,12 @@ export const defaultFrameListViewSchema: SpaceTableSchema = {
   name: "All",
   type: "view",
   def: JSON.stringify({db: defaultContextSchemaID, icon: 'ui//file-stack'}),
+  // Notidian-eedq: the view PREDICATE (colsSize/colsHeaderDisplay/colsDataAnchor/
+  // colsWrap/colsHidden/colsOrder — the per-DB header layout) lives on this row.
+  // It MUST default to '' (not undefined) to match defaultMainFrameSchema, so a
+  // freshly-seeded frames DB writes an empty-but-present predicate column rather
+  // than a NULL the recovery path could later mistake for "nothing to preserve".
+  predicate: '',
 };
 
 

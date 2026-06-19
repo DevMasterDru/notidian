@@ -173,25 +173,93 @@ export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) =
       return null;
     }
   
+    // Notidian-eedq: the per-DB header layout (column widths/display/anchor/wrap/
+    // hidden/order) is stored as the view PREDICATE on m_schema rows of type
+    // 'view'/'frame'. This recovery/init block used to DESTROY that on every read
+    // that found no schema rows: it (a) treated a THROWN read as "empty" and then
+    // overwrote the file, and (b) when seeding, derived schemas from backing TABLE
+    // NAMES only — which drops every view/frame row (those have no data table) —
+    // and wrote an INSERT that omitted def+predicate, NULLing them. Net effect:
+    // any time this path ran, all persisted header config was lost. The fixes
+    // below make it strictly non-destructive: never overwrite on a failed read,
+    // never derive-from-scratch in a way that drops view/frame rows, and always
+    // carry def+predicate so no persisted column is ever NULLed.
     let schemas : SpaceTableSchema[] = []
     try {
        schemas = (dbResultsToDBTables(
       db.exec(`SELECT * FROM ${quoteIdent("m_schema")}`)
     )[0]?.rows ?? []) as SpaceTableSchema[];
     } catch (e) {
+      // The m_schema read THREW (table absent on a fresh DB, or a transient engine
+      // error). We deliberately do NOT trust this as "the DB is empty"; the
+      // recovery block below re-reads persisted rows from m_schema itself before
+      // deciding anything, so a transient throw can never clobber persisted views.
     }
     if (schemas.length == 0) {
+      // RECOVERY / INIT — strictly NON-DESTRUCTIVE (Notidian-eedq).
+      //
+      // Whether the read above threw or returned zero rows, we must never blindly
+      // derive schemas from backing TABLE NAMES and overwrite the file: that drops
+      // every type:'view'/'frame' row (those have no data table) and NULLs the
+      // predicate (where the per-DB header layout lives). Instead:
+      //   1. Re-read whatever m_schema rows actually persist (the source of truth
+      //      for views/frames + predicates), if the table exists.
+      //   2. Derive db-type schema rows ONLY for backing data tables that have no
+      //      persisted schema row, and MERGE them in (never replace).
+      //   3. Write ONLY the newly-derived rows, with the FULL 6-column shape
+      //      (incl. def + predicate, never NULL). If nothing new is derived, leave
+      //      the file untouched — a pure read must not rewrite persisted state.
+      let mSchemaExists = false;
+      try {
+        const existsRes = dbResultsToDBTables(
+          db.exec(
+            "SELECT name FROM sqlite_schema WHERE type ='table' AND name = 'm_schema';"
+          )
+        );
+        mSchemaExists = (existsRes[0]?.rows?.length ?? 0) > 0;
+      } catch (e) {
+        mSchemaExists = false;
+      }
+
+      // (1) Recover persisted rows (view/frame schemas + their predicates).
+      let persisted: SpaceTableSchema[] = [];
+      if (mSchemaExists) {
+        try {
+          persisted = (dbResultsToDBTables(
+            db.exec(`SELECT * FROM ${quoteIdent("m_schema")}`)
+          )[0]?.rows ?? []) as SpaceTableSchema[];
+        } catch (e) {
+          persisted = [];
+        }
+      }
+
+      // (2) Derive db-type schemas for backing tables lacking a persisted row.
       const tableResults = dbResultsToDBTables(
         db.exec(
             "SELECT name FROM sqlite_schema WHERE type ='table' AND name NOT LIKE 'sqlite_%';"
             ));
       const tables = tableResults[0]?.rows?.map(f => f.name) as string[] ?? [];
-      schemas = tables.filter(f => !f.startsWith('m_')).map(f => (f == defaultContextSchemaID ? defaultContextDBSchema : { id: f, name: f, type: 'db', primary: ''}));
-      db.exec(
-        `CREATE TABLE IF NOT EXISTS ${quoteIdent("m_schema")} (${["id", "name", "type", "def", "predicate", "primary"].map((f) => `${quoteIdent(f)} char`).join(", ")})`
-      );
-      db.exec(schemas.map(f => `INSERT INTO ${quoteIdent("m_schema")} (${["id", "name", "type", "primary"].map(quoteIdent).join(", ")}) VALUES ('${sanitizeSQLStatement(f.id)}', '${sanitizeSQLStatement(f.name)}', '${sanitizeSQLStatement(f.type)}', '${sanitizeSQLStatement(f.primary)}')`).join(';'));
-      await saveDBFile(plugin, dbPath, db.export().buffer as ArrayBuffer);
+      const derived = tables
+        .filter(f => !f.startsWith('m_'))
+        .filter(f => !persisted.some(p => p.id == f)) // don't duplicate a persisted row
+        .map(f => (f == defaultContextSchemaID ? defaultContextDBSchema : { id: f, name: f, type: 'db', primary: '' } as SpaceTableSchema));
+      schemas = [...persisted, ...derived];
+
+      // (3) Persist ONLY the newly-derived rows, full 6-column shape, no NULLs.
+      if (derived.length > 0) {
+        db.exec(
+          `CREATE TABLE IF NOT EXISTS ${quoteIdent("m_schema")} (${["id", "name", "type", "def", "predicate", "primary"].map((f) => `${quoteIdent(f)} char`).join(", ")})`
+        );
+        const cols = ["id", "name", "type", "def", "predicate", "primary"];
+        db.exec(derived.map(f =>
+          `INSERT INTO ${quoteIdent("m_schema")} (${cols.map(quoteIdent).join(", ")}) VALUES (` +
+          [f.id, f.name, f.type, f.def ?? '', f.predicate ?? '', f.primary ?? '']
+            .map(v => `'${sanitizeSQLStatement(v as string)}'`)
+            .join(", ") +
+          `)`
+        ).join(';'));
+        await saveDBFile(plugin, dbPath, db.export().buffer as ArrayBuffer);
+      }
     }
     const mdbTables = {} as SpaceTables;
     schemas.forEach(schema => {
