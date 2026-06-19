@@ -148,7 +148,11 @@ export const ColumnHeader = (props: {
     data: { name: field.name },
   });
 
-  const { setNodeRef: setDroppableNodeRef } = useDroppable({
+  const {
+    setNodeRef: setDroppableNodeRef,
+    isOver,
+    active,
+  } = useDroppable({
     id: field.name + field.table,
     data: { name: field.name },
   });
@@ -377,6 +381,23 @@ export const ColumnHeader = (props: {
     };
   }, [propertyHeaderTooltip, propertyHeaderTooltipPortalTarget]);
 
+  // Drop-target feedback for column reordering: show an insertion line on the
+  // over-column indicating where the dragged header will land. handleDragEnd
+  // uses arrayMove(colsOrder, activeIndex, overIndex), so dragging rightward
+  // (active before over) inserts AFTER the target, leftward inserts BEFORE.
+  // Side is logical (before/after); RTL flips the physical edge in CSS.
+  const columnDropSide: "before" | "after" | null = (() => {
+    if (!isOver) return null;
+    const activeId = active?.id?.toString();
+    const thisId = field.name + field.table;
+    if (!activeId || activeId == thisId) return null;
+    const order = cols.map((c) => c.name + c.table);
+    const activeIndex = order.indexOf(activeId);
+    const overIndex = order.indexOf(thisId);
+    if (activeIndex == -1 || overIndex == -1) return "before";
+    return activeIndex < overIndex ? "after" : "before";
+  })();
+
   return (
     <div
       ref={setNodeRef}
@@ -384,7 +405,8 @@ export const ColumnHeader = (props: {
       {...attributes}
       className={classNames(
         "mk-col-header",
-        `mk-col-header--${headerDisplayParts.effectiveMode}`
+        `mk-col-header--${headerDisplayParts.effectiveMode}`,
+        columnDropSide && `mk-col-header--drop-${columnDropSide}`
       )}
       onClick={(e) => {
         toggleMenu(e);

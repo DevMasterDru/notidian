@@ -54,6 +54,21 @@
   padding: 0 3px;
 }
 
+/* Column-reorder drop indicator: insertion line on the over-column showing
+   where the dragged header will land. RTL flips the physical edge. */
+.mk-col-header--drop-before {
+  box-shadow: inset 2px 0 0 var(--mk-ui-active);
+}
+.mk-col-header--drop-after {
+  box-shadow: inset -2px 0 0 var(--mk-ui-active);
+}
+.mk-table-rtl .mk-col-header--drop-before {
+  box-shadow: inset -2px 0 0 var(--mk-ui-active);
+}
+.mk-table-rtl .mk-col-header--drop-after {
+  box-shadow: inset 2px 0 0 var(--mk-ui-active);
+}
+
 .mk-col-header > div {
   display: flex;
   gap: 4px;
