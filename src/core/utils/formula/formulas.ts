@@ -470,7 +470,19 @@ export const formulas = {
 		return str.toUpperCase();
 	},
 	"repeat": (str: string, times: number) => {
-		return str.repeat(times);
+		str = format(str);
+		// String.prototype.repeat THROWS a RangeError on a negative, non-finite,
+		// or huge (> ~2^28) count — a user-authored formula like repeat(x, -1) or
+		// repeat(x, 2^30) would crash the whole computed cell. Fail soft to '' for
+		// any count that isn't a sane non-negative integer (mirrors the safeRegExp
+		// degrade-gracefully doctrine), floor fractional counts the way the native
+		// method does (ToInteger), and clamp at a defensive cap so a large-but-
+		// "valid" count can't OOM the render either.
+		const n = Math.floor(Number(times));
+		if (!Number.isFinite(n) || n < 0 || n > 10000) {
+			return "";
+		}
+		return str.repeat(n);
 	},
 	"format": format,
 	"toNumber": (arg: any) => {
@@ -507,6 +519,12 @@ export const formulas = {
 		return date.getFullYear();
 	},
 	'pad': (str: string, length: number, char: string) => {
+		// Coerce via format() like every sibling string helper so pad(numericValue,
+		// 5, '0') stops throwing a TypeError ((5).padStart is undefined). padStart
+		// itself is total over any finite length (negative/0 -> the string
+		// unchanged, fractional -> ToLength-floored), so coercion is the only fix
+		// the cell needs here.
+		str = format(str);
 		return str.padStart(length, char);
 	},
 	"range": (arr: number[]) => {

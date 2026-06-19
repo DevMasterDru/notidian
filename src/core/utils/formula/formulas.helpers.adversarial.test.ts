@@ -94,6 +94,72 @@ describe("string helpers funnel non-string input through format()", () => {
   });
 });
 
+describe("repeat: format() coercion + RangeError guard (Notidian-y0wm, LOCKED FIX)", () => {
+  it("happy path is unchanged", () => {
+    expect(fx.repeat("ab", 3)).toBe("ababab");
+    expect(fx.repeat("x", 0)).toBe(""); // zero count -> empty string (native behavior)
+    expect(fx.repeat("ab", 1)).toBe("ab");
+  });
+
+  it("coerces a non-string str via format() before repeating (no TypeError)", () => {
+    // A computed cell can hold a number; the legacy code did number.repeat -> TypeError.
+    expect(() => fx.repeat(5, 3)).not.toThrow();
+    expect(fx.repeat(5, 3)).toBe("555"); // format(5) -> "5", repeated 3x
+    expect(fx.repeat(new Date(2024, 0, 2), 2)).toBe("2024-01-022024-01-02");
+    expect(fx.repeat(null, 3)).toBe(""); // format(null) -> "", repeated -> ""
+  });
+
+  it("fails SOFT to '' on a NEGATIVE count (legacy threw RangeError)", () => {
+    // Runtime-confirmed: ('ab').repeat(-1) throws RangeError "Invalid count value".
+    expect(() => fx.repeat("ab", -1)).not.toThrow();
+    expect(fx.repeat("ab", -1)).toBe("");
+    expect(fx.repeat("ab", -100)).toBe("");
+  });
+
+  it("fails SOFT to '' on a NON-FINITE count (Infinity / -Infinity / NaN)", () => {
+    // ('ab').repeat(Infinity) throws RangeError; NaN coerces to 0 natively but we
+    // normalize all non-sane counts to the same defined '' no-op.
+    expect(() => fx.repeat("ab", Infinity)).not.toThrow();
+    expect(fx.repeat("ab", Infinity)).toBe("");
+    expect(fx.repeat("ab", -Infinity)).toBe("");
+    expect(fx.repeat("ab", NaN)).toBe("");
+  });
+
+  it("fails SOFT to '' on an OVER-CAP count (legacy threw RangeError near 2^28+)", () => {
+    // ('ab').repeat(2**30) throws RangeError "Invalid count value" — and even a
+    // "valid" enormous count would OOM the render, so the cap returns '' instead.
+    expect(() => fx.repeat("ab", 2 ** 30)).not.toThrow();
+    expect(fx.repeat("ab", 2 ** 30)).toBe("");
+    expect(fx.repeat("a", 10001)).toBe(""); // just over the defensive cap
+  });
+
+  it("floors a fractional count the way native ToInteger does (no throw)", () => {
+    expect(fx.repeat("ab", 2.9)).toBe("abab"); // floor(2.9) = 2
+    expect(fx.repeat("ab", 0.5)).toBe(""); // floor(0.5) = 0
+  });
+});
+
+describe("pad: format() coercion so a numeric value stops crashing (Notidian-y0wm, LOCKED FIX)", () => {
+  it("happy path is unchanged", () => {
+    expect(fx.pad("7", 3, "0")).toBe("007");
+    expect(fx.pad("abc", 5, "-")).toBe("--abc");
+    expect(fx.pad("already long", 3, "0")).toBe("already long"); // length <= str: unchanged
+  });
+
+  it("coerces a numeric str via format() before padStart (legacy threw TypeError)", () => {
+    // Runtime-confirmed: (5).padStart is undefined -> pad(5, 3, '0') threw TypeError.
+    expect(() => fx.pad(5, 3, "0")).not.toThrow();
+    expect(fx.pad(5, 3, "0")).toBe("005"); // format(5) -> "5", padStart(3,"0")
+    expect(fx.pad(42, 5, "0")).toBe("00042");
+  });
+
+  it("coerces a Date / null str via format() (no crash)", () => {
+    expect(() => fx.pad(new Date(2024, 0, 2), 12, "*")).not.toThrow();
+    expect(fx.pad(new Date(2024, 0, 2), 12, "*")).toBe("**2024-01-02"); // "2024-01-02" -> 12
+    expect(fx.pad(null, 3, "0")).toBe("000"); // format(null) -> "", padded to 3
+  });
+});
+
 describe("regex helpers fail SOFT on a malformed pattern (no computed-cell crash)", () => {
   const bad = "("; // unterminated group -> new RegExp("(") throws SyntaxError
 
