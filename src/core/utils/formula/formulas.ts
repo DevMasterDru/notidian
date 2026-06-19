@@ -394,6 +394,64 @@ export const compareSortValues = (a: any, b: any): number => {
 	return sa < sb ? -1 : sa > sb ? 1 : 0;
 };
 
+// EMPTY/TYPED aggregate-normalizers (Notidian-l6ha). The list/date aggregate
+// helpers (range/latest/earliest/dateRange) feed rollup/aggregate cells (the
+// shipped relations/rollups engine, ADR 0029) over sets that can be empty,
+// all-unresolved, or hold off-type elements (a date-string, null, an Invalid
+// Date). Spreading those straight into Math.max/Math.min produced silent garbage
+// (-Infinity / Infinity span) or THREW a TypeError (getTime() on a non-Date).
+// These two funnels collapse the input to the usable, finite numeric/temporal
+// subset ONCE so the callers can apply a clean empty contract.
+
+// Finite numbers only: real numbers, and numeric strings coerced via Number().
+// Drops NaN/Infinity/null/undefined/objects so they cannot poison Math.max/min.
+const toFiniteNumbers = (arr: unknown): number[] => {
+	if (!Array.isArray(arr)) return [];
+	const out: number[] = [];
+	for (const v of arr) {
+		let n: number;
+		if (typeof v === "number") {
+			n = v; // Number.isFinite below drops NaN / ±Infinity
+		} else if (typeof v === "string" && v.trim().length > 0) {
+			n = Number(v); // a non-empty numeric string; NaN (non-numeric) dropped below
+		} else {
+			// null / undefined / boolean / object / '' all coerce via Number() to a
+			// "valid" 0 or 1 — that would silently inject a phantom 0/1 data point
+			// into a numeric rollup, so exclude them BEFORE coercion rather than after.
+			continue;
+		}
+		if (Number.isFinite(n)) out.push(n);
+	}
+	return out;
+};
+
+// Valid-date epoch-millis only. Accepts real Dates, finite numbers (epoch
+// millis), and NON-EMPTY strings (parseable date-strings). SKIPS — rather than
+// throws on — everything else: null, undefined, booleans, objects, empty
+// strings, and an Invalid Date itself (getTime() -> NaN). The string/number/Date
+// gate is deliberate: `new Date(null)`/`new Date(false)` coerce to epoch 0 and
+// `new Date(true)` to epoch 1 — i.e. JS would silently turn a null/boolean
+// rollup cell into a "valid" 1970 date and poison the min/max — so those are
+// excluded BEFORE the Date constructor, not after.
+const toFiniteDates = (arr: unknown): number[] => {
+	if (!Array.isArray(arr)) return [];
+	const out: number[] = [];
+	for (const v of arr) {
+		let t: number;
+		if (v instanceof Date) {
+			t = v.getTime();
+		} else if (typeof v === "number") {
+			t = v; // a finite epoch-millis number; Number.isFinite below drops NaN/±Inf
+		} else if (typeof v === "string" && v.length > 0) {
+			t = new Date(v).getTime(); // parseable date-string -> millis, else NaN
+		} else {
+			continue; // null / undefined / boolean / object / '' -> no usable date
+		}
+		if (Number.isFinite(t)) out.push(t);
+	}
+	return out;
+};
+
 export const formulas = {
 	"prop": prop,
 	"_current": current,
@@ -542,16 +600,48 @@ export const formulas = {
 		return str.padStart(n, char);
 	},
 	"range": (arr: number[]) => {
-		return Math.max(...arr) - Math.min(...arr);
+		// EMPTY/TYPED CONTRACT (Notidian-l6ha). The legacy body spread the array
+		// straight into Math.max/Math.min, so an empty (or all-unresolved) rollup
+		// set yielded Math.max(...[]) - Math.min(...[]) === -Infinity - Infinity
+		// === -Infinity — a silent-wrong-value the owner reads as data (these feed
+		// the shipped rollup/aggregate engine, ADR 0029). Empty / no usable number
+		// -> 0 (the additive identity; type-correct for returnType "number" in
+		// formulasInfos.ts). Non-finite/off-type elements (NaN, "abc", null, an
+		// Invalid Date) would poison Math.max/min into NaN, so collapse to the
+		// finite-number subset first (toFiniteNumbers) rather than emit garbage.
+		const nums = toFiniteNumbers(arr);
+		if (nums.length === 0) return 0;
+		return Math.max(...nums) - Math.min(...nums);
 	},
 	"latest": (arr: Date[]) => {
-		return new Date(Math.max(...arr.map(f => f.getTime())));
+		// EMPTY/TYPED CONTRACT (Notidian-l6ha). Legacy: new Date(Math.max(...[]
+		// .map(getTime))) === Invalid Date on empty, AND .getTime() THREW a
+		// TypeError on any element that wasn't a Date (a rollup set can hold a
+		// date-string, null, or an Invalid Date). Empty / no usable date -> ''
+		// (the defined date-sentinel the engine already uses; type-correct for
+		// returnType "date"). Skip — rather than throw on — elements that don't
+		// resolve to a valid Date (toFiniteDates: real Dates and parseable
+		// date-strings pass; Invalid Dates and junk are dropped).
+		const ts = toFiniteDates(arr);
+		if (ts.length === 0) return "";
+		return new Date(Math.max(...ts));
 	},
 	"earliest": (arr: Date[]) => {
-		return new Date(Math.min(...arr.map(f => f.getTime())));
+		// EMPTY/TYPED CONTRACT (Notidian-l6ha) — mirror of latest(): empty / no
+		// usable date -> ''; non-Date / Invalid-Date elements skipped, not thrown.
+		const ts = toFiniteDates(arr);
+		if (ts.length === 0) return "";
+		return new Date(Math.min(...ts));
 	},
 	"dateRange": (arr: Date[], type: string) => {
-		const diff = Math.abs(Math.max(...arr.map(f => f.getTime())) - Math.min(...arr.map(f => f.getTime())));
+		// EMPTY/TYPED CONTRACT (Notidian-l6ha). Legacy spread [].map(getTime)
+		// into Math.max/min, so empty -> abs(Infinity - Infinity) -> NaN-ish
+		// Infinity span, and a non-Date element THREW. Empty / no usable date
+		// -> 0 (numeric returnType; an empty span is zero elapsed time). Non-Date
+		// / Invalid-Date elements are skipped via toFiniteDates, not thrown on.
+		const ts = toFiniteDates(arr);
+		if (ts.length === 0) return 0;
+		const diff = Math.abs(Math.max(...ts) - Math.min(...ts));
 		if (type.startsWith("day")) return diff / (1000 * 60 * 60 * 24);
 		if (type.startsWith("month")) return diff / (1000 * 60 * 60 * 24 * 30);
 		if (type.startsWith("year")) return diff / (1000 * 60 * 60 * 24 * 365);

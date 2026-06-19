@@ -490,3 +490,158 @@ describe("toNumber coercion", () => {
     expect(fx.toNumber(obj)).toBe(obj);
   });
 });
+
+// ===========================================================================
+// EMPTY/TYPED aggregate contract (Notidian-l6ha) — range/latest/earliest/
+// dateRange over the rollup/aggregate sets they actually feed (ADR 0029). The
+// legacy bodies spread the array straight into Math.max/Math.min, so:
+//   range([])      === Math.max(...[]) - Math.min(...[]) === -Infinity   (garbage)
+//   latest([]) / earliest([]) === Invalid Date                           (garbage)
+//   latest/earliest THREW a TypeError on ANY non-Date element (f.getTime())
+//   dateRange([])  === abs(Infinity - Infinity) -> Infinity span         (garbage)
+// all runtime-confirmed. These cells are read by the owner as if they were
+// data, so the fix ships the RECOMMENDED empty/typed contract and LOCKS it:
+//   - range / dateRange  -> 0 on empty (additive identity; returnType "number")
+//   - latest / earliest  -> '' on empty (the defined date-sentinel; returnType
+//                           "date") — NOT an Invalid Date
+//   - all four SKIP elements that don't resolve to a finite number / valid Date
+//     (a date-string, null, junk, an Invalid Date) instead of throwing/poisoning
+//
+// RATIONALE / alternatives noted in place (no decision-ADR-that-waits): an empty
+// numeric range could instead be '' to read "no data", but 0 is type-correct for
+// the declared returnType "number" and is what a downstream numeric formula can
+// safely consume; an empty latest/earliest could be null, but '' matches how the
+// engine already degrades absent dates (format(null/undefined) -> '') and the
+// returnType "date" sentinel. Skip-rather-than-throw for off-type elements is
+// the bead-recommended contract; the alternative (coerce-everything-or-throw)
+// would re-introduce the crash this bug is about.
+// ===========================================================================
+describe("range: EMPTY/TYPED contract (Notidian-l6ha, LOCKED FIX)", () => {
+  it("EMPTY array -> 0 (legacy yielded -Infinity)", () => {
+    expect(fx.range([])).toBe(0);
+  });
+
+  it("SINGLE element -> 0 (max === min, span is zero)", () => {
+    expect(fx.range([7])).toBe(0);
+    expect(fx.range([-3])).toBe(0);
+  });
+
+  it("computes the finite numeric span on a normal set", () => {
+    expect(fx.range([1, 5, 3])).toBe(4);
+    expect(fx.range([-10, 10])).toBe(20);
+    expect(fx.range([2.5, 0.5])).toBe(2);
+  });
+
+  it("coerces numeric STRINGS and ignores non-numeric ones (no NaN poisoning)", () => {
+    expect(fx.range(["1", "5", "3"])).toBe(4); // all coerce to finite numbers
+    expect(fx.range([1, "abc", 5])).toBe(4); // "abc" -> NaN, dropped; span of {1,5}
+    expect(fx.range(["10"])).toBe(0); // single coerced value
+  });
+
+  it("drops NON-FINITE / off-type elements rather than returning Infinity/NaN", () => {
+    expect(fx.range([1, Infinity, 5])).toBe(4); // Infinity dropped
+    expect(fx.range([1, NaN, 5])).toBe(4); // NaN dropped
+    expect(fx.range([1, null, 5])).toBe(4); // null -> NaN, dropped
+    expect(fx.range([1, {}, 5])).toBe(4); // object -> NaN, dropped
+  });
+
+  it("ALL-unusable input -> 0 (not -Infinity / NaN)", () => {
+    expect(fx.range([NaN, "abc", null, {}])).toBe(0);
+    expect(fx.range([Infinity, -Infinity])).toBe(0);
+  });
+
+  it("a non-array argument degrades to 0 (does not throw)", () => {
+    expect(() => fx.range(undefined)).not.toThrow();
+    expect(fx.range(undefined)).toBe(0);
+    expect(fx.range(null)).toBe(0);
+  });
+});
+
+describe("latest / earliest: EMPTY/TYPED contract (Notidian-l6ha, LOCKED FIX)", () => {
+  const d1 = new Date(2024, 0, 1);
+  const d2 = new Date(2024, 0, 11);
+  const d3 = new Date(2023, 5, 15);
+
+  it("EMPTY array -> '' (legacy yielded an Invalid Date)", () => {
+    expect(fx.latest([])).toBe("");
+    expect(fx.earliest([])).toBe("");
+  });
+
+  it("SINGLE Date -> that Date", () => {
+    expect(fx.latest([d1])).toEqual(d1);
+    expect(fx.earliest([d1])).toEqual(d1);
+  });
+
+  it("picks the max / min over a normal set of Dates", () => {
+    expect(fx.latest([d1, d2, d3])).toEqual(d2); // newest
+    expect(fx.earliest([d1, d2, d3])).toEqual(d3); // oldest
+  });
+
+  it("does NOT THROW on a NON-DATE element — it skips it (legacy threw TypeError)", () => {
+    // Runtime-confirmed: legacy `arr.map(f => f.getTime())` threw on any non-Date.
+    expect(() => fx.latest([d1, "not a date", d2])).not.toThrow();
+    expect(() => fx.earliest([d1, null, d2])).not.toThrow();
+    // junk dropped, the real Dates still decide the result
+    expect(fx.latest([d1, "not a date", d2])).toEqual(d2);
+    expect(fx.earliest([d1, null, d2])).toEqual(d1);
+  });
+
+  it("coerces PARSEABLE date-strings/numbers and skips Invalid Dates", () => {
+    // an ISO date-string resolves to a valid Date and participates
+    expect(fx.latest([d1, "2025-06-01"])).toEqual(new Date("2025-06-01"));
+    expect(fx.earliest(["2025-06-01", d1])).toEqual(d1);
+    // an Invalid Date in the set is skipped, not allowed to poison the result
+    expect(fx.latest([d1, new Date(NaN), d2])).toEqual(d2);
+    expect(fx.earliest([new Date(NaN), d1, d2])).toEqual(d1);
+  });
+
+  it("MIXED with NO usable date -> '' (every element drops out)", () => {
+    expect(fx.latest(["nope", null, {}, new Date(NaN)])).toBe("");
+    expect(fx.earliest([undefined, "xyz", new Date(NaN)])).toBe("");
+  });
+
+  it("a non-array argument degrades to '' (does not throw)", () => {
+    expect(() => fx.latest(undefined)).not.toThrow();
+    expect(fx.latest(undefined)).toBe("");
+    expect(fx.earliest(null)).toBe("");
+  });
+});
+
+describe("dateRange: EMPTY/TYPED contract (Notidian-l6ha, LOCKED FIX)", () => {
+  const d1 = new Date(2024, 0, 1, 0, 0, 0, 0);
+  const d11 = new Date(2024, 0, 11, 0, 0, 0, 0); // exactly 10 days later
+
+  it("EMPTY array -> 0 (legacy yielded an Infinity span)", () => {
+    expect(fx.dateRange([], "days")).toBe(0);
+    expect(fx.dateRange([], "")).toBe(0); // default branch too
+  });
+
+  it("SINGLE Date -> 0 span (max === min)", () => {
+    expect(fx.dateRange([d1], "days")).toBe(0);
+    expect(fx.dateRange([d1], "hours")).toBe(0);
+  });
+
+  it("computes the finite span on a normal set (unchanged happy path)", () => {
+    expect(fx.dateRange([d1, d11], "days")).toBe(10);
+    expect(fx.dateRange([d1, d11], "hours")).toBe(240);
+  });
+
+  it("does NOT THROW on a NON-DATE element — it skips it (legacy threw TypeError)", () => {
+    expect(() => fx.dateRange([d1, "nope", d11], "days")).not.toThrow();
+    expect(fx.dateRange([d1, "nope", d11], "days")).toBe(10); // junk dropped
+    expect(fx.dateRange([d1, null, d11], "days")).toBe(10);
+  });
+
+  it("skips an Invalid Date rather than poisoning the diff", () => {
+    expect(fx.dateRange([d1, new Date(NaN), d11], "days")).toBe(10);
+  });
+
+  it("ALL-unusable input -> 0 (not Infinity / NaN)", () => {
+    expect(fx.dateRange(["nope", null, new Date(NaN)], "days")).toBe(0);
+  });
+
+  it("a non-array argument degrades to 0 (does not throw)", () => {
+    expect(() => fx.dateRange(undefined, "days")).not.toThrow();
+    expect(fx.dateRange(undefined, "days")).toBe(0);
+  });
+});
