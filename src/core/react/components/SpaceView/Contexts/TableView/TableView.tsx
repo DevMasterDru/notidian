@@ -493,6 +493,15 @@ export const TableView = (props: { superstate: Superstate }) => {
     useState<TableMarqueeRect>(null);
   const [overId, setOverId] = useState(null);
   const [colsSize, setColsSize] = useState<ColumnSizingState>({});
+  // Always-current mirror of colsSize so the debounced predicate save persists
+  // the LATEST sizes, not a stale snapshot captured when the save was scheduled.
+  // Without this, a resize gesture's debounced save (e.g. the zero-distance
+  // resize from a double-click's first press) could land after an auto-fit and
+  // revert the column to its pre-click width.
+  const colsSizeRef = useRef(colsSize);
+  useEffect(() => {
+    colsSizeRef.current = colsSize;
+  }, [colsSize]);
   const feedbackOperationId = useRef(0);
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
@@ -695,7 +704,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       colSize(colsSize)
     );
     setColsSize(newColSize);
-    debouncedSavePredicate(newColSize);
+    debouncedSavePredicate();
   };
 
   // Double-clicking a column's resize handle auto-fits the column to its widest
@@ -760,10 +769,10 @@ export const TableView = (props: { superstate: Superstate }) => {
     measurer.remove();
     if (!natural) return;
     const AUTO_FIT_PADDING = 4;
-    // Comfortable upper bound so a single very long value (e.g. a long sentence
-    // in a notes column) can't stretch the column across the viewport; the
-    // longest values then truncate (or wrap, if wrap is on) rather than bloat.
-    const MAX_AUTO_FIT_WIDTH = 450;
+    // Generous upper bound: reach the longest value for normal columns while
+    // still bounding a pathological paragraph-length value from stretching the
+    // column across the whole viewport.
+    const MAX_AUTO_FIT_WIDTH = 720;
     const nextWidth = Math.min(natural + AUTO_FIT_PADDING, MAX_AUTO_FIT_WIDTH);
     const nextColsSize = propertyHeaderColumnSizingWithMinimum({
       ...colsSize,
@@ -774,13 +783,13 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   const debouncedSavePredicate = useCallback(
-    debounce(
-      (nextValue) =>
-        savePredicate({
-          colsSize: nextValue,
-        }),
-      1000
-    ),
+    debounce(() => {
+      // Persist the latest sizes (from the ref), never a stale captured value,
+      // so a resize-save scheduled before an auto-fit can't revert the column.
+      savePredicate({
+        colsSize: colsSizeRef.current,
+      });
+    }, 1000),
     [predicate] // will be created only once initially
   );
   const beginCellFeedbackOperation = (writes: TableEditFeedbackWrite[]) => {
@@ -2206,11 +2215,15 @@ export const TableView = (props: { superstate: Superstate }) => {
                           // save), which clobbered the fitted width right after.
                           onMouseDown: (e: React.MouseEvent) => {
                             const prev = lastResizerDownRef.current;
-                            if (
-                              prev &&
-                              prev.key === accessorKey &&
-                              e.timeStamp - prev.time < 400
-                            ) {
+                            // Native click count (e.detail) is the reliable
+                            // double-click signal (honours the OS interval); the
+                            // timestamp check is a fallback.
+                            const isDoubleClick =
+                              e.detail >= 2 ||
+                              (prev != null &&
+                                prev.key === accessorKey &&
+                                e.timeStamp - prev.time < 400);
+                            if (isDoubleClick) {
                               e.preventDefault();
                               e.stopPropagation();
                               lastResizerDownRef.current = null;
