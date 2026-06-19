@@ -129,6 +129,7 @@ import {
 import { columnWrapModeForValue } from "core/utils/contexts/propertyColumnWrap";
 import {
   isRowDndId,
+  resolveDragOverId,
   resolveRowDropTargetId,
   rowDndId,
   rowIdFromDndId,
@@ -1569,7 +1570,19 @@ export const TableView = (props: { superstate: Superstate }) => {
     },
   };
   const tableCollisionDetection = useCallback<CollisionDetection>((args) => {
-    if (!isRowDndId(args.active?.id?.toString())) return closestCenter(args);
+    if (!isRowDndId(args.active?.id?.toString())) {
+      // Column-header drag: restrict collisions to NON-row droppables so `over`
+      // (and thus each row's own dnd-kit `isOver`) never lands on a body row,
+      // which would light the green row-drop line during a column reorder
+      // (Notidian-99ag). Column headers can only move within the header row.
+      const columnDroppables = args.droppableContainers.filter(
+        (container) => !isRowDndId(container.id?.toString())
+      );
+      return closestCenter({
+        ...args,
+        droppableContainers: columnDroppables,
+      });
+    }
 
     const rowDroppables = args.droppableContainers.filter((container) =>
       isRowDndId(container.id?.toString())
@@ -1614,9 +1627,17 @@ export const TableView = (props: { superstate: Superstate }) => {
   }
 
   function handleDragOver({ over }: DragOverEvent) {
-    const overId = over?.id;
+    // Only accept a row-droppable `over` when an actual row drag is active.
+    // During a column-header drag the collision detection can fall through to a
+    // body row; passing that to `overId` would light the green row-drop line on
+    // body rows (Notidian-99ag). The pure guard drops row droppables unless a
+    // row drag is active, and passes column-header droppables through.
+    const overId = resolveDragOverId({
+      overId: over?.id,
+      activeDragType: activeDragTypeRef.current,
+    });
     if (overId) {
-      setOverId(over?.id ?? null);
+      setOverId(overId);
     }
   }
 
