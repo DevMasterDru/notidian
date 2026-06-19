@@ -73,6 +73,45 @@ export const cleanPredicateType = (
   return kept;
 };
 
+// A plain object (not an array, not null, not a boxed primitive) is the only
+// shape the Record<string, *> predicate fields (colsSize/colsCalc/listViewProps…)
+// are allowed to take. A corrupt or forward-version predicate can parse one of
+// them as an array/string/number; consumers then spread (`...predicate.colsSize`)
+// or `Object.entries(...)` it and produce garbage column state. Reject anything
+// that is not a plain record so the field falls back to its default {}.
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// Validate a Record<string, *> predicate field: keep only entries whose VALUE
+// passes the element guard (mirrors the colsHeaderDisplay/colsDataAnchor reduce),
+// and coerce a non-record container to {} entirely. Never mutates blindly.
+const validateRecordField = <V,>(
+  value: unknown,
+  isValidValue: (v: unknown) => v is V
+): Record<string, V> => {
+  if (!isPlainRecord(value)) return {};
+  return Object.entries(value).reduce((result, [key, entryValue]) => {
+    if (!isValidValue(entryValue)) return result;
+    result[key] = entryValue;
+    return result;
+  }, {} as Record<string, V>);
+};
+
+const isFiniteNumber = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v);
+const isString = (v: unknown): v is string => typeof v === "string";
+
+// A string-scalar predicate field (view/listView/listItem/listGroup) is a frame
+// id or view kind that consumers compare or pass to `initiateString`; a
+// non-string corrupt value must fall back to the schema default, never flow on.
+const validateStringScalar = (value: unknown, fallback: string): string =>
+  isString(value) ? value : fallback;
+
+// colsOrder/colsHidden/groupBy hold column-id keys; keep only string elements so
+// a stray non-string can never be used as (or against) a record key downstream.
+const validateStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter(isString) : [];
+
 export const validatePredicate = (
   prevPredicate: Predicate,
   defaultPredicate: Predicate
@@ -120,28 +159,39 @@ export const validatePredicate = (
 
   return {
     ...defaultPredicate,
-    view: prevPredicate.view,
-    listItem: prevPredicate.listItem,
-    listGroup: prevPredicate.listGroup,
-    listView: prevPredicate.listView,
-    listViewProps: prevPredicate.listViewProps,
-    listItemProps: prevPredicate.listItemProps,
-    listGroupProps: prevPredicate.listGroupProps,
+    view: validateStringScalar(prevPredicate.view, defaultPredicate.view),
+    listItem: validateStringScalar(
+      prevPredicate.listItem,
+      defaultPredicate.listItem
+    ),
+    listGroup: validateStringScalar(
+      prevPredicate.listGroup,
+      defaultPredicate.listGroup
+    ),
+    listView: validateStringScalar(
+      prevPredicate.listView,
+      defaultPredicate.listView
+    ),
+    listViewProps: isPlainRecord(prevPredicate.listViewProps)
+      ? prevPredicate.listViewProps
+      : defaultPredicate.listViewProps,
+    listItemProps: isPlainRecord(prevPredicate.listItemProps)
+      ? prevPredicate.listItemProps
+      : defaultPredicate.listItemProps,
+    listGroupProps: isPlainRecord(prevPredicate.listGroupProps)
+      ? prevPredicate.listGroupProps
+      : defaultPredicate.listGroupProps,
     filters: Array.isArray(prevPredicate.filters)
       ? (cleanPredicateType(prevPredicate.filters, filterFnTypes) as Filter[])
       : [],
     sort: Array.isArray(prevPredicate.sort)
       ? cleanPredicateType(prevPredicate.sort, sortFnTypes)
       : [],
-    groupBy: Array.isArray(prevPredicate.groupBy) ? prevPredicate.groupBy : [],
-    colsOrder: Array.isArray(prevPredicate.colsOrder)
-      ? prevPredicate.colsOrder
-      : [],
-    colsHidden: Array.isArray(prevPredicate.colsHidden)
-      ? prevPredicate.colsHidden
-      : [],
-    colsSize: prevPredicate.colsSize ?? {},
-    colsCalc: prevPredicate.colsCalc ?? {},
+    groupBy: validateStringArray(prevPredicate.groupBy),
+    colsOrder: validateStringArray(prevPredicate.colsOrder),
+    colsHidden: validateStringArray(prevPredicate.colsHidden),
+    colsSize: validateRecordField(prevPredicate.colsSize, isFiniteNumber),
+    colsCalc: validateRecordField(prevPredicate.colsCalc, isString),
     colsHeaderDisplay,
     colsDataAnchor,
     colsWrap,

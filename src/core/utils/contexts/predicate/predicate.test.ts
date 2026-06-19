@@ -173,6 +173,198 @@ describe("validatePredicate", () => {
     expect(result.subItems).toBeUndefined();
   });
 
+  // --- Notidian-w1bf: harden the passthrough fields against non-object /
+  // non-array corrupt or forward-version values that previously flowed straight
+  // into consumers (`...predicate.colsSize`, `Object.entries(...)`).
+  describe("Record<string,*> fields coerce non-object containers to {} (Notidian-w1bf)", () => {
+    it("preserves a valid colsSize and drops non-number entries", () => {
+      expect(
+        validatePredicate(
+          {
+            ...defaultPredicate,
+            colsSize: {
+              "Title.": 240,
+              "Status.": "wide" as any,
+              "Tags.": null as any,
+              "Bad.": NaN as any,
+            } as any,
+          },
+          defaultPredicate
+        ).colsSize
+      ).toEqual({ "Title.": 240 });
+    });
+
+    it("coerces a colsSize parsed as an array to {}", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, colsSize: [240, 300] as any },
+          defaultPredicate
+        ).colsSize
+      ).toEqual({});
+    });
+
+    it("coerces a colsSize parsed as a string/number to {}", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, colsSize: "240" as any },
+          defaultPredicate
+        ).colsSize
+      ).toEqual({});
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, colsSize: 240 as any },
+          defaultPredicate
+        ).colsSize
+      ).toEqual({});
+    });
+
+    it("preserves a valid colsCalc and drops non-string entries", () => {
+      expect(
+        validatePredicate(
+          {
+            ...defaultPredicate,
+            colsCalc: { "Amount.": "sum", "Count.": 3 as any } as any,
+          },
+          defaultPredicate
+        ).colsCalc
+      ).toEqual({ "Amount.": "sum" });
+    });
+
+    it("coerces a colsCalc parsed as an array to {}", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, colsCalc: ["sum"] as any },
+          defaultPredicate
+        ).colsCalc
+      ).toEqual({});
+    });
+
+    it("coerces a non-object listViewProps to the default {} (array/string/number)", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, listViewProps: ["start"] as any },
+          defaultPredicate
+        ).listViewProps
+      ).toEqual({});
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, listViewProps: "displayProperty" as any },
+          defaultPredicate
+        ).listViewProps
+      ).toEqual({});
+    });
+
+    it("preserves a valid listViewProps/listItemProps/listGroupProps object", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          listViewProps: { displayProperty: "Name" },
+          listItemProps: { a: 1 },
+          listGroupProps: { b: 2 },
+        },
+        defaultPredicate
+      );
+      expect(result.listViewProps).toEqual({ displayProperty: "Name" });
+      expect(result.listItemProps).toEqual({ a: 1 });
+      expect(result.listGroupProps).toEqual({ b: 2 });
+    });
+
+    it("coerces a non-object listItemProps/listGroupProps to the default {}", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          listItemProps: null as any,
+          listGroupProps: 5 as any,
+        },
+        defaultPredicate
+      );
+      expect(result.listItemProps).toEqual({});
+      expect(result.listGroupProps).toEqual({});
+    });
+  });
+
+  describe("string-scalar fields fall back to default for non-strings (Notidian-w1bf)", () => {
+    it("falls back to the default view for a non-string view", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, view: 3 as any },
+          defaultPredicate
+        ).view
+      ).toBe(defaultPredicate.view);
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, view: { kind: "table" } as any },
+          defaultPredicate
+        ).view
+      ).toBe(defaultPredicate.view);
+    });
+
+    it("falls back to the default for non-string listView/listItem/listGroup", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          listView: ["frame"] as any,
+          listItem: 42 as any,
+          listGroup: null as any,
+        },
+        defaultPredicate
+      );
+      expect(result.listView).toBe(defaultPredicate.listView);
+      expect(result.listItem).toBe(defaultPredicate.listItem);
+      expect(result.listGroup).toBe(defaultPredicate.listGroup);
+    });
+
+    it("preserves a valid string view (no behavior change for valid predicates)", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, view: "table" },
+          defaultPredicate
+        ).view
+      ).toBe("table");
+    });
+  });
+
+  describe("string-array fields keep only string elements (Notidian-w1bf)", () => {
+    it("filters non-string elements out of colsOrder/colsHidden/groupBy", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          colsOrder: ["Title.", 3, null, "Status."] as any,
+          colsHidden: ["Tags.", { x: 1 }] as any,
+          groupBy: ["Status.", 7] as any,
+        },
+        defaultPredicate
+      );
+      expect(result.colsOrder).toEqual(["Title.", "Status."]);
+      expect(result.colsHidden).toEqual(["Tags."]);
+      expect(result.groupBy).toEqual(["Status."]);
+    });
+
+    it("coerces a non-array colsOrder/colsHidden/groupBy to []", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          colsOrder: "Title." as any,
+          colsHidden: 0 as any,
+          groupBy: { Status: true } as any,
+        },
+        defaultPredicate
+      );
+      expect(result.colsOrder).toEqual([]);
+      expect(result.colsHidden).toEqual([]);
+      expect(result.groupBy).toEqual([]);
+    });
+
+    it("preserves a valid all-string colsOrder unchanged", () => {
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, colsOrder: ["Title.", "Status."] },
+          defaultPredicate
+        ).colsOrder
+      ).toEqual(["Title.", "Status."]);
+    });
+  });
+
   it("strips a filter with an unknown fn (validate-loud primary guard, ADR 0034)", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     try {
