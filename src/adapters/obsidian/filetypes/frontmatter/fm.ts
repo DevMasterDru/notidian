@@ -64,13 +64,16 @@ export const mergeTableData = (
     }),
   };
 };
-const valueForDataview = (type: string, value: string): any => {
-  if (type.includes("link") || type.includes("context")) {
-    return `[[${value}]]`;
-  }
-  return value;
-};
-
+// NOTE: a module-private `valueForDataview(type, value)` helper formerly lived
+// here that blindly wrapped any `link`/`context` value as `[[${value}]]` with no
+// idempotence guard — so a value already containing a wikilink would double-wrap
+// (`[[[[x]]]]`). It had zero callers (full-tree symbol grep found only its own
+// definition) and was deleted in the same ADR 0036 (Option C) spirit as the dead
+// `stripFrontmatterFromString` above: a defective, unused helper is pure liability.
+// Any future link-serialization need should use the canonical, type-aware
+// serializers — `parseProperty` (src/utils/parsers.ts, which routes link/context
+// types through `parseLinkString`) and `utils/serializers` — not a bespoke,
+// non-idempotent `[[ ]]` wrap.
 export const renameFrontmatterKey = (
   plugin: MakeMDPlugin,
   path: string,
