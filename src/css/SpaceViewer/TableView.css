@@ -700,6 +700,17 @@ body.mk-property-header-tooltip-visible > .tooltip {
   font-size: 13px;
 }
 
+/* Row-virtualization spacers (Notidian-8h9): the top/bottom <tr> that hold the
+   scrollbar at the full content height while only the visible window of rows is
+   mounted. They carry no content and must be invisible — override the global
+   td border (!important above) so they never draw a stray rule, and zero out
+   padding/background so the spacer is pure height. */
+.mk-table tr.mk-table-virtual-spacer > td {
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
 .mk-table .mk-td:not(:last-child) {
   border-right: 0.5px solid var(--background-modifier-border) !important;
 }

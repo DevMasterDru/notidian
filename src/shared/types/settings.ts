@@ -122,6 +122,29 @@ export interface MakeMDSettings {
   // byte-for-byte today's. The model + menu + persistence half is pure and
   // fully unit-tested.
   listItemPropertyPicker: boolean;
+  // Table row virtualization (bd Notidian-8h9 / ADR 0049). When true, an opened
+  // database table assembles ALL filtered/sorted rows up front (the proven
+  // tableAssembly seam, Notidian-yjg3) and then renders ONLY the rows inside the
+  // current scroll window (the pure computeVirtualWindow seam, Notidian-mnuk),
+  // with top/bottom spacer rows holding the scrollbar at full content height. The
+  // legacy "Load More / Load All" pagination tfoot is hidden because every row is
+  // reachable by scrolling. Memoized row/cell keep re-render cost flat.
+  //   true (default): the table virtualizes — only the windowed <tr> rows mount,
+  //     so a 10k-row context renders a constant ~viewport-worth of DOM instead of
+  //     every row+cell. The owner verifies the live perf win by USE.
+  //   false (kill-switch): byte-for-byte legacy — the table keeps its
+  //     getPaginationRowModel page window and the Load More / Load All tfoot, and
+  //     every loaded row is rendered with no spacers. Restores the exact
+  //     pre-feature render path.
+  // DEFAULT-ON / KILL-SWITCH: this is an OWNER-REQUESTED core render-path change
+  // (fresh live evidence 2026-06-20: full-vault assemble-before-paginate + no
+  // virtualization is visibly slow), so per AGENTS.md it ships ON and the owner's
+  // USE is the live-verification; the flag is RETAINED as a true kill-switch. The
+  // window math (computeVirtualWindow) and the activation decision
+  // (tableVirtualization.ts) are pure and fully unit-tested; only the wiring is
+  // unverifiable offline and is covered by jsdom tests (OFF byte-identical, ON
+  // window membership == pure-seam output).
+  rowVirtualization: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

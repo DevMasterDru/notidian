@@ -108,6 +108,17 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // per-item field set is byte-for-byte today's, regardless of any stored
   // `visibleProperties`.
   listItemPropertyPicker: true,
+  // Default-ON table row virtualization (bd Notidian-8h9 / ADR 0049) — an
+  // owner-requested core render-path change backed by fresh live evidence
+  // (2026-06-20: full-vault assemble-before-paginate + no row virtualization is
+  // visibly slow), so per AGENTS.md it ships ON and the owner verifies the perf
+  // win by USE. The flag is RETAINED as a KILL-SWITCH: set it false to restore
+  // byte-for-byte legacy rendering — the table reverts to its
+  // getPaginationRowModel page window + the Load More / Load All tfoot, with no
+  // spacer rows. The window math (computeVirtualWindow, Notidian-mnuk) and the
+  // activation decision (tableVirtualization.ts) are pure and unit-tested; the
+  // render wiring is covered by jsdom tests.
+  rowVirtualization: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,

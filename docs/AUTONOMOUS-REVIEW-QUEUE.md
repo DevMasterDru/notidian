@@ -18,6 +18,70 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ---
 
+## Awaiting owner USE — default-ON flag-gated changes (ship-then-verify)
+
+These are **owner-requested core render-path changes** shipped **default-ON behind
+a kill-switch** per [AGENTS.md](../AGENTS.md) (the owner's USE is the
+live-verification). They are listed here so the owner knows what to exercise and
+how to revert if a regression appears — not because they are gated OFF.
+
+### Notidian-8h9 — Table row virtualization (assemble-before-paginate + windowed render)
+
+⏳ **Default-ON; awaiting the owner's USE in the vault.** Fresh live evidence
+(2026-06-20, Atlas Vault ~1408 paths / 250 contexts) confirmed the
+assemble-before-paginate + no-row-virtualization triad makes opening a large
+database visibly slow. The render path now assembles all filtered/sorted rows and
+mounts **only the rows inside the scroll window** (constant ~viewport-worth of
+DOM) instead of every loaded row+cell.
+
+- **Setting:** `rowVirtualization` (default `true`) — `src/shared/types/settings.ts`,
+  defaulted in `src/core/schemas/settings.ts`.
+- **Why gated:** the table body is a core render path; correctness of the live
+  scroll/measure/window plumbing cannot be proven by tsc/jest/build alone (only
+  the pure window math and the activation/slice glue are offline-provable). Shipped
+  ON because the owner requested the perf fix; the flag is a true **kill-switch**.
+- **What it does when ON:** assembles the full row set (the proven
+  `tableAssembly` seam, Notidian-yjg3), then renders only the windowed `<tr>` rows
+  chosen by the pure `computeVirtualWindow` seam (Notidian-mnuk, via
+  `tableVirtualization.ts`), with top/bottom spacer rows holding the scrollbar at
+  full content height. The legacy **Load More / Load All** pagination tfoot is
+  hidden (every row is reachable by scrolling). Grouped tables fall back to the
+  legacy non-windowed render (the uniform-row window kernel does not model
+  interleaved group-header/nested rows).
+- **Kill-switch (revert):** set `rowVirtualization: false` in the plugin's
+  `data.json` (or the settings UI once a toggle exists) → byte-for-byte legacy:
+  the table reverts to its `getPaginationRowModel` page window + the Load More /
+  Load All tfoot, no spacer rows. The offline jsdom test asserts this OFF path is
+  the pre-feature render.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - Open a large context (hundreds–thousands of rows): scrolling must be smooth,
+    rows mount/unmount cleanly with no blank flashes, and the scrollbar length
+    must reflect the full row count (spacers correct).
+  - Cell edits, row drag-reorder, cell/row selection, marquee, copy/paste,
+    frozen columns, and the aggregate footer must all still work on windowed rows
+    (the rows are real `<tr data-row-id>`, so the existing handlers apply).
+  - Confirm a **grouped** table (groupBy set) still renders correctly (it takes
+    the legacy non-windowed path by design).
+  - Toggle the flag OFF → the old Load More / Load All pagination returns
+    unchanged.
+- **Offline evidence in place:** `src/core/utils/contexts/tableVirtualization.test.ts`
+  (activation kill-switch predicate + slice-equals-seam across a scroll sweep),
+  `src/core/utils/contexts/tableVirtualWindow.adversarial.test.ts` (the pure
+  window kernel, 5000 property runs), and
+  `src/core/react/components/SpaceView/Contexts/TableView/TableView.virtualization.dom.test.tsx`
+  (jsdom render contract: flag OFF = legacy pagination page window + tfoot + no
+  spacers; flag ON = only the windowed rows mount, mounted `tr[data-row-id]` set
+  === `computeVirtualWindow` output, spacers present, tfoot gone, grouped
+  fallback). Full suite (5826 tests) + tsc + build green.
+- **Related follow-up:** the dormant quick-find off-screen reveal
+  (Notidian-vgy, `tableQuickFind.ts` `pageSizeToRevealRow`) is **not imported
+  live** today (Cmd/F opens the consolidated SearchBar per ADR 0041), so there is
+  no active reveal to migrate to `virtualizer.scrollToIndex`; if the quick-find
+  bar is ever re-activated, its reveal must scroll the window to the target row
+  before `scrollIntoView`. vgy remains parked in [ROADMAP](ROADMAP.md).
+
+---
+
 ## Verified — flag-gated changes (live-verified 2026-06-20)
 
 > **Both items below were enabled in the Atlas Vault (`.obsidian/plugins/notidian/data.json`)

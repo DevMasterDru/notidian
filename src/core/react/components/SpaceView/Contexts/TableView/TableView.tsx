@@ -145,6 +145,12 @@ import {
   tableLoadAllPageSize,
 } from "core/utils/contexts/tablePagination";
 import {
+  DEFAULT_TABLE_OVERSCAN,
+  DEFAULT_TABLE_ROW_HEIGHT,
+  shouldVirtualizeTable,
+  tableVirtualRowSlice,
+} from "core/utils/contexts/tableVirtualization";
+import {
   aggregateFnTypes,
   calculateAggregate,
 } from "core/utils/contexts/predicate/aggregates";
@@ -466,6 +472,24 @@ export const TableView = (props: { superstate: Superstate }) => {
     pageIndex: 0,
     pageSize: pageSize,
   });
+  // Row virtualization (Notidian-8h9, default-ON kill-switch). Tracks the live
+  // scroll geometry of the .mk-table scroll container so the pure
+  // computeVirtualWindow seam (via tableVirtualRowSlice) can select which rows to
+  // mount. These stay at their defaults (and the listener below never attaches)
+  // when the flag is OFF, so the legacy path pays nothing.
+  const virtualizationEnabled =
+    props.superstate.settings.rowVirtualization ?? false;
+  const [tableScroll, setTableScroll] = useState<{
+    scrollTop: number;
+    viewportHeight: number;
+  }>({ scrollTop: 0, viewportHeight: 0 });
+  // Measured uniform row height, refined from a real mounted body row so the
+  // window math tracks the true on-screen row size (theme/font/density changes).
+  // Seeded with the documented estimate so the very first paint is sane.
+  const measuredRowHeightRef = useRef<number>(DEFAULT_TABLE_ROW_HEIGHT);
+  const [measuredRowHeight, setMeasuredRowHeight] = useState<number>(
+    DEFAULT_TABLE_ROW_HEIGHT
+  );
   const [activeId, setActiveId] = useState(null);
   const [activeDragType, setActiveDragType] = useState<
     "column" | "row" | null
@@ -1520,6 +1544,23 @@ export const TableView = (props: { superstate: Superstate }) => {
         : [],
     [predicate, cols, subItemsInfo]
   );
+  // Kill-switch chokepoint: virtualization runs only when the flag is ON and the
+  // table is the flat, uniform-height case (grouping interleaves group-header and
+  // nested sub-rows the uniform-row window kernel does not model, so a grouped
+  // table falls back to the legacy non-windowed render even with the flag ON).
+  const virtualizeActive = shouldVirtualizeTable({
+    enabled: virtualizationEnabled,
+    isGrouped: groupBy.length > 0,
+  });
+  // When virtualizing, the data seam — not pagination — bounds the DOM: the table
+  // model must produce EVERY assembled row so the window can slice the full set
+  // (the assemble-before-paginate contract, Notidian-yjg3). We therefore widen the
+  // page size to cover all rows; only the windowed slice is actually mounted. When
+  // OFF, `pagination` is passed through untouched so the legacy Load More / Load
+  // All page window is byte-for-byte preserved.
+  const effectivePagination: PaginationState = virtualizeActive
+    ? { pageIndex: 0, pageSize: Math.max(1, data.length) }
+    : pagination;
   const table = useReactTable({
     data,
     columns,
@@ -1537,7 +1578,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       },
       grouping: groupBy,
       expanded: true,
-      pagination,
+      pagination: effectivePagination,
     },
     onColumnSizingChange: saveColsSize,
     getCoreRowModel: getCoreRowModel(),
@@ -1550,6 +1591,84 @@ export const TableView = (props: { superstate: Superstate }) => {
       updateFieldValue: updateFieldValue,
     },
   });
+
+  // The paginated/windowed row model the body renders. With virtualization the
+  // page size already covers every row, so this is the full assembled set; the
+  // windowing below slices it. With the kill-switch OFF this is exactly the
+  // legacy page window.
+  const renderRows = table.getRowModel().rows;
+
+  // Track the scroll container's live scrollTop + clientHeight so the pure window
+  // seam can pick the visible slice. Only attaches when virtualization is active
+  // (the kill-switch OFF path pays nothing — no listener, no extra render). The
+  // .mk-table div (ref) is the scrollport (overflow:auto + capped max-height).
+  useEffect(() => {
+    if (!virtualizeActive) return;
+    const el = ref.current as HTMLElement | null;
+    if (!el) return;
+    const sync = () => {
+      setTableScroll((prev) =>
+        prev.scrollTop === el.scrollTop &&
+        prev.viewportHeight === el.clientHeight
+          ? prev
+          : { scrollTop: el.scrollTop, viewportHeight: el.clientHeight }
+      );
+    };
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      ro.disconnect();
+    };
+    // data.length / renderRows.length so a row-count change re-syncs the viewport
+    // baseline (content height changed) even without a scroll event.
+  }, [virtualizeActive, data.length, renderRows.length]);
+
+  // Refine the uniform row-height estimate from a real mounted body row. Measuring
+  // one rendered row makes the window track the true on-screen size across
+  // theme/font/density changes rather than trusting the constant estimate.
+  useEffect(() => {
+    if (!virtualizeActive) return;
+    const el = ref.current as HTMLElement | null;
+    if (!el) return;
+    const firstRow = el.querySelector(
+      "tbody tr[data-row-id]"
+    ) as HTMLElement | null;
+    const h = firstRow?.offsetHeight ?? 0;
+    if (h > 0 && Math.abs(h - measuredRowHeightRef.current) > 0.5) {
+      measuredRowHeightRef.current = h;
+      setMeasuredRowHeight(h);
+    }
+  });
+
+  // The exact rows to mount + the spacer heights, straight from the pure seam.
+  // When virtualization is OFF we mount every render row with no spacers (the
+  // byte-identical legacy body); the slice is computed but unused so the JSX path
+  // stays single-branch and the OFF render is provably the legacy one.
+  const virtualSlice = useMemo(
+    () =>
+      tableVirtualRowSlice({
+        rows: renderRows,
+        scrollTop: tableScroll.scrollTop,
+        viewportHeight: tableScroll.viewportHeight,
+        rowHeight: measuredRowHeight,
+        overscan: DEFAULT_TABLE_OVERSCAN,
+      }),
+    [
+      renderRows,
+      tableScroll.scrollTop,
+      tableScroll.viewportHeight,
+      measuredRowHeight,
+    ]
+  );
+  const bodyRows = virtualizeActive ? virtualSlice.rows : renderRows;
+  const virtualPadTop = virtualizeActive ? virtualSlice.padTop : 0;
+  const virtualPadBottom = virtualizeActive ? virtualSlice.padBottom : 0;
+  // Index offset so a windowed row's displayed row-number stays its TRUE position
+  // in the full set, not its position within the mounted slice.
+  const bodyRowIndexOffset = virtualizeActive ? virtualSlice.startIndex : 0;
 
   const sensors = useSensors(
     useSensor(MouseSensor, {
@@ -2278,7 +2397,22 @@ export const TableView = (props: { superstate: Superstate }) => {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row, visibleIndex) => {
+            {/* Top spacer: holds the scrollbar at the full content height for the
+                rows windowed off the top (Notidian-8h9). Zero-height + unrendered
+                when virtualization is OFF, so the legacy body is byte-identical. */}
+            {virtualPadTop > 0 ? (
+              <tr aria-hidden="true" className="mk-table-virtual-spacer">
+                <td
+                  colSpan={cols.length + (readMode ? 1 : 2)}
+                  style={{ height: virtualPadTop, padding: 0, border: "none" }}
+                />
+              </tr>
+            ) : null}
+            {bodyRows.map((row, sliceIndex) => {
+              // True position of this row in the full assembled set (slice index +
+              // the window's start offset), so the row number and any
+              // position-derived UI stay correct while virtualized.
+              const visibleIndex = sliceIndex + bodyRowIndexOffset;
               // Use row.original for reliable access to the row data
               // row.original is the actual data object from the data array
               const rowData = row.original as DBRow;
@@ -2540,9 +2674,27 @@ export const TableView = (props: { superstate: Superstate }) => {
                 </TableBodyRow>
               );
             })}
+            {/* Bottom spacer: holds the scrollbar at full content height for the
+                rows windowed off the bottom (Notidian-8h9). Zero-height +
+                unrendered when virtualization is OFF. */}
+            {virtualPadBottom > 0 ? (
+              <tr aria-hidden="true" className="mk-table-virtual-spacer">
+                <td
+                  colSpan={cols.length + (readMode ? 1 : 2)}
+                  style={{
+                    height: virtualPadBottom,
+                    padding: 0,
+                    border: "none",
+                  }}
+                />
+              </tr>
+            ) : null}
           </tbody>
           <tfoot>
-            {table.getCanNextPage() && (
+            {/* Legacy Load More / Load All pagination — only when NOT virtualizing.
+                With virtualization ON every row is reachable by scrolling, so the
+                pagination control is hidden (the whole assembled set is windowed). */}
+            {!virtualizeActive && table.getCanNextPage() && (
               <tr>
                 <th
                   className="mk-row-new mk-row-pagination"
