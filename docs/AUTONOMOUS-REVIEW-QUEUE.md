@@ -27,12 +27,19 @@ how to revert if a regression appears — not because they are gated OFF.
 
 ### Notidian-8h9 — Table row virtualization (assemble-before-paginate + windowed render)
 
-⏳ **Default-ON; awaiting the owner's USE in the vault.** Fresh live evidence
-(2026-06-20, Atlas Vault ~1408 paths / 250 contexts) confirmed the
-assemble-before-paginate + no-row-virtualization triad makes opening a large
-database visibly slow. The render path now assembles all filtered/sorted rows and
-mounts **only the rows inside the scroll window** (constant ~viewport-worth of
-DOM) instead of every loaded row+cell.
+✅ **Live-verified 2026-06-20 (default-ON); owner's ongoing USE remains the standing validation.**
+Verified in the Atlas Vault on the installed v1.3.5 build: an **ungrouped 71-row**
+table (Portfolio) mounts only a **bounded ~27-row window** with **no Load More
+tfoot**; scrolling to the bottom advances the window to rows **[44–70]** (last row
+reachable, **no data loss**) while the DOM row count stays constant; cells/frames/
+stickers render intact on windowed rows; a **grouped** table (Device Registry,
+`groupBy:["board"]`) correctly **falls back to legacy pagination** by design; no
+console/`dev:errors` throughout. Fresh live evidence (2026-06-20, Atlas Vault
+~1408 paths / 250 contexts) had confirmed the assemble-before-paginate +
+no-row-virtualization triad made opening a large database visibly slow. The render
+path now assembles all filtered/sorted rows and mounts **only the rows inside the
+scroll window** (constant ~viewport-worth of DOM) instead of every loaded
+row+cell.
 
 - **Setting:** `rowVirtualization` (default `true`) — `src/shared/types/settings.ts`,
   defaulted in `src/core/schemas/settings.ts`.
