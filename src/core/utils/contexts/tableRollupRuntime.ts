@@ -1,6 +1,7 @@
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import {
   computeFrontmatterRollup,
+  computeFrontmatterRollupDetailed,
   parseRelationLinks,
   RollupConfig,
 } from "core/utils/contexts/tableRollup";
@@ -23,4 +24,27 @@ export const computeRowRollup = (
     return superstate.pathsIndex.get(resolved)?.metadata?.property ?? null;
   };
   return computeFrontmatterRollup({ linkPaths, config, resolveFrontmatter });
+};
+
+// Detailed variant (ADR 0029 D2): same resolution as computeRowRollup but also
+// returns the relation/resolved counts so the rollup cell can show a passive
+// partial-honesty marker. computeRowRollup is kept above (string, "never
+// throws" contract) for the property tests and the back-relations caller.
+export const computeRowRollupDetailed = (
+  superstate: Superstate,
+  relationValue: unknown,
+  config: RollupConfig,
+  sourcePath: string
+): { value: string; relationCount: number; resolvedCount: number } => {
+  const linkPaths = parseRelationLinks(relationValue);
+  const resolveLink = makeRelationLinkResolver(superstate);
+  const resolveFrontmatter = (target: string) => {
+    const resolved = resolveLink(target, sourcePath);
+    return superstate.pathsIndex.get(resolved)?.metadata?.property ?? null;
+  };
+  return computeFrontmatterRollupDetailed({
+    linkPaths,
+    config,
+    resolveFrontmatter,
+  });
 };

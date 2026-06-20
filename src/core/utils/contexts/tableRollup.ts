@@ -66,51 +66,109 @@ const toNumber = (value: unknown): number => {
 const formatNumber = (value: number): string =>
   Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 
-export const computeFrontmatterRollup = (params: {
+// Detailed rollup (ADR 0029 D2): the aggregate value PLUS the counts behind it,
+// so a cell can honestly show "N of M counted — K unresolved/non-numeric".
+//   relationCount = the number of relation links (always linkPaths.length).
+//   resolvedCount = the number of links that actually CONTRIBUTE to this fn,
+//                   attributed PER LINK (not per flattened value): a non-empty
+//                   resolved value for the listing fns, or a value that coerces
+//                   to a finite number for the numeric fns. `count` is never
+//                   partial (resolvedCount == relationCount) and, as before,
+//                   never touches the resolver.
+// The `value` field is byte-identical to the legacy computeFrontmatterRollup
+// output (same order, same flatten, same filter), so the string API below can
+// delegate here without changing any caller.
+export const computeFrontmatterRollupDetailed = (params: {
   linkPaths: string[];
   config: RollupConfig;
   resolveFrontmatter: FrontmatterResolver;
-}): string => {
+}): { value: string; relationCount: number; resolvedCount: number } => {
   const { linkPaths, config, resolveFrontmatter } = params;
+  const relationCount = linkPaths.length;
 
   // Count of relations is independent of whether each link resolves.
-  if (config.fn == "count") return String(linkPaths.length);
+  if (config.fn == "count") {
+    return {
+      value: String(relationCount),
+      relationCount,
+      resolvedCount: relationCount,
+    };
+  }
+
+  const numericFn =
+    config.fn == "sum" ||
+    config.fn == "avg" ||
+    config.fn == "min" ||
+    config.fn == "max";
+  const isUsable = (value: unknown) =>
+    !(value == null || String(value).trim().length == 0);
 
   // Collect the target property from each resolvable linked row. Array-valued
   // frontmatter (e.g. a multi-value property) is flattened so count_values and
-  // values reflect each element, not the whole list as one scalar.
+  // values reflect each element, not the whole list as one scalar. The per-link
+  // buffer preserves resolution attribution (D2) without disturbing value order.
   const rawValues: unknown[] = [];
-  const pushValue = (value: unknown) => {
-    if (value == null || String(value).trim().length == 0) return;
-    rawValues.push(value);
-  };
+  let resolvedCount = 0;
   for (const path of linkPaths) {
     const frontmatter = resolveFrontmatter(path);
     if (!frontmatter) continue;
     const value = frontmatter[config.targetProperty];
-    if (Array.isArray(value)) value.forEach(pushValue);
-    else pushValue(value);
+    const perLink: unknown[] = [];
+    if (Array.isArray(value)) {
+      for (const element of value) if (isUsable(element)) perLink.push(element);
+    } else if (isUsable(value)) {
+      perLink.push(value);
+    }
+    if (perLink.length == 0) continue;
+    for (const v of perLink) rawValues.push(v);
+    // Numeric fns need at least one finite number to have "counted" this link.
+    if (numericFn) {
+      if (perLink.some((v) => !Number.isNaN(toNumber(v)))) resolvedCount++;
+    } else {
+      resolvedCount++;
+    }
   }
 
-  if (config.fn == "count_values") return String(rawValues.length);
-  if (config.fn == "values" || config.fn == "unique")
-    return uniq(rawValues.map((value) => String(value))).join(", ");
-
-  const numbers = rawValues.map(toNumber).filter((n) => !Number.isNaN(n));
-  if (numbers.length == 0) return config.fn == "sum" ? "0" : "";
-  switch (config.fn) {
-    case "sum":
-      return formatNumber(numbers.reduce((a, b) => a + b, 0));
-    case "avg":
-      return formatNumber(
-        numbers.reduce((a, b) => a + b, 0) / numbers.length
-      );
-    // reduce, not Math.min(...spread), to avoid the arg-count limit on huge rollups.
-    case "min":
-      return formatNumber(numbers.reduce((a, b) => Math.min(a, b)));
-    case "max":
-      return formatNumber(numbers.reduce((a, b) => Math.max(a, b)));
-    default:
-      return "";
+  let value: string;
+  if (config.fn == "count_values") {
+    value = String(rawValues.length);
+  } else if (config.fn == "values" || config.fn == "unique") {
+    value = uniq(rawValues.map((v) => String(v))).join(", ");
+  } else if (numericFn) {
+    const numbers = rawValues.map(toNumber).filter((n) => !Number.isNaN(n));
+    if (numbers.length == 0) {
+      value = config.fn == "sum" ? "0" : "";
+    } else {
+      switch (config.fn) {
+        case "sum":
+          value = formatNumber(numbers.reduce((a, b) => a + b, 0));
+          break;
+        case "avg":
+          value = formatNumber(
+            numbers.reduce((a, b) => a + b, 0) / numbers.length
+          );
+          break;
+        // reduce, not Math.min(...spread), to avoid the arg-count limit on huge rollups.
+        case "min":
+          value = formatNumber(numbers.reduce((a, b) => Math.min(a, b)));
+          break;
+        case "max":
+          value = formatNumber(numbers.reduce((a, b) => Math.max(a, b)));
+          break;
+        default:
+          value = "";
+      }
+    }
+  } else {
+    // Unknown fn -> "" (matches the legacy default branch).
+    value = "";
   }
+
+  return { value, relationCount, resolvedCount };
 };
+
+export const computeFrontmatterRollup = (params: {
+  linkPaths: string[];
+  config: RollupConfig;
+  resolveFrontmatter: FrontmatterResolver;
+}): string => computeFrontmatterRollupDetailed(params).value;

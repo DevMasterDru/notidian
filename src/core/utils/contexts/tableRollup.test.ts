@@ -1,5 +1,6 @@
 import {
   computeFrontmatterRollup,
+  computeFrontmatterRollupDetailed,
   parseRelationLinks,
   RollupConfig,
 } from "core/utils/contexts/tableRollup";
@@ -190,5 +191,102 @@ describe("computeFrontmatterRollup", () => {
         resolveFrontmatter: resolve,
       })
     ).toBe("0");
+  });
+});
+
+describe("computeFrontmatterRollupDetailed (ADR 0029 D2)", () => {
+  // Reuse the same fixture: A/B numeric+resolved, C resolves but non-numeric,
+  // D dangling (unresolved).
+  const fm: Record<string, Record<string, any>> = {
+    "Tasks/A": { hours: 3, status: "done" },
+    "Tasks/B": { hours: 5, status: "open" },
+    "Tasks/C": { hours: "nope", status: "done" },
+  };
+  const resolve = (p: string) => fm[p] ?? null;
+  const cfg = (over: Partial<RollupConfig>): RollupConfig => ({
+    relationProperty: "tasks",
+    targetProperty: "hours",
+    fn: "count",
+    ...over,
+  });
+
+  it("relationCount always equals linkPaths.length (incl. dangling)", () => {
+    const r = computeFrontmatterRollupDetailed({
+      linkPaths: ["Tasks/A", "Tasks/B", "Tasks/D"],
+      config: cfg({ fn: "sum" }),
+      resolveFrontmatter: resolve,
+    });
+    expect(r.relationCount).toBe(3);
+  });
+
+  it("count: resolvedCount == relationCount (never partial) and value preserved", () => {
+    const r = computeFrontmatterRollupDetailed({
+      linkPaths: ["Tasks/A", "Tasks/B", "Tasks/D"],
+      config: cfg({ fn: "count" }),
+      resolveFrontmatter: resolve,
+    });
+    expect(r).toEqual({ value: "3", relationCount: 3, resolvedCount: 3 });
+  });
+
+  it("sum/avg/min/max: resolvedCount counts only links yielding a finite number", () => {
+    const links = ["Tasks/A", "Tasks/B", "Tasks/C", "Tasks/D"];
+    // A=3, B=5 numeric; C='nope' non-numeric; D dangling -> 2 of 4 counted.
+    for (const fn of ["sum", "avg", "min", "max"]) {
+      const r = computeFrontmatterRollupDetailed({
+        linkPaths: links,
+        config: cfg({ fn, targetProperty: "hours" }),
+        resolveFrontmatter: resolve,
+      });
+      expect(r.relationCount).toBe(4);
+      expect(r.resolvedCount).toBe(2);
+    }
+    // Value still preserved (sum of 3+5).
+    expect(
+      computeFrontmatterRollupDetailed({
+        linkPaths: links,
+        config: cfg({ fn: "sum", targetProperty: "hours" }),
+        resolveFrontmatter: resolve,
+      }).value
+    ).toBe("8");
+  });
+
+  it("count_values/values/unique: resolvedCount counts links with a non-empty value", () => {
+    const links = ["Tasks/A", "Tasks/B", "Tasks/C", "Tasks/D"];
+    // hours: A=3, B=5, C='nope' all present & non-empty; D dangling -> 3 of 4.
+    for (const fn of ["count_values", "values", "unique"]) {
+      const r = computeFrontmatterRollupDetailed({
+        linkPaths: links,
+        config: cfg({ fn, targetProperty: "hours" }),
+        resolveFrontmatter: resolve,
+      });
+      expect(r.relationCount).toBe(4);
+      expect(r.resolvedCount).toBe(3);
+    }
+  });
+
+  it("attributes resolution PER LINK, not per flattened value (array target)", () => {
+    const arrFm: Record<string, Record<string, any>> = {
+      P: { nums: [2, 3] }, // one link, two numeric values
+      Q: { nums: [] }, // present but empty -> contributes nothing
+    };
+    const r = (p: string) => arrFm[p] ?? null;
+    const detailed = computeFrontmatterRollupDetailed({
+      linkPaths: ["P", "Q", "R"], // R dangling
+      config: cfg({ fn: "sum", targetProperty: "nums" }),
+      resolveFrontmatter: r,
+    });
+    // Only P contributes a number -> 1 of 3, even though P carried 2 values.
+    expect(detailed.relationCount).toBe(3);
+    expect(detailed.resolvedCount).toBe(1);
+    expect(detailed.value).toBe("5");
+  });
+
+  it("all links resolve: resolvedCount == relationCount (no partial)", () => {
+    const r = computeFrontmatterRollupDetailed({
+      linkPaths: ["Tasks/A", "Tasks/B"],
+      config: cfg({ fn: "sum", targetProperty: "hours" }),
+      resolveFrontmatter: resolve,
+    });
+    expect(r.resolvedCount).toBe(r.relationCount);
   });
 });

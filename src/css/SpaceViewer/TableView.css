@@ -682,6 +682,17 @@ body.mk-property-header-tooltip-visible > .tooltip {
   color: var(--mk-ui-text-tertiary);
 }
 
+/* ADR 0029 D2: passive partial/unresolved rollup marker. Low-emphasis honesty
+   cue appended after the (unchanged) rollup value — never blocks, never alters
+   the number. Hover reveals the "N of M counted" tooltip. */
+.mk-cell-rollup-partial {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: help;
+  white-space: nowrap;
+}
+
 .mk-cell-boolean-sticker {
   width: 18px;
   height: 18px;

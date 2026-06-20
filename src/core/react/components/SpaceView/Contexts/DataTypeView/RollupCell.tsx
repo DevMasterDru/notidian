@@ -1,4 +1,4 @@
-import { computeRowRollup } from "core/utils/contexts/tableRollupRuntime";
+import { computeRowRollupDetailed } from "core/utils/contexts/tableRollupRuntime";
 import React, { useMemo } from "react";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow, SpaceTableColumn } from "shared/types/mdb";
@@ -16,22 +16,49 @@ export const RollupCell = (
     columns: SpaceTableColumn[];
   }
 ) => {
-  const value = useMemo(() => {
+  const rollup = useMemo(() => {
     const config = safelyParseJSON(props.propertyValue) ?? {};
-    if (!config.ref) return "";
-    if (config.fn != "count" && !config.field) return "";
+    if (!config.ref) return null;
+    if (config.fn != "count" && !config.field) return null;
     const relationValue = props.row?.[config.ref];
     const sourcePath = props.row?.[PathPropertyName] ?? props.contextPath;
-    return computeRowRollup(
-      props.superstate,
-      relationValue,
-      {
-        relationProperty: config.ref,
-        targetProperty: config.field,
-        fn: config.fn ?? "count",
-      },
-      sourcePath
-    );
+    const fn = config.fn ?? "count";
+    return {
+      fn,
+      ...computeRowRollupDetailed(
+        props.superstate,
+        relationValue,
+        {
+          relationProperty: config.ref,
+          targetProperty: config.field,
+          fn,
+        },
+        sourcePath
+      ),
+    };
   }, [props.propertyValue, props.row]);
-  return <div className="mk-cell-rollup">{value}</div>;
+
+  if (!rollup) return <div className="mk-cell-rollup"></div>;
+
+  // ADR 0029 D2: passive honesty marker when some links didn't contribute —
+  // dangled, or were non-numeric under a numeric fn. `count` is never partial
+  // (it counts relations, not resolved values), so it never shows the marker.
+  // The displayed number is unchanged; this is text/CSS only (no innerHTML).
+  const showPartial =
+    rollup.fn != "count" && rollup.resolvedCount < rollup.relationCount;
+  return (
+    <div className="mk-cell-rollup">
+      {rollup.value}
+      {showPartial ? (
+        <span
+          className="mk-cell-rollup-partial"
+          title={`${rollup.resolvedCount} of ${rollup.relationCount} counted — ${
+            rollup.relationCount - rollup.resolvedCount
+          } unresolved/non-numeric`}
+        >
+          ·{rollup.resolvedCount}/{rollup.relationCount}
+        </span>
+      ) : null}
+    </div>
+  );
 };

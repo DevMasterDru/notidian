@@ -1,5 +1,6 @@
 import {
   computeFrontmatterRollup,
+  computeFrontmatterRollupDetailed,
   parseRelationLinks,
   RollupConfig,
 } from "core/utils/contexts/tableRollup";
@@ -723,6 +724,35 @@ describe("computeFrontmatterRollup — adversarial ops over mixed targets (chara
           resolveFrontmatter: resolve,
         })
       ).toBe(max);
+    }
+  });
+
+  it("VALUE-PRESERVING (ADR 0029 D2): computeFrontmatterRollup(x) === computeFrontmatterRollupDetailed(x).value", () => {
+    // The string API now delegates to the detailed fn. This locks that contract
+    // structurally over every (op, target-mix): if anyone ever un-delegates or
+    // diverges the value path, this fails. Also pins the count invariants.
+    const rng = makeRng(0x0029d2);
+    for (let run = 0; run < PROPERTY_RUNS; run++) {
+      const { linkPaths, config, resolveFrontmatter } = buildScenario(rng);
+      const detailed = computeFrontmatterRollupDetailed({
+        linkPaths,
+        config,
+        resolveFrontmatter,
+      });
+      const str = computeFrontmatterRollup({
+        linkPaths,
+        config,
+        resolveFrontmatter,
+      });
+      expect(str).toBe(detailed.value);
+      // relationCount is exactly the link count; resolvedCount is bounded by it.
+      expect(detailed.relationCount).toBe(linkPaths.length);
+      expect(detailed.resolvedCount).toBeGreaterThanOrEqual(0);
+      expect(detailed.resolvedCount).toBeLessThanOrEqual(detailed.relationCount);
+      // count is never partial; it also never calls the resolver (totality).
+      if (config.fn === "count") {
+        expect(detailed.resolvedCount).toBe(detailed.relationCount);
+      }
     }
   });
 
