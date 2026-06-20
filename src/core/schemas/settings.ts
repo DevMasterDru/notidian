@@ -129,6 +129,11 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // create option is never offered and no column is auto-created via this path.
   // The shipped tree engine and the manual eligible-column pick are untouched.
   subItemsSetup: true,
+  // Default-ON Notion-style "+ New sub-item" row (bd Notidian-gr8t) — an
+  // expanded parent shows a faint "+ New sub-item" affordance after its last
+  // visible child (owner verifies by USE). KILL-SWITCH: false renders the tree
+  // with no add-rows (and restores row virtualization on those views).
+  subItemAddRow: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,

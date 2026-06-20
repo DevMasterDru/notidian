@@ -48,6 +48,26 @@ describe("shouldVirtualizeTable (kill-switch chokepoint)", () => {
       shouldVirtualizeTable({ enabled: undefined as any, isGrouped: false })
     ).toBe(false);
   });
+
+  it("is OFF when sub-item add-rows are present (non-uniform height) — Notidian-gr8t", () => {
+    // The "+ New sub-item" affordance is a shorter interleaved row; fall back to
+    // the legacy render so the uniform-row window math stays correct.
+    expect(
+      shouldVirtualizeTable({
+        enabled: true,
+        isGrouped: false,
+        hasSubItemAddRows: true,
+      })
+    ).toBe(false);
+    // Sub-items on but no expanded parent (no add-rows) still virtualizes.
+    expect(
+      shouldVirtualizeTable({
+        enabled: true,
+        isGrouped: false,
+        hasSubItemAddRows: false,
+      })
+    ).toBe(true);
+  });
 });
 
 describe("tableVirtualRowSlice (slice === pure-seam window)", () => {

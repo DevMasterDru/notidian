@@ -1685,6 +1685,38 @@ width: 24px;
   align-items: center;
   flex-shrink: 0;
 }
+/* Notion-style "+ New sub-item" row (Notidian-gr8t): a faint, presentational row
+   after an expanded parent's last child. Shorter than a data row (which is why
+   the view falls back from row virtualization). Indent is applied inline. */
+.mk-subitem-add-row td {
+  border-top: none;
+  padding: 0;
+}
+.mk-subitem-add,
+.mk-list-subitem-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.6;
+  transition: opacity 0.1s ease;
+}
+.mk-subitem-add:hover,
+.mk-list-subitem-add:hover {
+  opacity: 1;
+  color: var(--text-muted);
+}
+.mk-subitem-add-icon {
+  font-weight: 600;
+  line-height: 1;
+}
+.mk-subitem-add-label {
+  line-height: 1;
+}
 .mk-subitem-affordance .mk-collapse {
   margin-right: 2px;
 }

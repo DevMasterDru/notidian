@@ -44,6 +44,7 @@ import { ColumnHeader } from "./ColumnHeader";
 
 import classNames from "classnames";
 import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowContextMenu";
+import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
@@ -466,7 +467,24 @@ export const TableView = (props: { superstate: Superstate }) => {
     subItemsField,
     collapsedSubItems,
     toggleSubItemCollapse,
+    subItemAddRows,
   } = useContext(ContextEditorContext);
+
+  // "+ New sub-item" affordance (Notidian-gr8t) → the single one-way create path,
+  // passing the parent's path directly (no table-index re-read).
+  const onCreateSubItem = React.useCallback(
+    (parentPath: string) => {
+      if (!subItemsField || !spaceCache?.path || !dbSchema?.id) return;
+      void createSubItemRow({
+        superstate: props.superstate,
+        contextPath: spaceCache.path,
+        schema: dbSchema.id,
+        subItemsField,
+        parentPath,
+      });
+    },
+    [subItemsField, spaceCache?.path, dbSchema?.id, props.superstate]
+  );
 
   const pageSize = props.superstate.settings.contextPagination ?? 25;
   const [pagination, setPagination] = React.useState<PaginationState>({
@@ -751,7 +769,10 @@ export const TableView = (props: { superstate: Superstate }) => {
     if (!th || !tableEl || th.cellIndex < 0) return;
     const colIndex = th.cellIndex;
     const bodyCells: HTMLElement[] = [];
-    tableEl.querySelectorAll("tbody tr").forEach((tr) => {
+    // Exclude the presentational "+ New sub-item" rows (Notidian-gr8t): they are a
+    // gutter + colSpan cell, not real per-column cells, so they must not skew the
+    // auto-fit width measurement.
+    tableEl.querySelectorAll("tbody tr:not(.mk-subitem-add-row)").forEach((tr) => {
       const cell = (tr as HTMLElement).children[colIndex] as
         | HTMLElement
         | undefined;
@@ -1552,6 +1573,10 @@ export const TableView = (props: { superstate: Superstate }) => {
   const virtualizeActive = shouldVirtualizeTable({
     enabled: virtualizationEnabled,
     isGrouped: groupBy.length > 0,
+    // Notidian-gr8t: "+ New sub-item" rows are shorter interleaved rows that
+    // break the uniform-row window; fall back to the legacy render for views that
+    // actually have them (only when an expanded parent is present).
+    hasSubItemAddRows: (subItemAddRows?.size ?? 0) > 0,
   });
   // When virtualizing, the data seam — not pagination — bounds the DOM: the table
   // model must produce EVERY assembled row so the window can slice the full set
@@ -2428,8 +2453,14 @@ export const TableView = (props: { superstate: Superstate }) => {
               const subItemNode = subItemsInfo?.get(rowPath);
               const subItemCollapsed =
                 !!subItemNode && collapsedSubItems.has(rowPath);
+              // Notion-style "+ New sub-item" rows (Notidian-gr8t): drawn AFTER
+              // this row when it is an expanded parent's last visible descendant.
+              // Purely presentational — never in `data`, so selection / dnd /
+              // copy-paste-fill / virtualization indexing are untouched.
+              const addRows = subItemAddRows?.get(rowPath);
 
               return (
+                <React.Fragment key={row.id}>
                 <TableBodyRow
                   rowId={rowOriginalIndex}
                   className={classNames(rowSelected && "mk-active")}
@@ -2458,7 +2489,6 @@ export const TableView = (props: { superstate: Superstate }) => {
                       subItemsField ?? undefined
                     );
                   }}
-                  key={row.id}
                 >
                   {rowOriginalIndex !== undefined && !readMode ? (
                     <TableRowDragHandle
@@ -2710,6 +2740,44 @@ export const TableView = (props: { superstate: Superstate }) => {
                     })()
                   )}
                 </TableBodyRow>
+                {addRows?.map((add, k) => (
+                  <tr
+                    key={`mk-subitem-add-${k}`}
+                    className="mk-subitem-add-row"
+                    aria-hidden="true"
+                  >
+                    <td
+                      className={classNames(
+                        "mk-row-gutter",
+                        "mk-subitem-add-gutter",
+                        frozenColumnCount > 0 && "mk-frozen-row-gutter"
+                      )}
+                      style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
+                    ></td>
+                    <td
+                      className="mk-subitem-add-cell"
+                      colSpan={cols.length + (readMode ? 0 : 1)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={() => onCreateSubItem(add.parentPath)}
+                    >
+                      <div
+                        className="mk-subitem-add"
+                        style={{
+                          paddingLeft: `${Math.min(add.depth, 12) * 16}px`,
+                        }}
+                      >
+                        <span className="mk-subitem-add-icon">+</span>
+                        <span className="mk-subitem-add-label">
+                          {i18n.hintText.newSubItem}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                </React.Fragment>
               );
             })}
             {/* Bottom spacer: holds the scrollbar at full content height for the

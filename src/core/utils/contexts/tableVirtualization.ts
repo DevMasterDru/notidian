@@ -50,10 +50,17 @@ export const DEFAULT_TABLE_OVERSCAN = 8;
 export const shouldVirtualizeTable = ({
   enabled,
   isGrouped,
+  hasSubItemAddRows,
 }: {
   enabled: boolean;
   isGrouped: boolean;
-}): boolean => !!enabled && !isGrouped;
+  // Notidian-gr8t: the "+ New sub-item" affordance renders a SHORTER presentational
+  // <tr> interleaved between data rows, which violates the uniform-row-height the
+  // window kernel assumes. When such add-rows are present, fall back to the legacy
+  // (non-windowed) render — a narrow, data-driven opt-out (only views with an
+  // expanded parent), NOT a blanket suppression of the 8h9 perf win.
+  hasSubItemAddRows?: boolean;
+}): boolean => !!enabled && !isGrouped && !hasSubItemAddRows;
 
 export interface TableVirtualRowSliceInput<TRow> {
   /** The fully assembled (filtered + sorted) row list — every row, no pagination. */

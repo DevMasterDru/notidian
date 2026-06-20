@@ -17,24 +17,35 @@ export const createSubItemRow = async ({
   schema,
   index,
   subItemsField,
+  parentPath: parentPathArg,
 }: {
   superstate: Superstate;
   contextPath: string;
   schema: string;
-  index: number;
+  // The parent's index in the table — used to resolve the parent path when
+  // parentPath isn't supplied. Optional when parentPath is given directly.
+  index?: number;
   subItemsField: string | null | undefined;
+  // The parent ROW's resolved path key (Notidian-gr8t). When supplied (e.g. by
+  // the "+ New sub-item" affordance, which already holds the tree node's path),
+  // the index->table re-read is skipped — index-independent and avoids a reorder
+  // race. Falls back to the index lookup when absent (the row-menu caller).
+  parentPath?: string;
 }): Promise<string | null> => {
   if (!subItemsField) return null;
-  const freshContext = await superstate.spaceManager.readTable(
-    contextPath,
-    schema
-  );
-  const freshRows = freshContext?.rows;
-  if (!freshRows || index >= freshRows.length) {
-    console.warn("Add sub-item: Row no longer exists at index", index);
-    return null;
+  let parentPath = parentPathArg;
+  if (!parentPath) {
+    const freshContext = await superstate.spaceManager.readTable(
+      contextPath,
+      schema
+    );
+    const freshRows = freshContext?.rows;
+    if (!freshRows || index == null || index >= freshRows.length) {
+      console.warn("Add sub-item: Row no longer exists at index", index);
+      return null;
+    }
+    parentPath = String(freshRows[index][PathPropertyName] ?? "");
   }
-  const parentPath = String(freshRows[index][PathPropertyName] ?? "");
   if (!parentPath) {
     console.warn("Add sub-item: parent row has no path", index);
     return null;

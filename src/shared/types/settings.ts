@@ -158,6 +158,11 @@ export interface MakeMDSettings {
   // its tree regardless of this flag — flip it off to hide the front-door, clear
   // the predicate field to flatten an already-on view.
   subItemsSetup: boolean;
+  // Notion-style "+ New sub-item" row (Notidian-gr8t). DEFAULT-ON / KILL-SWITCH.
+  // When true, an expanded parent shows a faint "+ New sub-item" affordance after
+  // its last visible child (table + list views) that creates a child of that
+  // parent. Set false to render the prior tree with no add-rows.
+  subItemAddRow: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

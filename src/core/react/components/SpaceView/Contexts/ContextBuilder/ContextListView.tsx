@@ -8,8 +8,10 @@ import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { NoteView } from "core/react/components/PathView/NoteView";
 import { CollapseToggle } from "core/react/components/UI/Toggles/CollapseToggle";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
+import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { FrameInstanceContext } from "core/react/context/FrameInstanceContext";
 import { PathContext } from "core/react/context/PathContext";
+import i18n from "shared/i18n";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
 import {
@@ -74,7 +76,23 @@ export const ContextListView = (props: {
     subItemsField,
     collapsedSubItems,
     toggleSubItemCollapse,
+    subItemAddRows,
   } = useContext(ContextEditorContext);
+
+  // "+ New sub-item" affordance (Notidian-gr8t) → the single one-way create path.
+  const onCreateSubItem = React.useCallback(
+    (parentPath: string) => {
+      if (!subItemsField || !source || !dbSchema?.id) return;
+      void createSubItemRow({
+        superstate: props.superstate,
+        contextPath: source,
+        schema: dbSchema.id,
+        subItemsField,
+        parentPath,
+      });
+    },
+    [subItemsField, source, dbSchema?.id, props.superstate]
+  );
 
   const [pageId, setPageId] = useState(1);
   const pageLength = 25;
@@ -471,21 +489,42 @@ export const ContextListView = (props: {
                           ) : null}
                         </span>
                       ) : null;
+                      const listKey = "listGroup" + i + "_listItem" + j;
+                      // Notion-style "+ New sub-item" rows (Notidian-gr8t): drawn
+                      // after this row when it is an expanded parent's last visible
+                      // descendant. Presentational only — never a list instance, so
+                      // selection/flattenedItems are untouched.
+                      const addRowEls = subItemAddRows
+                        ?.get(rowPath)
+                        ?.map((add, k) => (
+                          <div
+                            key={listKey + "_add" + k}
+                            className="mk-list-subitem-add"
+                            style={{
+                              paddingLeft: `${Math.min(add.depth, 12) * 16}px`,
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={() => onCreateSubItem(add.parentPath)}
+                          >
+                            <span className="mk-subitem-add-icon">+</span>
+                            <span className="mk-subitem-add-label">
+                              {i18n.hintText.newSubItem}
+                            </span>
+                          </div>
+                        ));
                       if (!rowsExpandable) {
                         if (!subItemAffordance) {
                           return instance;
                         }
-                        return (
-                          <div
-                            key={"listGroup" + i + "_listItem" + j}
-                            className="mk-list-subitem-row"
-                          >
+                        const rowEl = (
+                          <div key={listKey} className="mk-list-subitem-row">
                             {subItemAffordance}
                             <div className="mk-list-subitem-row-item">
                               {instance}
                             </div>
                           </div>
                         );
+                        return addRowEls ? [rowEl, ...addRowEls] : rowEl;
                       }
                       const notePath = expandableRowNotePath(
                         f,
@@ -495,11 +534,8 @@ export const ContextListView = (props: {
                       const rowExpanded = notePath
                         ? expandedRows[notePath] == true
                         : false;
-                      return (
-                        <div
-                          key={"listGroup" + i + "_listItem" + j}
-                          className="mk-list-toggle-row"
-                        >
+                      const toggleRowEl = (
+                        <div key={listKey} className="mk-list-toggle-row">
                           <div className="mk-list-toggle-row-header">
                             {subItemAffordance}
                             {notePath ? (
@@ -530,6 +566,9 @@ export const ContextListView = (props: {
                           )}
                         </div>
                       );
+                      return addRowEls
+                        ? [toggleRowEl, ...addRowEls]
+                        : toggleRowEl;
                     })}
                 </SortableContext>
               </FrameContainerView>

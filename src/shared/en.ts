@@ -3,6 +3,7 @@ export const en = {
     "fileName": "Enter File Name",
     "alias": "Enter Display Name",
     "newItem": "+ New",
+    "newSubItem": "New sub-item",
     "selectNote": "Select Note...",
     "createListItem": "Create List Item",
     "dragDropProperties": "Drag and drop to reorder properties",

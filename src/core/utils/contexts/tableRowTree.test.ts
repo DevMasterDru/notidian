@@ -1,6 +1,7 @@
 import {
   buildRowTree,
   flattenVisibleTree,
+  subItemAddRowsAfter,
 } from "core/utils/contexts/tableRowTree";
 
 const tree = (rows: Record<string, any>[]) =>
@@ -210,5 +211,89 @@ describe("flattenVisibleTree", () => {
 
   it("ignores a collapsed path with no children (leaf)", () => {
     expect(flatten(["E"])).toEqual(["A", "B", "D", "C", "E"]);
+  });
+});
+
+// Notidian-gr8t: pure insertion points for the Notion-style "+ New sub-item" row.
+// Input is the flattenVisibleTree output (collapsed subtrees already removed).
+const vnode = (path: string, depth: number, hasChildren: boolean) => ({
+  row: { File: path },
+  depth,
+  hasChildren,
+  surfacedAsRoot: false,
+});
+// Flatten the result Map to a comparable shape: { afterPath: [[parentPath, depth], ...] }
+const addRows = (
+  nodes: ReturnType<typeof vnode>[],
+  collapsed: string[] = []
+) => {
+  const m = subItemAddRowsAfter(nodes, new Set(collapsed), "File");
+  const out: Record<string, [string, number][]> = {};
+  for (const [k, v] of m) out[k] = v.map((a) => [a.parentPath, a.depth]);
+  return out;
+};
+
+describe("subItemAddRowsAfter (Notidian-gr8t)", () => {
+  it("(a) an expanded parent with children -> one add-row after the LAST child, at child depth", () => {
+    const nodes = [
+      vnode("P", 0, true),
+      vnode("C1", 1, false),
+      vnode("C2", 1, false),
+      vnode("Sib", 0, false),
+    ];
+    expect(addRows(nodes)).toEqual({ C2: [["P", 1]] });
+  });
+
+  it("(b/h) a collapsed parent (in collapsedPaths) gets NO add-row", () => {
+    // Collapsed => children not in the visible nodes; the parent stays but is
+    // marked collapsed, so no "+ New sub-item".
+    const nodes = [vnode("P", 0, true), vnode("Sib", 0, false)];
+    expect(addRows(nodes, ["P"])).toEqual({});
+  });
+
+  it("(c) a leaf / no expanded parents -> empty", () => {
+    expect(addRows([vnode("A", 0, false), vnode("B", 0, false)])).toEqual({});
+  });
+
+  it("(d) nested A>B>C all expanded -> three add-rows after C, DEEPEST-FIRST", () => {
+    const nodes = [
+      vnode("A", 0, true),
+      vnode("B", 1, true),
+      vnode("C", 2, false),
+      vnode("X", 0, false),
+    ];
+    // After C: child-of-B (depth 2), then child-of-B's-parent... i.e. B@2, A@1.
+    expect(addRows(nodes)).toEqual({ C: [["B", 2], ["A", 1]] });
+  });
+
+  it("(e) two sibling expanded parents -> each its own add-row after its own last child", () => {
+    const nodes = [
+      vnode("A", 0, true),
+      vnode("A1", 1, false),
+      vnode("D", 0, true),
+      vnode("D1", 1, false),
+    ];
+    expect(addRows(nodes)).toEqual({ A1: [["A", 1]], D1: [["D", 1]] });
+  });
+
+  it("(f) empty input -> empty map", () => {
+    expect(addRows([])).toEqual({});
+  });
+
+  it("(g) parent whose only visible child is itself collapsed -> add-row after that child (last VISIBLE descendant)", () => {
+    // P expanded; C is a child that hasChildren but is collapsed (grandkids hidden).
+    const nodes = [vnode("P", 0, true), vnode("C", 1, true)];
+    expect(addRows(nodes, ["C"])).toEqual({ C: [["P", 1]] });
+  });
+
+  it("trailing expanded parent at end of list drains correctly", () => {
+    const nodes = [vnode("P", 0, true), vnode("C1", 1, false)];
+    expect(addRows(nodes)).toEqual({ C1: [["P", 1]] });
+  });
+
+  it("deeply nested where only the OUTER parent is expanded shows a single add-row", () => {
+    // A expanded, B is a visible child that is collapsed -> only A's add-row.
+    const nodes = [vnode("A", 0, true), vnode("B", 1, true)];
+    expect(addRows(nodes, ["B"])).toEqual({ B: [["A", 1]] });
   });
 });

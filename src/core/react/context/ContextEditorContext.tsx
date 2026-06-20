@@ -51,6 +51,8 @@ import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import {
   buildRowTree,
   flattenVisibleTree,
+  subItemAddRowsAfter,
+  SubItemAddRow,
 } from "core/utils/contexts/tableRowTree";
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -183,6 +185,11 @@ type ContextEditorContextProps = {
   subItemsParentKey: string | null;
   collapsedSubItems: Set<string>;
   toggleSubItemCollapse: (path: string) => void;
+  // Notion-style "+ New sub-item" rows (Notidian-gr8t): keyed by the path of the
+  // row AFTER which the add-row(s) render (an expanded parent's last visible
+  // descendant), valued by the ordered add-rows (deepest-first for nested
+  // parents). null when sub-items is off, the flag is off, or in read mode.
+  subItemAddRows: Map<string, SubItemAddRow[]> | null;
 };
 
 export const ContextEditorContext = createContext<ContextEditorContextProps>({
@@ -226,6 +233,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   subItemsParentKey: null,
   collapsedSubItems: new Set(),
   toggleSubItemCollapse: () => null,
+  subItemAddRows: null,
 });
 
 const frontmatterRenameIssueMessage = ({
@@ -820,6 +828,27 @@ export const ContextEditorProvider: React.FC<
     }
     return info;
   }, [subItemsNodes]);
+
+  // Notion-style "+ New sub-item" insertion points (Notidian-gr8t), computed from
+  // the SAME visible nodes that drive subItemsInfo so it is consistent with the
+  // rendered tree by construction. Gated: flag ON (default), sub-items active, and
+  // NOT read mode (no create affordance in read-only views).
+  const subItemAddRows = useMemo(() => {
+    if (!subItemsNodes) return null;
+    if (readMode || spaceInfo?.readOnly) return null;
+    if (props.superstate.settings?.subItemAddRow === false) return null;
+    return subItemAddRowsAfter(
+      subItemsNodes,
+      collapsedSubItems,
+      PathPropertyName
+    );
+  }, [
+    subItemsNodes,
+    collapsedSubItems,
+    readMode,
+    spaceInfo?.readOnly,
+    props.superstate.settings?.subItemAddRow,
+  ]);
 
   const filteredData = useMemo(() => {
     const base = subItemsNodes
@@ -1902,6 +1931,7 @@ export const ContextEditorProvider: React.FC<
           : null,
         collapsedSubItems,
         toggleSubItemCollapse,
+        subItemAddRows,
       }}
     >
       {props.children}

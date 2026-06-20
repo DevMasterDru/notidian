@@ -135,6 +135,40 @@ describe("createSubItemRow (ADR 0050, one-way)", () => {
     });
   });
 
+  it("uses parentPath directly (no table re-read) when supplied — Notidian-gr8t", async () => {
+    const superstate = makeSuperstate();
+    const result = await createSubItemRow({
+      superstate,
+      contextPath: "Folder",
+      schema: "files",
+      subItemsField: "parent",
+      parentPath: "Folder/Other Parent.md",
+    });
+    expect(result).toBe(CHILD_PATH);
+    // The "+ New sub-item" affordance already holds the parent path, so the
+    // index->table lookup is skipped entirely.
+    expect(superstate.spaceManager.readTable).not.toHaveBeenCalled();
+    expect(saveFrontmatterProperties.mock.calls[0][0].properties).toEqual({
+      parent: "[[Folder/Other Parent|Other Parent]]",
+    });
+  });
+
+  it("parentPath wins over index when both are given", async () => {
+    const superstate = makeSuperstate();
+    await createSubItemRow({
+      superstate,
+      contextPath: "Folder",
+      schema: "files",
+      index: 0,
+      subItemsField: "parent",
+      parentPath: "Folder/Picked.md",
+    });
+    expect(superstate.spaceManager.readTable).not.toHaveBeenCalled();
+    expect(saveFrontmatterProperties.mock.calls[0][0].properties).toEqual({
+      parent: "[[Folder/Picked|Picked]]",
+    });
+  });
+
   it("returns null and writes nothing when subItemsField is empty", async () => {
     const superstate = makeSuperstate();
     expect(

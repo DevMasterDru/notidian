@@ -117,3 +117,60 @@ export const flattenVisibleTree = (
   }
   return visible;
 };
+
+// Notion-style "+ New sub-item" rows (Notidian-gr8t). Given the ALREADY-collapsed
+// visible tree (flattenVisibleTree output), return where each "+ New sub-item"
+// affordance is drawn: keyed by the path of the row AFTER which it appears (an
+// expanded parent's LAST visible descendant), valued by the ordered add-rows to
+// render there. An expanded parent = a node with hasChildren that is NOT in
+// collapsedPaths (so its children are visible). The add-row indents to the
+// child depth (parent.depth + 1). Pure — rendering lives in the caller.
+//
+// Nested expanded parents whose subtrees end at the SAME last descendant (A>B>C,
+// all expanded, C the deepest leaf) each get their own add-row after C, ordered
+// DEEPEST-FIRST (child of C-parent, then of B-parent, then of A-parent) — the
+// descending staircase Notion shows.
+export type SubItemAddRow = { parentPath: string; depth: number };
+
+export const subItemAddRowsAfter = (
+  visibleNodes: RowTreeNode[],
+  collapsedPaths: Set<string>,
+  pathKey: string
+): Map<string, SubItemAddRow[]> => {
+  const result = new Map<string, SubItemAddRow[]>();
+  // Open expanded parents, innermost on top.
+  const stack: { parentPath: string; parentDepth: number }[] = [];
+  // The previous visible node's path. When a parent is popped (its subtree just
+  // ended), this is its last visible descendant — the row to draw the add-row
+  // after. (Tracking it globally, not per-frame, correctly handles ancestors
+  // whose last descendant is deeper than their direct child.)
+  let prevPath: string | null = null;
+  const recordAt = (key: string, parentPath: string, depth: number) => {
+    const arr = result.get(key) ?? [];
+    arr.push({ parentPath, depth });
+    result.set(key, arr);
+  };
+  for (const node of visibleNodes) {
+    const p = String(node.row[pathKey] ?? "");
+    // Pop every open parent whose subtree ended before this node (depth returned
+    // to/above the parent). Each ended at prevPath.
+    while (
+      stack.length > 0 &&
+      stack[stack.length - 1].parentDepth >= node.depth &&
+      prevPath != null
+    ) {
+      const frame = stack.pop();
+      recordAt(prevPath, frame.parentPath, frame.parentDepth + 1);
+    }
+    if (node.hasChildren && !collapsedPaths.has(p)) {
+      stack.push({ parentPath: p, parentDepth: node.depth });
+    }
+    prevPath = p;
+  }
+  // Drain: remaining open parents end at the final visible node.
+  while (stack.length > 0 && prevPath != null) {
+    const frame = stack.pop();
+    recordAt(prevPath, frame.parentPath, frame.parentDepth + 1);
+  }
+  return result;
+};
