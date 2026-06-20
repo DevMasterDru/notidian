@@ -326,10 +326,12 @@ describe("buildExecutable adversarial / malformed prop strings", () => {
   // Notidian-qwc9: a computed member root.props[col] reads a RUNTIME key (the
   // value of `col`), unknowable at parse time. The OLD contract pushed the
   // variable's NAME ('col') as if it were a literal key, registering a PHANTOM
-  // dep path ending in 'col'. That path feeds runner.ts's skip-if-unchanged
+  // dep path ENDING in 'col'. That path feeds runner.ts's skip-if-unchanged
   // check (store.newState[f[0]][f[1]][f[2]]) — a dep on a key that never exists
   // in state, corrupting render-invalidation precision. New contract: a
-  // non-literal computed subscript yields NO static dep (drop it), while a
+  // non-literal computed subscript STOPS the static path at the dynamic
+  // subscript WITHOUT pushing the variable name (no phantom key) while KEEPING
+  // the statically-resolvable prefix (it must not annihilate the chain). A
   // LITERAL subscript root.props['a'] and a STATIC member root.props.a are real
   // resolvable keys and DO record a dep ending in 'a'.
   it("a computed member root.props[col] records NO phantom dep on the variable name", () => {
@@ -342,15 +344,101 @@ describe("buildExecutable adversarial / malformed prop strings", () => {
     // No throw, both props survive.
     expect(propOrder(exec)).toContain("col");
     expect(propOrder(exec)).toContain("viaComputed");
-    // The computed read resolves to a runtime key, so it contributes NO static
-    // dependency at all — and crucially never a phantom dep ending in 'col'.
+    // The dynamic subscript contributes NO phantom dep ending in the variable
+    // name 'col' (the defect the fix targets).
     const computedDeps = depsFor(exec, "viaComputed");
     expect(computedDeps.some((d) => d[d.length - 1] === "col")).toBe(false);
-    // It reads root.props[...] but the subscript is non-literal, so there is no
-    // resolvable root.props.* dependency recorded for it.
+    // For a PURE dynamic key with no further static prefix beyond root.props,
+    // the recorded prefix is [root, props]: at the consumer f[2] is undefined,
+    // so sameDepValues treats it as unchanged — the same harmless net effect the
+    // phantom-key fix intended, without dropping anything load-bearing.
     expect(
-      computedDeps.some((d) => d[0] === "root" && d[1] === "props")
-    ).toBe(false);
+      computedDeps.every((d) => d.length <= 2 || d[d.length - 1] !== "col")
+    ).toBe(true);
+  });
+
+  // Notidian-qwc9 (must-fix regression guard): the dynamic subscript must STOP
+  // the path WITHOUT discarding the statically-known PREFIX. The common
+  // list-template / table pattern X.props.a[col] (index a known array/object
+  // prop by a loop var or column key) MUST still surface its real X.props.a
+  // dependency. Returning null here instead of the prefix annihilated the whole
+  // member chain (the `objectParts &&` guards on the enclosing MemberExpression
+  // fail on null), recording NO dep — silently UNDER-subscribing the render-skip
+  // check and missing legitimate re-renders (stale UI). A missed render is
+  // strictly worse than a spurious one.
+  it("a computed member with a STATIC PREFIX root.props.a[col] keeps the resolvable prefix dep", () => {
+    const exec = buildOne("root", {
+      props: {
+        a: "[1, 2, 3]",
+        col: "0",
+        viaPrefix: "root.props.a[col]",
+      },
+    });
+    const prefixDeps = depsFor(exec, "viaPrefix");
+    // The prefix root.props.a is statically resolvable and MUST be recorded so
+    // that a change to a invalidates the skip; the dynamic 'col' is dropped.
+    expect(prefixDeps.some((d) => d[d.length - 1] === "a")).toBe(true);
+    expect(prefixDeps.some((d) => d[d.length - 1] === "col")).toBe(false);
+    // It orders after the prop it reads (a evaluated before viaPrefix).
+    expect(propOrder(exec).indexOf("a")).toBeLessThan(
+      propOrder(exec).indexOf("viaPrefix")
+    );
+  });
+
+  it("a literal-then-dynamic member root.props['a'][col] also keeps the resolvable prefix", () => {
+    const exec = buildOne("root", {
+      props: {
+        a: "[1, 2, 3]",
+        col: "0",
+        viaLiteralPrefix: "root.props['a'][col]",
+      },
+    });
+    const deps = depsFor(exec, "viaLiteralPrefix");
+    expect(deps.some((d) => d[d.length - 1] === "a")).toBe(true);
+    expect(deps.some((d) => d[d.length - 1] === "col")).toBe(false);
+  });
+
+  // Consumer-level proof (replays runner.ts sameDepValues): a CROSS-node prop
+  // reading other.props.a[col] must surface a dep that resolves to
+  // other.props.a, so that changing other.props.a (1 -> 2) invalidates the
+  // skip. With the old `return null` this dep was [] => sameDepValues=true =>
+  // the node was SKIPPED => stale UI. The fix records [other,props,a] =>
+  // sameDepValues=false => the node correctly re-renders.
+  it("a cross-node read other.props.a[col] re-renders when other.props.a changes (sameDepValues replay)", () => {
+    const child = plainNode("c1", { props: { v: "other.props.a[col]" } });
+    const root = treeNode(plainNode("root"), [treeNode(child)]);
+    const exec = buildExecutable(root) as FrameExecutable;
+
+    // The cross-node dep on other.props.a survives the self-id filter and
+    // bubbles into the child's node-level deps.
+    const childDeps = exec.children[0].execPropsOptions?.deps ?? [];
+    const otherDep = childDeps.find(
+      (d) => d[0] === "other" && d[1] === "props" && d[2] === "a"
+    );
+    expect(otherDep).toBeDefined();
+
+    // Replay the exact runner.ts sameDepValues comparison for this node's deps.
+    const sameDepValues = (
+      deps: string[][],
+      newState: Record<string, any>,
+      prevState: Record<string, any>
+    ): boolean =>
+      deps.every((f) => {
+        if (f[0] === "$api") return true;
+        if (newState[f[0]]?.[f[1]]?.[f[2]] === undefined) return true;
+        return newState[f[0]]?.[f[1]]?.[f[2]] === prevState[f[0]]?.[f[1]]?.[f[2]];
+      });
+
+    // other.props.a changes 1 -> 2 while everything else is unchanged.
+    const prevState = { other: { props: { a: 1 } } };
+    const newState = { other: { props: { a: 2 } } };
+    // false => the node is NOT skipped => it re-renders (correct).
+    expect(sameDepValues(childDeps, newState, prevState)).toBe(false);
+
+    // Sanity: if other.props.a is unchanged, the dep does NOT force a re-render.
+    expect(
+      sameDepValues(childDeps, { other: { props: { a: 1 } } }, prevState)
+    ).toBe(true);
   });
 
   it("a LITERAL computed member root.props['a'] still records its real dep", () => {

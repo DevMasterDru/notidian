@@ -86,8 +86,23 @@ function extractDependencies(code: string): string[][] {
                     // NOT the key, so pushing it would register a PHANTOM dep on a
                     // key that never exists in state — corrupting runner.ts's
                     // skip-if-unchanged precision (store.newState[f[0]][f[1]][f[2]]).
-                    // Drop it: no static dependency can be derived (Notidian-qwc9).
-                    return null;
+                    //
+                    // But do NOT return null: null propagates up the recursion
+                    // (the `objectParts &&` guards on the enclosing MemberExpression
+                    // branches) and ANNIHILATES the whole member chain, discarding
+                    // the statically-resolvable PREFIX. For X.props.a[col] that would
+                    // drop the legitimate X.props.a dependency, under-subscribing the
+                    // render-skip check and silently missing real re-renders — a
+                    // missed render (stale UI) is strictly worse than a spurious one.
+                    //
+                    // Instead, STOP extending the path at the dynamic subscript and
+                    // return the resolved prefix unchanged: don't push the variable
+                    // name (no phantom key), but keep what we statically know.
+                    //  - X.props.a[col]  -> [X,props,a]  (consumer resolves X.props.a — correct)
+                    //  - X.props[col]    -> [X,props]    (consumer's f[2] is undefined => treated
+                    //                                     unchanged: the same harmless net effect
+                    //                                     the phantom-key fix intended) (Notidian-qwc9).
+                    return objectParts;
                 }
             } else if (objectParts) {
                 return visit(node.property, objectParts);
