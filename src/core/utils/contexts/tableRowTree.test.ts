@@ -116,6 +116,65 @@ describe("buildRowTree", () => {
   });
 });
 
+describe("buildRowTree surfacedAsRoot (ADR 0024 C2)", () => {
+  // Include the honesty flag so we can assert the passive cycle/orphan marker.
+  const flagged = (rows: Record<string, any>[]) =>
+    buildRowTree({ rows, parentKey: "parent", pathKey: "File" }).map((n) => ({
+      path: n.row.File,
+      depth: n.depth,
+      surfacedAsRoot: n.surfacedAsRoot,
+    }));
+
+  it("is false for a genuine root (no parent value)", () => {
+    expect(flagged([{ File: "A", parent: "" }])).toEqual([
+      { path: "A", depth: 0, surfacedAsRoot: false },
+    ]);
+  });
+
+  it("is false for a normally-nested child", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    expect(flagged(rows)).toEqual([
+      { path: "A", depth: 0, surfacedAsRoot: false },
+      { path: "B", depth: 1, surfacedAsRoot: false },
+    ]);
+  });
+
+  it("is true for a row whose parent link points outside the set (orphan)", () => {
+    const rows = [
+      { File: "A", parent: "[[Missing]]" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    expect(flagged(rows)).toEqual([
+      // A names a parent that isn't visible -> surfaced honestly at top level.
+      { path: "A", depth: 0, surfacedAsRoot: true },
+      // B's parent (A) IS in the set, so B is a normal nested node.
+      { path: "B", depth: 1, surfacedAsRoot: false },
+    ]);
+  });
+
+  it("is true for a row only reachable through a cycle (leftover loop)", () => {
+    const rows = [
+      { File: "A", parent: "[[B]]" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    const result = flagged(rows);
+    // Whichever node the cycle-leftover loop surfaces lands at depth 0 with the
+    // flag set; both carry a parent value, so neither is a genuine root.
+    const surfaced = result.filter((n) => n.depth === 0);
+    expect(surfaced).toHaveLength(1);
+    expect(surfaced[0].surfacedAsRoot).toBe(true);
+  });
+
+  it("is true for a self-parent (named a parent that can't form a tree)", () => {
+    expect(flagged([{ File: "A", parent: "[[A]]" }])).toEqual([
+      { path: "A", depth: 0, surfacedAsRoot: true },
+    ]);
+  });
+});
+
 describe("flattenVisibleTree", () => {
   const nodes = buildRowTree({
     rows: [

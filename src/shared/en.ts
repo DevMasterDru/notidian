@@ -306,6 +306,7 @@ export const en = {
     "freezeUpToColumn": "Freeze up to column",
     "unfreezeColumns": "Unfreeze columns",
     "deleteRow": "Delete Item",
+    "addSubItem": "Add Sub-Item",
     "customSort": "Custom Sort",
     "groupSpaces": "Group Spaces",
     "recursiveSort": "Apply to Subfolders",

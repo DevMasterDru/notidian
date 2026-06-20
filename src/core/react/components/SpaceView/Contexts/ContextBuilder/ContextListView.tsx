@@ -436,7 +436,11 @@ export const ContextListView = (props: {
                         <span
                           className="mk-subitem-affordance"
                           style={{
-                            paddingLeft: `${subItemNode.depth * 16}px`,
+                            // ADR 0024 C2: clamp indent at depth 12 (shared with
+                            // the table render) so deep/cyclic chains stay legible.
+                            paddingLeft: `${
+                              Math.min(subItemNode.depth, 12) * 16
+                            }px`,
                           }}
                           onMouseDown={(e) => e.stopPropagation()}
                         >
@@ -453,6 +457,14 @@ export const ContextListView = (props: {
                           ) : (
                             <span className="mk-subitem-toggle-spacer" />
                           )}
+                          {subItemNode.surfacedAsRoot ? (
+                            <span
+                              className="mk-sub-item-orphan"
+                              title="Parent not in this view — shown as top-level (ADR 0024 C2)"
+                            >
+                              ↥
+                            </span>
+                          ) : null}
                         </span>
                       ) : null;
                       if (!rowsExpandable) {

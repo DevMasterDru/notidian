@@ -1668,3 +1668,16 @@ width: 24px;
   width: 18px;
   flex-shrink: 0;
 }
+/* ADR 0024 C2: passive marker on a row surfaced at the top level even though it
+   names a parent (parent out of view, or a cycle). Low-emphasis, non-blocking —
+   honesty cue only. Shared by the table and list sub-item affordances. */
+.mk-sub-item-orphan {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: help;
+  flex-shrink: 0;
+}

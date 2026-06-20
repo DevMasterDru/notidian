@@ -463,6 +463,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     renameRowTitle,
     setSearchActive,
     subItemsInfo,
+    subItemsField,
     collapsedSubItems,
     toggleSubItemCollapse,
   } = useContext(ContextEditorContext);
@@ -2448,7 +2449,13 @@ export const TableView = (props: { superstate: Superstate }) => {
                       props.superstate,
                       spaceCache.path,
                       dbSchema.id,
-                      rowIndex
+                      rowIndex,
+                      undefined,
+                      undefined,
+                      // Sub-items (ADR 0024): enables the "Add sub-item" action.
+                      // The frontmatter key of the parent-link column, or
+                      // undefined when sub-items isn't configured for this view.
+                      subItemsField ?? undefined
                     );
                   }}
                   key={row.id}
@@ -2614,7 +2621,12 @@ export const TableView = (props: { superstate: Superstate }) => {
                                 <span
                                   className="mk-subitem-affordance"
                                   style={{
-                                    paddingLeft: `${subItemNode.depth * 16}px`,
+                                    // ADR 0024 C2: clamp indent at depth 12 so a
+                                    // deep (or cyclic) chain never pushes the
+                                    // first cell off-screen.
+                                    paddingLeft: `${
+                                      Math.min(subItemNode.depth, 12) * 16
+                                    }px`,
                                   }}
                                   onMouseDown={(e) => e.stopPropagation()}
                                 >
@@ -2631,6 +2643,14 @@ export const TableView = (props: { superstate: Superstate }) => {
                                   ) : (
                                     <span className="mk-subitem-toggle-spacer" />
                                   )}
+                                  {subItemNode.surfacedAsRoot ? (
+                                    <span
+                                      className="mk-sub-item-orphan"
+                                      title="Parent not in this view — shown as top-level (ADR 0024 C2)"
+                                    >
+                                      ↥
+                                    </span>
+                                  ) : null}
                                 </span>
                               ) : null}
                               {flexRender(

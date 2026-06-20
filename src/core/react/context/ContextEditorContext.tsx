@@ -169,7 +169,14 @@ type ContextEditorContextProps = {
   // Sub-items (Notidian-pv4): per-row tree info for the table's indentation +
   // expand/collapse chevron, keyed by resolved path; null when the view has no
   // sub-items parent column configured (the table renders flat).
-  subItemsInfo: Map<string, { depth: number; hasChildren: boolean }> | null;
+  subItemsInfo: Map<
+    string,
+    { depth: number; hasChildren: boolean; surfacedAsRoot: boolean }
+  > | null;
+  // Frontmatter key of the configured parent-link column (= subItemsCol.name),
+  // or null when sub-items is off — used by the "Add sub-item" row action to
+  // write ONLY the child's parent link (ADR 0024 B1, one-way).
+  subItemsField: string | null;
   collapsedSubItems: Set<string>;
   toggleSubItemCollapse: (path: string) => void;
 };
@@ -211,6 +218,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   tableData: null,
   cols: [],
   subItemsInfo: null,
+  subItemsField: null,
   collapsedSubItems: new Set(),
   toggleSubItemCollapse: () => null,
 });
@@ -794,11 +802,15 @@ export const ContextEditorProvider: React.FC<
   // table's indentation and expand/collapse chevron. Null when sub-items is off.
   const subItemsInfo = useMemo(() => {
     if (!subItemsNodes) return null;
-    const info = new Map<string, { depth: number; hasChildren: boolean }>();
+    const info = new Map<
+      string,
+      { depth: number; hasChildren: boolean; surfacedAsRoot: boolean }
+    >();
     for (const node of subItemsNodes) {
       info.set(String(node.row[PathPropertyName] ?? ""), {
         depth: node.depth,
         hasChildren: node.hasChildren,
+        surfacedAsRoot: node.surfacedAsRoot,
       });
     }
     return info;
@@ -1879,6 +1891,7 @@ export const ContextEditorProvider: React.FC<
         data,
         updateRow,
         subItemsInfo,
+        subItemsField: subItemsCol?.name ?? null,
         collapsedSubItems,
         toggleSubItemCollapse,
       }}

@@ -198,7 +198,11 @@ export const showPathContextMenu = (
   rect: Rect,
   win: Window,
   anchor?: Anchors,
-  onClose?: () => void
+  onClose?: () => void,
+  // Caller-supplied options prepended to the file menu (Notidian-f0pj.1): the
+  // row context menu injects "Add sub-item" here for the primary folder context,
+  // whose rows short-circuit to this menu rather than the MDB row options.
+  extraOptions?: SelectOption[]
 ) => {
   const cache = superstate.pathsIndex.get(path);
    
@@ -218,6 +222,11 @@ export const showPathContextMenu = (
     },
   });
   menuOptions.push(menuSeparator);
+
+  if (extraOptions && extraOptions.length > 0) {
+    menuOptions.push(...extraOptions);
+    menuOptions.push(menuSeparator);
+  }
 
   if (superstate.settings.spacesStickers) {
     menuOptions.push(menuSeparator);

@@ -244,6 +244,44 @@ Use `--max-files=1` for a quick sample. Sampled reports are marked as partial an
 
 This means the safe migration sequence is audit, preview, resolve blockers, then apply. There is not yet a write migration command, so the current table behavior remains non-destructive for legacy contexts.
 
+## Sub-Items (Hierarchy)
+
+A table can nest rows under a parent by pointing a **link/relation column at rows in
+the same table** (a self-relation). Configure it from the view's filter bar under
+**Sub-items**, choosing the parent-link column (only primary-table link/context
+columns are eligible — a column that links another space can never form the tree).
+Once set, the table and list renders indent children, show an expand/collapse
+chevron on any row that has children, and add an **Add sub-item** action to a row's
+context menu.
+
+**Add sub-item** creates a new child row in the same folder/space and writes *only*
+the new child's parent-link property back to it (`[[Parent]]`). It is **one-way**:
+the parent's file is never modified — the link lives on the child. Re-parent a row
+by editing its parent-link cell; clear the cell to promote it back to the top level.
+
+Behavior rules to know:
+
+- **Hierarchy wins row order.** Rows always render parent-then-children depth-first;
+  the tree structure takes precedence over any flat ordering.
+- **Sort and manual reorder govern *sibling* order.** Within a single parent, the
+  active sort (or your manual drag-reorder) decides the order of that parent's direct
+  children. Sorting never breaks a child out from under its parent.
+- **A filtered-out parent drops its children to the top level** *(documented
+  limitation).* If a filter hides a parent row, its children have no visible parent
+  and surface as roots. They carry a passive orphan marker (`↥`, "Parent not in this
+  view — shown as top-level") so the demotion is honest rather than silent. The same
+  marker appears when a parent link points outside the table or forms a cycle.
+- **Group-by partitions before nesting** *(documented caveat).* When the view is
+  grouped, rows are split into groups first, so a parent and a child that fall in
+  different groups will not sit adjacent — each appears under its own group.
+
+Indentation is clamped at depth 12 so a deep (or accidentally cyclic) chain can never
+push the first column off-screen. **Not yet supported:** drag-to-re-nest (re-parent
+by editing the cell instead) and two-way/reciprocal parent↔child writes — these are
+deferred (ADR 0024 B3 / follow-up).
+
+See [ADR 0024](adr/0024-sub-items-back-relations-ux.md) for the decided contract.
+
 ## What Notidian Does Not Do Yet
 
 These are known gaps, not accidental omissions:
@@ -270,4 +308,5 @@ These are known gaps, not accidental omissions:
 - [ADR 0010](adr/0010-legacy-context-audit-and-migration.md) explains legacy context audit and migration planning.
 - [ADR 0014](adr/0014-notidian-only-personal-database-engine.md) explains the current Notidian-only architecture.
 - [ADR 0015](adr/0015-canonical-schema-planning.md) explains property schema planning.
+- [ADR 0024](adr/0024-sub-items-back-relations-ux.md) defines the sub-items + back-relations UX.
 - [ADR Index](adr/README.md) lists historical and superseded records.

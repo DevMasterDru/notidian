@@ -12,6 +12,13 @@ export type RowTreeNode = {
   row: Record<string, any>;
   depth: number;
   hasChildren: boolean;
+  // ADR 0024 C2 (passive cycle/orphan indicator): true when this node was
+  // surfaced at the top level (depth 0) even though the user named a parent —
+  // either the parent link points outside this view (orphan) or it was only
+  // reachable through a cycle (leftover loop below). Genuine roots (no parent
+  // value) and normal nested nodes are false. Render layers show a passive
+  // marker; the engine never blocks or rewrites.
+  surfacedAsRoot: boolean;
 };
 
 export const buildRowTree = (params: {
@@ -64,7 +71,18 @@ export const buildRowTree = (params: {
     if (visited.has(path)) return; // cycle / re-entry guard
     visited.add(path);
     const children = childrenOf.get(path) ?? [];
-    result.push({ row, depth, hasChildren: children.length > 0 });
+    // ADR 0024 C2: a depth-0 node that still carries a parent value reached the
+    // top level only because its parent is out of view (orphan) or unreachable
+    // through a cycle (the leftover loop below) — surface it honestly. Genuine
+    // roots have no parent value, so length 0 => false; nested nodes are depth>0.
+    const surfacedAsRoot =
+      depth === 0 && parseRelationLinks(row[parentKey]).length > 0;
+    result.push({
+      row,
+      depth,
+      hasChildren: children.length > 0,
+      surfacedAsRoot,
+    });
     for (const child of children) emit(child, depth + 1);
   };
 

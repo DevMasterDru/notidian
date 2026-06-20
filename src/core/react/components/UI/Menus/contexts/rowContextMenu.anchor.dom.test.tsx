@@ -55,6 +55,14 @@ jest.mock("../../Modals/ContextCreateItemModal", () => ({
 jest.mock("../menu/SelectionMenu", () => ({
   defaultMenu: (_ui: unknown, options: unknown) => ({ options }),
 }));
+// Sub-items (ADR 0024 B1): mock the create + frontmatter-write collaborators so
+// the "Add sub-item" action's one-way contract can be asserted in isolation.
+jest.mock("core/superstate/utils/spaces", () => ({
+  newPathInSpace: jest.fn(),
+}));
+jest.mock("core/utils/properties/frontmatterWrite", () => ({
+  saveFrontmatterProperties: jest.fn(),
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { showRowContextMenu } = require("./rowContextMenu");
@@ -176,5 +184,136 @@ describe("showRowContextMenu anchoring (Notidian-74n)", () => {
     expect(anchor.x).not.toBe(SVG_CHILD_RECT.x);
     expect(anchor.y).not.toBe(SVG_CHILD_RECT.y);
     expect(capturedAnchor).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Add sub-item" action (ADR 0024 B1, Notidian-f0pj.1)
+// Proves the action creates a child row and writes ONLY the child's parent link
+// — the parent's file is NEVER written (the one-way guarantee). Drives the
+// non-primary branch (so the option lands in the bottom openMenu options array)
+// with subItemsField set.
+// ---------------------------------------------------------------------------
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { newPathInSpace } = require("core/superstate/utils/spaces");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const {
+  saveFrontmatterProperties,
+} = require("core/utils/properties/frontmatterWrite");
+
+const PARENT_PATH = "Some/Space/Parent.md";
+const CHILD_PATH = "Some/Space/Untitled.md";
+
+const fakeEvent = (): any => {
+  const el = document.createElement("div");
+  (el as any).getBoundingClientRect = () => ({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    toJSON: () => ({}),
+  });
+  return {
+    preventDefault: () => {},
+    currentTarget: el,
+    target: el,
+    view: window,
+  };
+};
+
+describe("showRowContextMenu Add sub-item (ADR 0024 B1)", () => {
+  let openedMenus: any[];
+  let superstate: any;
+
+  beforeEach(() => {
+    newPathInSpace.mockReset();
+    newPathInSpace.mockResolvedValue(CHILD_PATH);
+    saveFrontmatterProperties.mockReset();
+    saveFrontmatterProperties.mockResolvedValue({ ok: true });
+    openedMenus = [];
+    superstate = {
+      ui: {
+        openMenu: (_rect: any, menu: any) => {
+          openedMenus.push(menu);
+          return { update: () => {}, hide: () => {} };
+        },
+      },
+      spaceManager: {
+        readTable: async () => ({
+          schema: { id: "t", name: "Table", type: "db", primary: "false" },
+          rows: [{ File: PARENT_PATH }],
+        }),
+      },
+      spacesIndex: new Map([
+        ["Some/Space", { path: "Some/Space", name: "Space", type: "folder" }],
+      ]),
+      pathsIndex: new Map(),
+    };
+  });
+
+  const addSubItemOption = async () => {
+    await showRowContextMenu(
+      fakeEvent(),
+      superstate,
+      "Some/Space",
+      "table",
+      0,
+      undefined,
+      undefined,
+      "parent"
+    );
+    await Promise.resolve();
+    const options = openedMenus[openedMenus.length - 1]?.options ?? [];
+    // "Add sub-item" is the only option with the plus icon.
+    return options.find((o: any) => o && o.icon === "ui//plus");
+  };
+
+  it("offers an Add sub-item option only when subItemsField is set", async () => {
+    expect(await addSubItemOption()).toBeTruthy();
+
+    // Without the field, no plus option is added.
+    openedMenus = [];
+    await showRowContextMenu(
+      fakeEvent(),
+      superstate,
+      "Some/Space",
+      "table",
+      0
+    );
+    await Promise.resolve();
+    const options = openedMenus[openedMenus.length - 1]?.options ?? [];
+    expect(options.find((o: any) => o && o.icon === "ui//plus")).toBeFalsy();
+  });
+
+  it("creates a child and writes ONLY the child's parent link (parent untouched)", async () => {
+    const option = await addSubItemOption();
+    expect(option).toBeTruthy();
+
+    await option.onClick();
+    await Promise.resolve();
+
+    // Child created in the same space, empty title, dontOpen=true (mirrors newRow).
+    expect(newPathInSpace).toHaveBeenCalledTimes(1);
+    const [ss, space, type, name, dontOpen] = newPathInSpace.mock.calls[0];
+    expect(ss).toBe(superstate);
+    expect(space).toEqual({ path: "Some/Space", name: "Space", type: "folder" });
+    expect(type).toBe("md");
+    expect(name).toBe("");
+    expect(dontOpen).toBe(true);
+
+    // Exactly one frontmatter write, to the CHILD, with only the parent link.
+    expect(saveFrontmatterProperties).toHaveBeenCalledTimes(1);
+    const writeArg = saveFrontmatterProperties.mock.calls[0][0];
+    expect(writeArg.path).toBe(CHILD_PATH);
+    expect(writeArg.properties).toEqual({ parent: "[[Parent]]" });
+
+    // One-way guarantee: the parent's file is never a write target.
+    for (const call of saveFrontmatterProperties.mock.calls) {
+      expect(call[0].path).not.toBe(PARENT_PATH);
+    }
   });
 });

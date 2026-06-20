@@ -1,4 +1,6 @@
 import { deleteRowInTable } from "core/utils/contexts/context";
+import { newPathInSpace } from "core/superstate/utils/spaces";
+import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React from "react";
@@ -26,7 +28,12 @@ export const showRowContextMenu = async (
   // them in here. Synchronous callers (the direct TableView onContextMenu
   // handler) omit them and we capture from e.currentTarget below.
   anchorRectArg?: Rect,
-  anchorWindowArg?: Window
+  anchorWindowArg?: Window,
+  // Sub-items (ADR 0024, Notidian-f0pj.1): the frontmatter key of the configured
+  // parent-link column (= subItemsCol.name), or undefined when sub-items is off.
+  // When set, an "Add sub-item" action is offered that creates a child row and
+  // writes ONLY the child's parent link (one-way, B1) — the parent is untouched.
+  subItemsField?: string
 ) => {
   e.preventDefault();
 
@@ -74,6 +81,61 @@ export const showRowContextMenu = async (
     return;
   }
 
+  // Sub-items (ADR 0024 B1/C2): a single "Add sub-item" action, shared by the
+  // primary folder menu (below) and the MDB row menu. It re-reads the table for
+  // a fresh parent row, creates a child in the same space (mirroring newRow),
+  // and writes ONLY the child's parent link — the parent's file is never touched.
+  const subItemOption: SelectOption | null = subItemsField
+    ? {
+        name: i18n.menu.addSubItem,
+        icon: "ui//plus",
+        onClick: async () => {
+          const freshContext = await superstate.spaceManager.readTable(
+            contextPath,
+            schema
+          );
+          const freshRows = freshContext?.rows;
+          if (!freshRows || index >= freshRows.length) {
+            console.warn("Add sub-item: Row no longer exists at index", index);
+            return;
+          }
+          const parentPath = String(freshRows[index][PathPropertyName] ?? "");
+          if (!parentPath) {
+            console.warn("Add sub-item: parent row has no path", index);
+            return;
+          }
+          const space = superstate.spacesIndex.get(contextPath);
+          if (!space) {
+            console.warn("Add sub-item: space not found for", contextPath);
+            return;
+          }
+          // Parent's display title = basename of its path (matches the
+          // basename-only wikilink form the relation resolver canonicalizes).
+          const parentTitle =
+            parentPath.replace(/\.md$/, "").split("/").pop() ?? parentPath;
+          // Create the child row (empty title) in the same space, mirroring
+          // newRow's newPathInSpace call (dontOpen: true).
+          const childPath = await newPathInSpace(
+            superstate,
+            space,
+            "md",
+            "",
+            true
+          );
+          if (typeof childPath != "string" || !childPath) {
+            console.warn("Add sub-item: child creation failed in", contextPath);
+            return;
+          }
+          // One-way (ADR 0024 B1): write ONLY the child's parent link.
+          await saveFrontmatterProperties({
+            superstate,
+            path: childPath,
+            properties: { [subItemsField]: `[[${parentTitle}]]` },
+          });
+        },
+      }
+    : null;
+
   if (dbSchema.primary == "true") {
     const row = rows[index];
     if (row) {
@@ -83,7 +145,12 @@ export const showRowContextMenu = async (
         row[PathPropertyName],
         contextPath,
         anchorRect,
-        anchorWindow
+        anchorWindow,
+        undefined,
+        undefined,
+        // Folder-context rows short-circuit here, so the sub-item action must be
+        // injected into the path menu rather than the MDB options below.
+        subItemOption ? [subItemOption] : undefined
       );
       return;
     }
@@ -148,6 +215,9 @@ export const showRowContextMenu = async (
       );
     },
   });
+  if (subItemOption) {
+    menuOptions.push(subItemOption);
+  }
   superstate.ui.openMenu(
     anchorRect,
     defaultMenu(superstate.ui, menuOptions),
