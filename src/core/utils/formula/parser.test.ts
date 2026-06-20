@@ -26,8 +26,8 @@ import { SpaceProperty, DBRow } from "shared/types/mdb";
 //     That means string LITERAL args round-trip (they keep their quotes) but a
 //     string PROPERTY value injected into a nested function loses its quotes and
 //     becomes an undefined mathjs symbol — see the "engine boundaries" block.
-//     The defensive "" fallbacks live in the runFormula / runFormulaWithContext
-//     wrappers (try/catch), not in runFormulaNode itself.
+//     The defensive "" fallback lives in the runFormulaWithContext wrapper
+//     (try/catch), not in runFormulaNode itself.
 //
 // NOTE (Notidian-ie5r — fixed): a conditional whose CONDITION is a boolean
 // (a true/false keyword, or a symbol/operator returning a real boolean) now
@@ -269,8 +269,8 @@ describe("runFormulaNode — engine boundaries (pinned, not aspirational)", () =
 
   it("throws when a string PROPERTY is nested inside a function (lost-quotes limitation)", () => {
     // prop("Title") -> "world" -> re-evaluated as upper(world); `world` is an
-    // undefined mathjs symbol. The defensive '' lives in the runFormula
-    // wrappers' try/catch, NOT in runFormulaNode.
+    // undefined mathjs symbol. The defensive '' lives in the
+    // runFormulaWithContext wrapper's try/catch, NOT in runFormulaNode.
     expect(() => run('upper(prop("Title"))', { Title: "world" })).toThrow();
   });
 

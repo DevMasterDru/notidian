@@ -300,18 +300,6 @@ export const runFormulaNode = (node: FormulaNode, propMap: DBRow): string => {
 	return ""
 }
 
-export const runExec = (paths: Map<string, PathState>, spaceMap: IndexMap, exec: (scope: any) => string, properties: {[key: string]: SpaceProperty}, values: {[key: string] : any}, path?: string): string => {
-	const scope = new Map();
-	Object.keys(values).forEach(f => scope.set(f, values[f]))
-	scope.set("$properties", properties)
-	scope.set("$paths", paths)
-	scope.set("$items", spaceMap.invMap)
-	scope.set("$spaces", spaceMap.map)
-	if (path)
-		scope.set("$current", paths?.get(path))
-	return exec(scope)
-}
-
 export const runFormulaWithContext = (runContext: math.MathJsInstance, paths: Map<string, PathState>, spaceMap: IndexMap, formula: string, properties: {[key: string]: SpaceProperty}, values: {[key: string] : any}, path?: PathState, emitError?: boolean): string => {
 	if (!formula) return ""
 	
@@ -339,44 +327,14 @@ export const runFormulaWithContext = (runContext: math.MathJsInstance, paths: Ma
 	return  value
 }
 
-export const runFormula = (paths: Map<string, PathState>, spaceMap: IndexMap, formula: string, properties: {[key: string]: SpaceProperty}, values: {[key: string] : any}, path?: string): string => {
-	if (!formula) return ""
-	// const parsed = parseFormula(formula, propMap)
-	// if (parsed.errors.length > 0) {
-	// 	return parsed.errors.join("\n")
-	// }
-	const scope = new Map();
-	Object.keys(values).forEach(f => scope.set(f, values[f]))
-	scope.set("$properties", properties)
-	scope.set("$paths", paths)
-	scope.set("$items", spaceMap.invMap)
-	scope.set("$spaces", spaceMap.map)
-	if (path)
-		scope.set("$current", paths?.get(path))
-	const all = {
-		...math.all,
-		createAdd: math.factory('add', [], () => function add (a: any, b: any) {
-			return a + b
-		  }),
-		  createEqual: math.factory('equal', [], () => function equal (a: any, b: any) {
-			return a == b
-		  }),
-		  createUnequal: math.factory('unequal', [], () => function unequal (a: any, b: any) {
-			return a != b
-		  })
-		
-	}
-	const config :math.ConfigOptions = {
-		matrix: "Array"
-	}
-	const runContext = math.create(all, config)
-	runContext.import(formulas, { override: true })
-	let value;
-	try {
-		value = runContext.evaluate(formula, scope)
-		value = parseProperty("", value)
-	} catch (e) {
-	}
-	return  value
-}
+// The former `runFormula` / `runExec` helpers were deleted (bd Notidian-y8qk):
+// both had zero live callers and `runFormula` was a stale duplicate of
+// runFormulaWithContext that re-did the math.create/factory/import setup and
+// carried a latent bug — an EMPTY catch over an uninitialized `let value`, so a
+// throwing formula returned `undefined` (not `''`) despite its `: string`
+// signature. Every live formula path already calls `runFormulaWithContext`
+// (which correctly sets `value = ''` in its catch); any future need for a
+// scope-bound formula evaluation should reach for it, not a resurrected
+// duplicate. A static guard in parser.deadHelpers.guard.test.ts keeps both
+// symbols from coming back.
 
