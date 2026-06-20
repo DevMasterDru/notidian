@@ -2,25 +2,25 @@
 
 ## Status
 
-Parked — build when the owner asks.
+**Accepted — owner pulled for build on 2026-06-20.** The recommendations below are
+ratified as the contract: **A1** (per-view/per-rollup relation column), **B1**
+(rollup definition in MDB view config), **C1** (one-way; computed read-only
+inverse), **D2** (silent-graceful + a *passive* "N of M counted — K unresolved"
+indicator, CSS/text only), **E1** (live recompute on render off the in-memory
+cache). Deferred (build only if later asked): **C3** two-way opt-in, **A3** per-DB
+default relation, **E3** memo-version optimization. The only new code is the **D2**
+passive indicator. Implementation: bd **`Notidian-f0pj.2`** (S2) under epic
+**`Notidian-f0pj`**; stream packet `docs/streams/notion-parity-ux.md`.
 
-Parked to [docs/ROADMAP.md](../ROADMAP.md) — genuinely-speculative product
-direction the owner validates by *using* the tool and has not requested; this
-ADR is retained as grounding reference, not a decision that waits. Tracked by
-bd `Notidian-tni`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of building anything blind. It is roadmap item (1) of epic
-`Notidian-2w0` ("frontmatter-link relations + rollups") — the headline Notion gap
-— which had **no ADR yet**, even though its **engine and runtime wiring already
-shipped and are tested** (see below). What is *not* yet ratified is the
-user-facing **authority + UX contract**: which frontmatter property is the relation
-source, where the rollup *definition* is allowed to live, whether the relation is
-one-way or two-way, what the user sees for dangling/non-numeric values, and when a
-rollup recomputes. A wrong call here would either invert authority into a hidden
-store (the exact failure ADR 0017 closed) or change what the owner reads off their
-real notes — both expensive to undo across a vault — so the build stops at the
-contract. This decision is the relations/rollups analogue of ADR 0024 (which
-ratified the sub-items/back-relations contract over the *same* shared resolver).
+History: previously Parked (genuinely-speculative until the owner pulled it);
+written instead of building anything blind. Tracked by bd `Notidian-tni` (the
+decision bead); roadmap item (1) of epic `Notidian-2w0` — the headline Notion gap —
+whose **engine and runtime wiring already shipped and are tested** (see below). What
+was *not* yet ratified was the user-facing authority + UX contract; a wrong call
+would have inverted authority into a hidden store (the failure ADR 0017 closed) or
+changed what the owner reads off real notes — so the build stopped at the contract,
+now ratified. This is the relations/rollups analogue of ADR 0024 (same shared
+resolver, symmetric one-way + computed-inverse + per-view-designation contract).
 
 ## Date
 

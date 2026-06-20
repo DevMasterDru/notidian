@@ -2,21 +2,24 @@
 
 ## Status
 
-Parked — build when the owner asks.
+**Accepted — owner pulled for build on 2026-06-20.** The recommendations below are
+ratified as the contract: **A1** (per-view parent column), **B1** (one-way,
+child-owns; "Add sub-item" pre-fills the child's parent link), **C2** (passive
+cycle/orphan indicator + indent clamp, no hard cap, no blocking validation),
+**D1–D4** (hierarchy wins row order; sort + manual order govern siblings;
+filtered-out parents drop children to roots; groupBy adjacency is a documented
+caveat). Deferred (build only if later asked): **B3** two-way reciprocal opt-in,
+drag-to-re-nest, **A3** per-DB default parent. Implementation: bd
+**`Notidian-f0pj.1`** (S1) under epic **`Notidian-f0pj`**; stream packet
+`docs/streams/notion-parity-ux.md`.
 
-Parked to [docs/ROADMAP.md](../ROADMAP.md): this is genuinely-speculative product
-direction the owner has not requested. Validation is use-driven — the owner decides
-the user-facing contract by USING the tool — so this ADR stays as a grounding
-reference (the engine/render plumbing is already shipped and tested) and is built
-only when the owner asks. Previously tracked by bd `Notidian-2uz`; was queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of building the feature blind. Roadmap item (3) of epic
-`Notidian-2w0` ("sub-items via a canonical frontmatter parent/link property") has
-its **engine and render plumbing already shipped and tested** (see below); what is
-*not* decided is the user-facing contract — the four product questions a person
-actually drives. A wrong call here would write the wrong frontmatter into the
-owner's real notes (expensive to undo), or build a creation/two-way-sync flow that
-silently mutates the parent's file. So the build stops at the contract.
+History: previously Parked (genuinely-speculative until the owner pulled it);
+written instead of building the feature blind. Tracked by bd `Notidian-2uz` (the
+decision bead); roadmap item (3) of epic `Notidian-2w0`. The **engine and render
+plumbing already shipped and tested** (see below); what was *not* decided was the
+user-facing contract — the four product questions a person drives. A wrong call
+would write the wrong frontmatter into the owner's real notes, or silently mutate
+the parent's file — so the build stopped at the contract, which is now ratified.
 
 ## Date
 

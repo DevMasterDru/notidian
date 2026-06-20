@@ -66,6 +66,17 @@ npm run build                  # clean
 - If a bead fails its gates twice, stop on it, `bd update` a note (or `bd human`),
   and move to the next — do not thrash.
 
+## Active work streams (resolve live — `bd ready`)
+
+- **Notion-parity UX** (owner-pulled 2026-06-20) — epic `Notidian-f0pj`, packet
+  [docs/streams/notion-parity-ux.md](docs/streams/notion-parity-ux.md): two binding,
+  independent session issues (`Notidian-f0pj.1` sub-items creation UX · ADR 0024;
+  `Notidian-f0pj.2` rollup partial indicator · ADR 0029 D2), both `runner:sonnet`.
+  A fresh session: `bd ready` → claim the top stream issue → read its body + the
+  packet → execute within scope → verify → `bd close` with evidence → commit.
+
+Status is never copied here — `bd ready`/`bd show <id>` is the live source.
+
 ## Current Architecture
 
 Use [docs/current-state.md](docs/current-state.md) and [ADR 0014](docs/adr/0014-notidian-only-personal-database-engine.md) as the current source of truth.
