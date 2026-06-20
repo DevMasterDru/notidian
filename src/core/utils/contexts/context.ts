@@ -204,13 +204,24 @@ export const updateTableValue = async (
                 : f
             ),
           };
-          // Guard on `typeof rank === "number"`, NOT a truthiness `if (rank)`:
-          // rank 0 (drop a grouped row to the TOP of a group / reorder to index 0)
-          // is falsy, so a truthiness check silently drops the requested top
-          // position while still updating the group value. Matches the
-          // no-truthiness-guard contract of reorderRowsForPath/reorderPathsInContext
-          // (Notidian-gfzw; same bug-class as Notidian-oec/Notidian-sck).
-          if (typeof rank === "number")
+          // Guard on `rank != null`, NOT a truthiness `if (rank)` and NOT
+          // `typeof rank === "number"`. Two facts force this:
+          //   1. rank 0 (drop a grouped row to the TOP of a group / reorder to
+          //      index 0) is FALSY, so `if (rank)` silently drops the requested
+          //      top position while still updating the group value.
+          //   2. The sole production caller (ContextListInstance grouped drag,
+          //      ContextListInstance.tsx:267-275) passes rank=$context._index,
+          //      which is built as a STRING ("0"/"1"/"2") at
+          //      ContextEditorContext.tsx:628 (`index.toString()`) and forwarded
+          //      unchanged through ContextListView.tsx:259/301 — so a
+          //      `typeof rank === "number"` guard rejects EVERY real grouped-drag
+          //      reorder, regressing the whole feature. arrayMove coerces the
+          //      string index fine; `rank != null` admits string "0"/"1"/"2" AND
+          //      numeric 0 while still treating an absent rank as a pure value
+          //      edit. Matches the no-truthiness contract of
+          //      reorderRowsForPath/reorderPathsInContext (Notidian-gfzw; same
+          //      bug-class as Notidian-oec/Notidian-sck).
+          if (rank != null)
           newMDB = {
             ...newMDB,
             rows: arrayMove(newMDB.rows, index, rank)
@@ -248,10 +259,14 @@ export const updateContextValue = async (
     {
       const updateFunction = _updateFunction ?? updateValue
       let newMDB = updateFunction(f, PathPropertyName, path, field, value);
-      // See updateTableValue: rank 0 (top-of-group / index-0 reorder) is falsy, so
-      // a truthiness `if (rank)` silently drops it. Gate on a real number instead,
-      // matching reorderRowsForPath which already accepts index 0 (Notidian-gfzw).
-      if (typeof rank === "number")
+      // See updateTableValue: gate on `rank != null` so rank 0 (top-of-group /
+      // index-0 reorder) reorders and a string rank coerces, while an absent rank
+      // (undefined/null) stays a pure value edit. The live callers here
+      // (PropertiesView.tsx:170, HeaderPropertiesView.tsx:320 pass no rank;
+      // ContextCell.tsx:70/81 pass null) never reorder, so this guard is
+      // behavior-neutral for them but kept consistent with updateTableValue and
+      // reorderRowsForPath, which already accepts index 0 (Notidian-gfzw).
+      if (rank != null)
       newMDB = reorderRowsForPath(newMDB, [path], rank);
     if (manager.superstate.settings.enhancedLogs) {
       // Update Context Value

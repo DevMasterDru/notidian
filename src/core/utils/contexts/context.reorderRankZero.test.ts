@@ -19,6 +19,19 @@
 // SpaceManager built from jest.fn (contextForSpace / readTable / saveTable /
 // reloadContextByPath) + a superstate.settings stub, exactly the pattern used by
 // pageTitleRename.test.ts. No vault, Obsidian, or React.
+//
+// REGRESSION GUARD (Notidian-gfzw follow-up): the ORIGINAL fix gated on
+// `typeof rank === "number"`, but the SOLE production caller — the grouped drag
+// handler at ContextListInstance.tsx:267-275 — passes rank=$context._index,
+// which is a STRING ("0"/"1"/"2"): built as `index.toString()` at
+// ContextEditorContext.tsx:628 and forwarded unchanged through
+// ContextListView.tsx:259/301. `typeof "0" === "string"`, so that guard
+// rejected EVERY grouped-drag reorder, silently dropping the user's requested
+// order. The corrected guard is `rank != null`, which admits the string ranks
+// the caller actually delivers (arrayMove/reorderRowsForPath coerce them) AND
+// numeric 0, while still treating an absent rank as a pure value edit. The
+// `... STRING rank` cases below reproduce the real caller's argument TYPE and
+// go red on a `typeof rank === "number"` guard.
 // ---------------------------------------------------------------------------
 import { PathPropertyName } from "shared/types/context";
 import { SpaceInfo } from "shared/types/spaceInfo";
@@ -180,6 +193,62 @@ describe("updateTableValue: rank 0 reorders to the top (Notidian-gfzw)", () => {
       "Items/C.md",
     ]);
   });
+
+  // --- real-caller contract: rank arrives as a STRING (_index) ---------------
+  // The production grouped-drag caller passes rank=$context._index AND
+  // index=$context._index, both STRINGS. These cases pass the strings the live
+  // path delivers; they go red under a `typeof rank === "number"` guard.
+  it('STRING rank "0" (drag to top) reorders — the real caller passes a string', async () => {
+    const table = baseTable();
+    const { manager, saveTable } = makeManager(table);
+
+    // active.$context._index="2" (drag C), over.$context._index="0" (drop top).
+    await updateTableValue(
+      manager,
+      SPACE,
+      "files",
+      "2" as unknown as number,
+      "group",
+      "beta",
+      "0" as unknown as number
+    );
+
+    expect(saveTable).toHaveBeenCalledTimes(1);
+    const savedTable = saveTable.mock.calls[0][1] as SpaceTable;
+    expect(paths(savedTable.rows)).toEqual([
+      "Items/C.md",
+      "Items/A.md",
+      "Items/B.md",
+    ]);
+    expect(savedTable.rows[0]).toEqual({
+      [PathPropertyName]: "Items/C.md",
+      group: "beta",
+    });
+  });
+
+  it('STRING rank "1" (non-zero, value unchanged) still reorders', async () => {
+    const table = baseTable();
+    const { manager, saveTable } = makeManager(table);
+
+    // Drag C (index "2") to position "1", keeping its 'alpha' group.
+    await updateTableValue(
+      manager,
+      SPACE,
+      "files",
+      "2" as unknown as number,
+      "group",
+      "alpha",
+      "1" as unknown as number
+    );
+
+    expect(saveTable).toHaveBeenCalledTimes(1);
+    const savedTable = saveTable.mock.calls[0][1] as SpaceTable;
+    expect(paths(savedTable.rows)).toEqual([
+      "Items/A.md",
+      "Items/C.md",
+      "Items/B.md",
+    ]);
+  });
 });
 
 // ===========================================================================
@@ -258,5 +327,29 @@ describe("updateContextValue: rank 0 reorders to the top (Notidian-gfzw)", () =>
       "Items/A.md",
       "Items/C.md",
     ]);
+  });
+
+  it('STRING rank "0" reorders the path to index 0 (caller-contract parity)', async () => {
+    const table = baseTable();
+    const { manager, saveTable } = makeManager(table);
+
+    await updateContextValue(
+      manager,
+      SPACE,
+      "Items/C.md",
+      "group",
+      "beta",
+      undefined,
+      "0" as unknown as number
+    );
+
+    expect(saveTable).toHaveBeenCalledTimes(1);
+    const savedTable = saveTable.mock.calls[0][1] as SpaceTable;
+    expect(paths(savedTable.rows)).toEqual([
+      "Items/C.md",
+      "Items/A.md",
+      "Items/B.md",
+    ]);
+    expect(savedTable.rows[0].group).toBe("beta");
   });
 });
