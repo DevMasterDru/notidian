@@ -322,6 +322,66 @@ describe("buildExecutable adversarial / malformed prop strings", () => {
     expect(propOrder(exec)).toContain("a");
     expect(propOrder(exec)).toContain("viaOptional");
   });
+
+  // Notidian-qwc9: a computed member root.props[col] reads a RUNTIME key (the
+  // value of `col`), unknowable at parse time. The OLD contract pushed the
+  // variable's NAME ('col') as if it were a literal key, registering a PHANTOM
+  // dep path ending in 'col'. That path feeds runner.ts's skip-if-unchanged
+  // check (store.newState[f[0]][f[1]][f[2]]) — a dep on a key that never exists
+  // in state, corrupting render-invalidation precision. New contract: a
+  // non-literal computed subscript yields NO static dep (drop it), while a
+  // LITERAL subscript root.props['a'] and a STATIC member root.props.a are real
+  // resolvable keys and DO record a dep ending in 'a'.
+  it("a computed member root.props[col] records NO phantom dep on the variable name", () => {
+    const exec = buildOne("root", {
+      props: {
+        col: "'a'", // a real prop literally named 'col'
+        viaComputed: "root.props[col]",
+      },
+    });
+    // No throw, both props survive.
+    expect(propOrder(exec)).toContain("col");
+    expect(propOrder(exec)).toContain("viaComputed");
+    // The computed read resolves to a runtime key, so it contributes NO static
+    // dependency at all — and crucially never a phantom dep ending in 'col'.
+    const computedDeps = depsFor(exec, "viaComputed");
+    expect(computedDeps.some((d) => d[d.length - 1] === "col")).toBe(false);
+    // It reads root.props[...] but the subscript is non-literal, so there is no
+    // resolvable root.props.* dependency recorded for it.
+    expect(
+      computedDeps.some((d) => d[0] === "root" && d[1] === "props")
+    ).toBe(false);
+  });
+
+  it("a LITERAL computed member root.props['a'] still records its real dep", () => {
+    const exec = buildOne("root", {
+      props: {
+        a: "1",
+        viaLiteral: "root.props['a']",
+      },
+    });
+    const literalDeps = depsFor(exec, "viaLiteral");
+    // obj['a'] === obj.a: a real static key, still a resolvable dependency.
+    expect(literalDeps.some((d) => d[d.length - 1] === "a")).toBe(true);
+    // And it orders after the prop it reads.
+    expect(propOrder(exec).indexOf("a")).toBeLessThan(
+      propOrder(exec).indexOf("viaLiteral")
+    );
+  });
+
+  it("a STATIC member root.props.a still records its real dep (regression guard)", () => {
+    const exec = buildOne("root", {
+      props: {
+        a: "1",
+        viaStatic: "root.props.a",
+      },
+    });
+    const staticDeps = depsFor(exec, "viaStatic");
+    expect(staticDeps.some((d) => d[d.length - 1] === "a")).toBe(true);
+    expect(propOrder(exec).indexOf("a")).toBeLessThan(
+      propOrder(exec).indexOf("viaStatic")
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

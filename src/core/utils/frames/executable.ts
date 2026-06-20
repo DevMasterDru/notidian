@@ -69,17 +69,24 @@ function extractDependencies(code: string): string[][] {
             const objectParts = visit(node.object, parts);
             if (objectParts && node.computed) {
                 if (node.property.type === 'Literal') {
+                    // obj['a'] is a real static key — bracket access to a known
+                    // literal is equivalent to obj.a, so it IS a resolvable dep.
                     objectParts.push(String(node.property.value));
                     return objectParts;
-                } else if (node.property.type === 'Identifier') {
-                    // For computed properties like obj[var], we add the identifier to the parts.
-                    objectParts.push(node.property.name);
-                    return objectParts;
                 } else if (node.property.type === 'MemberExpression'){
+                    // obj[a.b] — the bracket subscript is itself a member chain;
+                    // it is its own dependency (explored), but does NOT extend the
+                    // outer object's static path.
                     explore(node.property)
                     return objectParts;
                 } else {
-                    // For computed properties like obj[var], we ignore it.
+                    // obj[someVar] (computed Identifier) or any other non-literal
+                    // subscript (CallExpression, BinaryExpression, …) resolves to a
+                    // RUNTIME key unknowable at parse time. The variable's NAME is
+                    // NOT the key, so pushing it would register a PHANTOM dep on a
+                    // key that never exists in state — corrupting runner.ts's
+                    // skip-if-unchanged precision (store.newState[f[0]][f[1]][f[2]]).
+                    // Drop it: no static dependency can be derived (Notidian-qwc9).
                     return null;
                 }
             } else if (objectParts) {
