@@ -112,6 +112,46 @@ const validateStringScalar = (value: unknown, fallback: string): string =>
 const validateStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter(isString) : [];
 
+const SUB_ITEMS_DISPLAYS = ["nested", "flattened", "parents-only"];
+const SUB_ITEMS_FILTER_SCOPES = ["parents", "parentsAndSubItems", "subItems"];
+
+// Sub-items config (ADR 0050). Field-invalid => the WHOLE subItems drops to
+// undefined (the inert state the adversarial corpus pins). When the field is
+// valid, rebuild explicitly and DROP each default value (display "nested",
+// filterScope "parentsAndSubItems", empty collapsed) so a legacy `{ field }`
+// predicate round-trips byte-identically and stays diff-free.
+const validateSubItems = (
+  raw: unknown
+): import("shared/types/predicate").SubItemsPredicate | undefined => {
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    typeof (raw as any).field !== "string"
+  )
+    return undefined;
+  const value = raw as any;
+  const out: import("shared/types/predicate").SubItemsPredicate = {
+    field: value.field,
+  };
+  if (
+    SUB_ITEMS_DISPLAYS.includes(value.display) &&
+    value.display !== "nested"
+  )
+    out.display = value.display;
+  if (
+    SUB_ITEMS_FILTER_SCOPES.includes(value.filterScope) &&
+    value.filterScope !== "parentsAndSubItems"
+  )
+    out.filterScope = value.filterScope;
+  if (Array.isArray(value.collapsed)) {
+    const collapsed = value.collapsed.filter(
+      (p: unknown) => typeof p === "string" && p.length > 0
+    );
+    if (collapsed.length > 0) out.collapsed = collapsed;
+  }
+  return out;
+};
+
 export const validatePredicate = (
   prevPredicate: Predicate,
   defaultPredicate: Predicate
@@ -212,12 +252,7 @@ export const validatePredicate = (
       prevPredicate.chart && typeof prevPredicate.chart === "object"
         ? prevPredicate.chart
         : undefined,
-    subItems:
-      prevPredicate.subItems &&
-      typeof prevPredicate.subItems === "object" &&
-      typeof prevPredicate.subItems.field === "string"
-        ? prevPredicate.subItems
-        : undefined,
+    subItems: validateSubItems(prevPredicate.subItems),
   };
 };
 

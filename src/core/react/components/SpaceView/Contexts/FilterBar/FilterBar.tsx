@@ -731,8 +731,13 @@ export const FilterBar = (props: {
             ],
             saveOptions: (_: string[], value: string[]) => {
               const field = value[0] ?? "";
+              // Spread the existing subItems so re-picking the parent column
+              // keeps the view's display/filterScope/collapsed keys (ADR 0050);
+              // clearing the field disables sub-items entirely.
               savePredicate({
-                subItems: field ? { field } : undefined,
+                subItems: field
+                  ? { ...predicate?.subItems, field }
+                  : undefined,
               });
             },
             searchable: false,

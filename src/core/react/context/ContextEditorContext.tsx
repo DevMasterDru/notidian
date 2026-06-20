@@ -177,6 +177,10 @@ type ContextEditorContextProps = {
   // or null when sub-items is off — used by the "Add sub-item" row action to
   // write ONLY the child's parent link (ADR 0024 B1, one-way).
   subItemsField: string | null;
+  // The tree/READ key for the same column (= name+table, what buildRowTree's
+  // parentKey uses). Distinct from subItemsField (the bare WRITE key) because a
+  // non-primary column's row-data key is name+table (ADR 0050 foundation seam).
+  subItemsParentKey: string | null;
   collapsedSubItems: Set<string>;
   toggleSubItemCollapse: (path: string) => void;
 };
@@ -219,6 +223,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   cols: [],
   subItemsInfo: null,
   subItemsField: null,
+  subItemsParentKey: null,
   collapsedSubItems: new Set(),
   toggleSubItemCollapse: () => null,
 });
@@ -1892,6 +1897,9 @@ export const ContextEditorProvider: React.FC<
         updateRow,
         subItemsInfo,
         subItemsField: subItemsCol?.name ?? null,
+        subItemsParentKey: subItemsCol
+          ? subItemsCol.name + subItemsCol.table
+          : null,
         collapsedSubItems,
         toggleSubItemCollapse,
       }}

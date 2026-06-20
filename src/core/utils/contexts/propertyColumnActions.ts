@@ -154,5 +154,12 @@ export const predicateColumnReferenceDeleteForColumn = ({
       columnId
     ),
     colsDataAnchor: removeColumnRecordEntry(predicate?.colsDataAnchor, columnId),
+    // Drop the sub-items config if its parent-link column is the one being
+    // deleted (ADR 0050) so a dangling subItems.field can't strand the view;
+    // otherwise carry the existing config through untouched.
+    subItems:
+      predicate?.subItems && predicate.subItems.field == columnId
+        ? undefined
+        : predicate?.subItems,
   };
 };

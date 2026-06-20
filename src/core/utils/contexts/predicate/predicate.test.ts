@@ -167,6 +167,55 @@ describe("validatePredicate", () => {
     ).toBeUndefined();
   });
 
+  it("keeps valid sub-item display/filterScope/collapsed keys (ADR 0050)", () => {
+    const subItems = {
+      field: "Parent",
+      display: "flattened",
+      filterScope: "subItems",
+      collapsed: ["A.md", "B.md"],
+    };
+    expect(
+      validatePredicate({ ...defaultPredicate, subItems } as any, defaultPredicate)
+        .subItems
+    ).toEqual(subItems);
+  });
+
+  it("drops default sub-item keys so a legacy { field } stays byte-identical (ADR 0050)", () => {
+    // display 'nested' + filterScope 'parentsAndSubItems' + empty collapsed are
+    // the defaults — none should persist, so the output equals a bare { field }.
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          subItems: {
+            field: "Parent",
+            display: "nested",
+            filterScope: "parentsAndSubItems",
+            collapsed: [],
+          },
+        } as any,
+        defaultPredicate
+      ).subItems
+    ).toEqual({ field: "Parent" });
+  });
+
+  it("rejects out-of-set sub-item enum values + non-string collapsed entries (ADR 0050)", () => {
+    expect(
+      validatePredicate(
+        {
+          ...defaultPredicate,
+          subItems: {
+            field: "Parent",
+            display: "bogus",
+            filterScope: "nope",
+            collapsed: ["A.md", 3, "", null],
+          },
+        } as any,
+        defaultPredicate
+      ).subItems
+    ).toEqual({ field: "Parent", collapsed: ["A.md"] });
+  });
+
   it("leaves chart/sub-items undefined when absent", () => {
     const result = validatePredicate(defaultPredicate, defaultPredicate);
     expect(result.chart).toBeUndefined();

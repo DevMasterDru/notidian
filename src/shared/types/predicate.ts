@@ -55,10 +55,29 @@ export type Filter = {
     valueKey?: string;
   };
 
+  // ADR 0050 sub-item view config. How the tree is laid out, which rows the
+  // view's filters select relative to the hierarchy, and which parents are
+  // collapsed. All optional; absent == legacy (nested / parentsAndSubItems /
+  // fully expanded), so pre-existing predicates round-trip byte-identically.
+  export type SubItemsDisplay = "nested" | "flattened" | "parents-only";
+  export type SubItemsFilterScope =
+    | "parents"
+    | "parentsAndSubItems"
+    | "subItems";
+
   export type SubItemsPredicate = {
     // The parent-link column (stored as name+table, like groupBy/sort fields)
     // whose links resolve to each row's parent row. Empty disables sub-items.
     field: string;
+    // Layout mode (default "nested"). "flattened" bypasses tree ordering so the
+    // global sort wins; "parents-only" shows roots with descendant counts.
+    display?: SubItemsDisplay;
+    // Which rows the view's filters keep relative to the hierarchy (default
+    // "parentsAndSubItems" == today's behavior).
+    filterScope?: SubItemsFilterScope;
+    // Resolved row PATHS (PathPropertyName values) of collapsed parents — keyed
+    // by path (not column id) so a parent-column rename never strands them.
+    collapsed?: string[];
   };
 
   export type Sort = {
