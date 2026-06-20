@@ -305,11 +305,13 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1)", () => {
     expect(name).toBe("");
     expect(dontOpen).toBe(true);
 
-    // Exactly one frontmatter write, to the CHILD, with only the parent link.
+    // Exactly one frontmatter write, to the CHILD, with only the parent link —
+    // PATH-QUALIFIED (Notidian-kg81) so it resolves to THIS parent row instead
+    // of the first same-named file vault-wide; basename kept as the display alias.
     expect(saveFrontmatterProperties).toHaveBeenCalledTimes(1);
     const writeArg = saveFrontmatterProperties.mock.calls[0][0];
     expect(writeArg.path).toBe(CHILD_PATH);
-    expect(writeArg.properties).toEqual({ parent: "[[Parent]]" });
+    expect(writeArg.properties).toEqual({ parent: "[[Some/Space/Parent|Parent]]" });
 
     // One-way guarantee: the parent's file is never a write target.
     for (const call of saveFrontmatterProperties.mock.calls) {

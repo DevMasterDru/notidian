@@ -44,10 +44,18 @@ export const createSubItemRow = async ({
     console.warn("Add sub-item: space not found for", contextPath);
     return null;
   }
-  // Parent's display title = basename of its path (matches the basename-only
-  // wikilink form the relation resolver canonicalizes).
-  const parentTitle =
-    parentPath.replace(/\.md$/, "").split("/").pop() ?? parentPath;
+  // PATH-QUALIFIED parent link (Notidian-kg81). The link must resolve back to
+  // THIS parent ROW, so it carries the parent's full vault path (minus .md), not
+  // just its basename. A bare `[[basename]]` is ambiguous: Obsidian's link index
+  // (getFirstLinkpathDest) resolves it to the FIRST same-named file ANYWHERE in
+  // the vault, so in any vault with basename collisions the child resolved to the
+  // wrong file, never matched its real parent, and the disclosure triangle never
+  // appeared. The display alias keeps the clean basename so the cell still reads
+  // "Parent", not the full path. resolvePath canonicalizes the path-qualified
+  // target to the parent row's path key (file -> ".md", folder/sub-space -> the
+  // folder path), and parseRelationLinks strips the alias before resolving.
+  const parentLinkTarget = parentPath.replace(/\.md$/, "");
+  const parentTitle = parentLinkTarget.split("/").pop() ?? parentLinkTarget;
   // Create the child row (empty title) in the same space, mirroring newRow's
   // newPathInSpace call (dontOpen: true).
   const childPath = await newPathInSpace(superstate, space, "md", "", true);
@@ -59,7 +67,7 @@ export const createSubItemRow = async ({
   await saveFrontmatterProperties({
     superstate,
     path: childPath,
-    properties: { [subItemsField]: `[[${parentTitle}]]` },
+    properties: { [subItemsField]: `[[${parentLinkTarget}|${parentTitle}]]` },
   });
   return childPath;
 };

@@ -15,7 +15,8 @@ import type { Predicate } from "shared/types/predicate";
 //
 // HARD ROUND-TRIP INVARIANT — the created column MUST stay
 //   { type: "link", source: "frontmatter", table: "" }.
-// subItemCreate writes a plain `[[Parent]]` wikilink into the CHILD's
+// subItemCreate writes a path-qualified parent wikilink with a basename display
+// alias (e.g. `[[Folder/Parent|Parent]]`, Notidian-kg81) into the CHILD's
 // frontmatter under the column NAME; buildRowTree reads row[name+table] and
 // resolves it. A "link" col is frontmatter-backed (propertyAuthority -> the
 // "frontmatter" authority) and is NOT matched by linkContextRow's relation

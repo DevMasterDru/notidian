@@ -61,11 +61,14 @@ describe("createSubItemRow (ADR 0050, one-way)", () => {
       "",
       true
     );
-    // exactly one write, to the CHILD, with only the basename parent link
+    // exactly one write, to the CHILD, with a PATH-QUALIFIED parent link
+    // (Notidian-kg81): full parent path (minus .md) as the target so it resolves
+    // back to THIS parent row, with the clean basename as the display alias. A
+    // bare [[Parent]] would resolve to the first same-named file vault-wide.
     expect(saveFrontmatterProperties).toHaveBeenCalledTimes(1);
     const arg = saveFrontmatterProperties.mock.calls[0][0];
     expect(arg.path).toBe(CHILD_PATH);
-    expect(arg.properties).toEqual({ parent: "[[Parent]]" });
+    expect(arg.properties).toEqual({ parent: "[[Folder/Parent|Parent]]" });
     // one-way: the parent path is never a write target
     for (const call of saveFrontmatterProperties.mock.calls) {
       expect(call[0].path).not.toBe(PARENT_PATH);
@@ -87,7 +90,7 @@ describe("createSubItemRow (ADR 0050, one-way)", () => {
     );
   });
 
-  it("derives parentTitle as the basename of a nested path", async () => {
+  it("writes the full nested path as the link target with the basename as alias (Notidian-kg81)", async () => {
     const superstate = makeSuperstate({
       spaceManager: {
         readTable: async () => ({
@@ -102,8 +105,33 @@ describe("createSubItemRow (ADR 0050, one-way)", () => {
       index: 0,
       subItemsField: "parent",
     });
+    // The target carries the FULL path so it resolves unambiguously to this row;
+    // the alias is the clean basename for display.
     expect(saveFrontmatterProperties.mock.calls[0][0].properties).toEqual({
-      parent: "[[Deep Parent]]",
+      parent: "[[A/B/C/Deep Parent|Deep Parent]]",
+    });
+  });
+
+  it("path-qualifies a folder/sub-space parent (no .md) so it still resolves to the row (Notidian-kg81)", async () => {
+    // A folder-row parent (sub-space) has a path with no .md extension. The
+    // link target must keep the full folder path so a vault-wide basename
+    // collision (e.g. another file with the same basename) can't capture it.
+    const superstate = makeSuperstate({
+      spaceManager: {
+        readTable: async () => ({
+          rows: [{ File: "Sandbox/Atlasidian" }],
+        }),
+      },
+    });
+    await createSubItemRow({
+      superstate,
+      contextPath: "Folder",
+      schema: "files",
+      index: 0,
+      subItemsField: "parent",
+    });
+    expect(saveFrontmatterProperties.mock.calls[0][0].properties).toEqual({
+      parent: "[[Sandbox/Atlasidian|Atlasidian]]",
     });
   });
 
