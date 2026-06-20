@@ -45,6 +45,7 @@ import {
   TableEditTransactionResult,
 } from "core/utils/contexts/tableEditTransaction";
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
+import { applyAssemblyLimit } from "core/utils/contexts/tableAssembly";
 import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import {
@@ -807,11 +808,12 @@ export const ContextEditorProvider: React.FC<
     const base = subItemsNodes
       ? subItemsNodes.map((n) => n.row)
       : filteredSortedData;
-    // Apply limit if set (0 means show all)
-    if (predicate?.limit > 0) {
-      return base.slice(0, predicate.limit);
-    }
-    return base;
+    // Apply the predicate.limit over the FULLY-assembled set (0/undefined/NaN/
+    // negative => show all). Extracted to the pure tableAssembly seam
+    // (Notidian-yjg3) so the limit math is locked offline and identical
+    // byte-for-byte to the inline `limit > 0 ? base.slice(0, limit) : base` it
+    // replaced — this is the contract the 8h9 virtualization flag-gate preserves.
+    return applyAssemblyLimit(base, predicate?.limit);
   }, [subItemsNodes, filteredSortedData, predicate?.limit]);
 
   const updateRow = async (row: DBRow, index: number) => {
