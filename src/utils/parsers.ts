@@ -34,7 +34,11 @@ export const parseMultiString = (str: string): string[] => ensureString(str).sta
       case "object-multi": 
       {
         if (Array.isArray(value)) {
-          if (value[0].path) {
+          // Empty-array guard: an emptied relation/object list ([]) must NOT
+          // dereference value[0].path (value[0] === undefined → TypeError on a
+          // hot, often-untry/catch'd serialization path). Fall through to
+          // JSON.stringify([]) === "[]", matching the tags-multi empty case.
+          if (value.length > 0 && value[0]?.path) {
             return JSON.stringify(value.map((v: any) => v.path));
           }
         } else {

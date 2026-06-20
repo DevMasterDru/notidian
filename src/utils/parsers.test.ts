@@ -276,6 +276,18 @@ describe("parseProperty (type coercion)", () => {
     it("an array whose first element has NO .path is JSON-stringified whole", () => {
       expect(parseProperty("o", [{ a: 1 }], "object-multi")).toBe('[{"a":1}]');
     });
+    // Regression (Notidian-94ay): an emptied relation/object list [] used to read
+    // value[0].path (value[0] === undefined) and throw a TypeError on a hot,
+    // often-untry/catch'd serialization path. It must fall through to "[]",
+    // matching the tags-multi empty case above.
+    it("an empty array serializes to '[]' without throwing (object)", () => {
+      expect(() => parseProperty("o", [], "object")).not.toThrow();
+      expect(parseProperty("o", [], "object")).toBe("[]");
+    });
+    it("an empty array serializes to '[]' without throwing (object-multi)", () => {
+      expect(() => parseProperty("o", [], "object-multi")).not.toThrow();
+      expect(parseProperty("o", [], "object-multi")).toBe("[]");
+    });
   });
 
   // --- link / context (single) --------------------------------------------
