@@ -204,7 +204,13 @@ export const updateTableValue = async (
                 : f
             ),
           };
-          if (rank)
+          // Guard on `typeof rank === "number"`, NOT a truthiness `if (rank)`:
+          // rank 0 (drop a grouped row to the TOP of a group / reorder to index 0)
+          // is falsy, so a truthiness check silently drops the requested top
+          // position while still updating the group value. Matches the
+          // no-truthiness-guard contract of reorderRowsForPath/reorderPathsInContext
+          // (Notidian-gfzw; same bug-class as Notidian-oec/Notidian-sck).
+          if (typeof rank === "number")
           newMDB = {
             ...newMDB,
             rows: arrayMove(newMDB.rows, index, rank)
@@ -242,7 +248,10 @@ export const updateContextValue = async (
     {
       const updateFunction = _updateFunction ?? updateValue
       let newMDB = updateFunction(f, PathPropertyName, path, field, value);
-      if (rank)
+      // See updateTableValue: rank 0 (top-of-group / index-0 reorder) is falsy, so
+      // a truthiness `if (rank)` silently drops it. Gate on a real number instead,
+      // matching reorderRowsForPath which already accepts index 0 (Notidian-gfzw).
+      if (typeof rank === "number")
       newMDB = reorderRowsForPath(newMDB, [path], rank);
     if (manager.superstate.settings.enhancedLogs) {
       // Update Context Value
