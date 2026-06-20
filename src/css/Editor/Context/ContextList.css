@@ -109,3 +109,20 @@ flex-direction: column;
   flex: 1;
   min-width: 0;
 }
+/* ADR 0050: inline "+ Add sub-item" affordance in the list view — mirrors the
+   table's .mk-subitem-add (low-emphasis, hover-revealed). */
+.mk-subitem-add {
+  color: var(--text-faint);
+  opacity: 0;
+  flex-shrink: 0;
+  margin-left: 1px;
+  transition: opacity 0.1s ease-in-out;
+}
+.mk-list-subitem-row:hover .mk-subitem-add,
+.mk-list-toggle-row-header:hover .mk-subitem-add,
+.mk-subitem-add:focus-visible {
+  opacity: 1;
+}
+.mk-subitem-add:hover {
+  color: var(--text-normal);
+}

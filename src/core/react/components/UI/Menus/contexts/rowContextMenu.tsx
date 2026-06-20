@@ -1,6 +1,5 @@
 import { deleteRowInTable } from "core/utils/contexts/context";
-import { newPathInSpace } from "core/superstate/utils/spaces";
-import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
+import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React from "react";
@@ -89,48 +88,15 @@ export const showRowContextMenu = async (
     ? {
         name: i18n.menu.addSubItem,
         icon: "ui//plus",
+        // Delegates to the single shared one-way create path (ADR 0050) — the
+        // same helper the inline "+" affordance calls.
         onClick: async () => {
-          const freshContext = await superstate.spaceManager.readTable(
+          await createSubItemRow({
+            superstate,
             contextPath,
-            schema
-          );
-          const freshRows = freshContext?.rows;
-          if (!freshRows || index >= freshRows.length) {
-            console.warn("Add sub-item: Row no longer exists at index", index);
-            return;
-          }
-          const parentPath = String(freshRows[index][PathPropertyName] ?? "");
-          if (!parentPath) {
-            console.warn("Add sub-item: parent row has no path", index);
-            return;
-          }
-          const space = superstate.spacesIndex.get(contextPath);
-          if (!space) {
-            console.warn("Add sub-item: space not found for", contextPath);
-            return;
-          }
-          // Parent's display title = basename of its path (matches the
-          // basename-only wikilink form the relation resolver canonicalizes).
-          const parentTitle =
-            parentPath.replace(/\.md$/, "").split("/").pop() ?? parentPath;
-          // Create the child row (empty title) in the same space, mirroring
-          // newRow's newPathInSpace call (dontOpen: true).
-          const childPath = await newPathInSpace(
-            superstate,
-            space,
-            "md",
-            "",
-            true
-          );
-          if (typeof childPath != "string" || !childPath) {
-            console.warn("Add sub-item: child creation failed in", contextPath);
-            return;
-          }
-          // One-way (ADR 0024 B1): write ONLY the child's parent link.
-          await saveFrontmatterProperties({
-            superstate,
-            path: childPath,
-            properties: { [subItemsField]: `[[${parentTitle}]]` },
+            schema,
+            index,
+            subItemsField,
           });
         },
       }

@@ -1692,3 +1692,20 @@ width: 24px;
   cursor: help;
   flex-shrink: 0;
 }
+/* ADR 0050: inline "+ Add sub-item" affordance — low-emphasis, hover-revealed so
+   it doesn't add visual noise to every row. Keyboard-reachable via focus. */
+.mk-subitem-add {
+  color: var(--text-faint);
+  opacity: 0;
+  flex-shrink: 0;
+  margin-left: 1px;
+  transition: opacity 0.1s ease-in-out;
+}
+.mk-td:hover .mk-subitem-add,
+tr:hover .mk-subitem-add,
+.mk-subitem-add:focus-visible {
+  opacity: 1;
+}
+.mk-subitem-add:hover {
+  color: var(--text-normal);
+}

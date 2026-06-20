@@ -48,6 +48,8 @@ import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
+import { SubItemAddButton } from "core/react/components/UI/Toggles/SubItemAddButton";
+import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { SpaceChart } from "./SpaceChart";
@@ -2643,6 +2645,22 @@ export const TableView = (props: { superstate: Superstate }) => {
                                   ) : (
                                     <span className="mk-subitem-toggle-spacer" />
                                   )}
+                                  {!readMode && subItemsField ? (
+                                    <SubItemAddButton
+                                      superstate={props.superstate}
+                                      onAdd={() => {
+                                        const idx = parseInt(rowOriginalIndex);
+                                        if (Number.isNaN(idx)) return;
+                                        void createSubItemRow({
+                                          superstate: props.superstate,
+                                          contextPath: spaceCache.path,
+                                          schema: dbSchema.id,
+                                          index: idx,
+                                          subItemsField,
+                                        });
+                                      }}
+                                    />
+                                  ) : null}
                                   {subItemNode.surfacedAsRoot ? (
                                     <span
                                       className="mk-sub-item-orphan"
