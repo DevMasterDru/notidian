@@ -59,7 +59,9 @@ npm run build                  # clean
 - **Core render-path changes that can't be verified by tsc/jest/build** (e.g.
   `Notidian-vke` frame sinks, `Notidian-8h9` virtualization) ship **behind a flag**
   with comprehensive unit/jsdom tests: default-**ON** with a kill-switch if the
-  owner requested the feature (their use is the live-verification), default-**OFF**
+  owner requested the feature (their *use* is the verification — but only after
+  you `npm run deploy:vault`, since committed ≠ deployed; see Verification →
+  Deploy & live-verify), default-**OFF**
   + `docs/AUTONOMOUS-REVIEW-QUEUE.md` if not. Never ship an untested core-render
   change that isn't flagged. If a bead truly can't be done safely and can't be
   flagged, leave it open with a `bd` note and move on.
@@ -111,6 +113,33 @@ npx tsc -noEmit -skipLibCheck
 npm run build
 npm run health:audit -- --live
 ```
+
+### Deploy & live-verify (owner-facing render-path changes)
+
+**Committed + gates-green is NOT deployed + reloaded + owner-can-see.** `npm run
+build` writes `main.js`/`styles.css`/`manifest.json` to the **repo root only** —
+it never touches the vault plugin dir, so a feature can pass every gate and still
+be invisible to the owner (the recurring "I don't see it" gap; ADR 0051). For any
+render-path / owner-facing change, shipping is **incomplete** until the build is
+live in the running Obsidian:
+
+```bash
+npm run deploy:vault          # build → install → byte-hash parity → reload → dev:errors
+npm run deploy:vault -- --verify-only   # FAIL if the vault copy != current build (no writes)
+```
+
+The CLI is the binary **`obsidian`** (NOT `obsidian-cli` — that's a *skill* title;
+a single empty `which obsidian-cli` is never proof it's absent; resolve a tool via
+its skill — Atlas Standards). Use it to confirm a render actually appears:
+
+```bash
+obsidian plugin:reload id=notidian      # reload after a manual install
+obsidian dev:dom selector=".mk-subitem-add"   # assert an element renders
+obsidian dev:errors                     # captured plugin errors
+obsidian dev:screenshot path=/tmp/x.png # visual confirmation
+```
+
+Requires Obsidian open. See `docs/adr/0051-deploy-and-live-verify-contract.md`.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
 ## Beads Issue Tracker

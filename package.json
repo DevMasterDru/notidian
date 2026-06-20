@@ -19,6 +19,7 @@
     "demo": "npm run sync-version && node esbuild.config.mjs demo",
     "test": "jest",
     "install:vault": "node scripts/notidianInstallToVault.js",
+    "deploy:vault": "node scripts/notidianDeployToVault.js",
     "audit:legacy-context": "node scripts/notidianLegacyContextAudit.js",
     "migrate:space-store": "node scripts/notidianSpaceStoreMigration.js",
     "health:audit": "node scripts/notidianHealthAudit.js",
