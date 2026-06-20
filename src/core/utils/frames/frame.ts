@@ -45,10 +45,16 @@ export const stateChangedForProps = (
 };
 
 export const parseLinkedPropertyToValue = (property: string) => {
-  if (!property) return null;
+  if (!property || typeof property !== 'string') return null;
   if (property.startsWith("$contexts")) {
-    const { context, prop } = parseContextNode(property);
-    return prop;
+    // parseContextNode returns null for any short/malformed `$contexts`-prefixed
+    // string (the `path.length < 3` guard, the acorn try/catch, the stringIsConst
+    // guard). A bare destructure of that null throws on the render path
+    // (`Cannot destructure property 'context' of null`) — frame property strings
+    // like `$contexts.ctx` reach here. Optional-chain instead, mirroring the
+    // symmetric `linkedNode?.prop` branch below. (bd Notidian-eeoa)
+    const linkedContext = parseContextNode(property);
+    return linkedContext?.prop;
   } else {
     const linkedNode = parseLinkedNode(property);
     return linkedNode?.prop;
@@ -56,15 +62,24 @@ export const parseLinkedPropertyToValue = (property: string) => {
 };
 
 export const parseContextNode = (pathString: string) : LinkedContext => {
-  if (!pathString || stringIsConst(pathString)) return null;
+  // `typeof !== 'string'` makes the guard's intent (reject non-usable input)
+  // robust to a non-string slipping past `!pathString` — stringIsConst returns
+  // false for non-strings, so without this a number/object would hit
+  // `.includes`/`.split` and throw on the render path. (bd Notidian-eeoa)
+  if (!pathString || typeof pathString !== 'string' || stringIsConst(pathString)) return null;
   const path : string[] = [];
   const isMultiLine = pathString.includes('\n');
   if (isMultiLine) {
       // If the code block is multi-line, prepend the last line with `return`.
       const lines = pathString.split('\n').filter(line => line.trim() !== '');
-      lines[lines.length - 1] = `${lines[lines.length - 1].replace("return ", "")}`;
+      // A multi-line string of ONLY blank lines filters to []; `lines[-1]` is
+      // then undefined and `.replace` throws on the render path. Only rewrite
+      // the last line when there is one. (bd Notidian-eeoa)
+      if (lines.length > 0) {
+        lines[lines.length - 1] = `${lines[lines.length - 1].replace("return ", "")}`;
+      }
       pathString = lines.join('\n');
-      
+
   }
   try {
   const ast = acorn.parse(pathString, {ecmaVersion: 2020});
@@ -101,15 +116,21 @@ export const parseContextNode = (pathString: string) : LinkedContext => {
 }
 
 export const parseLinkedNode = (pathString: string) : LinkedNode => {
-  if (!pathString || stringIsConst(pathString)) return null;
+  // See parseContextNode: reject non-strings before `.includes`/`.split` to keep
+  // the render path crash-proof. (bd Notidian-eeoa)
+  if (!pathString || typeof pathString !== 'string' || stringIsConst(pathString)) return null;
   const path : string[] = [];
   const isMultiLine = pathString.includes('\n');
   if (isMultiLine) {
       // If the code block is multi-line, prepend the last line with `return`.
       const lines = pathString.split('\n').filter(line => line.trim() !== '');
-      lines[lines.length - 1] = `${lines[lines.length - 1].replace("return ", "")}`;
+      // Blank-only multi-line input filters to []; guard `lines[-1].replace`.
+      // (bd Notidian-eeoa)
+      if (lines.length > 0) {
+        lines[lines.length - 1] = `${lines[lines.length - 1].replace("return ", "")}`;
+      }
       pathString = lines.join('\n');
-      
+
   }
   try {
   const ast = acorn.parse(pathString, {ecmaVersion: 2020});
