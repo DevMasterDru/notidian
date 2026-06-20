@@ -218,6 +218,66 @@ describe("allowlist is PRESERVED — #fragment and data:image survive (Notidian-
   });
 });
 
+// ===========================================================================
+// SCOPE REGRESSION: data:image/svg+xml STAYS allowed in CSS url() (Notidian-w9qm).
+//
+// Notidian-vvoj blocks data:image/svg+xml in the NAVIGABLE HTML URL attrs
+// (href/xlink:href/src/...) because an SVG navigated-to / resolved-as-document
+// runs its own <script>/onload. The CSS image context is DIFFERENT: a CSS url()
+// (background/fill/mask/cursor/...) loads the SVG as an IMAGE SOURCE, which renders
+// the SVG's pixels WITHOUT executing its script — exactly like a raster <img src>.
+// So neutralizeCssFetches must KEEP data:image/svg+xml (its allowlist is
+// `#fragment` | `data:image/*`, deliberately MIME-agnostic). These tests pin that
+// the svg+xml fix did NOT leak into the CSS neutraliser — proving the block is
+// scoped to navigable HTML attrs only. If a future change extends the svg+xml block
+// into neutralizeCssFetches, these go red (the inline svg image would be wrongly
+// collapsed to url()).
+// ===========================================================================
+describe("data:image/svg+xml STAYS allowed in CSS url() — image context is inert (Notidian-w9qm)", () => {
+  // Every form the navigable-attr block treats as dangerous must, in the CSS image
+  // context, be PRESERVED (collapsed-to-url() would be the failure).
+  const SVG_URLS = [
+    "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+    "data:image/svg+xml;charset=utf-8,<svg></svg>",
+    "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+  ];
+
+  it("keeps a data:image/svg+xml url() across all four CSS sinks", () => {
+    for (const uri of SVG_URLS) {
+      for (const [, sink] of ALL_SINKS) {
+        const r = sink(`background:url(${uri})`);
+        // The svg data-URI image survives — NOT collapsed to the empty url().
+        expect(r).toContain("data:image/svg");
+        expect(r).not.toMatch(/url\(\s*\)/);
+      }
+    }
+  });
+
+  it("keeps an svg+xml url() across image properties (fill/mask/cursor/content)", () => {
+    const uri = "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=";
+    const props = ["fill", "mask", "mask-image", "cursor", "content", "border-image"];
+    for (const prop of props) {
+      for (const [, sink] of ALL_SINKS) {
+        const r = sink(`${prop}:url(${uri})`);
+        expect(r).toContain("data:image/svg");
+      }
+    }
+  });
+
+  it("keeps the svg+xml image while neutralising a remote sibling in the SAME decl", () => {
+    // Proves the keep is selective (the allowlist), not a blanket pass: the remote
+    // url() is still collapsed, the inline svg image is still kept.
+    for (const [, sink] of ALL_SINKS) {
+      const r = sink(
+        "background:url(http://evil.example/a.png),url(data:image/svg+xml;base64,PHN2Zz4=)"
+      );
+      expect(r).not.toContain("evil.example");
+      expect(r).toContain("data:image/svg");
+      expect(r.match(/url\(\)/g)?.length).toBe(1); // only the remote one collapsed
+    }
+  });
+});
+
 describe("quoting and whitespace variants are handled (Notidian-hef)", () => {
   it("neutralises single-quoted, double-quoted, and unquoted remote url()", () => {
     for (const [, sink] of ALL_SINKS) {

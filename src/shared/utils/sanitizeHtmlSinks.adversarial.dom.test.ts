@@ -68,9 +68,39 @@ const HTML_URL_ATTRS = [
   "data",
 ];
 
+// The corrected dangerous-scheme contract, encoded ONCE and shared by every probe
+// in this suite (Notidian-w9qm). It is a faithful mirror of sanitize.ts's
+// hasDangerousUrlScheme: normalise exactly as the WHATWG URL parser does before it
+// reads the scheme (strip ALL whitespace + the C0 control range, lower-case) and
+// then classify. The load-bearing CORRECTION over the OLD allowlist this helper
+// used to carry: a navigated-to / resolved-as-document `data:image/svg+xml` is
+// ACTIVE content (it runs its own <script>/onload), so it is DANGEROUS in an
+// HTML_URL_ATTR even though it shares the `data:image/` prefix — while inert raster
+// `data:image/{png,jpeg,gif,webp,bmp}` stays safe. Entities are already decoded by
+// the HTML parser by the time an attribute value is read here, so this sees the
+// same literal text the real sink's predicate sees.
+const normalizeUrlForScheme = (value: string): string =>
+  // eslint-disable-next-line no-control-regex
+  value.replace(/[\s\x00-\x1f]+/g, "").toLowerCase();
+
+const isDangerousScheme = (rawAttrValue: string): boolean => {
+  const v = normalizeUrlForScheme(rawAttrValue);
+  if (v.startsWith("javascript:") || v.startsWith("vbscript:")) return true;
+  if (v.startsWith("data:")) {
+    // Any non-image data: payload (data:text/html, data:application/...) is
+    // dangerous; among data:image/* only scriptable svg+xml is — raster is inert.
+    if (!v.startsWith("data:image/")) return true;
+    if (v.startsWith("data:image/svg+xml")) return true;
+  }
+  return false;
+};
+
 // Re-parse the sanitised output the way the real sink does (assign to a live
 // element's innerHTML) and report every residual executable/fetch surface. This is
 // the load-bearing check: it catches mXSS resurrection that a string scan misses.
+// It now classifies URL attributes through isDangerousScheme above, so a resurrected
+// data:image/svg+xml in a navigable attr is caught here too (it no longer rides the
+// `data:image/` prefix past the probe — Notidian-w9qm).
 type Surface = {
   dangerousTags: string[];
   onHandlers: string[];
@@ -90,12 +120,9 @@ const probeLiveSurface = (output: string): Surface => {
     Array.from(el.attributes).forEach((attr) => {
       const name = attr.name.toLowerCase();
       if (name.startsWith("on")) onHandlers.push(name);
-      const v = attr.value.replace(/[\s\x00-\x1f]+/g, "").toLowerCase();
-      const isDangerScheme =
-        v.startsWith("javascript:") ||
-        v.startsWith("vbscript:") ||
-        (v.startsWith("data:") && !v.startsWith("data:image/"));
-      if (urlSet.has(name) && isDangerScheme) dangerousUrls.push(`${name}=${v}`);
+      if (urlSet.has(name) && isDangerousScheme(attr.value)) {
+        dangerousUrls.push(`${name}=${normalizeUrlForScheme(attr.value)}`);
+      }
     });
   });
   return { dangerousTags, onHandlers, dangerousUrls };
@@ -343,19 +370,25 @@ describe("sanitize HTML sinks — jsdom adversarial depth (Notidian-y3h)", () =>
     });
 
     // ---------------------------------------------------------------------
-    // Scriptable data:image/svg+xml in NAVIGABLE attrs (Notidian-vvoj).
-    // An SVG document executes its OWN <script>/onload when navigated to (an
-    // <a href> click) or resolved as a document (a <use xlink:href> resolve),
-    // unlike an inert raster image. So data:image/svg+xml — though it carries the
-    // `data:image/` prefix the old allowlist treated as safe — is a working XSS
-    // at click time and MUST be dropped in these HTML_URL_ATTRS, while raster
-    // data:image/{png,jpeg,gif,webp,bmp} stays allowed (legit inline images).
+    // Scriptable data:image/svg+xml in NAVIGABLE attrs (Notidian-vvoj contract,
+    // adversarially locked by Notidian-w9qm).
     //
-    // These assertions do NOT use probeLiveSurface (its scheme mirror still
-    // encodes the OLD allowlist that treats all data:image/ as safe — the
-    // Notidian-w9qm follow-up corrects that helper). Instead they re-parse the
-    // OUTPUT into a live element and read each URL attribute back, so an mXSS
-    // resurrection of the attribute is still caught.
+    // An SVG document is ACTIVE content: navigated to (an <a href> click) or
+    // resolved as a document (a <use xlink:href> resolve) it executes its OWN
+    // <script>/onload, unlike an inert raster image. So data:image/svg+xml — though
+    // it carries the `data:image/` prefix the OLD allowlist treated as safe — is a
+    // working XSS at click time and MUST be dropped across EVERY HTML_URL_ATTR,
+    // while raster data:image/{png,jpeg,gif,webp,bmp} stays allowed (legit inline
+    // images). The fix is scoped to navigable HTML attrs only: the CSS image context
+    // (neutralizeCssFetches url()) deliberately keeps svg+xml allowed and is pinned
+    // by neutralizeCssFetches.dom.test.ts so this scoping can never silently drift.
+    //
+    // The load-bearing check is probeLiveSurface above — its scheme classifier now
+    // encodes THIS corrected contract (data:image/svg+xml is dangerous; raster is
+    // not), so a residual / mXSS-resurrected svg+xml in a navigable attr is caught by
+    // the same authoritative live re-parse every other dangerous-scheme case uses. A
+    // second, attribute-specific read-back (svgAttrUrls) and a string scan are kept
+    // as belt-and-braces so a failure names the exact surviving attribute too.
     const svgAttrUrls = (output: string, attr: string): string[] => {
       const live = document.createElement("div");
       live.innerHTML = output;
@@ -364,54 +397,124 @@ describe("sanitize HTML sinks — jsdom adversarial depth (Notidian-y3h)", () =>
         // getAttribute, lower-cased + control/space-stripped, mirrors the
         // sanitiser's own normalisation so a split/obfuscated survivor is seen.
         const v = el.getAttribute(attr);
-        if (v != null) found.push(v.replace(/[\s\x00-\x1f]+/g, "").toLowerCase());
+        if (v != null) found.push(normalizeUrlForScheme(v));
       });
       return found;
     };
 
+    // Each primitive, after the HTML parser decodes entities and the sink strips
+    // whitespace/C0 controls + lower-cases, normalises to a LITERAL `data:image/
+    // svg+xml` MIME — i.e. a browser recognises it as an SVG and would run its
+    // script when the attribute is navigated/resolved. So every one MUST be blocked.
+    // (Percent-escapes are NOT decoded by the scheme predicate, by design: the
+    // WHATWG/data-URL parser does not percent-decode the MIME, so `data:image/%73vg`
+    // is an UNRECOGNISED MIME = inert and is intentionally NOT in this scriptable
+    // set — see the "inert non-svg MIME" case below. Percent-encoding the BODY is
+    // fine to include here because the MIME stays the literal svg+xml.)
+    const C0 = String.fromCharCode(1);
     const SVG_DATA_URI_OBFUSCATIONS: Array<(body: string) => string> = [
       (b) => `data:image/svg+xml,${b}`, // plain, URL-encoded body
-      (b) => `data:image/svg+xml;base64,${b}`, // base64 variant
-      (b) => `data:image/svg+xml;charset=utf-8,${b}`, // charset param
-      (b) => `DATA:IMAGE/SVG+XML,${b}`, // upper-case scheme/MIME
+      (b) => `data:image/svg+xml;base64,${b}`, // ;base64 media-type param
+      (b) => `data:image/svg+xml;charset=utf-8,${b}`, // ;charset media-type param
+      (b) => `DATA:IMAGE/SVG+XML,${b}`, // upper-case scheme + MIME
       (b) => `data:image/SVG+xml,${b}`, // mixed-case subtype
+      (b) => `dAtA:ImAgE/sVg+XmL,${b}`, // fully alternating case
       (b) => `\tdata:image/svg+xml,${b}`, // leading tab (stripped by normaliser)
-      (b) => `${String.fromCharCode(1)}data:image/svg+xml,${b}`, // leading C0 control
+      (b) => `${C0}data:image/svg+xml,${b}`, // leading C0 control (the b81 class)
+      (b) => `${C0}\t\ndata:image/svg+xml,${b}`, // mixed leading C0 + whitespace
       (b) => `data:image/svg+xml ,${b}`, // trailing space before comma
+      (b) => `data:image/s\tvg+xml,${b}`, // tab split INSIDE the subtype
+      (b) => `data:image/svg+x\nml,${b}`, // newline split inside the subtype
+      (b) => `da${C0}ta:image/svg+xml,${b}`, // C0 split inside the `data` scheme
+      (b) => `data:image/svg${C0}+xml,${b}`, // C0 split around the `+`
+      (b) => `data:image/svg+xml,${encodeURIComponent(b)}`, // percent-encoded BODY, literal svg MIME
+      // Entity-encoded chars WITHIN the literal `svg+xml` text — the HTML parser
+      // decodes &#115; -> 's', &#x73; -> 's', &#43; -> '+' BEFORE the attribute is
+      // read, so the sink still sees a literal svg+xml MIME.
+      (b) => `data:image/&#115;vg+xml,${b}`, // decimal-entity 's'
+      (b) => `data:image/&#x73;vg+xml,${b}`, // hex-entity 's'
+      (b) => `data:image/svg&#43;xml,${b}`, // entity '+'
+      (b) => `data:image/svg+&#120;ml,${b}`, // entity 'x'
     ];
 
-    const SVG_BODY = "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'><script>alert(2)</script></svg>";
+    // Two distinct scriptable payload BODIES: onload= (runs on document load) and
+    // an inline <script> (runs when the SVG is the navigated document). Both make
+    // the data-URI a working XSS, so the contract must hold for each.
+    const SVG_PAYLOAD_BODIES: Array<[string, string]> = [
+      [
+        "svg onload",
+        "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'></svg>",
+      ],
+      [
+        "svg script",
+        "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(2)</script></svg>",
+      ],
+    ];
+    // Back-compat default body used by the cross-attr / <use> assertions below.
+    const SVG_BODY = SVG_PAYLOAD_BODIES[0][1];
 
-    // Only attrs that NAVIGATE / RESOLVE-AS-DOCUMENT carry the SVG-execution risk.
-    // href/xlink:href (link click, <use> resolve) are the canonical ones; we assert
-    // the contract across every HTML_URL_ATTR so no sink/attribute diverges.
+    const assertSvgBlocked = (out: string, attr: string): void => {
+      // (1) Authoritative: the live re-parse exposes NO dangerous-scheme URL attr.
+      //     probeLiveSurface now classifies data:image/svg+xml as dangerous, so a
+      //     resurrection in ANY navigable attr is caught here.
+      expect(probeLiveSurface(out).dangerousUrls).toEqual([]);
+      // (2) Attribute-specific read-back: nothing normalises to data:image/svg in
+      //     this particular attr (names the exact survivor on failure).
+      for (const got of svgAttrUrls(out, attr)) {
+        expect(got).not.toContain("data:image/svg");
+      }
+      // (3) Belt-and-braces string scan over the serialised output.
+      expect(out.toLowerCase()).not.toContain("data:image/svg");
+    };
+
+    // The contract across every HTML_URL_ATTR x both sinks x both payload bodies x
+    // every obfuscation primitive — no sink/attribute/body may diverge.
     for (const attr of HTML_URL_ATTRS) {
-      it(`blocks scriptable data:image/svg+xml in ${attr} under every obfuscation`, () => {
-        for (const make of SVG_DATA_URI_OBFUSCATIONS) {
-          const value = make(SVG_BODY).replace(/'/g, "&#39;");
-          const html = `<svg><a ${attr}="${value}">x</a></svg>`;
-          for (const { fn } of SINKS) {
-            const out = fn(html);
-            // The attribute carrying the svg+xml data-URI must be gone after a live
-            // re-parse — no residual data:image/svg+xml survives in this attr.
-            for (const got of svgAttrUrls(out, attr)) {
-              expect(got).not.toContain("data:image/svg");
+      it(`blocks scriptable data:image/svg+xml in ${attr} under every obfuscation + body`, () => {
+        for (const [, body] of SVG_PAYLOAD_BODIES) {
+          for (const make of SVG_DATA_URI_OBFUSCATIONS) {
+            const value = make(body).replace(/'/g, "&#39;");
+            const html = `<svg><a ${attr}="${value}">x</a></svg>`;
+            for (const { fn } of SINKS) {
+              assertSvgBlocked(fn(html), attr);
             }
-            // Belt-and-braces string scan: the scriptable data-URI is absent.
-            expect(out.toLowerCase()).not.toContain("data:image/svg");
           }
         }
       });
     }
 
+    // Property-style fuzz: interleave the obfuscation primitives and payload bodies
+    // with the attribute set and both sinks, in a reproducible seeded order, so a
+    // combination not enumerated by the exhaustive loop above is still exercised.
+    it("PROPERTY: every obfuscation x body x attr x sink combination is blocked", () => {
+      const rng = makeRng(0x5111_d00d);
+      for (let i = 0; i < 600; i++) {
+        const attr = HTML_URL_ATTRS[Math.floor(rng() * HTML_URL_ATTRS.length)];
+        const make =
+          SVG_DATA_URI_OBFUSCATIONS[
+            Math.floor(rng() * SVG_DATA_URI_OBFUSCATIONS.length)
+          ];
+        const [, body] =
+          SVG_PAYLOAD_BODIES[Math.floor(rng() * SVG_PAYLOAD_BODIES.length)];
+        const { fn } = SINKS[Math.floor(rng() * SINKS.length)];
+        const value = make(body).replace(/'/g, "&#39;");
+        // Vary the host element so the attribute is carried through unchanged.
+        const host = rng() < 0.5 ? "a" : "image";
+        const out = fn(`<svg><${host} ${attr}="${value}">x</${host}></svg>`);
+        assertSvgBlocked(out, attr);
+      }
+    });
+
     it("KEEPS inert raster data:image/{png,jpeg,gif,webp,bmp} in navigable attrs", () => {
       // Raster images are inert in every context, so the fix must NOT over-block
-      // them — a regression that nukes all data:image/ would fail here.
+      // them — a regression that nukes all data:image/ would fail here. Asserted via
+      // probeLiveSurface (no dangerous URL) AND the read-back (the raster URI is
+      // PRESERVED), so an over-block that silently drops the attr also fails.
       const raster = [
         "data:image/png;base64,iVBORw0KGgo=",
         "data:image/jpeg;base64,/9j/4AAQ=",
         "data:image/gif;base64,R0lGODlh",
-        "data:image/webp;base64,UklGRhоAAAB",
+        "data:image/webp;base64,UklGRhAAAAB",
         "data:image/bmp;base64,Qk0=",
       ];
       for (const uri of raster) {
@@ -421,22 +524,39 @@ describe("sanitize HTML sinks — jsdom adversarial depth (Notidian-y3h)", () =>
           // an inline raster image is a legit, inert target).
           const outSrc = fn(`<img src="${uri}">`).toLowerCase();
           expect(outSrc).toContain(`data:image/${subtype}`);
+          expect(probeLiveSurface(outSrc).dangerousUrls).toEqual([]);
           const outHref = fn(`<a href="${uri}">x</a>`).toLowerCase();
           expect(outHref).toContain(`data:image/${subtype}`);
+          expect(probeLiveSurface(outHref).dangerousUrls).toEqual([]);
         }
       }
     });
 
-    it("blocks svg+xml in <use xlink:href> (the resolve-as-document vector)", () => {
+    it("an inert non-svg data:image MIME (percent-encoded subtype) is NOT a scriptable-svg block target", () => {
+      // `data:image/%73vg+xml` is NOT decoded to svg by the scheme predicate (the
+      // data-URL parser does not percent-decode the MIME), so the browser sees an
+      // UNRECOGNISED image MIME = inert, never an executing SVG. It is therefore
+      // correctly OUTSIDE the svg+xml block — and, carrying the data:image/ prefix,
+      // is a plain raster-class data:image, kept. Pin this so a future "decode
+      // everything" overreach (which would wrongly start blocking it) is caught.
+      const uri = `data:image/%73vg+xml,${encodeURIComponent(SVG_BODY)}`;
+      for (const { fn } of SINKS) {
+        const out = fn(`<a href="${uri}">x</a>`);
+        // It survives (kept) — it is an inert non-svg image MIME, not a navigable
+        // scriptable SVG — and exposes no dangerous-scheme surface.
+        expect(out.toLowerCase()).toContain("data:image/%73vg");
+        expect(probeLiveSurface(out).dangerousUrls).toEqual([]);
+      }
+    });
+
+    it("blocks svg+xml in <use xlink:href> for BOTH payload bodies (resolve-as-document vector)", () => {
       // <use xlink:href="data:image/svg+xml,..."> resolves the referenced SVG as a
       // document, running its <script>/onload — the second navigable vector besides
-      // an <a href> click. The xlink:href must be dropped.
-      const value = `data:image/svg+xml,${SVG_BODY}`.replace(/'/g, "&#39;");
-      for (const { fn } of SINKS) {
-        const out = fn(`<svg><use xlink:href="${value}"/></svg>`).toLowerCase();
-        expect(out).not.toContain("data:image/svg");
-        for (const got of svgAttrUrls(out, "xlink:href")) {
-          expect(got).not.toContain("data:image/svg");
+      // an <a href> click. The xlink:href must be dropped for either payload.
+      for (const [, body] of SVG_PAYLOAD_BODIES) {
+        const value = `data:image/svg+xml,${body}`.replace(/'/g, "&#39;");
+        for (const { fn } of SINKS) {
+          assertSvgBlocked(fn(`<svg><use xlink:href="${value}"/></svg>`), "xlink:href");
         }
       }
     });
@@ -858,13 +978,13 @@ describe("sanitize HTML sinks — jsdom adversarial depth (Notidian-y3h)", () =>
           Array.from(el.attributes).forEach((attr) => {
             const name = attr.name.toLowerCase();
             if (name.startsWith("on")) onHandlers.push(name);
-            const v = attr.value.replace(/[\s -]+/g, "").toLowerCase();
-            const isDangerScheme =
-              v.startsWith("javascript:") ||
-              v.startsWith("vbscript:") ||
-              (v.startsWith("data:") && !v.startsWith("data:image/"));
-            if (urlSet.has(name) && isDangerScheme) {
-              dangerousUrls.push(`${name}=${v}`);
+            // Shared corrected classifier (Notidian-w9qm): also catches a
+            // data:image/svg+xml smuggled into a navigable attr at template depth,
+            // and uses the proper C0-control normalisation (the inline regex here
+            // used to be /[\s -]+/g — whitespace+space+literal-hyphen — which did
+            // NOT strip the C0 control range a real bypass can hide a scheme behind).
+            if (urlSet.has(name) && isDangerousScheme(attr.value)) {
+              dangerousUrls.push(`${name}=${normalizeUrlForScheme(attr.value)}`);
             }
           });
           if (tag == "template") {
@@ -921,6 +1041,10 @@ describe("sanitize HTML sinks — jsdom adversarial depth (Notidian-y3h)", () =>
       [
         "vbscript: URL",
         '<template><a href="vbscript:msgbox(1)">z</a></template>',
+      ],
+      [
+        "data:image/svg+xml URL (scriptable, Notidian-w9qm)",
+        "<template><a href=\"data:image/svg+xml,&lt;svg onload=alert(1)&gt;\">z</a></template>",
       ],
       [
         "data:text/html URL",
