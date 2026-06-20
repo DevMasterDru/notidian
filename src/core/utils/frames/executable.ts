@@ -173,7 +173,7 @@ function sortKeysByDependencies(
         if (!visited.has(key)) {
             temp.add(key);
             const edges = graph.get(key) || new Set();
-            
+
             for (const dep of edges) {
                 visit(dep);
             }
@@ -183,9 +183,34 @@ function sortKeysByDependencies(
         }
     };
 
-    for (const key in codeBlockStore) {
-        if (!visited.has(key)) {
-            visit(key);
+    // bd Notidian-ylqv: a true prop<->prop (or style<->style) cycle in a
+    // malformed user/imported frame must NOT crash the always-on render path.
+    // buildExecutable is reached (via the list-template expansion in
+    // runner.ts) from executeTreeNode(...).then(setInstance) with no .catch in
+    // FrameInstanceContext — an escaping 'Circular dependency detected' would
+    // become an unhandled rejection and the frame would silently stop
+    // rendering. There is no valid topological order for a cyclic graph, so the
+    // only sane fail-safe is to degrade to insertion order (every key still
+    // present, deps unchanged) and warn, rather than throw.
+    try {
+        for (const key in codeBlockStore) {
+            if (!visited.has(key)) {
+                visit(key);
+            }
+        }
+    } catch (e) {
+        console.warn(
+            `Circular dependency detected in ${identifier}; falling back to insertion order`,
+            e
+        );
+        // Degrade deterministically: emit every key in declaration order, once.
+        result.length = 0;
+        const seen = new Set<string>();
+        for (const key in codeBlockStore) {
+            if (!seen.has(key)) {
+                seen.add(key);
+                result.push(key);
+            }
         }
     }
     return { sortedKeys: result, dependencies: allDependencies };
