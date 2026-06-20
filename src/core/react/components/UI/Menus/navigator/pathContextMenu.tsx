@@ -207,8 +207,9 @@ export const showPathContextMenu = (
   const cache = superstate.pathsIndex.get(path);
    
   if (cache.type == 'space') {
-    
-    showSpaceContextMenu(superstate, cache, rect, win, space, onClose)
+    // A row that is itself a folder/sub-space short-circuits here; forward the
+    // injected "Add sub-item" (Notidian-kg81) so it isn't dropped for such rows.
+    showSpaceContextMenu(superstate, cache, rect, win, space, onClose, extraOptions)
     return
   }
   if (!cache) return;

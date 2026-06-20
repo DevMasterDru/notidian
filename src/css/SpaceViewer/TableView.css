@@ -1666,10 +1666,24 @@ width: 24px;
 
 /* Sub-items (Notidian-pv4): indent + expand/collapse affordance in the first
    column. Inert unless the view configures a sub-items parent property. */
+/* Notidian-kg81 follow-up: the first cell of a sub-item row is a horizontal flex
+   row so the collapse toggle sits INLINE, immediately left of the title and
+   vertically centered (Notion-style), instead of stacking above it (the title
+   cell is block-flex). The depth indent (inline paddingLeft) shifts the whole
+   row, so nested titles indent. min-width:0 lets the title clip/ellipsis. */
+.mk-subitem-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.mk-subitem-cell > .mk-cell-file-item {
+  min-width: 0;
+  flex: 1;
+}
 .mk-subitem-affordance {
   display: inline-flex;
   align-items: center;
-  vertical-align: middle;
+  flex-shrink: 0;
 }
 .mk-subitem-affordance .mk-collapse {
   margin-right: 2px;
@@ -1691,21 +1705,4 @@ width: 24px;
   color: var(--text-faint);
   cursor: help;
   flex-shrink: 0;
-}
-/* ADR 0050: inline "+ Add sub-item" affordance — low-emphasis, hover-revealed so
-   it doesn't add visual noise to every row. Keyboard-reachable via focus. */
-.mk-subitem-add {
-  color: var(--text-faint);
-  opacity: 0;
-  flex-shrink: 0;
-  margin-left: 1px;
-  transition: opacity 0.1s ease-in-out;
-}
-.mk-td:hover .mk-subitem-add,
-tr:hover .mk-subitem-add,
-.mk-subitem-add:focus-visible {
-  opacity: 1;
-}
-.mk-subitem-add:hover {
-  color: var(--text-normal);
 }

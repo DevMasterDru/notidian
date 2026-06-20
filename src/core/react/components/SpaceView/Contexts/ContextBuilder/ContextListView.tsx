@@ -8,8 +8,6 @@ import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { NoteView } from "core/react/components/PathView/NoteView";
 import { CollapseToggle } from "core/react/components/UI/Toggles/CollapseToggle";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
-import { SubItemAddButton } from "core/react/components/UI/Toggles/SubItemAddButton";
-import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { FrameInstanceContext } from "core/react/context/FrameInstanceContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
@@ -460,22 +458,9 @@ export const ContextListView = (props: {
                           ) : (
                             <span className="mk-subitem-toggle-spacer" />
                           )}
-                          {!readMode && subItemsField ? (
-                            <SubItemAddButton
-                              superstate={props.superstate}
-                              onAdd={() => {
-                                const idx = parseInt(String(f["_index"]));
-                                if (Number.isNaN(idx)) return;
-                                void createSubItemRow({
-                                  superstate: props.superstate,
-                                  contextPath: source,
-                                  schema: dbSchema.id,
-                                  index: idx,
-                                  subItemsField,
-                                });
-                              }}
-                            />
-                          ) : null}
+                          {/* Adding a sub-item lives in the row's right-click
+                              menu (showRowContextMenu "Add sub-item"), not an
+                              inline button (owner UX choice). */}
                           {subItemNode.surfacedAsRoot ? (
                             <span
                               className="mk-sub-item-orphan"

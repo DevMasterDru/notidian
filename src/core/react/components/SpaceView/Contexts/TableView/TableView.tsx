@@ -48,8 +48,6 @@ import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
-import { SubItemAddButton } from "core/react/components/UI/Toggles/SubItemAddButton";
-import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { SpaceChart } from "./SpaceChart";
@@ -2620,8 +2618,17 @@ export const TableView = (props: { superstate: Superstate }) => {
                           {cell.getIsPlaceholder() ? null : (
                             <>
                               {i === 0 && subItemNode ? (
-                                <span
-                                  className="mk-subitem-affordance"
+                                // Sub-item first cell: lay the collapse toggle out
+                                // INLINE, immediately left of the title and
+                                // vertically centered (Notion-style), with the
+                                // title indented by depth. The flex row is what
+                                // keeps the affordance beside the title instead of
+                                // stacking above it (the title cell is block-flex).
+                                // Adding a sub-item lives in the row's right-click
+                                // menu (showRowContextMenu "Add sub-item"), not an
+                                // inline button.
+                                <div
+                                  className="mk-subitem-cell"
                                   style={{
                                     // ADR 0024 C2: clamp indent at depth 12 so a
                                     // deep (or cyclic) chain never pushes the
@@ -2630,50 +2637,43 @@ export const TableView = (props: { superstate: Superstate }) => {
                                       Math.min(subItemNode.depth, 12) * 16
                                     }px`,
                                   }}
-                                  onMouseDown={(e) => e.stopPropagation()}
                                 >
-                                  {subItemNode.hasChildren ? (
-                                    <CollapseToggleSmall
-                                      superstate={props.superstate}
-                                      collapsed={subItemCollapsed}
-                                      onToggle={(_, e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        toggleSubItemCollapse(rowPath);
-                                      }}
-                                    />
-                                  ) : (
-                                    <span className="mk-subitem-toggle-spacer" />
+                                  <span
+                                    className="mk-subitem-affordance"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                  >
+                                    {subItemNode.hasChildren ? (
+                                      <CollapseToggleSmall
+                                        superstate={props.superstate}
+                                        collapsed={subItemCollapsed}
+                                        onToggle={(_, e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          toggleSubItemCollapse(rowPath);
+                                        }}
+                                      />
+                                    ) : (
+                                      <span className="mk-subitem-toggle-spacer" />
+                                    )}
+                                    {subItemNode.surfacedAsRoot ? (
+                                      <span
+                                        className="mk-sub-item-orphan"
+                                        title="Parent not in this view — shown as top-level (ADR 0024 C2)"
+                                      >
+                                        ↥
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                  {flexRender(
+                                    cell.column.columnDef.cell,
+                                    cell.getContext()
                                   )}
-                                  {!readMode && subItemsField ? (
-                                    <SubItemAddButton
-                                      superstate={props.superstate}
-                                      onAdd={() => {
-                                        const idx = parseInt(rowOriginalIndex);
-                                        if (Number.isNaN(idx)) return;
-                                        void createSubItemRow({
-                                          superstate: props.superstate,
-                                          contextPath: spaceCache.path,
-                                          schema: dbSchema.id,
-                                          index: idx,
-                                          subItemsField,
-                                        });
-                                      }}
-                                    />
-                                  ) : null}
-                                  {subItemNode.surfacedAsRoot ? (
-                                    <span
-                                      className="mk-sub-item-orphan"
-                                      title="Parent not in this view — shown as top-level (ADR 0024 C2)"
-                                    >
-                                      ↥
-                                    </span>
-                                  ) : null}
-                                </span>
-                              ) : null}
-                              {flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext()
+                                </div>
+                              ) : (
+                                flexRender(
+                                  cell.column.columnDef.cell,
+                                  cell.getContext()
+                                )
                               )}
                               {feedback?.action == "frontmatter-conflict" &&
                               feedback.write ? (

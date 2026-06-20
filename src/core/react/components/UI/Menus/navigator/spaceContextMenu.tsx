@@ -35,7 +35,10 @@ export const showSpaceContextMenu = (
   win: Window,
   parentSpace?: string,
   onClose?: () => void,
-  
+  // Caller-supplied options prepended to the space menu (Notidian-kg81): the row
+  // context menu injects "Add sub-item" here so a row that is itself a
+  // folder/sub-space still offers it (its rows short-circuit to this menu).
+  extraOptions?: SelectOption[]
 ) => {
   const space = superstate.spacesIndex.get(path.path);
   if (!space) return;
@@ -48,6 +51,10 @@ export const showSpaceContextMenu = (
     },
   });
   menuOptions.push(menuSeparator);
+  if (extraOptions && extraOptions.length > 0) {
+    menuOptions.push(...extraOptions);
+    menuOptions.push(menuSeparator);
+  }
 
   menuOptions.push({
     name: i18n.menu.new,
