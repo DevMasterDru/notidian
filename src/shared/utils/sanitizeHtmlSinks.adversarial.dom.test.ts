@@ -342,6 +342,105 @@ describe("sanitize HTML sinks — jsdom adversarial depth (Notidian-y3h)", () =>
       }
     });
 
+    // ---------------------------------------------------------------------
+    // Scriptable data:image/svg+xml in NAVIGABLE attrs (Notidian-vvoj).
+    // An SVG document executes its OWN <script>/onload when navigated to (an
+    // <a href> click) or resolved as a document (a <use xlink:href> resolve),
+    // unlike an inert raster image. So data:image/svg+xml — though it carries the
+    // `data:image/` prefix the old allowlist treated as safe — is a working XSS
+    // at click time and MUST be dropped in these HTML_URL_ATTRS, while raster
+    // data:image/{png,jpeg,gif,webp,bmp} stays allowed (legit inline images).
+    //
+    // These assertions do NOT use probeLiveSurface (its scheme mirror still
+    // encodes the OLD allowlist that treats all data:image/ as safe — the
+    // Notidian-w9qm follow-up corrects that helper). Instead they re-parse the
+    // OUTPUT into a live element and read each URL attribute back, so an mXSS
+    // resurrection of the attribute is still caught.
+    const svgAttrUrls = (output: string, attr: string): string[] => {
+      const live = document.createElement("div");
+      live.innerHTML = output;
+      const found: string[] = [];
+      live.querySelectorAll("*").forEach((el) => {
+        // getAttribute, lower-cased + control/space-stripped, mirrors the
+        // sanitiser's own normalisation so a split/obfuscated survivor is seen.
+        const v = el.getAttribute(attr);
+        if (v != null) found.push(v.replace(/[\s\x00-\x1f]+/g, "").toLowerCase());
+      });
+      return found;
+    };
+
+    const SVG_DATA_URI_OBFUSCATIONS: Array<(body: string) => string> = [
+      (b) => `data:image/svg+xml,${b}`, // plain, URL-encoded body
+      (b) => `data:image/svg+xml;base64,${b}`, // base64 variant
+      (b) => `data:image/svg+xml;charset=utf-8,${b}`, // charset param
+      (b) => `DATA:IMAGE/SVG+XML,${b}`, // upper-case scheme/MIME
+      (b) => `data:image/SVG+xml,${b}`, // mixed-case subtype
+      (b) => `\tdata:image/svg+xml,${b}`, // leading tab (stripped by normaliser)
+      (b) => `${String.fromCharCode(1)}data:image/svg+xml,${b}`, // leading C0 control
+      (b) => `data:image/svg+xml ,${b}`, // trailing space before comma
+    ];
+
+    const SVG_BODY = "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'><script>alert(2)</script></svg>";
+
+    // Only attrs that NAVIGATE / RESOLVE-AS-DOCUMENT carry the SVG-execution risk.
+    // href/xlink:href (link click, <use> resolve) are the canonical ones; we assert
+    // the contract across every HTML_URL_ATTR so no sink/attribute diverges.
+    for (const attr of HTML_URL_ATTRS) {
+      it(`blocks scriptable data:image/svg+xml in ${attr} under every obfuscation`, () => {
+        for (const make of SVG_DATA_URI_OBFUSCATIONS) {
+          const value = make(SVG_BODY).replace(/'/g, "&#39;");
+          const html = `<svg><a ${attr}="${value}">x</a></svg>`;
+          for (const { fn } of SINKS) {
+            const out = fn(html);
+            // The attribute carrying the svg+xml data-URI must be gone after a live
+            // re-parse — no residual data:image/svg+xml survives in this attr.
+            for (const got of svgAttrUrls(out, attr)) {
+              expect(got).not.toContain("data:image/svg");
+            }
+            // Belt-and-braces string scan: the scriptable data-URI is absent.
+            expect(out.toLowerCase()).not.toContain("data:image/svg");
+          }
+        }
+      });
+    }
+
+    it("KEEPS inert raster data:image/{png,jpeg,gif,webp,bmp} in navigable attrs", () => {
+      // Raster images are inert in every context, so the fix must NOT over-block
+      // them — a regression that nukes all data:image/ would fail here.
+      const raster = [
+        "data:image/png;base64,iVBORw0KGgo=",
+        "data:image/jpeg;base64,/9j/4AAQ=",
+        "data:image/gif;base64,R0lGODlh",
+        "data:image/webp;base64,UklGRhоAAAB",
+        "data:image/bmp;base64,Qk0=",
+      ];
+      for (const uri of raster) {
+        const subtype = uri.split("/")[1].split(";")[0]; // png, jpeg, ...
+        for (const { fn } of SINKS) {
+          // src is the natural raster sink; href on <a> must keep it too (a link to
+          // an inline raster image is a legit, inert target).
+          const outSrc = fn(`<img src="${uri}">`).toLowerCase();
+          expect(outSrc).toContain(`data:image/${subtype}`);
+          const outHref = fn(`<a href="${uri}">x</a>`).toLowerCase();
+          expect(outHref).toContain(`data:image/${subtype}`);
+        }
+      }
+    });
+
+    it("blocks svg+xml in <use xlink:href> (the resolve-as-document vector)", () => {
+      // <use xlink:href="data:image/svg+xml,..."> resolves the referenced SVG as a
+      // document, running its <script>/onload — the second navigable vector besides
+      // an <a href> click. The xlink:href must be dropped.
+      const value = `data:image/svg+xml,${SVG_BODY}`.replace(/'/g, "&#39;");
+      for (const { fn } of SINKS) {
+        const out = fn(`<svg><use xlink:href="${value}"/></svg>`).toLowerCase();
+        expect(out).not.toContain("data:image/svg");
+        for (const got of svgAttrUrls(out, "xlink:href")) {
+          expect(got).not.toContain("data:image/svg");
+        }
+      }
+    });
+
     it("does NOT over-block legit URLs that merely contain the substring", () => {
       for (const { fn } of SINKS) {
         expect(fn('<a href="https://x.com/javascript-guide">x</a>')).toContain(

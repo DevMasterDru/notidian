@@ -349,8 +349,23 @@ const hasDangerousUrlScheme = (raw: string): boolean => {
   if (value.startsWith("javascript:") || value.startsWith("vbscript:")) {
     return true;
   }
-  if (value.startsWith("data:") && !value.startsWith("data:image/")) {
-    return true;
+  if (value.startsWith("data:")) {
+    // CONTEXT MATTERS for data:image/* (Notidian-vvoj): this predicate governs the
+    // HTML_URL_ATTRS of the HTML/frame-text sinks — attributes that can NAVIGATE to
+    // or RESOLVE-AS-DOCUMENT the URL (an <a href> click, a <use xlink:href> resolve).
+    // A raster data:image (png/jpeg/gif/webp/bmp) is inert in every context — it
+    // renders as pixels and runs nothing — so it stays allowed. But an SVG document
+    // is ACTIVE content: navigated to (clicked <a href>) or resolved as a document
+    // (<use xlink:href>) it executes its OWN <script>/onload, so
+    // `data:image/svg+xml,<svg onload=...>` is a working XSS at click time even
+    // though the MIME prefix is `data:image/`. So: block any non-image data: payload
+    // (data:text/html, etc.) AND scriptable data:image/svg+xml; allow only inert
+    // raster data:image/*. This is scoped to navigable HTML attrs only —
+    // neutralizeCssFetches (CSS url(), an inert image context) and <img src> raster
+    // handling keep data:image/svg allowed, because as an image SOURCE the SVG
+    // renders without executing.
+    if (!value.startsWith("data:image/")) return true;
+    if (value.startsWith("data:image/svg+xml")) return true;
   }
   return false;
 };
