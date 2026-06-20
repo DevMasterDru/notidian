@@ -21,6 +21,7 @@ import { openContextCreateItemModal } from "core/react/components/UI/Modals/Cont
 import { CsvImportModal } from "core/react/components/UI/Modals/CsvImportModal";
 import { executeCsvImport } from "core/utils/contexts/tableCsvImportRuntime";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
+import { enableSubItemsWithColumn } from "core/utils/contexts/subItemsSetup";
 import { PathPropertyName } from "shared/types/context";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { tableToCsv } from "core/utils/contexts/tableCsv";
@@ -712,6 +713,25 @@ export const FilterBar = (props: {
             (f.table ?? "") == "" &&
             (f.type?.startsWith("link") || f.type?.startsWith("context"))
         );
+        // Front-door (bd Notidian-xqxc): when there is no column to designate,
+        // the submenu would dead-end at "None" — sub-items could never be turned
+        // on. Offer a one-click "Turn on sub-items" that creates a
+        // frontmatter-backed parent-link column AND sets the predicate in one
+        // action. DEFAULT-ON / KILL-SWITCH: settings.subItemsSetup === false
+        // restores the byte-for-byte legacy submenu.
+        //
+        // Gated to the PRIMARY files schema: the created link column only
+        // round-trips there. saveColumn frontmatter-materializes a primary-table
+        // column via syncAllProperties only when dbSchema.id ==
+        // defaultContextSchemaID; on a non-files db table the child's parent
+        // link is never materialized into the row, so the tree would stay
+        // permanently flat — exactly the dead-end this feature removes. Offering
+        // create only on files keeps the promise honest. (Designating an
+        // existing eligible column stays available on any schema, unchanged.)
+        const offerCreate =
+          props.superstate.settings.subItemsSetup &&
+          eligible.length === 0 &&
+          dbSchema?.id == defaultContextSchemaID;
         props.superstate.ui.openMenu(
           offset,
           {
@@ -723,6 +743,15 @@ export const FilterBar = (props: {
               : [""],
             options: [
               { name: i18n.menu.none, value: "" },
+              ...(offerCreate
+                ? [
+                    {
+                      name: i18n.menu.turnOnSubItems,
+                      icon: "ui//plus",
+                      value: "__create__",
+                    },
+                  ]
+                : []),
               ...eligible.map((f) => ({
                 name: f.name + f.table,
                 icon: stickerForField(f),
@@ -730,6 +759,17 @@ export const FilterBar = (props: {
               })),
             ],
             saveOptions: (_: string[], value: string[]) => {
+              // One-click create-and-enable through the single front-door helper.
+              if (value[0] == "__create__") {
+                enableSubItemsWithColumn({
+                  cols,
+                  saveColumn,
+                  savePredicate,
+                  currentSubItems: predicate?.subItems,
+                  schemaId: dbSchema?.id,
+                });
+                return;
+              }
               const field = value[0] ?? "";
               // Spread the existing subItems so re-picking the parent column
               // keeps the view's display/filterScope/collapsed keys (ADR 0050);

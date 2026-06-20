@@ -267,6 +267,7 @@ export const en = {
     "collapseAllFolders": "Collapse All Folders",
     "settings": "Settings",
     "none": "None",
+    "turnOnSubItems": "Turn on sub-items (creates Parent item column)",
     "tableView": "Table View",
     "cardView": "Card View",
     "boardView": "Board View",

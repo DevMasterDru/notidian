@@ -145,6 +145,19 @@ export interface MakeMDSettings {
   // unverifiable offline and is covered by jsdom tests (OFF byte-identical, ON
   // window membership == pure-seam output).
   rowVirtualization: boolean;
+  // Sub-items setup front-door (bd Notidian-xqxc). DEFAULT-ON / KILL-SWITCH.
+  // When true, the FilterBar "Sub-items" submenu offers a one-click "Turn on
+  // sub-items" option (primary files schema only) when no eligible self-relation
+  // column exists, creating a frontmatter-backed parent-link column + setting
+  // predicate.subItems.field in one action. Set false to restore the
+  // byte-for-byte legacy submenu (None + eligible list only); the option is not
+  // offered and no column is auto-created.
+  // SCOPE: this gates only the SETUP affordance (the menu option), NOT the
+  // dormant sub-items render path. A view that already has predicate.subItems.field
+  // (designated manually, or set before the flag was flipped off) keeps rendering
+  // its tree regardless of this flag — flip it off to hide the front-door, clear
+  // the predicate field to flatten an already-on view.
+  subItemsSetup: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

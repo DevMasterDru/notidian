@@ -119,6 +119,16 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // activation decision (tableVirtualization.ts) are pure and unit-tested; the
   // render wiring is covered by jsdom tests.
   rowVirtualization: true,
+  // Default-ON sub-items setup front-door (bd Notidian-xqxc) — surfaces the
+  // shipped-but-dormant sub-items tree engine. When ON, the FilterBar "Sub-items"
+  // submenu offers a one-click "Turn on sub-items" option whenever no eligible
+  // self-relation column exists, creating a frontmatter-backed parent-link column
+  // AND setting predicate.subItems.field in one action (owner verifies by USE).
+  // The flag is RETAINED as a KILL-SWITCH: set it false to restore the
+  // byte-for-byte legacy submenu (None + the eligible-column list only) — the
+  // create option is never offered and no column is auto-created via this path.
+  // The shipped tree engine and the manual eligible-column pick are untouched.
+  subItemsSetup: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,
