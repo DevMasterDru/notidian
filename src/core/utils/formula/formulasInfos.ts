@@ -278,6 +278,7 @@ export const formulasInfos: Record<string, FormulaInfo> = {
 		name: "dateSubtract",
 		fn: "dateSubtract",
 		args: [{ name: 'date', types: ["date"] }, { name: 'amount', types: ["number"] }, { name: 'type', types: ["text"] }],
+		returnType: "date",
 		category: "date",
 		difficulty: 2
 	},
