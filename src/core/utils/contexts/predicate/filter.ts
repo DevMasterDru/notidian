@@ -238,7 +238,16 @@ export const filterReturnForCol = (
   const filterType = filterFnTypes[filter?.fn];
   let result = true; // ADR 0034 fail-open default: visible until a KNOWN fn narrows.
   if (filterType && filterType.fn) {
-    const value = (filter.fType == 'property') ? properties[filter.value] : filter.value;
+    // ADR 0034 fail-open at the SINK, not just the caller. A property-fType filter
+    // resolves its value from `properties`, but `properties` can be null/undefined
+    // during load or in views whose spaceCache hasn't populated (the 6ba6f3d caller
+    // fix made `spaceCache?.properties` null-safe, but `?.` yields `undefined`,
+    // which STILL throws on `properties[filter.value]` here). Treat a nullish cache
+    // as an empty record so the lookup resolves to `undefined` — which the
+    // FilterFunctions already guard (-> fail-open visible) — instead of crashing the
+    // whole context render. Pinned by filter.test.ts (property-fType + null/undefined
+    // props -> no throw, fail-open true).
+    const value = (filter.fType == 'property') ? (properties ?? {})[filter.value] : filter.value;
     const rowValue = col.type == 'flex' ? parseFlexValue(row[filter.field])?.value : row[filter.field];
     result = filterType.fn(rowValue, value);
   }

@@ -665,6 +665,54 @@ describe("filter.ts row-visibility engine — characterization + adversarial net
       ).toBe(true); // stringCompare(value, undefined) -> includes("") -> true
     });
 
+    // ----------------------------------------------------------------------- //
+    // CRASH-CLASS PIN (Notidian-az2p, ADR 0034 fail-open at the SINK).         //
+    // A property-fType filter reads its value from `properties`. The 6ba6f3d   //
+    // caller fix (`spaceCache?.properties`) made the CALLER null-safe, but     //
+    // `?.` yields `undefined`, which previously STILL threw 'Cannot read       //
+    // properties of undefined (reading <key>)' at `properties[filter.value]`   //
+    // the moment such a filter ran with a null cache — taking down the WHOLE   //
+    // context render. The sink now treats a nullish cache as {} so the value   //
+    // resolves to undefined (FilterFunctions guard it -> fail-open visible).   //
+    // ----------------------------------------------------------------------- //
+    it("CRASH-PIN (Notidian-az2p): property-fType with undefined properties does not throw, fails open -> true", () => {
+      const row = { Title: "Hello World" } as any;
+      const call = () =>
+        filterReturnForCol(
+          textCol,
+          { fn: "include", fType: "property", field: "Title", value: "searchTerm" } as any,
+          row,
+          undefined as any
+        );
+      expect(call).not.toThrow();
+      // value resolves to undefined -> stringCompare(rowValue, undefined) -> includes("") -> true
+      expect(call()).toBe(true);
+    });
+
+    it("CRASH-PIN (Notidian-az2p): property-fType with null properties does not throw, fails open -> true", () => {
+      const row = { Title: "Hello World" } as any;
+      const call = () =>
+        filterReturnForCol(
+          textCol,
+          { fn: "include", fType: "property", field: "Title", value: "searchTerm" } as any,
+          row,
+          null as any
+        );
+      expect(call).not.toThrow();
+      expect(call()).toBe(true);
+    });
+
+    it("CRASH-PIN (Notidian-az2p): a literal-fType filter is unaffected by null properties", () => {
+      const row = { Title: "Hello World" } as any;
+      // literal fType never touches `properties`, so a null cache must not change the verdict.
+      expect(
+        filterReturnForCol(textCol, { fn: "include", fType: "literal", field: "Title", value: "hello" } as any, row, null as any)
+      ).toBe(true);
+      expect(
+        filterReturnForCol(textCol, { fn: "include", fType: "literal", field: "Title", value: "zzz" } as any, row, null as any)
+      ).toBe(false);
+    });
+
     it("unwraps a flex column's JSON via parseFlexValue before filtering", () => {
       // flex columns store a JSON blob; parseFlexValue extracts `.value`.
       const row = { Mixed: JSON.stringify({ value: "Hello World", type: "text" }) } as any;
