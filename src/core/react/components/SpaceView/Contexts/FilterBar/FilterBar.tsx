@@ -22,6 +22,7 @@ import { CsvImportModal } from "core/react/components/UI/Modals/CsvImportModal";
 import { executeCsvImport } from "core/utils/contexts/tableCsvImportRuntime";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import { enableSubItemsWithColumn } from "core/utils/contexts/subItemsSetup";
+import { repairSubItemLinks } from "core/utils/contexts/subItemLinkRepair";
 import { PathPropertyName } from "shared/types/context";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { tableToCsv } from "core/utils/contexts/tableCsv";
@@ -92,6 +93,8 @@ export const FilterBar = (props: {
     saveColumn,
     reloadContextData,
     setSubItemsCollapsedAll,
+    subItemsField,
+    subItemsParentKey,
     // The single view search's open toggle (ADR 0041). Shared via context so
     // the table's Cmd/Ctrl+F can open this same SearchBar.
     searchActive,
@@ -801,6 +804,27 @@ export const FilterBar = (props: {
         icon: "ui//chevrons-up-down",
         onClick: () => setSubItemsCollapsedAll(false),
       });
+      // Heal pre-fix bare parent links (Notidian-4xza): re-qualify any child whose
+      // parent link is orphaned but uniquely matches an in-table parent.
+      if (subItemsField && subItemsParentKey) {
+        menuOptions.push({
+          name: i18n.menu.repairSubItemLinks,
+          icon: "ui//tool",
+          onClick: async () => {
+            const { repaired } = await repairSubItemLinks({
+              superstate: props.superstate,
+              rows: filteredData,
+              subItemsField,
+              parentKey: subItemsParentKey,
+            });
+            props.superstate.ui.notify(
+              repaired > 0
+                ? `Repaired ${repaired} sub-item link${repaired === 1 ? "" : "s"}`
+                : "No sub-item links needed repair"
+            );
+          },
+        });
+      }
     }
     menuOptions.push({
       name: "Import from CSV",

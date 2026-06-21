@@ -271,6 +271,7 @@ export const en = {
     "turnOnSubItems": "Turn on sub-items (creates Parent item column)",
     "collapseAllSubItems": "Collapse all sub-items",
     "expandAllSubItems": "Expand all sub-items",
+    "repairSubItemLinks": "Repair sub-item links",
     "tableView": "Table View",
     "cardView": "Card View",
     "boardView": "Board View",
