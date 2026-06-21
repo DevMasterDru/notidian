@@ -53,6 +53,7 @@ import {
   flattenVisibleTree,
   subItemAddRowsAfter,
   SubItemAddRow,
+  nextCollapsedPaths,
 } from "core/utils/contexts/tableRowTree";
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -185,6 +186,8 @@ type ContextEditorContextProps = {
   subItemsParentKey: string | null;
   collapsedSubItems: Set<string>;
   toggleSubItemCollapse: (path: string) => void;
+  // Collapse / expand every parent at once (Notidian-5ond.3), persisted.
+  setSubItemsCollapsedAll: (collapsed: boolean) => void;
   // Notion-style "+ New sub-item" rows (Notidian-gr8t): keyed by the path of the
   // row AFTER which the add-row(s) render (an expanded parent's last visible
   // descendant), valued by the ordered add-rows (deepest-first for nested
@@ -233,6 +236,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   subItemsParentKey: null,
   collapsedSubItems: new Set(),
   toggleSubItemCollapse: () => null,
+  setSubItemsCollapsedAll: () => null,
   subItemAddRows: null,
 });
 
@@ -370,19 +374,14 @@ export const ContextEditorProvider: React.FC<
   const [predicate, setPredicate] = useState<Predicate>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editMode, setEditMode] = useState<number>(0);
-  // Sub-items (Notidian-pv4): parent rows the user has collapsed in the tree.
-  // View UI state, not persisted; empty = everything expanded.
-  const [collapsedSubItems, setCollapsedSubItems] = useState<Set<string>>(
-    () => new Set()
+  // Sub-items collapse state (Notidian-pv4), PERSISTED per view in
+  // predicate.subItems.collapsed (Notidian-5ond.3) so it survives reloads/sync.
+  // Keyed by resolved row path; empty = everything expanded. The toggle +
+  // collapse-all writers are defined after savePredicate (below).
+  const collapsedSubItems = useMemo(
+    () => new Set(predicate?.subItems?.collapsed ?? []),
+    [predicate?.subItems?.collapsed]
   );
-  const toggleSubItemCollapse = useCallback((path: string) => {
-    setCollapsedSubItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
   const contextPath =
     props.source ?? frameSchema?.def?.context ?? spaceInfo?.path;
 
@@ -794,11 +793,11 @@ export const ContextEditorProvider: React.FC<
     return cols.find((c) => c.name + c.table == field) ?? null;
   }, [predicate?.subItems?.field, cols]);
 
-  // Depth-first tree nodes over the filtered+sorted rows, with collapsed
-  // subtrees hidden. Null when sub-items is off (the table stays a flat list).
-  const subItemsNodes = useMemo(() => {
+  // The full depth-first tree (collapse-independent), so collapse-all can target
+  // EVERY parent — even ones currently hidden under a collapsed ancestor.
+  const subItemsFullTree = useMemo(() => {
     if (!subItemsCol) return null;
-    const nodes = buildRowTree({
+    return buildRowTree({
       rows: filteredSortedData,
       // Row data keys context-table columns as name+table (primary cols use
       // name, since their table is ""), so the universal accessor is name+table.
@@ -808,8 +807,28 @@ export const ContextEditorProvider: React.FC<
       // child rows' real paths via the link index, so basename/bare wikilinks match.
       resolveLink: makeRelationLinkResolver(props.superstate),
     });
-    return flattenVisibleTree(nodes, collapsedSubItems, PathPropertyName);
-  }, [subItemsCol, filteredSortedData, collapsedSubItems, props.superstate]);
+  }, [subItemsCol, filteredSortedData, props.superstate]);
+
+  // Depth-first tree nodes with collapsed subtrees hidden. Null when sub-items is
+  // off (the table stays a flat list).
+  const subItemsNodes = useMemo(() => {
+    if (!subItemsFullTree) return null;
+    return flattenVisibleTree(
+      subItemsFullTree,
+      collapsedSubItems,
+      PathPropertyName
+    );
+  }, [subItemsFullTree, collapsedSubItems]);
+
+  // Every parent path in the view (for collapse-all). Stable regardless of the
+  // current collapse state, so collapse-all is idempotent and complete.
+  const allSubItemParentPaths = useMemo(
+    () =>
+      (subItemsFullTree ?? [])
+        .filter((n) => n.hasChildren)
+        .map((n) => String(n.row[PathPropertyName] ?? "")),
+    [subItemsFullTree]
+  );
 
   // Per-row tree info (depth + hasChildren) keyed by resolved path, for the
   // table's indentation and expand/collapse chevron. Null when sub-items is off.
@@ -1270,6 +1289,28 @@ export const ContextEditorProvider: React.FC<
       });
     }
     setPredicate(cleanedPredicate);
+  };
+
+  // Sub-items collapse writers (Notidian-5ond.3): persist into
+  // predicate.subItems.collapsed via savePredicate so the tree state survives
+  // reloads. No-ops when sub-items isn't configured for this view.
+  const toggleSubItemCollapse = (path: string) => {
+    if (!predicate?.subItems?.field) return;
+    savePredicate({
+      subItems: {
+        ...predicate.subItems,
+        collapsed: nextCollapsedPaths(predicate.subItems.collapsed, path),
+      },
+    });
+  };
+  const setSubItemsCollapsedAll = (collapsed: boolean) => {
+    if (!predicate?.subItems?.field) return;
+    savePredicate({
+      subItems: {
+        ...predicate.subItems,
+        collapsed: collapsed ? allSubItemParentPaths : [],
+      },
+    });
   };
   useEffect(() => {
     if (predicate)
@@ -1931,6 +1972,7 @@ export const ContextEditorProvider: React.FC<
           : null,
         collapsedSubItems,
         toggleSubItemCollapse,
+        setSubItemsCollapsedAll,
         subItemAddRows,
       }}
     >

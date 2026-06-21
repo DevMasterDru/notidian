@@ -2,6 +2,7 @@ import {
   buildRowTree,
   flattenVisibleTree,
   subItemAddRowsAfter,
+  nextCollapsedPaths,
 } from "core/utils/contexts/tableRowTree";
 
 const tree = (rows: Record<string, any>[]) =>
@@ -295,5 +296,23 @@ describe("subItemAddRowsAfter (Notidian-gr8t)", () => {
     // A expanded, B is a visible child that is collapsed -> only A's add-row.
     const nodes = [vnode("A", 0, true), vnode("B", 1, true)];
     expect(addRows(nodes, ["B"])).toEqual({ B: [["A", 1]] });
+  });
+});
+
+describe("nextCollapsedPaths (Notidian-5ond.3 collapse persistence)", () => {
+  it("adds a path that isn't collapsed yet", () => {
+    expect(nextCollapsedPaths(["A"], "B").sort()).toEqual(["A", "B"]);
+  });
+  it("removes a path that is already collapsed", () => {
+    expect(nextCollapsedPaths(["A", "B"], "A")).toEqual(["B"]);
+  });
+  it("treats undefined current as empty", () => {
+    expect(nextCollapsedPaths(undefined, "A")).toEqual(["A"]);
+  });
+  it("dedupes and drops empty entries", () => {
+    expect(nextCollapsedPaths(["A", "A", ""], "B").sort()).toEqual(["A", "B"]);
+  });
+  it("ignores an empty toggle path", () => {
+    expect(nextCollapsedPaths(["A"], "")).toEqual(["A"]);
   });
 });

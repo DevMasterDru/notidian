@@ -91,6 +91,7 @@ export const FilterBar = (props: {
     delColumn,
     saveColumn,
     reloadContextData,
+    setSubItemsCollapsedAll,
     // The single view search's open toggle (ADR 0041). Shared via context so
     // the table's Cmd/Ctrl+F can open this same SearchBar.
     searchActive,
@@ -787,6 +788,20 @@ export const FilterBar = (props: {
         );
       },
     });
+    // Expand/collapse all sub-items (Notidian-5ond.3) — only when sub-items is
+    // active for this view. Collapse state persists in predicate.subItems.collapsed.
+    if (predicate?.subItems?.field) {
+      menuOptions.push({
+        name: i18n.menu.collapseAllSubItems,
+        icon: "ui//chevrons-down-up",
+        onClick: () => setSubItemsCollapsedAll(true),
+      });
+      menuOptions.push({
+        name: i18n.menu.expandAllSubItems,
+        icon: "ui//chevrons-up-down",
+        onClick: () => setSubItemsCollapsedAll(false),
+      });
+    }
     menuOptions.push({
       name: "Import from CSV",
       icon: "ui//upload",

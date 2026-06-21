@@ -130,6 +130,19 @@ export const flattenVisibleTree = (
 // all expanded, C the deepest leaf) each get their own add-row after C, ordered
 // DEEPEST-FIRST (child of C-parent, then of B-parent, then of A-parent) — the
 // descending staircase Notion shows.
+// Per-view collapse persistence (Notidian-5ond.3): toggle one parent path in the
+// persisted collapsed list (predicate.subItems.collapsed). Pure — add when absent,
+// remove when present; dedupes and drops empties so the stored list stays clean.
+export const nextCollapsedPaths = (
+  current: string[] | undefined,
+  path: string
+): string[] => {
+  const set = new Set((current ?? []).filter((p) => p && p.length > 0));
+  if (set.has(path)) set.delete(path);
+  else if (path && path.length > 0) set.add(path);
+  return [...set];
+};
+
 export type SubItemAddRow = { parentPath: string; depth: number };
 
 export const subItemAddRowsAfter = (
