@@ -122,6 +122,30 @@ export const flattenVisibleTree = (
   return visible;
 };
 
+// Total descendant count per root, for the "parents-only" display mode
+// (Notidian-5ond.4). Given the full depth-first tree, each depth-0 node (root)
+// maps to the number of nodes beneath it (every following node at depth > 0 until
+// depth returns to 0). Pure.
+export const rootDescendantCounts = (
+  nodes: RowTreeNode[],
+  pathKey: string
+): Map<string, number> => {
+  const counts = new Map<string, number>();
+  let currentRoot: string | null = null;
+  let count = 0;
+  for (const node of nodes) {
+    if (node.depth === 0) {
+      if (currentRoot !== null) counts.set(currentRoot, count);
+      currentRoot = String(node.row[pathKey] ?? "");
+      count = 0;
+    } else {
+      count++;
+    }
+  }
+  if (currentRoot !== null) counts.set(currentRoot, count);
+  return counts;
+};
+
 // Notion-style "+ New sub-item" rows (Notidian-gr8t). Given the ALREADY-collapsed
 // visible tree (flattenVisibleTree output), return where each "+ New sub-item"
 // affordance is drawn: keyed by the path of the row AFTER which it appears (an

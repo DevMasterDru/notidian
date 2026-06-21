@@ -464,6 +464,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     renameRowTitle,
     setSearchActive,
     subItemsInfo,
+    subItemsDisplay,
     subItemsField,
     collapsedSubItems,
     toggleSubItemCollapse,
@@ -2672,7 +2673,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                                     className="mk-subitem-affordance"
                                     onMouseDown={(e) => e.stopPropagation()}
                                   >
-                                    {subItemNode.hasChildren ? (
+                                    {subItemNode.hasChildren &&
+                                    subItemsDisplay === "nested" ? (
                                       <CollapseToggleSmall
                                         superstate={props.superstate}
                                         collapsed={subItemCollapsed}
@@ -2688,11 +2690,18 @@ export const TableView = (props: { superstate: Superstate }) => {
                                     {subItemNode.hasChildren ? (
                                       <span
                                         className="mk-subitem-count"
-                                        title={`${subItemNode.childCount} sub-item${
-                                          subItemNode.childCount === 1 ? "" : "s"
+                                        title={`${
+                                          subItemNode.descendantCount ??
+                                          subItemNode.childCount
+                                        } sub-item${
+                                          (subItemNode.descendantCount ??
+                                            subItemNode.childCount) === 1
+                                            ? ""
+                                            : "s"
                                         }`}
                                       >
-                                        {subItemNode.childCount}
+                                        {subItemNode.descendantCount ??
+                                          subItemNode.childCount}
                                       </span>
                                     ) : null}
                                     {subItemNode.surfacedAsRoot ? (

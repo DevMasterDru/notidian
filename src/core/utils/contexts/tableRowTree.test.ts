@@ -3,6 +3,7 @@ import {
   flattenVisibleTree,
   subItemAddRowsAfter,
   nextCollapsedPaths,
+  rootDescendantCounts,
 } from "core/utils/contexts/tableRowTree";
 
 const tree = (rows: Record<string, any>[]) =>
@@ -333,5 +334,34 @@ describe("buildRowTree childCount (Notidian-5ond.6)", () => {
       ])
     );
     expect(counts).toEqual({ A: 2, B: 1, C: 0, D: 0 });
+  });
+});
+
+describe("rootDescendantCounts (Notidian-5ond.4 parents-only)", () => {
+  const counts = (nodes: ReturnType<typeof vnode>[]) => {
+    const m = rootDescendantCounts(nodes, "File");
+    return Object.fromEntries(m);
+  };
+  it("counts ALL descendants per root (not just direct children)", () => {
+    // A>{B>{D}, C}, E root. A has 3 descendants (B,D,C); E has 0.
+    const nodes = [
+      vnode("A", 0, true),
+      vnode("B", 1, true),
+      vnode("D", 2, false),
+      vnode("C", 1, false),
+      vnode("E", 0, false),
+    ];
+    expect(counts(nodes)).toEqual({ A: 3, E: 0 });
+  });
+  it("handles multiple roots", () => {
+    const nodes = [
+      vnode("R1", 0, true),
+      vnode("c", 1, false),
+      vnode("R2", 0, false),
+    ];
+    expect(counts(nodes)).toEqual({ R1: 1, R2: 0 });
+  });
+  it("empty input -> empty map", () => {
+    expect(counts([])).toEqual({});
   });
 });

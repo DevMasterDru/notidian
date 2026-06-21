@@ -797,6 +797,49 @@ export const FilterBar = (props: {
     // Expand/collapse all sub-items (Notidian-5ond.3) — only when sub-items is
     // active for this view. Collapse state persists in predicate.subItems.collapsed.
     if (predicate?.subItems?.field) {
+      // Display mode (Notidian-5ond.4): nested tree / flattened / parents-only.
+      const displayMode = predicate.subItems.display ?? "nested";
+      const displayLabel: Record<string, string> = {
+        nested: i18n.menu.subItemsNested,
+        flattened: i18n.menu.subItemsFlattened,
+        "parents-only": i18n.menu.subItemsParentsOnly,
+      };
+      menuOptions.push({
+        name: i18n.menu.subItemsDisplay,
+        icon: "ui//layout-list",
+        type: SelectOptionType.Disclosure,
+        value: displayLabel[displayMode],
+        onClick: (e) => {
+          const offset = e.currentTarget.getBoundingClientRect();
+          props.superstate.ui.openMenu(
+            offset,
+            {
+              ui: props.superstate.ui,
+              multi: false,
+              editable: false,
+              searchable: false,
+              showAll: true,
+              value: [displayMode],
+              options: [
+                { name: i18n.menu.subItemsNested, value: "nested" },
+                { name: i18n.menu.subItemsFlattened, value: "flattened" },
+                { name: i18n.menu.subItemsParentsOnly, value: "parents-only" },
+              ],
+              saveOptions: (_: string[], value: string[]) => {
+                // validateSubItems drops display==="nested" so the stored
+                // predicate stays clean; spread keeps field/filterScope/collapsed.
+                savePredicate({
+                  subItems: {
+                    ...predicate.subItems,
+                    display: value[0] as any,
+                  },
+                });
+              },
+            },
+            windowFromDocument(e.view.document)
+          );
+        },
+      });
       menuOptions.push({
         name: i18n.menu.collapseAllSubItems,
         icon: "ui//chevrons-down-up",

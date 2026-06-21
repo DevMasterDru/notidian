@@ -73,6 +73,7 @@ export const ContextListView = (props: {
     dbSchema,
     source,
     subItemsInfo,
+    subItemsDisplay,
     subItemsField,
     collapsedSubItems,
     toggleSubItemCollapse,
@@ -463,7 +464,8 @@ export const ContextListView = (props: {
                           }}
                           onMouseDown={(e) => e.stopPropagation()}
                         >
-                          {subItemNode.hasChildren ? (
+                          {subItemNode.hasChildren &&
+                          subItemsDisplay === "nested" ? (
                             <CollapseToggleSmall
                               superstate={props.superstate}
                               collapsed={subItemCollapsed}
@@ -479,11 +481,18 @@ export const ContextListView = (props: {
                           {subItemNode.hasChildren ? (
                             <span
                               className="mk-subitem-count"
-                              title={`${subItemNode.childCount} sub-item${
-                                subItemNode.childCount === 1 ? "" : "s"
+                              title={`${
+                                subItemNode.descendantCount ??
+                                subItemNode.childCount
+                              } sub-item${
+                                (subItemNode.descendantCount ??
+                                  subItemNode.childCount) === 1
+                                  ? ""
+                                  : "s"
                               }`}
                             >
-                              {subItemNode.childCount}
+                              {subItemNode.descendantCount ??
+                                subItemNode.childCount}
                             </span>
                           ) : null}
                           {/* Adding a sub-item lives in the row's right-click

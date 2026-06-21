@@ -384,9 +384,11 @@ public app: App;
               // refreshes only the adapter cache; reloadPath alone propagates a
               // stale snapshot. Re-indexing the target does not change ITS OWN
               // outgoing links, so this does not recurse.
-              void this.parseCache(tFileToAFile(target), true).then(() =>
-                this.plugin.superstate.reloadPath(link, true)
-              );
+              void this.parseCache(tFileToAFile(target), true)
+                .then(() => this.plugin.superstate.reloadPath(link, true))
+                // Best-effort freshness: a non-indexable target (e.g. a file with
+                // no Obsidian metadata) must never break the originating edit.
+                .catch((): void => {});
             }
           }
         }

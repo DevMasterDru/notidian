@@ -54,6 +54,7 @@ import {
   subItemAddRowsAfter,
   SubItemAddRow,
   nextCollapsedPaths,
+  rootDescendantCounts,
 } from "core/utils/contexts/tableRowTree";
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -87,7 +88,7 @@ import {
   SpaceTables,
 } from "shared/types/mdb";
 import { FrameSchema } from "shared/types/mframe";
-import { Predicate, Sort } from "shared/types/predicate";
+import { Predicate, Sort, SubItemsDisplay } from "shared/types/predicate";
 import { uniq, uniqueNameFromString } from "shared/utils/array";
 import { safelyParseJSON } from "shared/utils/json";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
@@ -179,8 +180,12 @@ type ContextEditorContextProps = {
       hasChildren: boolean;
       childCount: number;
       surfacedAsRoot: boolean;
+      descendantCount?: number;
     }
   > | null;
+  // Sub-item display mode (Notidian-5ond.4): "nested" | "flattened" |
+  // "parents-only". Drives which affordances render.
+  subItemsDisplay: SubItemsDisplay;
   // Frontmatter key of the configured parent-link column (= subItemsCol.name),
   // or null when sub-items is off — used by the "Add sub-item" row action to
   // write ONLY the child's parent link (ADR 0024 B1, one-way).
@@ -237,6 +242,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   tableData: null,
   cols: [],
   subItemsInfo: null,
+  subItemsDisplay: "nested",
   subItemsField: null,
   subItemsParentKey: null,
   collapsedSubItems: new Set(),
@@ -816,14 +822,28 @@ export const ContextEditorProvider: React.FC<
 
   // Depth-first tree nodes with collapsed subtrees hidden. Null when sub-items is
   // off (the table stays a flat list).
+  // Sub-item display mode (Notidian-5ond.4): "nested" (default tree),
+  // "flattened" (no tree — global sort wins, rendered flat), "parents-only"
+  // (roots only, with a descendant count).
+  const subItemsDisplay = predicate?.subItems?.display ?? "nested";
+
   const subItemsNodes = useMemo(() => {
     if (!subItemsFullTree) return null;
+    if (subItemsDisplay === "flattened") return null; // flat: use filteredSortedData
+    if (subItemsDisplay === "parents-only")
+      return subItemsFullTree.filter((n) => n.depth === 0);
     return flattenVisibleTree(
       subItemsFullTree,
       collapsedSubItems,
       PathPropertyName
     );
-  }, [subItemsFullTree, collapsedSubItems]);
+  }, [subItemsFullTree, collapsedSubItems, subItemsDisplay]);
+
+  // Total descendant count per root (parents-only badge).
+  const subItemDescendantCounts = useMemo(() => {
+    if (!subItemsFullTree || subItemsDisplay !== "parents-only") return null;
+    return rootDescendantCounts(subItemsFullTree, PathPropertyName);
+  }, [subItemsFullTree, subItemsDisplay]);
 
   // Every parent path in the view (for collapse-all). Stable regardless of the
   // current collapse state, so collapse-all is idempotent and complete.
@@ -846,18 +866,22 @@ export const ContextEditorProvider: React.FC<
         hasChildren: boolean;
         childCount: number;
         surfacedAsRoot: boolean;
+        // parents-only (Notidian-5ond.4): total descendants beneath this root.
+        descendantCount?: number;
       }
     >();
     for (const node of subItemsNodes) {
-      info.set(String(node.row[PathPropertyName] ?? ""), {
+      const path = String(node.row[PathPropertyName] ?? "");
+      info.set(path, {
         depth: node.depth,
         hasChildren: node.hasChildren,
         childCount: node.childCount,
         surfacedAsRoot: node.surfacedAsRoot,
+        descendantCount: subItemDescendantCounts?.get(path),
       });
     }
     return info;
-  }, [subItemsNodes]);
+  }, [subItemsNodes, subItemDescendantCounts]);
 
   // Notion-style "+ New sub-item" insertion points (Notidian-gr8t), computed from
   // the SAME visible nodes that drive subItemsInfo so it is consistent with the
@@ -865,6 +889,9 @@ export const ContextEditorProvider: React.FC<
   // NOT read mode (no create affordance in read-only views).
   const subItemAddRows = useMemo(() => {
     if (!subItemsNodes) return null;
+    // Only the nested tree renders descendants, so "+ New sub-item" rows (drawn
+    // after an expanded parent's children) only make sense there.
+    if (subItemsDisplay !== "nested") return null;
     if (readMode || spaceInfo?.readOnly) return null;
     if (props.superstate.settings?.subItemAddRow === false) return null;
     return subItemAddRowsAfter(
@@ -874,6 +901,7 @@ export const ContextEditorProvider: React.FC<
     );
   }, [
     subItemsNodes,
+    subItemsDisplay,
     collapsedSubItems,
     readMode,
     spaceInfo?.readOnly,
@@ -1977,6 +2005,7 @@ export const ContextEditorProvider: React.FC<
         data,
         updateRow,
         subItemsInfo,
+        subItemsDisplay,
         subItemsField: subItemsCol?.name ?? null,
         subItemsParentKey: subItemsCol
           ? subItemsCol.name + subItemsCol.table

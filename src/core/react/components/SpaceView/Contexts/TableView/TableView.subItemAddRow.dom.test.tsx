@@ -93,7 +93,7 @@ const predicate = {
   view: "table", listItem: "", tableDirection: "ltr", frozenColumnCount: 0,
 } as any;
 
-const makeContextValue = (subItemAddRows: any) =>
+const makeContextValue = (subItemAddRows: any, over: any = {}) =>
   ({
     tableData: { schema: { id: "files" }, rows: data, cols },
     dbSchema: { id: "files", primary: "true" },
@@ -114,10 +114,12 @@ const makeContextValue = (subItemAddRows: any) =>
     renameRowTitle: jest.fn(),
     setSearchActive: jest.fn(),
     subItemsInfo,
+    subItemsDisplay: "nested",
     subItemsField: "parent",
     collapsedSubItems: new Set<string>(),
     toggleSubItemCollapse: jest.fn(),
     subItemAddRows,
+    ...over,
   } as any);
 
 const superstate = {
@@ -133,14 +135,14 @@ const superstate = {
 let container: HTMLDivElement;
 let root: Root;
 
-const render = async (subItemAddRows: any) => {
+const render = async (subItemAddRows: any, over: any = {}) => {
   await act(async () => {
     root.render(
       <SpaceContext.Provider
         value={{ spaceInfo: { path: "Test/Space" }, spaceState: { path: "Test/Space" } }}
       >
         <PathContext.Provider value={{ readMode: false }}>
-          <ContextEditorContext.Provider value={makeContextValue(subItemAddRows)}>
+          <ContextEditorContext.Provider value={makeContextValue(subItemAddRows, over)}>
             <TableView superstate={superstate} />
           </ContextEditorContext.Provider>
         </PathContext.Provider>
@@ -207,5 +209,20 @@ describe("TableView '+ New sub-item' row (Notidian-gr8t)", () => {
     // Only the parent ("Note 0", childCount 1) gets a badge; the leaf does not.
     expect(badges.length).toBe(1);
     expect(badges[0].textContent).toBe("1");
+  });
+
+  it("parents-only display: suppresses the collapse triangle and shows the descendant count (Notidian-5ond.4)", async () => {
+    // Parent gets a total-descendant count; no toggle (nothing nested to expand).
+    const parentsOnlyInfo = new Map<string, any>([
+      ["Note 0", { depth: 0, hasChildren: true, childCount: 1, descendantCount: 4, surfacedAsRoot: false }],
+      ["Note 1", { depth: 0, hasChildren: false, childCount: 0, surfacedAsRoot: false }],
+    ]);
+    await render(null, { subItemsDisplay: "parents-only", subItemsInfo: parentsOnlyInfo });
+    // No collapse toggle in parents-only.
+    expect(container.querySelectorAll(".mk-subitem-affordance .mk-collapse").length).toBe(0);
+    // Badge shows the DESCENDANT count (4), not the direct childCount (1).
+    const badges = container.querySelectorAll(".mk-subitem-count");
+    expect(badges.length).toBe(1);
+    expect(badges[0].textContent).toBe("4");
   });
 });
