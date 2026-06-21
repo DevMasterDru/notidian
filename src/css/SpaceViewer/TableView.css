@@ -257,12 +257,91 @@ body.mk-property-header-tooltip-visible > .tooltip {
   min-height: 28px;
 }
 
+/* Group header = a distinct Notion-like island band, NOT a plain row line
+   (Notidian-brlx). It is visually lifted off the data rows: a tinted band,
+   extra vertical breathing room, a strong divider above, and a collapse caret +
+   count badge. The group-header row carries no row-number gutter (the gutter
+   cell is suppressed in TableView; here we make sure it reads as part of the
+   band rather than a bordered data-row cell). */
 .mk-td-group {
-  background-color: var(--mk-ui-background);
-  padding: 0.5rem;
-  border-top: 0.5px solid var(--mk-ui-divider) !important;
+  background-color: var(--background-secondary, var(--mk-ui-background));
+  padding: 0;
+  border-top: 1px solid var(--background-modifier-border, var(--mk-ui-divider)) !important;
+  border-bottom: 1px solid
+    var(--background-modifier-border, var(--mk-ui-divider)) !important;
   font-size: 13px;
   font-weight: var(--bold-weight);
+}
+/* The gutter cell of a group-header row joins the island band: no row-number
+   value (suppressed in markup), no data-row divider, same tinted background. */
+.mk-row-group-header .mk-row-gutter-group {
+  background-color: var(--background-secondary, var(--mk-ui-background)) !important;
+  border-right: none !important;
+  border-top: 1px solid var(--background-modifier-border, var(--mk-ui-divider)) !important;
+  border-bottom: 1px solid
+    var(--background-modifier-border, var(--mk-ui-divider)) !important;
+}
+.mk-table-rtl .mk-row-group-header .mk-row-gutter-group {
+  border-left: none !important;
+}
+/* The clickable band itself: caret + group value + count, comfortably spaced. */
+.mk-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+  text-align: start;
+  color: var(--text-normal);
+  font-size: 13px;
+  font-weight: var(--bold-weight);
+  letter-spacing: 0.01em;
+}
+.mk-group-header:hover {
+  background-color: var(--background-modifier-hover);
+}
+.mk-group-header-caret {
+  display: inline-flex;
+  width: 0;
+  height: 0;
+  flex: 0 0 auto;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  color: var(--text-muted);
+  transition: transform 80ms ease-in-out;
+}
+.mk-group-header-caret-open {
+  transform: rotate(90deg);
+}
+.mk-table-rtl .mk-group-header-caret {
+  border-left: none;
+  border-right: 5px solid currentColor;
+}
+.mk-table-rtl .mk-group-header-caret-open {
+  transform: rotate(-90deg);
+}
+.mk-group-header-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.mk-group-header-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background-color: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: var(--font-normal, 400);
 }
 .mk-td-group .mk-cell-option {
   width: unset;

@@ -2453,7 +2453,20 @@ export const TableView = (props: { superstate: Superstate }) => {
               // Use row.original for reliable access to the row data
               // row.original is the actual data object from the data array
               const rowData = row.original as DBRow;
-              const rowOriginalIndex = rowData?.["_index"];
+              // Group-header rows are NOT data rows. react-table builds a grouped
+              // row with `leafRows[0].original` as its `.original` (table-core
+              // getGroupedRowModel), so `rowData._index` on a group header is the
+              // FIRST CHILD'S index — defined, not undefined. The only reliable
+              // discriminator is `row.getIsGrouped()`. Using `_index === undefined`
+              // here mis-classified group headers as data rows and rendered them a
+              // row-number gutter + drag handle (Notidian-brlx).
+              const isGroupHeader = row.getIsGrouped();
+              // A group header has no data-row identity: never treat its inherited
+              // child `_index` as this row's own index (no row number, no selection,
+              // no drag/context-menu identity).
+              const rowOriginalIndex = isGroupHeader
+                ? undefined
+                : rowData?.["_index"];
               const rowSelected = !!selectedRows?.some(
                 (f) => f == rowOriginalIndex
               );
@@ -2474,11 +2487,16 @@ export const TableView = (props: { superstate: Superstate }) => {
                 <React.Fragment key={row.id}>
                 <TableBodyRow
                   rowId={rowOriginalIndex}
-                  className={classNames(rowSelected && "mk-active")}
+                  className={classNames(
+                    rowSelected && "mk-active",
+                    // Notion-like group band: mark the header row so CSS can lift
+                    // it into a distinct island, set apart from data rows.
+                    isGroupHeader && "mk-row-group-header"
+                  )}
                   draggingOver={overId == rowDndId(rowOriginalIndex)}
                   onContextMenu={(e) => {
-                    // Skip context menu for group header rows (they don't have _index)
-                    if (rowOriginalIndex === undefined) {
+                    // Group headers are not data rows: no row context menu.
+                    if (isGroupHeader || rowOriginalIndex === undefined) {
                       return;
                     }
                     const rowIndex = parseInt(rowOriginalIndex);
@@ -2544,6 +2562,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                     <td
                       className={classNames(
                         "mk-row-gutter",
+                        // The group-header band's gutter cell is part of the island,
+                        // not a data-row line: drop the divider, share the band.
+                        isGroupHeader && "mk-row-gutter-group",
                         frozenColumnCount > 0 && "mk-frozen-row-gutter"
                       )}
                       style={propertyHeaderColumnWidthStyle(rowGutterWidth)}
@@ -2551,28 +2572,38 @@ export const TableView = (props: { superstate: Superstate }) => {
                   )}
                   {row.getVisibleCells().map((cell, i) =>
                     cell.getIsGrouped() ? (
-                      // If it's a grouped cell, add an expander and row count
+                      // Notion-like group band (Notidian-brlx): a distinct island
+                      // header — collapse caret, the group value, and a count badge
+                      // — clearly set apart from data rows. NOT a plain row line.
                       <td
                         key={i}
                         className="mk-td-group"
                         colSpan={cols.length + (readMode ? 0 : 1)}
                       >
-                        <div
-                          {...{
-                            onClick: row.getToggleExpandedHandler(),
-                            style: {
-                              display: "flex",
-                              alignItems: "center",
-                              cursor: "normal",
-                            },
-                          }}
+                        <button
+                          type="button"
+                          className="mk-group-header"
+                          aria-expanded={row.getIsExpanded()}
+                          onClick={row.getToggleExpandedHandler()}
                         >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}{" "}
-                          ({row.subRows.length})
-                        </div>
+                          <span
+                            className={classNames(
+                              "mk-group-header-caret",
+                              row.getIsExpanded() &&
+                                "mk-group-header-caret-open"
+                            )}
+                            aria-hidden="true"
+                          ></span>
+                          <span className="mk-group-header-label">
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext()
+                            )}
+                          </span>
+                          <span className="mk-group-header-count">
+                            {row.subRows.length}
+                          </span>
+                        </button>
                       </td>
                     ) : cell.getIsAggregated() ? (
                       // If the cell is aggregated, use the Aggregated
