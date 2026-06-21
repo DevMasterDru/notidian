@@ -59,6 +59,7 @@ import {
   scopeRowsByFilter,
 } from "core/utils/contexts/tableRowTree";
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
+import { resolveSubItemsCol } from "core/utils/contexts/subItemsResolve";
 import { serializeOptionValue } from "core/utils/serializer";
 import { tagSpacePathFromTag } from "core/utils/strings";
 import _, { isEqual } from "lodash";
@@ -830,11 +831,17 @@ export const ContextEditorProvider: React.FC<
   // Sub-items (Notidian-pv4): the parent-link column the tree follows, if the
   // view configured one and it still exists. Resolved to the live column so the
   // data key (col.name) and link resolver match the relations/rollup runtime.
-  const subItemsCol = useMemo(() => {
-    const field = predicate?.subItems?.field;
-    if (!field) return null;
-    return cols.find((c) => c.name + c.table == field) ?? null;
-  }, [predicate?.subItems?.field, cols]);
+  const subItemsCol = useMemo(
+    // CONSUMPTION GATE (bd Notidian-8k9b): resolve to null off the primary files
+    // schema so a stale `subItems.field` persisted by the pre-fix ungated
+    // designate path can never render a dead flat tree, an inline
+    // "+ New sub-item" affordance, or a delete subtree off-primary — every
+    // sub-items consumer derives from this one column, so gating here neutralizes
+    // the whole dead surface in one seam (mirrors the syncContextRow
+    // materialization gate).
+    () => resolveSubItemsCol(predicate?.subItems?.field, cols, dbSchema?.id),
+    [predicate?.subItems?.field, cols, dbSchema?.id]
+  );
 
   // The rows fed to the tree, after filter-scope (Notidian-5ond.5). At the
   // default scope this is filteredSortedData verbatim (a NO-OP for existing

@@ -295,7 +295,12 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1 + primary-schema gate Not
       fakeEvent(),
       superstate,
       "Some/Space",
-      "table",
+      // The positional `schema` is the schema id threaded into createSubItemRow;
+      // in production it equals the id readTable resolves (here the primary
+      // "files" schema). It must be "files" — NOT a placeholder — or the
+      // create-path round-trip guard (bd Notidian-8k9b) correctly refuses the
+      // write (the helper re-reads + materializes by THIS id, files-only).
+      "files",
       0,
       undefined,
       undefined,
@@ -317,7 +322,7 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1 + primary-schema gate Not
       fakeEvent(),
       superstate,
       "Some/Space",
-      "table",
+      "files",
       0
     );
     await Promise.resolve();

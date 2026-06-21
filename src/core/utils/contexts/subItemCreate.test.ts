@@ -219,4 +219,32 @@ describe("createSubItemRow (ADR 0050, one-way)", () => {
     expect(result).toBeNull();
     expect(saveFrontmatterProperties).not.toHaveBeenCalled();
   });
+
+  // bd Notidian-8k9b: off the primary files schema the parent link never
+  // materializes into the row (filesystemAdapter syncContextRow runs only for
+  // schema == defaultContextSchemaID), so a created child would be an orphaned
+  // non-nesting dead write. The single shared create path must refuse it
+  // regardless of how it is reached (row menu or inline "+").
+  it.each([
+    ["custom db table", "custom-db"],
+    ["empty schema", ""],
+    ["another view id", "MyView"],
+  ])(
+    "returns null and writes NOTHING off the primary schema: %s",
+    async (_label, schema) => {
+      const superstate = makeSuperstate();
+      // Even with parentPath supplied (the inline "+" path, which skips the
+      // table re-read), nothing is created or written off-primary.
+      const result = await createSubItemRow({
+        superstate,
+        contextPath: "Folder",
+        schema,
+        subItemsField: "parent",
+        parentPath: "Folder/Other Parent.md",
+      });
+      expect(result).toBeNull();
+      expect(newPathInSpace).not.toHaveBeenCalled();
+      expect(saveFrontmatterProperties).not.toHaveBeenCalled();
+    }
+  );
 });

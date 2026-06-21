@@ -2,6 +2,7 @@ import { newPathInSpace } from "core/superstate/utils/spaces";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { Superstate } from "makemd-core";
 import { PathPropertyName } from "shared/types/context";
+import { subItemsSchemaCanRoundTrip } from "core/utils/contexts/subItemsResolve";
 
 // The SINGLE source of sub-item creation write semantics (ADR 0050, one-way /
 // ADR 0024 B1). Shared by the row context-menu "Add sub-item" action and the
@@ -33,6 +34,20 @@ export const createSubItemRow = async ({
   parentPath?: string;
 }): Promise<string | null> => {
   if (!subItemsField) return null;
+  // Write-path schema guard (bd Notidian-8k9b): the child's parent link only
+  // materializes back into the parent's row for the primary files schema
+  // (filesystemAdapter syncContextRow). On any other schema the link is written
+  // to the canonical .md store but never round-trips into the rendered tree — a
+  // silent dead write that produces an orphaned non-nesting child. Refuse it at
+  // the single shared create path so no surface (row menu, inline "+") can ever
+  // create one off-primary, even if a stale predicate slips past the render gate.
+  if (!subItemsSchemaCanRoundTrip(schema)) {
+    console.warn(
+      "Add sub-item: schema cannot round-trip a parent link, skipping create",
+      schema
+    );
+    return null;
+  }
   let parentPath = parentPathArg;
   if (!parentPath) {
     const freshContext = await superstate.spaceManager.readTable(
