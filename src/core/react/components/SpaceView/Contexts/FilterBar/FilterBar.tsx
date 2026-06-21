@@ -698,6 +698,20 @@ export const FilterBar = (props: {
         });
       },
     });
+    // Sub-items, whole surface (bd Notidian-8k9b): gated to the PRIMARY files
+    // schema. The tree only forms when each child's parent link materializes into
+    // its row, and that materialization (filesystemAdapter syncContextRow) runs
+    // ONLY for schema == defaultContextSchemaID. On a non-files/custom db table no
+    // parent link is ever written back, so designating a column (or reusing an
+    // existing eligible one) would set predicate.subItems.field and render the
+    // chevron/indent/+Add affordance while the tree stays permanently flat — a
+    // silent dead feature. We therefore hide the entire Sub-items block off-primary
+    // (the entry AND its display/scope/collapse/repair/add-children dependents),
+    // not just the "Turn on sub-items" create option — mirroring the offerCreate
+    // gate and the row-menu "Add sub-item" gate (rowContextMenu.tsx). Hiding the
+    // whole entry (vs. a dead-end "None") avoids both an empty submenu and an
+    // orphaned active config surfacing display/scope submenus where it can't work.
+    if (dbSchema?.id == defaultContextSchemaID) {
     menuOptions.push({
       name: "Sub-items",
       icon: "ui//rows",
@@ -727,18 +741,14 @@ export const FilterBar = (props: {
         // action. DEFAULT-ON / KILL-SWITCH: settings.subItemsSetup === false
         // restores the byte-for-byte legacy submenu.
         //
-        // Gated to the PRIMARY files schema: the created link column only
-        // round-trips there. saveColumn frontmatter-materializes a primary-table
-        // column via syncAllProperties only when dbSchema.id ==
-        // defaultContextSchemaID; on a non-files db table the child's parent
-        // link is never materialized into the row, so the tree would stay
-        // permanently flat — exactly the dead-end this feature removes. Offering
-        // create only on files keeps the promise honest. (Designating an
-        // existing eligible column stays available on any schema, unchanged.)
+        // The primary-files-schema gate now lives on the whole Sub-items block
+        // above (bd Notidian-8k9b) — the created link column, and equally any
+        // reused/designated eligible column, only round-trips when saveColumn
+        // frontmatter-materializes the row's parent link, which happens solely on
+        // dbSchema.id == defaultContextSchemaID. So offerCreate no longer repeats
+        // the schema check: it is only reached on the primary schema.
         const offerCreate =
-          props.superstate.settings.subItemsSetup &&
-          eligible.length === 0 &&
-          dbSchema?.id == defaultContextSchemaID;
+          props.superstate.settings.subItemsSetup && eligible.length === 0;
         props.superstate.ui.openMenu(
           offset,
           {
@@ -941,6 +951,7 @@ export const FilterBar = (props: {
         });
       }
     }
+    } // end primary-files-schema gate for the Sub-items block (bd Notidian-8k9b)
     menuOptions.push({
       name: "Import from CSV",
       icon: "ui//upload",

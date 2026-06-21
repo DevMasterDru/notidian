@@ -208,6 +208,8 @@ const { newPathInSpace } = require("core/superstate/utils/spaces");
 const {
   saveFrontmatterProperties,
 } = require("core/utils/properties/frontmatterWrite");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { showPathContextMenu } = require("../navigator/pathContextMenu");
 
 const PARENT_PATH = "Some/Space/Parent.md";
 const CHILD_PATH = "Some/Space/Untitled.md";
@@ -233,36 +235,61 @@ const fakeEvent = (): any => {
   };
 };
 
-describe("showRowContextMenu Add sub-item (ADR 0024 B1)", () => {
+describe("showRowContextMenu Add sub-item (ADR 0024 B1 + primary-schema gate Notidian-8k9b)", () => {
   let openedMenus: any[];
   let superstate: any;
+
+  // The "Add sub-item" action only round-trips on the PRIMARY files schema
+  // (frontmatter materialization is files-only), so the action is now gated there
+  // (bd Notidian-8k9b). The primary folder row short-circuits to the (mocked)
+  // showPathContextMenu, which receives the action as its extraOptions arg (index
+  // 7), NOT the bottom MDB openMenu. We capture that to assert the action and
+  // exercise its one-way create contract.
+  const primaryFilesSchema = {
+    id: "files",
+    name: "Files",
+    type: "db",
+    primary: "true",
+  };
+  const nonPrimarySchema = {
+    id: "t",
+    name: "Table",
+    type: "db",
+    primary: "false",
+  };
+
+  const makeSuper = (schema: any) => ({
+    ui: {
+      openMenu: (_rect: any, menu: any) => {
+        openedMenus.push(menu);
+        return { update: () => {}, hide: () => {} };
+      },
+    },
+    spaceManager: {
+      readTable: async () => ({
+        schema,
+        // PathPropertyName ("File") drives the primary short-circuit branch.
+        rows: [{ File: PARENT_PATH }],
+      }),
+    },
+    spacesIndex: new Map([
+      ["Some/Space", { path: "Some/Space", name: "Space", type: "folder" }],
+    ]),
+    pathsIndex: new Map(),
+  });
 
   beforeEach(() => {
     newPathInSpace.mockReset();
     newPathInSpace.mockResolvedValue(CHILD_PATH);
     saveFrontmatterProperties.mockReset();
     saveFrontmatterProperties.mockResolvedValue({ ok: true });
+    showPathContextMenu.mockReset();
     openedMenus = [];
-    superstate = {
-      ui: {
-        openMenu: (_rect: any, menu: any) => {
-          openedMenus.push(menu);
-          return { update: () => {}, hide: () => {} };
-        },
-      },
-      spaceManager: {
-        readTable: async () => ({
-          schema: { id: "t", name: "Table", type: "db", primary: "false" },
-          rows: [{ File: PARENT_PATH }],
-        }),
-      },
-      spacesIndex: new Map([
-        ["Some/Space", { path: "Some/Space", name: "Space", type: "folder" }],
-      ]),
-      pathsIndex: new Map(),
-    };
+    superstate = makeSuper(primaryFilesSchema);
   });
 
+  // On the primary files schema the action is injected as showPathContextMenu's
+  // extraOptions (arg index 7); pull the plus-icon option from there.
   const addSubItemOption = async () => {
     await showRowContextMenu(
       fakeEvent(),
@@ -275,16 +302,17 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1)", () => {
       "parent"
     );
     await Promise.resolve();
-    const options = openedMenus[openedMenus.length - 1]?.options ?? [];
-    // "Add sub-item" is the only option with the plus icon.
-    return options.find((o: any) => o && o.icon === "ui//plus");
+    const lastCall =
+      showPathContextMenu.mock.calls[showPathContextMenu.mock.calls.length - 1];
+    const extraOptions = (lastCall?.[7] ?? []) as any[];
+    return extraOptions.find((o: any) => o && o.icon === "ui//plus");
   };
 
-  it("offers an Add sub-item option only when subItemsField is set", async () => {
+  it("primary files schema: offers an Add sub-item option only when subItemsField is set", async () => {
     expect(await addSubItemOption()).toBeTruthy();
 
-    // Without the field, no plus option is added.
-    openedMenus = [];
+    // Without the field, no plus option is injected.
+    showPathContextMenu.mockReset();
     await showRowContextMenu(
       fakeEvent(),
       superstate,
@@ -293,8 +321,37 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1)", () => {
       0
     );
     await Promise.resolve();
+    const lastCall =
+      showPathContextMenu.mock.calls[showPathContextMenu.mock.calls.length - 1];
+    const extraOptions = (lastCall?.[7] ?? undefined) as any[] | undefined;
+    expect(
+      (extraOptions ?? []).find((o: any) => o && o.icon === "ui//plus")
+    ).toBeFalsy();
+  });
+
+  it("non-primary schema: Add sub-item is SUPPRESSED even with subItemsField set (can't round-trip) — Notidian-8k9b", async () => {
+    superstate = makeSuper(nonPrimarySchema);
+    openedMenus = [];
+    await showRowContextMenu(
+      fakeEvent(),
+      superstate,
+      "Some/Space",
+      "table",
+      0,
+      undefined,
+      undefined,
+      "parent"
+    );
+    await Promise.resolve();
+    // Non-primary rows land in the bottom MDB openMenu (not the path menu); the
+    // plus option must be absent there because the gate nulled subItemOption.
     const options = openedMenus[openedMenus.length - 1]?.options ?? [];
     expect(options.find((o: any) => o && o.icon === "ui//plus")).toBeFalsy();
+    // And it is never injected into the path menu either.
+    for (const call of showPathContextMenu.mock.calls) {
+      const extra = (call?.[7] ?? []) as any[];
+      expect(extra.find((o: any) => o && o.icon === "ui//plus")).toBeFalsy();
+    }
   });
 
   it("creates a child and writes ONLY the child's parent link (parent untouched)", async () => {

@@ -8,6 +8,7 @@ import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React from "react";
 import { PathPropertyName } from "shared/types/context";
+import { defaultContextSchemaID } from "shared/schemas/context";
 import { Rect } from "shared/types/Pos";
 import { windowFromDocument } from "shared/utils/dom";
 import { defaultMenu } from "../menu/SelectionMenu";
@@ -92,7 +93,15 @@ export const showRowContextMenu = async (
   // primary folder menu (below) and the MDB row menu. It re-reads the table for
   // a fresh parent row, creates a child in the same space (mirroring newRow),
   // and writes ONLY the child's parent link — the parent's file is never touched.
-  const subItemOption: SelectOption | null = subItemsField
+  //
+  // Gated to the PRIMARY files schema (bd Notidian-8k9b): the child's parent link
+  // only materializes into row[name] for schema == defaultContextSchemaID
+  // (filesystemAdapter syncContextRow). On a non-files/custom db table the link is
+  // never written back, so "Add sub-item" would create a child that silently never
+  // nests — a dead affordance. Gating on dbSchema mirrors the FilterBar Sub-items
+  // gate so the create surface is only offered where it can round-trip.
+  const subItemOption: SelectOption | null =
+    subItemsField && dbSchema?.id == defaultContextSchemaID
     ? {
         name: i18n.menu.addSubItem,
         icon: "ui//plus",

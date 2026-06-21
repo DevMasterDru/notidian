@@ -232,10 +232,15 @@ const openViewOptionsMenu = async (): Promise<any[]> => {
   return openMenuCalls[openMenuCalls.length - 1].props.options ?? [];
 };
 
+// Locate the "Sub-items" disclosure entry in the view-options menu, or undefined
+// when the whole sub-items surface is gated off (bd Notidian-8k9b).
+const findSubItemsEntry = (options: any[]): any =>
+  options.find((o: any) => o.name === "Sub-items");
+
 // Invoke the "Sub-items" disclosure option's onClick and return the submenu
 // props handed to the NEXT openMenu call.
 const openSubItemsSubmenu = (options: any[]): any => {
-  const subItemsOption = options.find((o: any) => o.name === "Sub-items");
+  const subItemsOption = findSubItemsEntry(options);
   expect(subItemsOption).toBeTruthy();
   openMenuCalls.length = 0;
   act(() => {
@@ -302,18 +307,63 @@ describe("FilterBar sub-items front-door (Notidian-xqxc)", () => {
     expect(names).toContain("Parent");
   });
 
-  it("non-primary (non-files) schema: the create option is NOT offered — it can't round-trip there", async () => {
+  it("non-primary (non-files) schema: the whole Sub-items entry is hidden — no dead-end 'None'", async () => {
     mount({
       subItemsSetup: true,
       cols: plainCols,
       dbSchema: { id: "customTable", name: "Custom", type: "db", primary: "" },
     });
-    const submenu = openSubItemsSubmenu(await openViewOptionsMenu());
+    // bd Notidian-8k9b: gated to the primary files schema (frontmatter
+    // materialization is files-only), so on a custom db table the entire
+    // Sub-items surface — entry AND submenu — must be absent, not a dead-end
+    // [None] that can never round-trip.
+    const entry = findSubItemsEntry(await openViewOptionsMenu());
+    expect(entry).toBeUndefined();
+  });
+});
 
+// The designate/reuse path is the bug surface of bd Notidian-8k9b: even when an
+// eligible self-relation column EXISTS, designating it on a non-primary schema
+// sets predicate.subItems.field while the child's parent link never materializes
+// (filesystemAdapter syncContextRow is files-only) — a silent dead feature.
+// These tests pin BOTH directions: suppressed off-primary, present on primary.
+describe("FilterBar sub-items designate/reuse gate (Notidian-8k9b)", () => {
+  it("non-primary schema + eligible column present: the Sub-items entry (and its designate options) are SUPPRESSED", async () => {
+    mount({
+      subItemsSetup: true,
+      cols: [...plainCols, linkCol],
+      dbSchema: { id: "customTable", name: "Custom", type: "db", primary: "" },
+    });
+    // Even with a designatable self-relation column, the whole entry is gone off
+    // the primary files schema — so the eligible column can never be designated.
+    const entry = findSubItemsEntry(await openViewOptionsMenu());
+    expect(entry).toBeUndefined();
+  });
+
+  it("non-primary schema with kill-switch OFF + eligible present: still SUPPRESSED (gate is schema, not flag)", async () => {
+    mount({
+      subItemsSetup: false,
+      cols: [...plainCols, linkCol],
+      dbSchema: { id: "customTable", name: "Custom", type: "db", primary: "" },
+    });
+    // The primary-schema gate is independent of the front-door kill-switch: the
+    // legacy reuse submenu must ALSO be hidden off-primary.
+    const entry = findSubItemsEntry(await openViewOptionsMenu());
+    expect(entry).toBeUndefined();
+  });
+
+  it("primary files schema + eligible column present: the Sub-items entry IS present and offers the eligible column for designation", async () => {
+    mount({
+      subItemsSetup: true,
+      cols: [...plainCols, linkCol],
+      dbSchema: { id: "files", name: "Files", type: "db", primary: "true" },
+    });
+    const entry = findSubItemsEntry(await openViewOptionsMenu());
+    expect(entry).toBeTruthy();
+    const submenu = openSubItemsSubmenu(await openViewOptionsMenu());
     const names = submenu.options.map((o: any) => o.name);
-    // Gated to the primary files schema (frontmatter materialization is
-    // files-only), so on a custom db table the front-door must stay hidden.
-    expect(names).not.toContain(i18n.menu.turnOnSubItems);
-    expect(names).toEqual([i18n.menu.none]);
+    // Designation of the eligible self-relation column survives on the primary
+    // schema (where it round-trips) — the gate must not regress the happy path.
+    expect(names).toContain("Parent");
   });
 });
