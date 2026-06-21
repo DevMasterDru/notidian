@@ -8,6 +8,7 @@ import React, {
 import { Sticker } from "shared/types/ui";
 import { escapeHtml, sanitizeIconSVG } from "shared/utils/sanitize";
 import { emojiFromString } from "shared/utils/stickers";
+import { stickerMatchesQuery } from "shared/utils/stickerSearch";
 import { default as i18n } from "shared/i18n";
 import { IUIManager as UIManager } from "../types/uiManager";
 
@@ -75,7 +76,9 @@ const StickerModal: React.FC<StickerModalProps> = (props) => {
       allStickers
         .filter(
           (f) =>
-            f.name.includes(query.toLowerCase()) &&
+            // Notidian-s718: match name AND the synonym keyword index, not just
+            // the first display name, so "voltage" finds the high-voltage glyph.
+            stickerMatchesQuery(f, query) &&
             (selectedCategory == null || f.type == selectedCategory)
         )
         .slice(0, page * 250)

@@ -15,6 +15,7 @@ import { Pos, Rect } from "shared/types/Pos";
 import { EmojiData } from "shared/types/emojis";
 import { TargetLocation } from "shared/types/path";
 import { openPathInElement } from "shared/utils/openPathInElement";
+import { buildStickerKeywords } from "shared/utils/stickerSearch";
 import { getParentPathFromString } from "utils/path";
 import { urlRegex } from "utils/regex";
 
@@ -246,7 +247,8 @@ export class ObsidianUI implements UIAdapter {
     const allLucide: Sticker[] = lucideIcons.map((f) => ({
       name: f,
       type: "lucide",
-      keywords: f,
+      // Notidian-s718: widen the search index so e.g. "voltage" finds `zap`.
+      keywords: buildStickerKeywords([f]),
       value: f,
       html: getIcon(f).outerHTML,
     }));
@@ -356,6 +358,10 @@ export class ObsidianUI implements UIAdapter {
         ...emojis[c].map((e) => ({
           type: "emoji",
           name: e.n[0],
+          // Notidian-s718: index ALL aliases + synonyms (was only e.n[0]) so a
+          // search for "voltage"/"bolt"/"lightning"/"power"/"electric" surfaces
+          // the high-voltage emoji (⚡).
+          keywords: buildStickerKeywords(e.n),
           value: e.u,
           html: e.u,
         })),
