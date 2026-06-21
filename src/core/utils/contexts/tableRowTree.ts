@@ -24,6 +24,34 @@ export type RowTreeNode = {
   surfacedAsRoot: boolean;
 };
 
+// Shared parent-relation resolution (Notidian-5ond.5): the EXACT byPath +
+// parentPathOf logic buildRowTree nests by, factored out so scopeRowsByFilter
+// reasons over the SAME ancestry / orphan / cycle resolution — the two can never
+// diverge. A row's parent is the first parsed link that resolveLink-canonicalizes
+// to an in-set, non-self path (else null = root/orphan).
+const resolveParentMap = (
+  rows: Record<string, any>[],
+  parentKey: string,
+  pathKey: string,
+  resolveLink?: (link: string, sourcePath: string) => string
+) => {
+  const pathOf = (row: Record<string, any>) => String(row[pathKey] ?? "");
+  const byPath = new Map<string, Record<string, any>>();
+  for (const row of rows) {
+    const path = pathOf(row);
+    if (path && !byPath.has(path)) byPath.set(path, row);
+  }
+  const parentPathOf = (row: Record<string, any>): string | null => {
+    const self = pathOf(row);
+    for (const link of parseRelationLinks(row[parentKey])) {
+      const parent = resolveLink ? resolveLink(link, self) : link;
+      if (parent != self && byPath.has(parent)) return parent;
+    }
+    return null;
+  };
+  return { pathOf, byPath, parentPathOf };
+};
+
 export const buildRowTree = (params: {
   rows: Record<string, any>[];
   parentKey: string;
@@ -36,24 +64,13 @@ export const buildRowTree = (params: {
   resolveLink?: (link: string, sourcePath: string) => string;
 }): RowTreeNode[] => {
   const { rows, parentKey, pathKey, resolveLink } = params;
-  const pathOf = (row: Record<string, any>) => String(row[pathKey] ?? "");
-
-  const byPath = new Map<string, Record<string, any>>();
-  for (const row of rows) {
-    const path = pathOf(row);
-    if (path && !byPath.has(path)) byPath.set(path, row);
-  }
-
-  const parentPathOf = (row: Record<string, any>): string | null => {
-    const self = pathOf(row);
-    // First link that resolves to another row in the set (so a stale/missing
-    // first link does not orphan a row that also links a valid parent).
-    for (const link of parseRelationLinks(row[parentKey])) {
-      const parent = resolveLink ? resolveLink(link, self) : link;
-      if (parent != self && byPath.has(parent)) return parent;
-    }
-    return null;
-  };
+  // Shared resolution so the tree and scopeRowsByFilter never diverge.
+  const { pathOf, parentPathOf } = resolveParentMap(
+    rows,
+    parentKey,
+    pathKey,
+    resolveLink
+  );
 
   const childrenOf = new Map<string, Record<string, any>[]>();
   const roots: Record<string, any>[] = [];
@@ -120,6 +137,82 @@ export const flattenVisibleTree = (
     }
   }
   return visible;
+};
+
+// Sub-item filter-visibility scope (Notidian-5ond.5): given the per-row filter
+// `matches` predicate + the hierarchy, return the SUBSET of `rows` (input order
+// preserved) that survives into buildRowTree, per the scope:
+//   - "parentsAndSubItems" (default == today): keep rows that match — each judged
+//     on its own (no hierarchy awareness).
+//   - "parents": keep matches PLUS their ANCESTORS (a matching row keeps its
+//     parent chain visible — e.g. filter status=done on sub-tasks, still see the
+//     parent task). Grows UPWARD from the match set.
+//   - "subItems": keep matches PLUS their DESCENDANTS (a matching parent reveals
+//     its whole subtree — e.g. filter project=Atlas on parents, see all sub-items).
+//     Grows DOWNWARD. The mirror of "parents".
+// Default == parents ∩ subItems. Empty filter (matches all) => everything visible
+// for every scope. Uses the SAME parent resolution as buildRowTree (shared map),
+// with visited guards so cycles terminate.
+export const scopeRowsByFilter = (params: {
+  rows: Record<string, any>[];
+  matches: (row: Record<string, any>) => boolean;
+  parentKey: string;
+  pathKey: string;
+  resolveLink?: (link: string, sourcePath: string) => string;
+  scope: import("shared/types/predicate").SubItemsFilterScope;
+}): Record<string, any>[] => {
+  const { rows, matches, parentKey, pathKey, resolveLink, scope } = params;
+  // Fast path: default is today's per-row filter (NOT unfiltered).
+  if (scope === "parentsAndSubItems") return rows.filter(matches);
+
+  const { pathOf, parentPathOf } = resolveParentMap(
+    rows,
+    parentKey,
+    pathKey,
+    resolveLink
+  );
+  const parentOf = new Map<string, string | null>();
+  const childrenOf = new Map<string, string[]>();
+  for (const row of rows) {
+    const p = pathOf(row);
+    const par = parentPathOf(row);
+    parentOf.set(p, par);
+    if (par) {
+      if (!childrenOf.has(par)) childrenOf.set(par, []);
+      childrenOf.get(par).push(p);
+    }
+  }
+  const matchSet = new Set<string>();
+  for (const row of rows) if (matches(row)) matchSet.add(pathOf(row));
+
+  const keep = new Set<string>(matchSet);
+  if (scope === "parents") {
+    // Each match pulls in its ancestor spine (walk UP, cycle-guarded).
+    for (const start of matchSet) {
+      const walked = new Set<string>();
+      let cur = parentOf.get(start) ?? null;
+      while (cur && !walked.has(cur)) {
+        walked.add(cur);
+        keep.add(cur);
+        cur = parentOf.get(cur) ?? null;
+      }
+    }
+  } else {
+    // "subItems": each match pulls in its whole descendant subtree (walk DOWN).
+    const stack = [...matchSet];
+    const seen = new Set<string>(matchSet);
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const child of childrenOf.get(cur) ?? []) {
+        if (!seen.has(child)) {
+          seen.add(child);
+          keep.add(child);
+          stack.push(child);
+        }
+      }
+    }
+  }
+  return rows.filter((r) => keep.has(pathOf(r)));
 };
 
 // Total descendant count per root, for the "parents-only" display mode

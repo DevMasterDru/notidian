@@ -55,6 +55,7 @@ import {
   SubItemAddRow,
   nextCollapsedPaths,
   rootDescendantCounts,
+  scopeRowsByFilter,
 } from "core/utils/contexts/tableRowTree";
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -745,43 +746,54 @@ export const ContextEditorProvider: React.FC<
           (predicate?.colsOrder ?? []).findIndex((x) => x == b.name + b.table)
       );
   }, [cols, predicate]);
-  const filteredSortedData = useMemo(() => {
-    return data
-      .filter((f) => {
-        return (predicate?.filters ?? []).reduce((p, c) => {
-          const row = cols.some(
-            (f) =>
-              f.schemaId == defaultContextSchemaID &&
-              f.name.toLowerCase() == "tags"
-          )
-            ? {
-                ...f,
-                [f.name]: (
-                  spaceManager.getPathState(f[PathPropertyName])?.tags ?? []
-                ).join(", "),
-              }
-            : f;
-          return p
-            ? filterReturnForCol(
-                cols.find((col) => col.name + col.table == c.field),
-                c,
-                row,
-                spaceCache.properties
-              )
-            : p;
-        }, true);
-      })
-      .filter((f) =>
-        searchString?.length > 0
-          ? matchAny(searchString).test(
-              Object.keys(f)
-                .filter((g) => g.charAt(0) != "_")
-                .map((g) => f[g])
-                .join("|")
+  // Per-row predicate-filter match (Notidian-5ond.5): hoisted VERBATIM from the
+  // old filteredSortedData so the flat path AND the hierarchy-aware scope seam
+  // share the EXACT same match (including the tags-synthesis shim).
+  const rowMatchesFilters = useMemo(
+    () => (f: DBRow) =>
+      (predicate?.filters ?? []).reduce((p, c) => {
+        const row = cols.some(
+          (f) =>
+            f.schemaId == defaultContextSchemaID &&
+            f.name.toLowerCase() == "tags"
+        )
+          ? {
+              ...f,
+              [f.name]: (
+                spaceManager.getPathState(f[PathPropertyName])?.tags ?? []
+              ).join(", "),
+            }
+          : f;
+        return p
+          ? filterReturnForCol(
+              cols.find((col) => col.name + col.table == c.field),
+              c,
+              row,
+              spaceCache.properties
             )
-          : true
-      )
-      .sort((a, b) => {
+          : p;
+      }, true),
+    [predicate?.filters, cols, spaceManager, spaceCache.properties]
+  );
+  const rowMatchesSearch = useMemo(
+    () => (f: DBRow) =>
+      searchString?.length > 0
+        ? matchAny(searchString).test(
+            Object.keys(f)
+              .filter((g) => g.charAt(0) != "_")
+              .map((g) => f[g])
+              .join("|")
+          )
+        : true,
+    [searchString]
+  );
+  // Search + sort applied to ALL rows, predicate-filter OMITTED — the candidate
+  // universe the scope seam closes over. The hierarchy-aware scopes need to see
+  // non-matching rows (a parent kept because a child matched), so search runs
+  // BEFORE scope but the predicate filter does not.
+  const sortedAllData = useMemo(
+    () =>
+      data.filter(rowMatchesSearch).sort((a, b) => {
         return (predicate?.sort ?? []).reduce((p, c) => {
           return p == 0
             ? sortReturnForCol(
@@ -792,8 +804,15 @@ export const ContextEditorProvider: React.FC<
               )
             : p;
         }, 0);
-      });
-  }, [predicate, data, cols, searchString]);
+      }),
+    [data, rowMatchesSearch, predicate?.sort, cols]
+  );
+  // The flat path's data — byte-identical to before (Array.filter preserves the
+  // sorted order): the predicate-passing rows in sort order.
+  const filteredSortedData = useMemo(
+    () => sortedAllData.filter(rowMatchesFilters),
+    [sortedAllData, rowMatchesFilters]
+  );
 
   // Sub-items (Notidian-pv4): the parent-link column the tree follows, if the
   // view configured one and it still exists. Resolved to the live column so the
@@ -804,12 +823,42 @@ export const ContextEditorProvider: React.FC<
     return cols.find((c) => c.name + c.table == field) ?? null;
   }, [predicate?.subItems?.field, cols]);
 
+  // The rows fed to the tree, after filter-scope (Notidian-5ond.5). At the
+  // default scope this is filteredSortedData verbatim (a NO-OP for existing
+  // views); the hierarchy-aware scopes close over sortedAllData (search+sort,
+  // predicate-filter not yet applied) so a non-matching parent/child can be
+  // pulled in. flattened mode never builds the tree, so scope is inert there.
+  const scopedTreeRows = useMemo(() => {
+    if (!subItemsCol) return null;
+    // Flattened renders flat (no tree), so skip the scope + tree machinery
+    // entirely — the flat path uses filteredSortedData (review nit).
+    if ((predicate?.subItems?.display ?? "nested") === "flattened") return null;
+    const scope = predicate?.subItems?.filterScope ?? "parentsAndSubItems";
+    if (scope === "parentsAndSubItems") return filteredSortedData;
+    return scopeRowsByFilter({
+      rows: sortedAllData,
+      matches: rowMatchesFilters,
+      parentKey: subItemsCol.name + subItemsCol.table,
+      pathKey: PathPropertyName,
+      resolveLink: makeRelationLinkResolver(props.superstate),
+      scope,
+    });
+  }, [
+    subItemsCol,
+    predicate?.subItems?.filterScope,
+    predicate?.subItems?.display,
+    filteredSortedData,
+    sortedAllData,
+    rowMatchesFilters,
+    props.superstate,
+  ]);
+
   // The full depth-first tree (collapse-independent), so collapse-all can target
   // EVERY parent — even ones currently hidden under a collapsed ancestor.
   const subItemsFullTree = useMemo(() => {
-    if (!subItemsCol) return null;
+    if (!subItemsCol || !scopedTreeRows) return null;
     return buildRowTree({
-      rows: filteredSortedData,
+      rows: scopedTreeRows,
       // Row data keys context-table columns as name+table (primary cols use
       // name, since their table is ""), so the universal accessor is name+table.
       parentKey: subItemsCol.name + subItemsCol.table,
@@ -818,7 +867,7 @@ export const ContextEditorProvider: React.FC<
       // child rows' real paths via the link index, so basename/bare wikilinks match.
       resolveLink: makeRelationLinkResolver(props.superstate),
     });
-  }, [subItemsCol, filteredSortedData, props.superstate]);
+  }, [subItemsCol, scopedTreeRows, props.superstate]);
 
   // Depth-first tree nodes with collapsed subtrees hidden. Null when sub-items is
   // off (the table stays a flat list).

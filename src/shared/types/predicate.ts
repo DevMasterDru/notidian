@@ -72,8 +72,16 @@ export type Filter = {
     // Layout mode (default "nested"). "flattened" bypasses tree ordering so the
     // global sort wins; "parents-only" shows roots with descendant counts.
     display?: SubItemsDisplay;
-    // Which rows the view's filters keep relative to the hierarchy (default
-    // "parentsAndSubItems" == today's behavior).
+    // How the view's predicate FILTERS interact with the hierarchy (Notidian-5ond.5):
+    //   "parentsAndSubItems" (default == today): each row judged on its own; only
+    //      matching rows survive (a matched child of a dropped parent surfaces as a root).
+    //   "parents": keep matches PLUS their ANCESTORS (a matching row keeps its
+    //      parent chain — e.g. filter status=done on sub-tasks, still see the parent).
+    //   "subItems": keep matches PLUS their DESCENDANTS (a matching parent reveals
+    //      its whole subtree — e.g. filter project=Atlas on parents, see all sub-items).
+    // default == parents ∩ subItems. SEARCH is applied BEFORE the scope closure
+    // (it narrows the candidate universe row-by-row; a search-excluded parent can't
+    // be pulled back by a matching child). Inert in "flattened" display (no tree).
     filterScope?: SubItemsFilterScope;
     // Resolved row PATHS (PathPropertyName values) of collapsed parents — keyed
     // by path (not column id) so a parent-column rename never strands them.

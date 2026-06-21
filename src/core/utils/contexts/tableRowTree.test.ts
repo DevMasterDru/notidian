@@ -4,6 +4,7 @@ import {
   subItemAddRowsAfter,
   nextCollapsedPaths,
   rootDescendantCounts,
+  scopeRowsByFilter,
 } from "core/utils/contexts/tableRowTree";
 
 const tree = (rows: Record<string, any>[]) =>
@@ -363,5 +364,106 @@ describe("rootDescendantCounts (Notidian-5ond.4 parents-only)", () => {
   });
   it("empty input -> empty map", () => {
     expect(counts([])).toEqual({});
+  });
+});
+
+describe("scopeRowsByFilter (Notidian-5ond.5 filter scopes)", () => {
+  // Tree via bare parent links (identity resolveLink): A(root) > B, D ; B > C.
+  const rows = [
+    { File: "A", parent: "" },
+    { File: "B", parent: "[[A]]" },
+    { File: "C", parent: "[[B]]" },
+    { File: "D", parent: "[[A]]" },
+  ];
+  const scope = (
+    s: any,
+    matchFiles: string[]
+  ): string[] => {
+    const set = new Set(matchFiles);
+    return scopeRowsByFilter({
+      rows,
+      matches: (r) => set.has(r.File),
+      parentKey: "parent",
+      pathKey: "File",
+      scope: s,
+    }).map((r) => r.File);
+  };
+
+  it("parentsAndSubItems == today: exactly the matching rows, input order", () => {
+    expect(scope("parentsAndSubItems", ["B", "D"])).toEqual(["B", "D"]);
+    expect(scope("parentsAndSubItems", [])).toEqual([]);
+  });
+
+  it("empty filter (everything matches) -> all rows unchanged, every scope", () => {
+    const all = ["A", "B", "C", "D"];
+    for (const s of ["parentsAndSubItems", "parents", "subItems"] as const) {
+      expect(scope(s, all)).toEqual(all);
+    }
+  });
+
+  it("parents: a match keeps its ANCESTOR spine (B -> {A,B})", () => {
+    expect(scope("parents", ["B"])).toEqual(["A", "B"]); // input order
+  });
+
+  it("parents: deep match pulls the full ancestor chain (C -> {A,B,C})", () => {
+    expect(scope("parents", ["C"])).toEqual(["A", "B", "C"]);
+  });
+
+  it("parents: a matching parent does NOT pull non-matching children (A -> {A})", () => {
+    expect(scope("parents", ["A"])).toEqual(["A"]);
+  });
+
+  it("subItems: a matching parent reveals its whole subtree (B -> {B,C})", () => {
+    expect(scope("subItems", ["B"])).toEqual(["B", "C"]);
+  });
+
+  it("subItems: a matching parent pulls all descendants (A -> {A,B,C,D})", () => {
+    expect(scope("subItems", ["A"])).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("subItems: a deep-only match shows just itself (C -> {C})", () => {
+    expect(scope("subItems", ["C"])).toEqual(["C"]);
+  });
+
+  it("symmetry: default == parents ∩ subItems for match {B}", () => {
+    const p = scope("parents", ["B"]); // {A,B}
+    const s = scope("subItems", ["B"]); // {B,C}
+    const d = scope("parentsAndSubItems", ["B"]); // {B}
+    expect(d).toEqual(p.filter((x) => s.includes(x)));
+  });
+
+  it("resolveLink parity: a bare basename match resolves like buildRowTree", () => {
+    const r2 = [
+      { File: "Tasks/A.md", parent: "" },
+      { File: "Tasks/B.md", parent: "[[A]]" },
+    ];
+    const out = scopeRowsByFilter({
+      rows: r2,
+      matches: (x) => x.File === "Tasks/B.md",
+      parentKey: "parent",
+      pathKey: "File",
+      resolveLink: (link: string) => `Tasks/${link}.md`,
+      scope: "parents",
+    }).map((x) => x.File);
+    expect(out).toEqual(["Tasks/A.md", "Tasks/B.md"]); // parent pulled via resolution
+  });
+
+  it("cycle: P<->Q, match P -> finite output (both scopes terminate)", () => {
+    const cyc = [
+      { File: "P", parent: "[[Q]]" },
+      { File: "Q", parent: "[[P]]" },
+    ];
+    const run = (s: any) =>
+      scopeRowsByFilter({
+        rows: cyc,
+        matches: (r) => r.File === "P",
+        parentKey: "parent",
+        pathKey: "File",
+        scope: s,
+      })
+        .map((r) => r.File)
+        .sort();
+    expect(run("parents")).toEqual(["P", "Q"]);
+    expect(run("subItems")).toEqual(["P", "Q"]);
   });
 });

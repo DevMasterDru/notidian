@@ -840,6 +840,54 @@ export const FilterBar = (props: {
           );
         },
       });
+      // Filter scope (Notidian-5ond.5): how the view's filters interact with the
+      // hierarchy. Inert in flattened mode (no tree to scope), so hide it there.
+      if (displayMode !== "flattened") {
+        const filterScope =
+          predicate.subItems.filterScope ?? "parentsAndSubItems";
+        const scopeLabel: Record<string, string> = {
+          parentsAndSubItems: i18n.menu.subItemsScopeParentsAndSubItems,
+          parents: i18n.menu.subItemsScopeParents,
+          subItems: i18n.menu.subItemsScopeSubItems,
+        };
+        menuOptions.push({
+          name: i18n.menu.subItemsScope,
+          icon: "ui//filter",
+          type: SelectOptionType.Disclosure,
+          value: scopeLabel[filterScope],
+          onClick: (e) => {
+            const offset = e.currentTarget.getBoundingClientRect();
+            props.superstate.ui.openMenu(
+              offset,
+              {
+                ui: props.superstate.ui,
+                multi: false,
+                editable: false,
+                searchable: false,
+                showAll: true,
+                value: [filterScope],
+                options: [
+                  {
+                    name: i18n.menu.subItemsScopeParentsAndSubItems,
+                    value: "parentsAndSubItems",
+                  },
+                  { name: i18n.menu.subItemsScopeParents, value: "parents" },
+                  { name: i18n.menu.subItemsScopeSubItems, value: "subItems" },
+                ],
+                saveOptions: (_: string[], value: string[]) => {
+                  savePredicate({
+                    subItems: {
+                      ...predicate.subItems,
+                      filterScope: value[0] as any,
+                    },
+                  });
+                },
+              },
+              windowFromDocument(e.view.document)
+            );
+          },
+        });
+      }
       menuOptions.push({
         name: i18n.menu.collapseAllSubItems,
         icon: "ui//chevrons-down-up",
