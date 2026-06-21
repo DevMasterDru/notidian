@@ -6,6 +6,7 @@ import {
   tagToTagPath,
   tagPathToTag,
   getAllSubtags,
+  renameTag,
 } from "utils/tags";
 import { Superstate } from "makemd-core";
 
@@ -534,5 +535,228 @@ describe("renameTag recursive rewrite (.replace) under the tightened subtag set"
     const rewritten = subtags.map((s) => s.replace("#foo", "#bar"));
     expect(rewritten).toEqual(["#bar/a"]);
     expect(rewritten).not.toContain("#barbar");
+  });
+});
+
+// ===========================================================================
+// DEPTH (Notidian-ehfz) — renameTag's CASE-FOLD SEAM. The bead the
+// blkq/23bl suites DELIBERATELY EXCLUDED: renameTag drives spaceManager +
+// renameTagSpacePath, so it needs a Superstate. Here we drive the REAL
+// renameTag against a recording fake that faithfully reproduces the two live
+// casing seams, proving the fold makes every comparison agree.
+//
+// THE DEFECT renameTag carries (now fixed by folding `tag` at the top).
+// The source `tag` arrives from spaceState.name:
+//   path.ts renamePathByName -> renameTag(superstate, spaceState.name, newName)
+// and spaceState.name is RAW per-file tag casing:
+//   * fileSystemSpaceInfoFromTag sets `name: tag` VERBATIM (spaceInfo.ts:24)
+//     while `path` is lowercased (line 19), and
+//   * superstate.ts builds tag spaces from per-file `cache.tags` (UN-folded).
+// So `tag` can be MIXED-CASE ('#Foo'). But every adjacent surface is folded:
+//   * readTags() returns a LOWERCASED fold (loadTags ->
+//     Object.keys(getTags()).map(f => f.toLowerCase())), so getAllSubtags
+//     would build prefix '#Foo/' and MISS the lowercased '#foo/bar'
+//     descendants, and
+//   * the recursive `subtag.replace(tag, newTag)` is case-SENSITIVE, so even a
+//     matched descendant could not be rewritten against a mixed-case `tag`.
+// FIX: `const folded = ensureTag(validateName(tag))` at the top, used for
+// getAllSubtags + pathsForTag + the recursive prefix rewrite +
+// renameTagSpacePath — the SAME canonical lowercased form readTags() returns.
+//
+// RECORDING FAKE — reproduces BOTH live seams so the test exercises the real
+// mismatch, not a strawman:
+//   * readTags() returns LOWERCASED tags (the loadTags fold), and
+//   * pathsForTag() is CASE-INSENSITIVE on the incoming tag (the real
+//     getAllFilesForTag/tagExists do `tag.toLowerCase()==findTag.toLowerCase()`).
+// It records every spaceManager.renameTag(path, tag, newTag) tuple and every
+// renameTagSpacePath rename so the exact dispatch is asserted. pathExists
+// returns true so renameTagSpacePath takes its renamePath branch (the common,
+// observable path). onTagRenamed/onPathDeleted/deletePath are no-op sinks.
+// ===========================================================================
+
+type RenameTagCall = { path: string; tag: string; newTag: string };
+type SpacePathRename = { from: string; to: string };
+
+// De-duplicate (tag,newTag) rewrites for assertions. renameTag's recursion is
+// flat-subtree-then-recurse: getAllSubtags returns the WHOLE descendant subtree
+// and renameTag then recurses on each entry, which RE-FETCHES the subtree, so a
+// grandchild at depth d below the renamed root is dispatched d times. This
+// multiplicity PRE-DATES the case-fold fix and is harmless on disk (every
+// redundant pass rewrites the same folded prefix to the same newTag —
+// idempotent). The casing claim under test is "the folded prefix is used at
+// every level", so we assert on the DISTINCT set of rewrites and separately
+// pin (below) that no rewrite ever uses the raw mixed-case prefix. The
+// redundant recursion itself is tracked as a follow-up (Notidian-ehfz notes).
+const distinctRewrites = (calls: RenameTagCall[]): RenameTagCall[] => {
+  const seen = new Set<string>();
+  const out: RenameTagCall[] = [];
+  for (const c of calls) {
+    const key = `${c.path} ${c.tag} ${c.newTag}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+};
+
+const recordingSuperstate = (opts: {
+  // lowercased tags as readTags() would return them
+  readTags: string[];
+  // map: folded(lowercased) tag -> the file paths that carry it
+  pathsByFoldedTag: Record<string, string[]>;
+}) => {
+  const renameTagCalls: RenameTagCall[] = [];
+  const spacePathRenames: SpacePathRename[] = [];
+  const ss = {
+    settings: { spacesFolder: "Spaces" },
+    onTagRenamed: () => {},
+    onPathDeleted: () => {},
+    spaceManager: {
+      readTags: () => opts.readTags,
+      // Mirror the live case-insensitive lookup (getAllFilesForTag/tagExists).
+      pathsForTag: (tag: string) =>
+        opts.pathsByFoldedTag[tag.toLowerCase()] ?? [],
+      renameTag: (path: string, tag: string, newTag: string) => {
+        renameTagCalls.push({ path, tag, newTag });
+      },
+      // renameTagSpacePath path-exists branch + rename recorder.
+      pathExists: async () => true,
+      renamePath: (from: string, to: string) => {
+        spacePathRenames.push({ from, to });
+      },
+      deletePath: () => {},
+    },
+  } as unknown as Superstate;
+  return { ss, renameTagCalls, spacePathRenames };
+};
+
+describe("renameTag — case-fold seam (Notidian-ehfz)", () => {
+  it("folds a MIXED-CASE source tag so it MATCHES the lowercased readTags() descendants", async () => {
+    // The exact failure the fix repairs: source space name is '#Foo' (raw
+    // mixed-case from cache.tags), readTags() returns the LOWERCASED fold, so a
+    // pre-fix getAllSubtags('#Foo') (prefix '#Foo/') matched NOTHING and the
+    // descendant '#foo/bar' was silently left behind on a parent rename.
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: ["#foo", "#foo/bar", "#foo/bar/baz"],
+      pathsByFoldedTag: {
+        "#foo": ["A.md"],
+        "#foo/bar": ["B.md"],
+        "#foo/bar/baz": ["C.md"],
+      },
+    });
+    const result = await renameTag(ss, "#Foo", "Renamed");
+    expect(result).toBe("#renamed");
+    // Every level was rewritten on disk: parent AND both folded descendants.
+    // (Distinct set — the deep grandchild is dispatched more than once by the
+    // pre-existing flat-then-recurse recursion; it is the same idempotent
+    // rewrite each time.)
+    expect(distinctRewrites(renameTagCalls)).toEqual([
+      { path: "A.md", tag: "#foo", newTag: "#renamed" },
+      { path: "B.md", tag: "#foo/bar", newTag: "#renamed/bar" },
+      { path: "C.md", tag: "#foo/bar/baz", newTag: "#renamed/bar/baz" },
+    ]);
+    // The load-bearing casing claim: NO rewrite ever carries the raw mixed-case
+    // '#Foo' prefix — pre-fix, the lowercased descendants were missed entirely.
+    expect(renameTagCalls.every((c) => c.tag.startsWith("#foo"))).toBe(true);
+  });
+
+  it("dispatches the parent rename against the FOLDED tag, not the raw mixed-case input", async () => {
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: ["#foo"],
+      pathsByFoldedTag: { "#foo": ["P.md"] },
+    });
+    await renameTag(ss, "#FOO", "#Bar");
+    // The path-level rewrite uses '#foo' (folded), so it agrees with the
+    // lowercased file-body/property edits downstream — never '#FOO'.
+    expect(renameTagCalls).toEqual([
+      { path: "P.md", tag: "#foo", newTag: "#bar" },
+    ]);
+  });
+
+  it("renames the tag SPACE folder against the folded tag (parent-path branch)", async () => {
+    const { ss, spacePathRenames } = recordingSuperstate({
+      readTags: ["#foo"],
+      pathsByFoldedTag: { "#foo": ["P.md"] },
+    });
+    await renameTag(ss, "#Foo", "Bar");
+    // folderForTagSpace('#foo', settings) -> 'Spaces/#foo'; renamed in place to
+    // its parent + the new (folded) tag.
+    expect(spacePathRenames).toEqual([
+      { from: "Spaces/#foo", to: "Spaces/#bar" },
+    ]);
+  });
+
+  it("recursive rewrite rewrites ONLY the leading folded prefix, preserving deep child segments", async () => {
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: ["#proj", "#proj/alpha", "#proj/alpha/v1", "#proj/beta"],
+      pathsByFoldedTag: {
+        "#proj": ["p.md"],
+        "#proj/alpha": ["a.md"],
+        "#proj/alpha/v1": ["v.md"],
+        "#proj/beta": ["b.md"],
+      },
+    });
+    await renameTag(ss, "#Proj", "Work");
+    expect(distinctRewrites(renameTagCalls)).toEqual([
+      { path: "p.md", tag: "#proj", newTag: "#work" },
+      { path: "a.md", tag: "#proj/alpha", newTag: "#work/alpha" },
+      { path: "v.md", tag: "#proj/alpha/v1", newTag: "#work/alpha/v1" },
+      { path: "b.md", tag: "#proj/beta", newTag: "#work/beta" },
+    ]);
+  });
+
+  it("an ALREADY-lowercased source tag is unchanged by the fold (idempotent)", async () => {
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: ["#foo", "#foo/a"],
+      pathsByFoldedTag: { "#foo": ["x.md"], "#foo/a": ["y.md"] },
+    });
+    await renameTag(ss, "#foo", "#bar");
+    expect(renameTagCalls).toEqual([
+      { path: "x.md", tag: "#foo", newTag: "#bar" },
+      { path: "y.md", tag: "#foo/a", newTag: "#bar/a" },
+    ]);
+  });
+
+  it("a bare-name (no '#') mixed-case source still folds + '#'-prefixes to match descendants", async () => {
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: ["#foo", "#foo/a"],
+      pathsByFoldedTag: { "#foo": ["x.md"], "#foo/a": ["y.md"] },
+    });
+    // ensureTag(validateName('  Foo  ')) -> '#foo': trims, '#'-prefixes, folds.
+    await renameTag(ss, "  Foo  ", "Bar");
+    expect(renameTagCalls).toEqual([
+      { path: "x.md", tag: "#foo", newTag: "#bar" },
+      { path: "y.md", tag: "#foo/a", newTag: "#bar/a" },
+    ]);
+  });
+
+  it("preserves the '/'-boundary invariant: a mixed-case sibling sharing a textual prefix is NOT renamed", async () => {
+    // readTags() folds '#Foobar' -> '#foobar'. After folding the source to
+    // '#foo', the boundary filter ('#foo/') excludes the sibling '#foobar', so
+    // it is never a rename target — no '#barbar' corruption (Notidian-23bl).
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: ["#foo", "#foobar", "#foo/a"],
+      pathsByFoldedTag: {
+        "#foo": ["x.md"],
+        "#foobar": ["sib.md"],
+        "#foo/a": ["y.md"],
+      },
+    });
+    await renameTag(ss, "#Foo", "#Bar");
+    expect(renameTagCalls).toEqual([
+      { path: "x.md", tag: "#foo", newTag: "#bar" },
+      { path: "y.md", tag: "#foo/a", newTag: "#bar/a" },
+    ]);
+    expect(renameTagCalls.some((c) => c.path === "sib.md")).toBe(false);
+    expect(renameTagCalls.some((c) => c.newTag === "#barbar")).toBe(false);
+  });
+
+  it("returns null for an empty source tag (the fold guard short-circuits)", async () => {
+    const { ss, renameTagCalls } = recordingSuperstate({
+      readTags: [],
+      pathsByFoldedTag: {},
+    });
+    expect(await renameTag(ss, "", "#bar")).toBeNull();
+    expect(renameTagCalls).toEqual([]);
   });
 });
