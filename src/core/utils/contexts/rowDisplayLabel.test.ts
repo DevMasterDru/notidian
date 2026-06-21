@@ -204,6 +204,63 @@ describe("resolveRowDisplayLabel", () => {
       ).toBe("Parent");
     });
 
+    // Notidian-xsau regression: the kg81 writer stores the parent's FULL
+    // basename (internal periods intact) as the wikilink alias, e.g.
+    // `[[Folder/Q1.Report|Q1.Report]]`. The alias is the authored human-facing
+    // label and must survive verbatim — it must NOT be discarded and re-derived
+    // from the bare target, which pathToString would truncate at the last "."
+    // (treating it as a file extension), mangling the label to "Q1".
+    it("preserves an alias whose basename contains periods (must-fix regression)", () => {
+      expect(
+        resolveRowDisplayLabel(
+          { parent: "[[Folder/Q1.Report|Q1.Report]]" },
+          pathState,
+          "parent",
+          "link"
+        )
+      ).toBe("Q1.Report");
+    });
+
+    it("preserves period-bearing aliases for version-like and dotted titles", () => {
+      expect(
+        resolveRowDisplayLabel(
+          { parent: "[[Releases/v1.2|v1.2]]" },
+          pathState,
+          "parent",
+          "context"
+        )
+      ).toBe("v1.2");
+      expect(
+        resolveRowDisplayLabel(
+          { parent: "[[Strategy/U.S. Strategy|U.S. Strategy]]" },
+          pathState,
+          "parent",
+          "link"
+        )
+      ).toBe("U.S. Strategy");
+      expect(
+        resolveRowDisplayLabel(
+          { parent: "[[Plans/2024.Q1|2024.Q1]]" },
+          pathState,
+          "parent",
+          "context-multi"
+        )
+      ).toBe("2024.Q1");
+    });
+
+    // The alias is the parent's basename, never the qualifying folder — so even
+    // a vault-root alias-bearing link keeps the clean alias verbatim.
+    it("uses the alias verbatim even at the vault root", () => {
+      expect(
+        resolveRowDisplayLabel(
+          { parent: "[[Q1.Report|Q1.Report]]" },
+          pathState,
+          "parent",
+          "link"
+        )
+      ).toBe("Q1.Report");
+    });
+
     it("returns a vault-root (folderless) link value unchanged", () => {
       expect(
         resolveRowDisplayLabel(
