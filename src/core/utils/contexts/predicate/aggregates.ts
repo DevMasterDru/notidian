@@ -270,8 +270,13 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
         // siblings' D4 contract and formulas.ts's earliest empty-sentinel). For
         // valueType 'date' the '' flows through formatDate(settings,
         // parseDate('')=null, ...) -> caught -> '' end-to-end, so the pipeline
-        // (which pre-maps via new Date(v)) is unchanged for valid input and still
-        // renders '' for []. Returns the min Date for a non-empty usable set.
+        // (which pre-maps via new Date(v)) is unchanged for all-valid input and
+        // still renders '' for []. The MIXED valid+empty/invalid case DOES change,
+        // though: the legacy getTime() spread let an Invalid Date's NaN poison
+        // Math.min -> blank, while toFiniteDateMillis now drops invalids and
+        // returns the extreme of the valid subset (a Notion-parity improvement —
+        // see the dateRange note + the Layer-2 'BEHAVIOR CHANGE' test). Returns
+        // the min Date for a non-empty usable set.
         fn: (v) => {
             const ts = toFiniteDateMillis(v);
             if (ts.length == 0) return '';
@@ -314,10 +319,16 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
         // real-Date subset ONCE, then return 0 (a zero ms span) for the empty /
         // all-invalid set. valueType is 'duration': calculateAggregate post-passes
         // the ms span through msToDurationValue, which floors 0 (and any
-        // non-finite/negative input) to all-zero units -> '' — so the footer stays
-        // blank, matching the prior pipeline behavior with no user-visible change.
-        // 0 is preferred over the legacy -Infinity (cleaner, and never leaks a math
-        // identity if the fn is read directly). Returns the ms span otherwise.
+        // non-finite/negative input) to all-zero units -> '' — so the EMPTY-set
+        // footer stays blank (unchanged). 0 is preferred over the legacy -Infinity
+        // (cleaner, never leaks a math identity if the fn is read directly).
+        // NOTE: the MIXED valid+empty/invalid case IS a user-visible change — the
+        // legacy `f.getTime()` spread let an Invalid Date's NaN poison Math.max/min
+        // -> NaN span -> blank footer, whereas toFiniteDateMillis now spans the
+        // valid subset (e.g. ["2020-05-10","","2020-12-31"] -> "235 days", was
+        // blank). This is a Notion-parity improvement (Notion ignores empty rows),
+        // pinned by the Layer-2 'BEHAVIOR CHANGE: mixed valid+empty/garbage' test.
+        // Returns the ms span over the valid subset otherwise.
         fn: (v) => {
             const ts = toFiniteDateMillis(v);
             if (ts.length == 0) return 0;

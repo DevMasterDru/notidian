@@ -602,14 +602,40 @@ describe("calculateAggregate — date rollups (end to end)", () => {
     expect(calculateAggregate(settings, [], "earliest", dateCol())).toBe("");
     expect(calculateAggregate(settings, [], "latest", dateCol())).toBe("");
   });
-  it("EDGE: earliest/latest over hostile mixed input render the usable extreme, no throw (Notidian-h8mc)", () => {
-    // The full pipeline never threw here (it pre-maps every value via new Date(v),
-    // turning junk into Invalid Dates that the OLD getTime() spread still consumed
-    // -> Invalid Date result -> '' via formatDate). The pure-fn hardening keeps the
-    // direct fn safe too; end-to-end behavior over valid inputs is unchanged.
+  it("over ALL-VALID input renders the extreme, no throw (Notidian-h8mc)", () => {
+    // Baseline: a column of only valid dates is unchanged by the hardening — the
+    // extreme is rendered before and after. (The mixed valid+empty/garbage path,
+    // which DID change, is pinned by the next test.)
     const vals = ["2020-05-10T12:00:00", "2019-01-01T12:00:00"];
     expect(calculateAggregate(settings, vals, "earliest", dateCol())).toBe("2019-01-01");
     expect(calculateAggregate(settings, vals, "latest", dateCol())).toBe("2020-05-10");
+  });
+  it("BEHAVIOR CHANGE (Notidian-h8mc): mixed valid+empty/garbage cells now render the extreme of the FILLED subset (was blank)", () => {
+    // THE PATH THE COMMIT ACTUALLY CHANGED — the most common real case: a date
+    // column with some empty rows. Proven OLD-vs-NEW (parent 3a33e89~1 vs current)
+    // for ["2020-05-10", "", "2020-12-31", ""]:
+    //   earliest:  OLD = ""   NEW = "2020-05-10"
+    //   latest:    OLD = ""   NEW = "2020-12-31"
+    //   dateRange: OLD = ""   NEW = "235 days"
+    // Mechanism: the pipeline pre-maps every value via `new Date(v)`, so an empty/
+    // garbage cell becomes an Invalid Date. OLD `f.getTime()` spread let that
+    // Invalid Date's NaN force Math.min/Math.max -> NaN -> Invalid Date -> blank
+    // footer. NEW `toFiniteDateMillis` filters the Invalid Dates out and computes
+    // over the valid subset, so a mixed column now shows the real extreme/span.
+    // This is a Notion-parity IMPROVEMENT (Notion ignores empty rows) and makes
+    // the date family consistent with min/max/range, which already filter invalids
+    // — but it IS a user-visible change, so it is pinned here at Layer 2 so it
+    // cannot silently regress.
+    const mixedEmpty = ["2020-05-10", "", "2020-12-31", ""]; // valid + empty rows
+    expect(calculateAggregate(settings, mixedEmpty, "earliest", dateCol())).toBe("2020-05-10");
+    expect(calculateAggregate(settings, mixedEmpty, "latest", dateCol())).toBe("2020-12-31");
+    // 2020-05-10 -> 2020-12-31 is 235 days (the span of the filled subset).
+    expect(calculateAggregate(settings, mixedEmpty, "dateRange", col("date"))).toBe("235 days");
+
+    const mixedGarbage = ["2020-05-10", "garbage", "2020-12-31"]; // valid + unparseable
+    expect(calculateAggregate(settings, mixedGarbage, "earliest", dateCol())).toBe("2020-05-10");
+    expect(calculateAggregate(settings, mixedGarbage, "latest", dateCol())).toBe("2020-12-31");
+    expect(calculateAggregate(settings, mixedGarbage, "dateRange", col("date"))).toBe("235 days");
   });
 });
 
@@ -720,13 +746,29 @@ describe("calculateAggregate — flex column unwrapping", () => {
  *     finite epoch-millis ONCE (real Dates, finite numbers, parseable non-empty
  *     strings; null/boolean/object/''/Invalid-Date SKIPPED, not coerced into a
  *     phantom 1970 date), then earliest/latest floor the empty/all-invalid set to
- *     '' and dateRange floors it to 0 (msToDurationValue -> ''). NO user-visible
- *     pipeline change (earliest/latest of [] already rendered '' via the
- *     formatDate-of-Invalid-Date catch; dateRange of [] already rendered '' via
- *     msToDurationValue) — purely makes the pure fns direct-call-safe and
- *     self-consistent with the numeric siblings. Pinned by the Layer-1
- *     'DIRECT-CALL HARDENING'/'EDGE'/'type-gate' tests and the Layer-2
- *     'earliest/latest of [] render blank' test above.
+ *     '' and dateRange floors it to 0 (msToDurationValue -> '').
+ *
+ *     FRAMING CORRECTION (this was mischaracterized as "NO user-visible pipeline
+ *     change" in the commit + close notes): the EMPTY-set case is unchanged
+ *     (earliest/latest of [] already rendered '' via the formatDate-of-Invalid-
+ *     Date catch; dateRange of [] via msToDurationValue). But the MIXED
+ *     valid+empty/invalid case — a date column with some empty rows, the most
+ *     common real shape — DID change, and it is a genuine user-visible Notion-
+ *     parity bugfix, not a no-op. Proven OLD (parent 3a33e89~1) vs NEW for
+ *     ["2020-05-10", "", "2020-12-31", ""] (pre-mapped via new Date(v)):
+ *         earliest:  OLD = ""   NEW = "2020-05-10"
+ *         latest:    OLD = ""   NEW = "2020-12-31"
+ *         dateRange: OLD = ""   NEW = "235 days"
+ *     Mechanism: each empty/garbage cell is pre-mapped to an Invalid Date; OLD
+ *     `f.getTime()` -> NaN forced Math.min/Math.max -> NaN -> Invalid Date ->
+ *     blank footer, while NEW toFiniteDateMillis drops the Invalid Dates and
+ *     computes over the valid subset. The direction is an IMPROVEMENT (Notion
+ *     ignores empty rows; this also makes the date family consistent with
+ *     min/max/range, which already filter invalids). Pinned by the Layer-1
+ *     'DIRECT-CALL HARDENING'/'EDGE'/'type-gate' tests, the Layer-2
+ *     'earliest/latest of [] render blank' test, AND the Layer-2 'BEHAVIOR
+ *     CHANGE: mixed valid+empty/garbage' test that exercises the actually-changed
+ *     path (the empty-only nets did not cover it).
  *
  * D5. `sum` reducer `(a,b) => b ? a+b : a` skips falsy (0) addends. Harmless
  *     for the value 0, but a latent foot-gun if the reducer is reused.
