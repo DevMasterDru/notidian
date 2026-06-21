@@ -476,6 +476,16 @@ export const ContextListView = (props: {
                           ) : (
                             <span className="mk-subitem-toggle-spacer" />
                           )}
+                          {subItemNode.hasChildren ? (
+                            <span
+                              className="mk-subitem-count"
+                              title={`${subItemNode.childCount} sub-item${
+                                subItemNode.childCount === 1 ? "" : "s"
+                              }`}
+                            >
+                              {subItemNode.childCount}
+                            </span>
+                          ) : null}
                           {/* Adding a sub-item lives in the row's right-click
                               menu (showRowContextMenu "Add sub-item"), not an
                               inline button (owner UX choice). */}

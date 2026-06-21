@@ -83,8 +83,8 @@ const data = [
 ];
 
 const subItemsInfo = new Map<string, any>([
-  ["Note 0", { depth: 0, hasChildren: true, surfacedAsRoot: false }],
-  ["Note 1", { depth: 1, hasChildren: false, surfacedAsRoot: false }],
+  ["Note 0", { depth: 0, hasChildren: true, childCount: 1, surfacedAsRoot: false }],
+  ["Note 1", { depth: 1, hasChildren: false, childCount: 0, surfacedAsRoot: false }],
 ]);
 
 const predicate = {
@@ -199,5 +199,13 @@ describe("TableView '+ New sub-item' row (Notidian-gr8t)", () => {
     expect(container.querySelectorAll("tbody tr.mk-subitem-add-row").length).toBe(0);
     // real rows unaffected
     expect(container.querySelectorAll("tbody tr[data-row-id]").length).toBe(2);
+  });
+
+  it("shows a child-count badge on the parent (Notidian-5ond.6)", async () => {
+    await render(addRowsMap);
+    const badges = container.querySelectorAll(".mk-subitem-count");
+    // Only the parent ("Note 0", childCount 1) gets a badge; the leaf does not.
+    expect(badges.length).toBe(1);
+    expect(badges[0].textContent).toBe("1");
   });
 });

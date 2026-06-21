@@ -1720,6 +1720,20 @@ width: 24px;
 .mk-subitem-affordance .mk-collapse {
   margin-right: 2px;
 }
+/* Child-count badge beside the chevron (Notidian-5ond.6): how many direct
+   sub-items a parent has, view-scoped. Low-emphasis, monospace-ish digits. */
+.mk-subitem-count {
+  flex-shrink: 0;
+  margin-right: 4px;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
 .mk-subitem-toggle-spacer {
   display: inline-block;
   width: 18px;

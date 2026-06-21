@@ -221,6 +221,7 @@ const vnode = (path: string, depth: number, hasChildren: boolean) => ({
   row: { File: path },
   depth,
   hasChildren,
+  childCount: hasChildren ? 1 : 0,
   surfacedAsRoot: false,
 });
 // Flatten the result Map to a comparable shape: { afterPath: [[parentPath, depth], ...] }
@@ -314,5 +315,23 @@ describe("nextCollapsedPaths (Notidian-5ond.3 collapse persistence)", () => {
   });
   it("ignores an empty toggle path", () => {
     expect(nextCollapsedPaths(["A"], "")).toEqual(["A"]);
+  });
+});
+
+describe("buildRowTree childCount (Notidian-5ond.6)", () => {
+  it("reports the number of DIRECT children per node (view-scoped)", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+      { File: "C", parent: "[[A]]" },
+      { File: "D", parent: "[[B]]" }, // grandchild — not counted for A
+    ];
+    const counts = Object.fromEntries(
+      buildRowTree({ rows, parentKey: "parent", pathKey: "File" }).map((n) => [
+        n.row.File,
+        n.childCount,
+      ])
+    );
+    expect(counts).toEqual({ A: 2, B: 1, C: 0, D: 0 });
   });
 });

@@ -12,6 +12,9 @@ export type RowTreeNode = {
   row: Record<string, any>;
   depth: number;
   hasChildren: boolean;
+  // Number of DIRECT children of this node within the view's row set
+  // (Notidian-5ond.6) — view-scoped, for the count badge beside the chevron.
+  childCount: number;
   // ADR 0024 C2 (passive cycle/orphan indicator): true when this node was
   // surfaced at the top level (depth 0) even though the user named a parent —
   // either the parent link points outside this view (orphan) or it was only
@@ -81,6 +84,7 @@ export const buildRowTree = (params: {
       row,
       depth,
       hasChildren: children.length > 0,
+      childCount: children.length,
       surfacedAsRoot,
     });
     for (const child of children) emit(child, depth + 1);

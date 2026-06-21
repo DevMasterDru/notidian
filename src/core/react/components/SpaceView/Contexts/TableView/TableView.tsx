@@ -2685,6 +2685,16 @@ export const TableView = (props: { superstate: Superstate }) => {
                                     ) : (
                                       <span className="mk-subitem-toggle-spacer" />
                                     )}
+                                    {subItemNode.hasChildren ? (
+                                      <span
+                                        className="mk-subitem-count"
+                                        title={`${subItemNode.childCount} sub-item${
+                                          subItemNode.childCount === 1 ? "" : "s"
+                                        }`}
+                                      >
+                                        {subItemNode.childCount}
+                                      </span>
+                                    ) : null}
                                     {subItemNode.surfacedAsRoot ? (
                                       <span
                                         className="mk-sub-item-orphan"

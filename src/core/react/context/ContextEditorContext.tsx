@@ -174,7 +174,12 @@ type ContextEditorContextProps = {
   // sub-items parent column configured (the table renders flat).
   subItemsInfo: Map<
     string,
-    { depth: number; hasChildren: boolean; surfacedAsRoot: boolean }
+    {
+      depth: number;
+      hasChildren: boolean;
+      childCount: number;
+      surfacedAsRoot: boolean;
+    }
   > | null;
   // Frontmatter key of the configured parent-link column (= subItemsCol.name),
   // or null when sub-items is off — used by the "Add sub-item" row action to
@@ -836,12 +841,18 @@ export const ContextEditorProvider: React.FC<
     if (!subItemsNodes) return null;
     const info = new Map<
       string,
-      { depth: number; hasChildren: boolean; surfacedAsRoot: boolean }
+      {
+        depth: number;
+        hasChildren: boolean;
+        childCount: number;
+        surfacedAsRoot: boolean;
+      }
     >();
     for (const node of subItemsNodes) {
       info.set(String(node.row[PathPropertyName] ?? ""), {
         depth: node.depth,
         hasChildren: node.hasChildren,
+        childCount: node.childCount,
         surfacedAsRoot: node.surfacedAsRoot,
       });
     }
