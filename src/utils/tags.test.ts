@@ -5,7 +5,9 @@ import {
   stringFromTag,
   tagToTagPath,
   tagPathToTag,
+  getAllSubtags,
 } from "utils/tags";
+import { Superstate } from "makemd-core";
 
 // ===========================================================================
 // DEPTH (Q1) — adversarial + characterization tests for the PURE tag helpers
@@ -385,5 +387,152 @@ describe("tagToTagPath <-> tagPathToTag roundtrip (LOCKED invariant)", () => {
     expect(tagPathToTag(tagToTagPath("#a.b/c"))).toBe("#a");
     // Plain "version1.2" -> "#version1" : the ".2" is dropped.
     expect(tagPathToTag(tagToTagPath("version1.2"))).toBe("#version1");
+  });
+});
+
+// ===========================================================================
+// DEPTH (Notidian-23bl) — getAllSubtags: the formerly-uncovered helper that
+// carried a tag-rename data-integrity defect, plus the '/'-boundary FIX.
+//
+// WHY THIS IS A DATA-INTEGRITY SURFACE, not a cosmetic one. The reach is:
+//   path.ts renamePathByName(superstate, oldPath, newName)        (title rename)
+//     -> if the space is a tag space: renameTag(superstate, name, newName)
+//        -> const tags = getAllSubtags(superstate, tag)
+//        -> for each subtag: renameTag(superstate, subtag,
+//                                       subtag.replace(tag, newTag))   (RECURSE)
+// So whatever getAllSubtags returns is RECURSIVELY RENAMED on disk via
+// spaceManager.renameTag (filesystemAdapter.renameTagForFile). An over-broad
+// result rewrites tags that the user never asked to touch.
+//
+// THE DEFECT (now fixed). The original body was:
+//   const tags = superstate.spaceManager.readTags();
+//   return tags.filter((f) => f.startsWith(tag) && f != tag);
+// A BARE prefix match with NO '/' segment boundary. readTags() returns the
+// vault's '#'-led tag strings (filesystem.allTags() -> readAllTags()), so for
+// tag '#foo' it captured EVERY tag textually starting with '#foo' — including
+// the unrelated SIBLINGS '#foobar' and '#football', which are NOT subtags of
+// '#foo' (a true subtag is '#foo/<child>'). renameTag would then recurse into
+// them and `'#foobar'.replace('#foo', '#bar')` -> '#barbar', silently
+// corrupting sibling tags that merely shared a textual prefix.
+//
+// THE FIX. A genuine subtag is exactly '#foo/<child...>', so the boundary
+// slash is required: filter on `f.startsWith(tag + '/')`. That clause already
+// implies `f != tag` (nothing equals `tag + '/'`), so the old `&& f != tag`
+// guard is subsumed. The recursion is now confined to the true descendant
+// subtree.
+//
+// getAllSubtags is otherwise PURE given the readTags() list — the only
+// Superstate touch is `superstate.spaceManager.readTags()`. We stub a fake
+// Superstate exposing exactly that (the established `as unknown as Superstate`
+// pattern, cf. ast.asyncExpand.test.ts), so this stays fully offline.
+// ===========================================================================
+
+// Minimal fake Superstate whose only live surface is spaceManager.readTags().
+const fakeSuperstate = (tags: string[]): Superstate =>
+  ({
+    spaceManager: {
+      readTags: () => tags,
+    },
+  } as unknown as Superstate);
+
+describe("getAllSubtags", () => {
+  // --- THE BUG, RE-EXPRESSED AS A REGRESSION GUARD. Under the OLD bare
+  // `startsWith(tag)`, this exact fixture returned ['#foobar','#foo/a'] (the
+  // sibling '#foobar' wrongly captured). The FIXED '/'-boundary returns ONLY
+  // the genuine subtag '#foo/a'. This assertion is what proves the fix and
+  // will fail loudly if the boundary is ever loosened back to a bare prefix.
+  it("returns ONLY '/'-boundaried descendants, EXCLUDING textual-prefix siblings (the fix)", () => {
+    const ss = fakeSuperstate(["#foo", "#foobar", "#foo/a"]);
+    expect(getAllSubtags(ss, "#foo")).toEqual(["#foo/a"]);
+  });
+
+  it("excludes EVERY sibling that merely shares a textual prefix ('#football','#foobar','#food')", () => {
+    const ss = fakeSuperstate([
+      "#foo",
+      "#foobar",
+      "#football",
+      "#food",
+      "#foo/a",
+      "#foo/b",
+    ]);
+    expect(getAllSubtags(ss, "#foo")).toEqual(["#foo/a", "#foo/b"]);
+  });
+
+  it("returns the WHOLE descendant subtree (direct AND deeper grandchildren)", () => {
+    const ss = fakeSuperstate(["#foo", "#foo/a", "#foo/a/b", "#foo/c"]);
+    expect(getAllSubtags(ss, "#foo")).toEqual(["#foo/a", "#foo/a/b", "#foo/c"]);
+  });
+
+  it("excludes the tag ITSELF (the boundary slash already implies f != tag)", () => {
+    const ss = fakeSuperstate(["#foo", "#foo/a"]);
+    expect(getAllSubtags(ss, "#foo")).not.toContain("#foo");
+  });
+
+  it("returns [] when the tag has no descendants (only itself + unrelated siblings)", () => {
+    const ss = fakeSuperstate(["#foo", "#foobar", "#bar/x"]);
+    expect(getAllSubtags(ss, "#foo")).toEqual([]);
+  });
+
+  it("returns [] when readTags() is empty", () => {
+    const ss = fakeSuperstate([]);
+    expect(getAllSubtags(ss, "#foo")).toEqual([]);
+  });
+
+  it("scopes nested tags by their full path: '#foo/a' yields only '#foo/a/*', never '#foo/ab'", () => {
+    const ss = fakeSuperstate([
+      "#foo/a",
+      "#foo/ab", // sibling under #foo, NOT a descendant of #foo/a
+      "#foo/a/x",
+      "#foo/a/y",
+    ]);
+    expect(getAllSubtags(ss, "#foo/a")).toEqual(["#foo/a/x", "#foo/a/y"]);
+  });
+
+  // --- LOCKED detail of the chosen contract: matching is by raw string prefix
+  // (no case-folding). getAllSubtags preserves the existing implementation's
+  // case-sensitivity; only the '/' boundary changed. A differently-cased
+  // sibling is NOT a descendant. (If case-insensitive grouping is ever wanted,
+  // that is a separate, deliberate decision — not silently folded in here.)
+  it("is case-sensitive by raw prefix (only the '/' boundary changed, not casing)", () => {
+    const ss = fakeSuperstate(["#foo", "#foo/a", "#Foo/b"]);
+    expect(getAllSubtags(ss, "#foo")).toEqual(["#foo/a"]);
+  });
+});
+
+// ===========================================================================
+// DEPTH (Notidian-23bl) — renameTag's recursive subtag rewrite under the
+// tightened getAllSubtags set. We do NOT drive the live spaceManager here;
+// instead we PIN the exact transform renameTag applies to each descendant:
+//   for each subtag in getAllSubtags(superstate, tag):
+//     renameTag(superstate, subtag, subtag.replace(tag, newTag))
+// The load-bearing claim is that `subtag.replace(tag, newTag)` rewrites ONLY
+// the leading `tag` prefix (String.prototype.replace replaces the FIRST
+// occurrence, and `tag` is, by construction of the '/'-boundary filter, that
+// leading prefix). Under the OLD over-match a captured sibling '#foobar' would
+// be mangled to '#barbar'; under the FIX no sibling is ever captured, so every
+// rewrite preserves the descendant's child segments.
+// ===========================================================================
+describe("renameTag recursive rewrite (.replace) under the tightened subtag set", () => {
+  it("rewrites each true descendant's leading prefix, preserving child segments", () => {
+    const ss = fakeSuperstate(["#foo", "#foo/a", "#foo/a/b", "#foo/c"]);
+    const tag = "#foo";
+    const newTag = "#bar";
+    // Exactly the loop renameTag runs over its subtags.
+    const rewritten = getAllSubtags(ss, tag).map((subtag) =>
+      subtag.replace(tag, newTag)
+    );
+    expect(rewritten).toEqual(["#bar/a", "#bar/a/b", "#bar/c"]);
+  });
+
+  it("never mangles a textual-prefix sibling, because the fix never captures one", () => {
+    // The corruption the fix prevents: with the OLD filter, '#foobar' would be
+    // in the set and `'#foobar'.replace('#foo','#bar')` -> '#barbar'. The fix
+    // keeps '#foobar' OUT, so it is never a rename target at all.
+    const ss = fakeSuperstate(["#foo", "#foobar", "#foo/a"]);
+    const subtags = getAllSubtags(ss, "#foo");
+    expect(subtags).not.toContain("#foobar");
+    const rewritten = subtags.map((s) => s.replace("#foo", "#bar"));
+    expect(rewritten).toEqual(["#bar/a"]);
+    expect(rewritten).not.toContain("#barbar");
   });
 });

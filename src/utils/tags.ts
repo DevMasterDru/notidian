@@ -46,7 +46,15 @@ export const validateName = (tag: string) => {
 export const getAllSubtags = (superstate: Superstate, tag: string) => {
 
   const tags = superstate.spaceManager.readTags();
-  return tags.filter((f) => f.startsWith(tag) && f != tag);
+  // A genuine subtag lives BELOW `tag` in the '/'-segmented hierarchy, i.e.
+  // it is exactly "<tag>/<child...>". The boundary slash is mandatory: a bare
+  // `f.startsWith(tag)` would over-match unrelated SIBLING tags that merely
+  // share a textual prefix ('#foo' would capture '#foobar'/'#football'), and
+  // renameTag's recursive `subtag.replace(tag, newTag)` would then corrupt
+  // those siblings. Requiring `tag + '/'` keeps the recursion confined to the
+  // true descendant subtree. (Notidian-23bl)
+  const prefix = tag + "/";
+  return tags.filter((f) => f.startsWith(prefix));
 };
 export const tagToTagPath = (tag: string) => {
   return encodeSpaceName(ensureTag(tag));
