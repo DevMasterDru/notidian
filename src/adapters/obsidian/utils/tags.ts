@@ -215,10 +215,26 @@ const editTagInProperties = async (
   };
   const fm = await readTagFrontmatter(manager, path);
     if (fm) {
+      // Match the old tag CASE-INSENSITIVELY. The frontmatter `tags:` property
+      // is the canonical property store and is case-PRESERVING (rawFrontmatter
+      // -> metadataCache; tagsFromPropertyValue only .toString()s, never
+      // folds), so the stored value can be mixed-case ('Foo') from a hand-typed
+      // array or addTagToProperties (validateName trims only). But `oldTag`
+      // arrives here case-FOLDED — renameTag feeds the lowercased fold to
+      // spaceManager.renameTag -> renameTagForFile -> renameTagInMarkdownFile
+      // (Notidian-ehfz). A case-SENSITIVE `stringFromTag(oldTag) == g` then
+      // failed to match 'Foo' against folded 'foo', fell into the else branch,
+      // and APPENDED the new tag while orphaning the old one (silent
+      // property-store corruption / partial rename). Lowercasing both sides
+      // mirrors removeTagInProperties (which already folds, lines 183/186/193)
+      // and is the only case-sensitive tag sink that was left out. The
+      // other sinks — positionsForTag, editTagInFileBody, tagExists, and the
+      // non-md branch in filesystem.ts — are already case-insensitive.
+      const oldTagName = stringFromTag(oldTag).toLowerCase();
       const processKey = (value: string | string[]) => {
         const tags = uniq(
           tagsFromPropertyValue(value).map((f) =>
-            stringFromTag(oldTag) == f ? stringFromTag(newTag) : f
+            oldTagName == f.toLowerCase() ? stringFromTag(newTag) : f
           )
         ).filter(f => f?.length > 0);
         return tagPropertyValueForOriginalShape(value, tags);
@@ -226,7 +242,7 @@ const editTagInProperties = async (
 
       const editKeys = tagKeys.filter((f) => {
         return tagsFromPropertyValue(fm[f]).some(
-          (g) => g == stringFromTag(oldTag)
+          (g) => g.toLowerCase() == oldTagName
         );
       });
       if (editKeys.length > 0) {
@@ -257,7 +273,6 @@ const editTagInFileBody = async (
   positions: Pos[],
   file: TFile
 ) => {
-  const offsetOffset = newTag.length - oldTag.length;
   if (positions.length == 0) return false;
   const original = await plugin.files.readTextFromFile(file.path);
   let text = original;
@@ -268,9 +283,19 @@ const editTagInFileBody = async (
     if (text.slice(startOff, endOff).toLowerCase() !== oldTag.toLocaleLowerCase()) {
       return false;
     }
-    text =
-      text.slice(0, startOff) + newTag + text.slice(startOff + oldTag.length);
-    offset += offsetOffset;
+    // Splice over the ACTUAL in-file span [startOff, endOff), NOT oldTag.length.
+    // The metadata-cache positions reflect the raw in-file occupancy, which can
+    // DIFFER from oldTag.length when oldTag is a case-fold: Unicode lowercasing
+    // can change length (e.g. Turkish dotted capital 'İ' U+0130 folds to two
+    // code units), so '#İstanbul'.length (9) != '#İstanbul'.toLowerCase().length
+    // (10). renameTag now feeds the lowercased fold here (Notidian-ehfz); using
+    // oldTag.length would over/under-cut and eat or leave neighbouring bytes
+    // (e.g. swallow the trailing space). The real span and a per-position delta
+    // keep the running offset correct across multiple occurrences regardless of
+    // the source casing.
+    const spanLength = endOff - startOff;
+    text = text.slice(0, startOff) + newTag + text.slice(endOff);
+    offset += newTag.length - spanLength;
   }
   if (text !== original) {
     await plugin.files.writeTextToFile(file.path, text);
