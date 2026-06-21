@@ -5,7 +5,14 @@ import { FilterDef, FilterGroupDef, JoinDefGroup } from "shared/types/spaceDef";
 import { parseProperty } from "utils/parsers";
 import { serializeMultiString } from "utils/serializers";
 
-const filterPathsForAny = (paths: PathState[], filters: FilterDef[], props: Record<string, string>) : PathState[] => {
+// Exported for DEPTH characterization (Notidian-ugjj). filterPathsForAny is the
+// OR set-union reduce that backs a FilterGroupDef of `type:'any'`: it walks the
+// filter list, each filter matching against only the still-unmatched ("remaining")
+// paths and the matches getting moved into the accumulated result, so a path that
+// satisfies several OR filters is counted EXACTLY ONCE. Production calls it with a
+// single `[path]` (see pathByDef), but the set-diff guarantee only becomes
+// observable with a multi-path input — hence the export so tests can lock it.
+export const filterPathsForAny = (paths: PathState[], filters: FilterDef[], props: Record<string, string>) : PathState[] => {
   
   const newArray = filters.reduce((p, c) => {
     const [result, remaining] = p;
@@ -17,7 +24,12 @@ const filterPathsForAny = (paths: PathState[], filters: FilterDef[], props: Reco
   return newArray[0];
 }
 
-const filterPathsForAll = ( paths: PathState[], filters: FilterDef[], props: Record<string, string>) : PathState[] => {
+// Exported for DEPTH characterization (Notidian-ugjj). filterPathsForAll is the
+// AND chaining reduce that backs a FilterGroupDef of `type:'all'`: each filter
+// narrows the surviving set produced by the previous filter, so the result is the
+// intersection (every filter must pass). Same single-`[path]` production usage as
+// filterPathsForAny; exported so multi-path AND-narrowing can be locked directly.
+export const filterPathsForAll = ( paths: PathState[], filters: FilterDef[], props: Record<string, string>) : PathState[] => {
   return filters.reduce((p, c) => {
     return  c.type == 'context' ? filterContext(p, c, props) :  c.type == 'path' ? filterPathCache(p, c, props) : c.type == 'frontmatter' ? filterFM(p, c, props) : filterPathProperties(p, c, props);
   }, paths)
