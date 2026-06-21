@@ -2,7 +2,7 @@
 import { mdbTablesToDBTables, saveDBToPath } from 'adapters/mdb/db/db';
 import { deleteMDBTable, getMDB, getMDBTable, getMDBTableProperties, getMDBTableSchemas, getMDBTables } from 'adapters/mdb/utils/mdb';
 import { commandToDBTables, mdbSchemaToCommandSchema } from 'core/utils/commands/commands';
-import { mdbFrameToDBTables } from "core/utils/frames/frame";
+import { mdbFrameToDBTables, mergeFrameFields } from "core/utils/frames/frame";
 import _ from 'lodash';
 import MakeMDPlugin from 'main';
 import { AFile, FileTypeAdapter, FilesystemMiddleware } from 'makemd-core';
@@ -166,9 +166,22 @@ export class MDBFileTypeAdapter implements FileTypeAdapter<MDB, MDBContent> {
             return saveDBToPath(this, file.path, mdbTablesToDBTables({ [name]: content }))
         }
         if (fragmentType == 'mdbFrame') {
-            return saveDBToPath(this, file.path, mdbFrameToDBTables({ [name]: content }))
+            // Notidian-2y21: a frame/view save must NOT clobber the m_fields rows of
+            // EVERY OTHER frame/view in this file. mdbFrameToDBTables rebuilds m_fields
+            // from ONLY the passed frame's cols, and replaceDB DROPs + recreates the
+            // m_fields table — so writing one frame's DBTables wipes all sibling
+            // views' column definitions (the visible "view reset": a view's columns,
+            // and with them its colsHidden/colsSize/colsOrder layout, disappear).
+            // Merge the new frame's cols over the persisted ones, keyed by schemaId,
+            // exactly as the mdbTable save path already does.
+            const oldFields = await this.readContent(file, 'fields', null) as SpaceProperty[] ?? []
+            return saveDBToPath(this, file.path, mergeFrameFields(
+                mdbFrameToDBTables({ [name]: content }),
+                oldFields,
+                name
+            ))
         }
-        
+
     }
     public async saveContent (file: AFile, fragmentType: keyof MDBContent, fragmentId: any, content: (prev: any) => any) {
         if (fragmentType == 'schema') {
@@ -199,8 +212,24 @@ export class MDBFileTypeAdapter implements FileTypeAdapter<MDB, MDBContent> {
             return saveDBToPath(this, file.path,{...mdbTablesToDBTables(tables), ...newFields})
         }
         if (fragmentType == 'mdbFrame') {
+            // Notidian-2y21 — DURABILITY OF VIEW CUSTOMIZATIONS. The lone destructive
+            // reset vector confirmed by the real-engine regression: this single-frame
+            // save fed mdbFrameToDBTables({ [id]: frame }) straight to saveDBToPath ->
+            // replaceDB, which (a) DROPs+recreates m_fields with ONLY this frame's
+            // columns, erasing every sibling view's column definitions, and with them
+            // each view's colsHidden/colsSize/colsOrder layout. The m_schema PREDICATE
+            // survives (m_schema isn't in the written tables, so replaceDB leaves it
+            // untouched), but a view with no columns renders reset all the same.
+            // FIX: read the persisted m_fields and merge the saved frame's columns
+            // over them by schemaId — the exact non-destructive pattern the mdbTable
+            // save above already uses — so unchanged views keep every field row.
             const mdbTable = await this.readContent(file, 'mdbFrame', fragmentId);
-            return saveDBToPath(this, file.path, mdbFrameToDBTables({ [fragmentId]: content(mdbTable) }))
+            const oldFields = await this.readContent(file, 'fields', null) as SpaceProperty[] ?? []
+            return saveDBToPath(this, file.path, mergeFrameFields(
+                mdbFrameToDBTables({ [fragmentId]: content(mdbTable) }),
+                oldFields,
+                fragmentId
+            ))
         }
         if (fragmentType == 'mdbCommand') {
             const mdbTable = await this.readContent(file, 'mdbCommand', fragmentId);

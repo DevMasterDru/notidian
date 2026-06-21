@@ -4,7 +4,10 @@ import initSqlJs from "sql.js";
 import type { Database, SqlJsStatic } from "sql.js";
 
 import { getMDBTables } from "./mdb";
-import { replaceDB } from "../db/db";
+import { mdbTablesToDBTables, replaceDB } from "../db/db";
+import { mdbFrameToDBTables, mergeFrameFields } from "../../../core/utils/frames/frame";
+import type { SpaceProperty } from "../../../shared/types/mdb";
+import type { MDBFrame } from "../../../shared/types/mframe";
 
 // ===========================================================================
 // Notidian-eedq — REAL sql.js end-to-end regression for the per-DB header/view
@@ -369,6 +372,303 @@ describe("Notidian-eedq: per-DB header predicate survives the m_schema recovery/
       expect(pred).toBe(HEADER_PREDICATE);
     } finally {
       reopened.close();
+    }
+  });
+});
+
+// ===========================================================================
+// Notidian-2y21 — VIEW-CUSTOMIZATION DURABILITY across the FRAME->DB / replaceDB
+// round-trip (the SECOND, still-open reset vector after Notidian-eedq hardened the
+// schema-recovery path).
+//
+// THE BUG. A frames `.mdb` file stores the m_schema row (with the view PREDICATE:
+// colsHidden / colsSize / colsOrder / frozenColumnCount) AND the m_fields rows
+// (the column definitions) for EVERY frame and view in the space. Saving ONE
+// frame routed mdbFrameToDBTables({ [id]: frame }) -> saveDBToPath -> replaceDB.
+// mdbFrameToDBTables rebuilds m_fields from ONLY the saved frame's cols, and
+// replaceDB DROPs + recreates every table present in its argument — so the write
+// wiped every OTHER view's column definitions. The m_schema PREDICATE itself
+// survived (m_schema isn't in the written DBTables, so replaceDB left it alone),
+// but a view stripped of its columns renders fully reset: the owner's hidden
+// props / widths / order had no columns left to apply to. Net: every frame edit
+// (and every AI rebuild/save touching a frame) reset sibling views vault-wide.
+//
+// THE FIX. mergeFrameFields folds the saved frame's columns OVER the persisted
+// m_fields rows by schemaId, so unchanged views keep every field row — the same
+// non-destructive merge the mdbTable save path already performs.
+//
+// THIS NET drives the real sql.js engine: seed a frames DB with two views (each
+// with a non-empty header predicate) + a frame, all carrying field rows; simulate
+// a single-frame save through the production mdbFrameToDBTables + mergeFrameFields
+// + replaceDB pipeline; then assert sibling views' columns AND predicates survive
+// byte-for-byte. Without mergeFrameFields the sibling field rows vanish and this
+// FAILS.
+// ===========================================================================
+
+// Read the full m_fields table as objects, column-order-agnostic (the schema
+// carries `source`, ADR 0017), so the helper does not couple to column order.
+const readFields = (db: Database): SpaceProperty[] => {
+  const res = db.exec(`SELECT * FROM "m_fields"`);
+  const cols = res[0]?.columns ?? [];
+  return (res[0]?.values ?? []).map((row) =>
+    cols.reduce((acc, c, i) => ({ ...acc, [c]: row[i] }), {} as any)
+  ) as SpaceProperty[];
+};
+
+const fieldRow = (name: string, schemaId: string): SpaceProperty =>
+  ({
+    name,
+    schemaId,
+    type: "text",
+    value: "",
+    source: "",
+    attrs: "",
+    hidden: "",
+    unique: "",
+    primary: "",
+  } as unknown as SpaceProperty);
+
+const VIEW_A_PREDICATE = JSON.stringify({
+  colsHidden: ["Secret"],
+  colsSize: { Name: 240, "O'Brien": 100 },
+  colsOrder: ["Name", "Count"],
+  frozenColumnCount: 1,
+});
+const VIEW_B_PREDICATE = JSON.stringify({
+  colsHidden: ["Internal"],
+  colsSize: { Title: 320 },
+  colsOrder: ["Title", "Status"],
+});
+
+// Seed a frames-style DB: a `main` frame + two view rows (each with its own
+// header predicate) and the m_fields column rows for ALL THREE.
+const seedFramesWithSiblingViews = (): { files: Map<string, ArrayBuffer>; dbPath: string } => {
+  const files = new Map<string, ArrayBuffer>();
+  const dbPath = "Space/.notidian/space.mdb";
+  const db = new SQL.Database();
+  try {
+    replaceDB(db, {
+      m_schema: {
+        uniques: ["id"],
+        cols: ["id", "name", "type", "def", "predicate", "primary"],
+        rows: [
+          { id: "main", name: "main", type: "frame", def: "", predicate: "", primary: "true" },
+          { id: "viewA", name: "A", type: "view", def: JSON.stringify({ db: "files" }), predicate: VIEW_A_PREDICATE, primary: "" },
+          { id: "viewB", name: "B", type: "view", def: JSON.stringify({ db: "files" }), predicate: VIEW_B_PREDICATE, primary: "" },
+        ],
+      },
+      m_fields: {
+        uniques: ["name,schemaId"],
+        cols: ["name", "schemaId", "type", "value", "source", "attrs", "hidden", "unique", "primary"],
+        rows: [
+          fieldRow("$root", "main"),
+          fieldRow("colA1", "viewA"),
+          fieldRow("colA2", "viewA"),
+          fieldRow("colB1", "viewB"),
+        ] as any,
+      },
+      main: { uniques: [], cols: ["id", "schemaId", "name"], rows: [{ id: "$root", schemaId: "main", name: "root" }] },
+    });
+    writeDB(files, dbPath, db);
+  } finally {
+    db.close();
+  }
+  return { files, dbPath };
+};
+
+// The production single-frame save pipeline, exercised at the DB layer: convert
+// the saved frame, merge over the persisted m_fields, replaceDB, persist bytes.
+const saveSingleFrame = (
+  files: Map<string, ArrayBuffer>,
+  dbPath: string,
+  frame: MDBFrame
+) => {
+  const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+  try {
+    const persisted = readFields(db);
+    const converted = mdbFrameToDBTables({ [frame.schema.id]: frame } as any);
+    const merged = mergeFrameFields(converted, persisted, frame.schema.id);
+    replaceDB(db, merged);
+    writeDB(files, dbPath, db);
+  } finally {
+    db.close();
+  }
+};
+
+describe("Notidian-2y21: a single-frame save preserves SIBLING views' columns + predicates (frame->DB / replaceDB round-trip, real engine)", () => {
+  it("PINS THE BUG: the pre-fix path (raw mdbFrameToDBTables -> replaceDB, no merge) DROPS every sibling view's columns", () => {
+    // This is the destructive conversion the fix replaces. It proves the reset
+    // vector is real on the live engine: writing one frame's DBTables rebuilds
+    // m_fields from ONLY that frame's cols, so replaceDB's DROP+recreate erases
+    // viewA/viewB columns. (mergeFrameFields then carries them forward — see the
+    // following cases.)
+    const { files, dbPath } = seedFramesWithSiblingViews();
+    const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      const mainFrame: MDBFrame = {
+        schema: { id: "main", name: "main", type: "frame", def: "", predicate: "", primary: "true" } as any,
+        cols: [fieldRow("$root", "main")] as any,
+        rows: [{ id: "$root", schemaId: "main", name: "root" }] as any,
+      };
+      // PRE-FIX: no mergeFrameFields.
+      replaceDB(db, mdbFrameToDBTables({ main: mainFrame } as any));
+      const fields = readFields(db);
+      const bySchema = (id: string) => fields.filter((f) => f.schemaId == id).map((f) => f.name);
+      // The sibling views' columns are GONE — the owner-visible reset.
+      expect(bySchema("viewA")).toEqual([]);
+      expect(bySchema("viewB")).toEqual([]);
+      // (The m_schema predicate itself survives — m_schema isn't in the written
+      //  DBTables — but a column-less view renders reset regardless.)
+      const predA = db.exec(`SELECT predicate FROM "m_schema" WHERE id='viewA'`)[0]?.values?.[0]?.[0];
+      expect(predA).toBe(VIEW_A_PREDICATE);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("saving the `main` frame keeps viewA + viewB columns AND header predicates byte-for-byte", () => {
+    const { files, dbPath } = seedFramesWithSiblingViews();
+
+    const mainFrame: MDBFrame = {
+      schema: { id: "main", name: "main", type: "frame", def: "", predicate: "", primary: "true" } as any,
+      cols: [fieldRow("$root", "main")] as any,
+      rows: [{ id: "$root", schemaId: "main", name: "root-edited" }] as any,
+    };
+    saveSingleFrame(files, dbPath, mainFrame);
+
+    const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      // Sibling views' COLUMN DEFINITIONS must still be on disk (the lost artifact).
+      const fields = readFields(db);
+      const bySchema = (id: string) => fields.filter((f) => f.schemaId == id).map((f) => f.name).sort();
+      expect(bySchema("viewA")).toEqual(["colA1", "colA2"]);
+      expect(bySchema("viewB")).toEqual(["colB1"]);
+      expect(bySchema("main")).toEqual(["$root"]);
+
+      // Sibling views' PREDICATES (the header layout) survive byte-for-byte.
+      const predOf = (id: string) =>
+        db.exec(`SELECT predicate FROM "m_schema" WHERE id='${id}'`)[0]?.values?.[0]?.[0];
+      expect(predOf("viewA")).toBe(VIEW_A_PREDICATE);
+      expect(predOf("viewB")).toBe(VIEW_B_PREDICATE);
+
+      // The edited frame's own row landed.
+      const mainName = db.exec(`SELECT name FROM "main" WHERE id='$root'`)[0]?.values?.[0]?.[0];
+      expect(mainName).toBe("root-edited");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("re-saving a view with FEWER columns prunes only that view, never its siblings", () => {
+    const { files, dbPath } = seedFramesWithSiblingViews();
+
+    // viewA loses colA2; viewB must be untouched.
+    const viewAFrame: MDBFrame = {
+      schema: { id: "viewA", name: "A", type: "view", def: JSON.stringify({ db: "files" }), predicate: VIEW_A_PREDICATE, primary: "" } as any,
+      cols: [fieldRow("colA1", "viewA")] as any,
+      rows: [] as any,
+    };
+    saveSingleFrame(files, dbPath, viewAFrame);
+
+    const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      const fields = readFields(db);
+      const bySchema = (id: string) => fields.filter((f) => f.schemaId == id).map((f) => f.name).sort();
+      expect(bySchema("viewA")).toEqual(["colA1"]); // pruned correctly
+      expect(bySchema("viewB")).toEqual(["colB1"]); // sibling untouched
+      expect(bySchema("main")).toEqual(["$root"]);
+
+      const predOf = (id: string) =>
+        db.exec(`SELECT predicate FROM "m_schema" WHERE id='${id}'`)[0]?.values?.[0]?.[0];
+      expect(predOf("viewA")).toBe(VIEW_A_PREDICATE);
+      expect(predOf("viewB")).toBe(VIEW_B_PREDICATE);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ===========================================================================
+// Notidian-2y21 — VIEW-CUSTOMIZATION DURABILITY across a ROW WRITE (the AI /
+// api.context.insert path). A programmatic row write routes through
+// saveContext -> saveTable -> saveContent('mdbTable') -> mdbTablesToDBTables +
+// merged m_fields -> replaceDB. That write must NEVER touch m_schema, so a view's
+// predicate (colsHidden / colsSize / colsOrder) and sibling field rows are
+// untouched. ADR 0044 authority gate: a row INSERT writes row data only, never
+// schema. This pins it against the real engine.
+// ===========================================================================
+
+describe("Notidian-2y21: an AI/api.context.insert row write never resets view predicates (real engine)", () => {
+  it("inserting a row into a data table leaves m_schema predicates + sibling fields byte-preserved", () => {
+    const files = new Map<string, ArrayBuffer>();
+    const dbPath = "Space/.notidian/context.mdb";
+    const db = new SQL.Database();
+    try {
+      replaceDB(db, {
+        m_schema: {
+          uniques: ["id"],
+          cols: ["id", "name", "type", "def", "predicate", "primary"],
+          rows: [
+            // The data schema (rows live here) + a view carrying the header layout.
+            { id: "files", name: "Files", type: "db", def: "", predicate: "", primary: "true" },
+            { id: "filesView", name: "All", type: "view", def: JSON.stringify({ db: "files" }), predicate: VIEW_A_PREDICATE, primary: "" },
+          ],
+        },
+        m_fields: {
+          uniques: ["name,schemaId"],
+          cols: ["name", "schemaId", "type", "value", "source", "attrs", "hidden", "unique", "primary"],
+          rows: [fieldRow("Name", "files"), fieldRow("Count", "files"), fieldRow("colV", "filesView")] as any,
+        },
+        files: { uniques: [], cols: ["Name", "Count"], rows: [{ Name: "Row 1", Count: "1" }] },
+      });
+      writeDB(files, dbPath, db);
+    } finally {
+      db.close();
+    }
+
+    // Simulate the row-write sink: saveContent('mdbTable') = mdbTablesToDBTables +
+    // merged m_fields, NO m_schema. replaceDB leaves m_schema untouched.
+    const db2 = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      const oldFields = readFields(db2);
+      const newTable = {
+        schema: { id: "files", name: "Files", type: "db", def: "", predicate: "", primary: "true" } as any,
+        cols: [fieldRow("Name", "files"), fieldRow("Count", "files")] as any,
+        rows: [
+          { Name: "Row 1", Count: "1" },
+          { Name: "AI Row", Count: "99" }, // the inserted row
+        ] as any,
+      };
+      const dbTables = {
+        ...mdbTablesToDBTables({ files: newTable } as any),
+        m_fields: {
+          uniques: ["name,schemaId"],
+          cols: ["name", "schemaId", "type", "value", "source", "attrs", "hidden", "unique", "primary"],
+          rows: [
+            ...oldFields.filter((f) => f.schemaId != "files"),
+            ...newTable.cols,
+          ] as any,
+        },
+      };
+      replaceDB(db2, dbTables as any);
+      writeDB(files, dbPath, db2);
+    } finally {
+      db2.close();
+    }
+
+    const db3 = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      // The view predicate is byte-preserved — a row write must not reset view state.
+      const pred = db3.exec(`SELECT predicate FROM "m_schema" WHERE id='filesView'`)[0]?.values?.[0]?.[0];
+      expect(pred).toBe(VIEW_A_PREDICATE);
+      // The view's own field row survives the row write (m_fields merge preserved it).
+      const fields = readFields(db3);
+      expect(fields.filter((f) => f.schemaId == "filesView").map((f) => f.name)).toEqual(["colV"]);
+      // The inserted row landed.
+      const rows = db3.exec(`SELECT Name FROM "files" ORDER BY Name`)[0]?.values?.map((r) => r[0]);
+      expect(rows).toEqual(["AI Row", "Row 1"]);
+    } finally {
+      db3.close();
     }
   });
 });

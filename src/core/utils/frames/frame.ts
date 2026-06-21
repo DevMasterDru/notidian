@@ -5,7 +5,7 @@ import { Superstate } from "makemd-core";
 import { defaultFrameSchema } from "schemas/frames";
 import { fieldSchema } from "shared/schemas/fields";
 import { FrameExecutable, LinkedContext, LinkedNode } from "shared/types/frameExec";
-import { DBTables, SpaceTable } from "shared/types/mdb";
+import { DBTables, SpaceProperty, SpaceTable } from "shared/types/mdb";
 import { FrameRoot, FrameTreeProp, MDBFrames, MFrame } from "shared/types/mframe";
 import { SpaceInfo } from "shared/types/spaceInfo";
 import { deepOmit } from "../objects";
@@ -209,5 +209,44 @@ export const mdbFrameToDBTables = (tables: MDBFrames, uniques?: { [x: string]: s
     }
   }) as DBTables;
 
+};
+
+// Notidian-2y21 — VIEW-CUSTOMIZATION DURABILITY across a single-frame save.
+//
+// mdbFrameToDBTables rebuilds the shared `m_fields` table from ONLY the frames it
+// is given. A frames file holds the field/column rows of EVERY frame and view in
+// the space, so converting one frame and handing the result to replaceDB (which
+// DROPs + recreates m_fields) silently erases every OTHER view's column
+// definitions — and with them each view's colsHidden / colsSize / colsOrder
+// layout (the per-DB header customization). The m_schema PREDICATE itself
+// survives (m_schema isn't in the written DBTables, so replaceDB leaves it
+// untouched), but a view whose columns vanished renders fully reset.
+//
+// mergeFrameFields takes the DBTables produced for the saved frame(s) and folds
+// the saved frame's columns OVER the persisted m_fields rows, keyed by schemaId:
+// every row whose schemaId is NOT one of the saved frames is carried forward
+// verbatim. This makes a single-frame save non-destructive to sibling views,
+// mirroring the merge the mdbTable save path already performs. `savedIds` are the
+// schema ids being (re)written; their old field rows are dropped and replaced by
+// the freshly-converted ones, so re-saving a frame with fewer columns still prunes
+// correctly without touching anyone else.
+export const mergeFrameFields = (
+  converted: DBTables,
+  persistedFields: SpaceProperty[],
+  ...savedIds: string[]
+): DBTables => {
+  const saved = new Set(savedIds);
+  const freshFieldRows = (converted.m_fields?.rows ?? []) as SpaceProperty[];
+  const carriedFields = (persistedFields ?? []).filter(
+    (f) => !saved.has(f.schemaId)
+  );
+  return {
+    ...converted,
+    m_fields: {
+      uniques: fieldSchema.uniques,
+      cols: fieldSchema.cols,
+      rows: [...carriedFields, ...freshFieldRows],
+    },
+  } as DBTables;
 };
 
