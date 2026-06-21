@@ -103,6 +103,36 @@ export const computeFrontmatterRollupDetailed = (params: {
   const isUsable = (value: unknown) =>
     !(value == null || String(value).trim().length == 0);
 
+  // Progress rollups (Notidian-5ond.7): the share (0..100) of RESOLVED links whose
+  // target property is non-empty ("percent") or checked-true ("percent_checked",
+  // tolerating the "true" string). Denominator = resolved links (dangling links
+  // are excluded and surface via the D2 partial marker). Empty string when there
+  // is nothing resolved to measure.
+  if (config.fn == "percent" || config.fn == "percent_checked") {
+    let denom = 0;
+    let num = 0;
+    for (const path of linkPaths) {
+      const frontmatter = resolveFrontmatter(path);
+      if (!frontmatter) continue;
+      denom++;
+      const value = frontmatter[config.targetProperty];
+      const hit =
+        config.fn == "percent_checked"
+          ? Array.isArray(value)
+            ? value.some((v) => v === true || v === "true")
+            : value === true || value === "true"
+          : Array.isArray(value)
+          ? value.some((v) => isUsable(v))
+          : isUsable(value);
+      if (hit) num++;
+    }
+    return {
+      value: denom == 0 ? "" : String(Math.round((100 * num) / denom)),
+      relationCount,
+      resolvedCount: denom,
+    };
+  }
+
   // Collect the target property from each resolvable linked row. Array-valued
   // frontmatter (e.g. a multi-value property) is flattened so count_values and
   // values reflect each element, not the whole list as one scalar. The per-link

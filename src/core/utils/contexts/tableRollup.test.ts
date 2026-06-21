@@ -290,3 +290,54 @@ describe("computeFrontmatterRollupDetailed (ADR 0029 D2)", () => {
     expect(r.resolvedCount).toBe(r.relationCount);
   });
 });
+
+describe("computeFrontmatterRollupDetailed percent rollups (Notidian-5ond.7)", () => {
+  const fm: Record<string, Record<string, any>> = {
+    "T/A": { done: true, label: "x" },
+    "T/B": { done: false, label: "" }, // empty label
+    "T/C": { done: "true", label: "y" }, // string-boolean tolerated
+    "T/D": { done: false }, // label absent
+    // "T/E" unresolved (no entry) -> excluded from denom
+  };
+  const resolve = (p: string) => fm[p] ?? null;
+  const cfg = (over: Partial<RollupConfig>): RollupConfig => ({
+    relationProperty: "rel",
+    targetProperty: "done",
+    fn: "percent",
+    ...over,
+  });
+  const run = (fn: string, target: string, links: string[]) =>
+    computeFrontmatterRollupDetailed({
+      linkPaths: links,
+      config: cfg({ fn, targetProperty: target }),
+      resolveFrontmatter: resolve,
+    });
+
+  it("percent_checked: share of resolved links whose target is true (string 'true' tolerated)", () => {
+    // A=true, B=false, C='true', D=false -> 2/4 = 50
+    const r = run("percent_checked", "done", ["T/A", "T/B", "T/C", "T/D"]);
+    expect(r.value).toBe("50");
+  });
+
+  it("percent: share of resolved links whose target is non-empty", () => {
+    // label: A=x, B='', C=y, D=absent -> non-empty: A,C = 2/4 = 50
+    expect(run("percent", "label", ["T/A", "T/B", "T/C", "T/D"]).value).toBe("50");
+  });
+
+  it("excludes unresolved (dangling) links from the denominator + flags partial", () => {
+    // A=true, E=unresolved -> denom 1 (only A), num 1 -> 100; relationCount 2
+    const r = run("percent_checked", "done", ["T/A", "T/E"]);
+    expect(r.value).toBe("100");
+    expect(r.resolvedCount).toBe(1);
+    expect(r.relationCount).toBe(2);
+  });
+
+  it("rounds to an integer", () => {
+    // A=true, B=false, C='true' -> 2/3 = 66.66 -> 67
+    expect(run("percent_checked", "done", ["T/A", "T/B", "T/C"]).value).toBe("67");
+  });
+
+  it("empty string when nothing resolves (denominator 0)", () => {
+    expect(run("percent_checked", "done", ["T/E", "T/Z"]).value).toBe("");
+  });
+});

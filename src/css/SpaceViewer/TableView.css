@@ -693,6 +693,35 @@ body.mk-property-header-tooltip-visible > .tooltip {
   white-space: nowrap;
 }
 
+/* Progress rollups (Notidian-5ond.7): Notion-style bar + "NN%" for the percent /
+   percent_checked fns. CSS-only (a width-driven fill), no innerHTML/SVG. */
+.mk-cell-rollup-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mk-rollup-bar {
+  flex: 1;
+  min-width: 32px;
+  max-width: 120px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.mk-rollup-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--interactive-accent);
+  transition: width 0.15s ease;
+}
+.mk-rollup-bar-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 30px;
+}
+
 .mk-cell-boolean-sticker {
   width: 18px;
   height: 18px;

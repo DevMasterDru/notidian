@@ -46,6 +46,40 @@ export const RollupCell = (
   // The displayed number is unchanged; this is text/CSS only (no innerHTML).
   const showPartial =
     rollup.fn != "count" && rollup.resolvedCount < rollup.relationCount;
+
+  // Progress rollups (Notidian-5ond.7): render percent / percent_checked as a
+  // Notion-style bar + "NN%". CSS-only (a div width, no innerHTML/SVG). A blank
+  // value (nothing resolved) falls through to the plain empty render.
+  const isPercent =
+    rollup.fn == "percent" || rollup.fn == "percent_checked";
+  if (isPercent && rollup.value !== "") {
+    const pct = Math.max(0, Math.min(100, parseInt(rollup.value, 10) || 0));
+    return (
+      <div className="mk-cell-rollup mk-cell-rollup-progress">
+        <div
+          className="mk-rollup-bar"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div className="mk-rollup-bar-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="mk-rollup-bar-label">{pct}%</span>
+        {showPartial ? (
+          <span
+            className="mk-cell-rollup-partial"
+            title={`${rollup.resolvedCount} of ${rollup.relationCount} counted — ${
+              rollup.relationCount - rollup.resolvedCount
+            } unresolved`}
+          >
+            ·{rollup.resolvedCount}/{rollup.relationCount}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="mk-cell-rollup">
       {rollup.value}

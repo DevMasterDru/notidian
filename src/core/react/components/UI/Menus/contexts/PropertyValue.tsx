@@ -373,14 +373,13 @@ export const PropertyValueComponent = (props: {
   };
   const selectRollupFn = (e: React.MouseEvent) => {
     const options: SelectOption[] = [
-      "count",
-      "count_values",
-      "values",
-      "sum",
-      "avg",
-      "min",
-      "max",
-    ].map((f) => ({ name: f, value: f }));
+      ...["count", "count_values", "values", "sum", "avg", "min", "max"].map(
+        (f) => ({ name: f, value: f })
+      ),
+      // Progress rollups (Notidian-5ond.7): render as a bar.
+      { name: "percent (not empty)", value: "percent" },
+      { name: "percent checked", value: "percent_checked" },
+    ];
     showOptions(e, parsedValue.fn, options, "fn");
   };
 
@@ -400,15 +399,20 @@ export const PropertyValueComponent = (props: {
   };
   const selectBacklinkFn = (e: React.MouseEvent) => {
     const options: SelectOption[] = [
-      "list",
-      "count",
-      "count_values",
-      "values",
-      "sum",
-      "avg",
-      "min",
-      "max",
-    ].map((f) => ({ name: f, value: f }));
+      ...[
+        "list",
+        "count",
+        "count_values",
+        "values",
+        "sum",
+        "avg",
+        "min",
+        "max",
+      ].map((f) => ({ name: f, value: f })),
+      // Progress rollups (Notidian-5ond.7): render as a bar.
+      { name: "percent (not empty)", value: "percent" },
+      { name: "percent checked", value: "percent_checked" },
+    ];
     showOptions(e, parsedValue.fn, options, "fn");
   };
 

@@ -109,3 +109,56 @@ describe("RollupCell partial marker (ADR 0029 D2)", () => {
     container.remove();
   });
 });
+
+describe("RollupCell progress bar (Notidian-5ond.7)", () => {
+  it("renders a bar + 'NN%' for a percent rollup, CSS-only (no SVG/innerHTML)", () => {
+    const { container, root } = renderCell("percent_checked", {
+      value: "60",
+      relationCount: 5,
+      resolvedCount: 5,
+    });
+    const cell = container.querySelector(".mk-cell-rollup-progress") as HTMLElement;
+    expect(cell).toBeTruthy();
+    const fill = container.querySelector(".mk-rollup-bar-fill") as HTMLElement;
+    expect(fill.style.width).toBe("60%");
+    expect(
+      (container.querySelector(".mk-rollup-bar-label") as HTMLElement).textContent
+    ).toBe("60%");
+    const bar = container.querySelector(".mk-rollup-bar") as HTMLElement;
+    expect(bar.getAttribute("role")).toBe("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("60");
+    expect(cell.querySelector("svg")).toBeNull();
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("clamps out-of-range values and falls back to plain render when empty", () => {
+    const over = renderCell("percent", { value: "150", relationCount: 1, resolvedCount: 1 });
+    expect(
+      (over.container.querySelector(".mk-rollup-bar-fill") as HTMLElement).style.width
+    ).toBe("100%");
+    act(() => over.root.unmount());
+    over.container.remove();
+
+    // Empty value (nothing resolved) -> no bar, plain empty rollup cell.
+    const empty = renderCell("percent", { value: "", relationCount: 0, resolvedCount: 0 });
+    expect(empty.container.querySelector(".mk-rollup-bar")).toBeNull();
+    expect(empty.container.querySelector(".mk-cell-rollup")).toBeTruthy();
+    act(() => empty.root.unmount());
+    empty.container.remove();
+  });
+
+  it("shows the partial marker alongside the bar when links are unresolved", () => {
+    const { container, root } = renderCell("percent_checked", {
+      value: "100",
+      relationCount: 3,
+      resolvedCount: 2,
+    });
+    expect(container.querySelector(".mk-rollup-bar")).toBeTruthy();
+    expect(
+      (container.querySelector(".mk-cell-rollup-partial") as HTMLElement).textContent
+    ).toBe("·2/3");
+    act(() => root.unmount());
+    container.remove();
+  });
+});
