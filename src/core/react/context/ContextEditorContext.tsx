@@ -46,7 +46,7 @@ import {
 } from "core/utils/contexts/tableEditTransaction";
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { applyAssemblyLimit } from "core/utils/contexts/tableAssembly";
-import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
+import { makeRowMatchesFilters } from "core/utils/contexts/predicate/rowMatchesFilters";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import {
   buildRowTree,
@@ -757,36 +757,24 @@ export const ContextEditorProvider: React.FC<
           (predicate?.colsOrder ?? []).findIndex((x) => x == b.name + b.table)
       );
   }, [cols, predicate]);
-  // Per-row predicate-filter match (Notidian-5ond.5): hoisted VERBATIM from the
-  // old filteredSortedData so the flat path AND the hierarchy-aware scope seam
-  // share the EXACT same match (including the tags-synthesis shim).
+  // Per-row predicate-filter match (Notidian-5ond.5): the flat path AND the
+  // hierarchy-aware scope seam share the EXACT same match. Extracted into the
+  // pure, co-located-tested makeRowMatchesFilters helper (Notidian-iguu) so the
+  // null-spaceCache crash class (regression for 6ba6f3d / 5ond.5) is locked at
+  // the integration seam, including the tags-synthesis shim and the nullish
+  // spaceCache?.properties plumbing. Behavior is byte-identical to the prior
+  // inlined reduce.
   const rowMatchesFilters = useMemo(
-    () => (f: DBRow) =>
-      (predicate?.filters ?? []).reduce((p, c) => {
-        const row = cols.some(
-          (f) =>
-            f.schemaId == defaultContextSchemaID &&
-            f.name.toLowerCase() == "tags"
-        )
-          ? {
-              ...f,
-              [f.name]: (
-                spaceManager.getPathState(f[PathPropertyName])?.tags ?? []
-              ).join(", "),
-            }
-          : f;
-        return p
-          ? filterReturnForCol(
-              cols.find((col) => col.name + col.table == c.field),
-              c,
-              row,
-              // spaceCache (= spaceState) can be null during load / for some
-              // views; null-safe so the dep array + the call never throw
-              // "Cannot read properties of null (reading 'properties')".
-              spaceCache?.properties
-            )
-          : p;
-      }, true),
+    () =>
+      makeRowMatchesFilters({
+        filters: predicate?.filters,
+        cols,
+        spaceManager,
+        // spaceCache (= spaceState) can be null during load / for some views;
+        // null-safe so the call never throws "Cannot read properties of null
+        // (reading 'properties')" — pinned by rowMatchesFilters.test.ts.
+        properties: spaceCache?.properties,
+      }),
     [predicate?.filters, cols, spaceManager, spaceCache?.properties]
   );
   const rowMatchesSearch = useMemo(
