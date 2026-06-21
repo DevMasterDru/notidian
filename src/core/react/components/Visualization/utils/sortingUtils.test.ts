@@ -638,13 +638,45 @@ describe("sortByEncodingType", () => {
     ).toBe(false);
   });
 
+  // ---- quantitative: ±Infinity / overflow self-compare is 0, never NaN -----
+  // FIXED (Notidian-zj8b / ADR 0033): Number("Infinity")/Number("1e999") === ±Infinity
+  // (NOT NaN), so a NaN-only guard fell through to `Infinity - Infinity === NaN` — a
+  // NON-REFLEXIVE, NaN-returning self-compare on the live quantitative D3 sort path
+  // (LineChartUtility.ts:168 only null-checks the x/sort field, NOT finiteness, so an
+  // x cell of "Infinity"/"1e999"/Infinity reaches sortByEncodingType unguarded). This
+  // is the exact "Infinity"/"1e999" NaN-reflexivity defect ADR 0033 names. The helper
+  // now guards `!Number.isFinite`, folding ±Infinity into the sort-last bucket.
+  it("quantitative: ±Infinity / overflow / actual Infinity self-compare to 0 (no NaN)", () => {
+    for (const v of ["Infinity", "-Infinity", "1e999", "-1e999", Infinity, -Infinity]) {
+      const self = sortByEncodingType(row(v), row(v), "quantitative", "k");
+      expect(Number.isNaN(self)).toBe(false); // the formerly-NaN self-compare
+      expect(self).toBe(0); // reflexive
+      expect(() => sign(self)).not.toThrow(); // sign() refuses to launder NaN
+    }
+    // a non-finite cell sorts AFTER a finite number, symmetrically (not NaN)
+    expect(sign(sortByEncodingType(row("Infinity"), row(5), "quantitative", "k"))).toBe(1);
+    expect(sign(sortByEncodingType(row(5), row("Infinity"), "quantitative", "k"))).toBe(-1);
+    // +Infinity and -Infinity are order-equivalent in the sort-last bucket (no NaN)
+    expect(sortByEncodingType(row(Infinity), row(-Infinity), "quantitative", "k")).toBe(0);
+  });
+
   it("quantitative: a junk-bearing axis obeys the SWO laws (reflexive/antisymmetric/transitive)", () => {
-    const QUANT_DOMAIN = [10, 2, -5, 0, "9", "100", "x", "", null, undefined, NaN];
+    // The domain DELIBERATELY includes "Infinity"/"-Infinity"/overflow "1e999" and
+    // actual ±Infinity (Notidian-zj8b): Number() maps these to ±Infinity (NOT NaN),
+    // the exact non-finite case the NaN-only guard missed (Infinity - Infinity ===
+    // NaN). With the `!Number.isFinite` guard they fold into the sort-last bucket, so
+    // the SWO net below now actually exercises the defect class the commit closes —
+    // `sign` (NaN-throwing) would fail loud on any reflexivity regression here.
+    const QUANT_DOMAIN = [
+      10, 2, -5, 0, "9", "100", "x", "", null, undefined, NaN,
+      "Infinity", "-Infinity", "1e999", "-1e999", Infinity, -Infinity,
+    ];
     const cmp = (a: any, b: any) =>
       sortByEncodingType(row(a), row(b), "quantitative", "k");
     // NOTE: Number("") === 0 and Number(null) === 0 (finite), so these participate
-    // as the numeric value 0; only genuinely non-numeric cells ("x", undefined, NaN)
-    // become NaN and sort last. The laws must hold across the whole mixed axis.
+    // as the numeric value 0; genuinely non-numeric cells ("x", undefined, NaN) AND
+    // the non-finite tokens ("Infinity", "1e999", ±Infinity) become non-finite and
+    // sort last. The laws must hold across the whole mixed axis.
     for (const x of QUANT_DOMAIN) expect(sign(cmp(x, x))).toBe(0); // reflexive
     for (const a of QUANT_DOMAIN)
       for (const b of QUANT_DOMAIN)

@@ -125,33 +125,45 @@ export const intelligentCompare = (a: any, b: any): number => {
 };
 
 /**
- * NaN-disciplined numeric difference for the temporal/quantitative branches of
- * `sortByEncodingType` (ADR 0033 bug class — same defect classifyForSort fixed for
- * intelligentCompare; Notidian-zj8b).
+ * Non-finite-disciplined numeric difference for the temporal/quantitative branches
+ * of `sortByEncodingType` (ADR 0033 bug class — same defect classifyForSort fixed
+ * for intelligentCompare; Notidian-zj8b).
  *
- * The legacy branches returned a bare `na - nb`, so an unparseable cell (a date
- * string that `new Date()` can't read, or non-numeric junk under `Number()`)
- * produced NaN, and NaN propagates: `NaN - NaN === NaN` (so `compare(x, x)` could be
- * NaN — NON-REFLEXIVE) and `valid - NaN === NaN` (so the relation is undefined),
- * which hands Array.prototype.sort (LineChartUtility.ts:173,600) an input-dependent,
- * V8/TimSort-order-sensitive contract.
+ * The legacy branches returned a bare `na - nb`, which has TWO non-finite failure
+ * modes, both of which produce a NaN comparator return — an SWO violation that hands
+ * Array.prototype.sort (LineChartUtility.ts:173,600) an input-dependent,
+ * V8/TimSort-order-sensitive contract:
+ *   1. NaN operands — an unparseable cell (a date string `new Date()` can't read, or
+ *      non-numeric junk under `Number()`): `NaN - NaN === NaN` (so `compare(x, x)`
+ *      could be NaN — NON-REFLEXIVE) and `valid - NaN === NaN` (relation undefined).
+ *   2. ±Infinity operands — a quantitative cell whose `Number()` coercion is NOT NaN
+ *      but ±Infinity: the string "Infinity"/"-Infinity", an overflow literal like
+ *      "1e999", or an actual Infinity numeric value. Then `Infinity - Infinity ===
+ *      NaN`, so `compare("Infinity","Infinity") === NaN` — the exact non-reflexive,
+ *      NaN-returning self-compare ADR 0033 names as a core in-scope defect (the same
+ *      "Infinity"/"1e999" NaN-reflexivity break classifyForSort closes by routing
+ *      non-finite tokens to the string bucket via FINITE_NUMERIC + isFinite). Guarding
+ *      only `Number.isNaN` would miss this; we guard `!Number.isFinite` so BOTH modes
+ *      fold into the deterministic sort-last bucket. (The temporal branch never hits
+ *      mode 2 — `Date.getTime()` is always a finite ms or NaN, never ±Infinity — but
+ *      the shared helper must close it for the quantitative branch.)
  *
- * This applies the same NaN-to-one-end discipline as classifyForSort's stable
+ * This applies the same non-finite-to-one-end discipline as classifyForSort's stable
  * buckets WITHOUT changing single-type axes: when BOTH values are finite it returns
  * the exact same `na - nb` as before (so all-valid temporal / quantitative axes stay
- * byte-identical); only when a value is NaN does it diverge — NaN sorts AFTER every
- * finite value and self-compares to 0:
- *   both NaN -> 0   (reflexive; two junk cells are order-equivalent)
- *   a NaN    -> +1  (junk a sorts after finite b)
- *   b NaN    -> -1  (finite a sorts before junk b)
- *   else     -> na - nb
+ * byte-identical); only when a value is non-finite (NaN or ±Infinity) does it diverge
+ * — a non-finite value sorts AFTER every finite value and self-compares to 0:
+ *   both non-finite -> 0   (reflexive; two non-finite cells are order-equivalent)
+ *   a non-finite    -> +1  (non-finite a sorts after finite b)
+ *   b non-finite    -> -1  (finite a sorts before non-finite b)
+ *   else            -> na - nb
  */
 const numericDiffNaNLast = (na: number, nb: number): number => {
-  const aNaN = Number.isNaN(na);
-  const bNaN = Number.isNaN(nb);
-  if (aNaN && bNaN) return 0;
-  if (aNaN) return 1;
-  if (bNaN) return -1;
+  const aBad = !Number.isFinite(na);
+  const bBad = !Number.isFinite(nb);
+  if (aBad && bBad) return 0;
+  if (aBad) return 1;
+  if (bBad) return -1;
   return na - nb;
 };
 
@@ -179,8 +191,11 @@ export const sortByEncodingType = (
   }
 
   if (encodingType === 'quantitative') {
-    // Number() is NaN for non-numeric junk; same NaN-to-one-end discipline so a
-    // junk-bearing quantitative axis stays a strict weak ordering (Notidian-zj8b).
+    // Number() yields NaN for non-numeric junk AND ±Infinity for "Infinity"/
+    // "-Infinity"/overflow literals like "1e999" (or an actual Infinity value); the
+    // non-finite-to-one-end discipline folds BOTH into the sort-last bucket so a
+    // junk- OR Infinity-bearing quantitative axis stays a strict weak ordering with
+    // no NaN self-compare (Notidian-zj8b; ADR 0033 Infinity NaN-reflexivity defect).
     return numericDiffNaNLast(Number(aVal), Number(bVal));
   }
   
