@@ -52,18 +52,36 @@ export const renameTag = async (
   }
   await renameTagSpacePath(superstate, folded, newTag);
   for (const subtag of tags) {
-    // Every descendant shares the SAME root `folded/` prefix, so computing its
-    // new tag against the ROOT folded prefix (not a parent's) is correct for
-    // EVERY node regardless of order — the recursion derived the identical
-    // value, just via per-level replaces. String.prototype.replace rewrites only
-    // the FIRST (leading) occurrence, which the '/'-boundary filter guarantees
-    // is exactly the `folded` prefix. This is the same per-node work the
-    // recursion did once per node, with the redundant re-descent removed.
-    const subtagNewTag = subtag.replace(folded, newTag);
-    for (const path of superstate.spaceManager.pathsForTag(subtag)) {
-      superstate.spaceManager.renameTag(path, subtag, subtagNewTag);
+    // CASE-FOLD each descendant's SOURCE and TARGET before dispatching, exactly
+    // as the recursion it replaced did. The old body was
+    // `renameTag(superstate, subtag, subtag.replace(folded, newTag))`, and that
+    // recursive call RE-FOLDED both arguments at its top —
+    // `ensureTag(validateName(tag))` on the source and
+    // `ensureTag(validateName(toTag))` on the target — so it ALWAYS dispatched
+    // the canonical LOWERCASED tuples to spaceManager.renameTag /
+    // renameTagSpacePath. A flat loop that dispatched the RAW `subtag` would
+    // diverge whenever a descendant carries a mixed-case segment: readTags() is
+    // only PARTLY folded — its tag-space-FOLDER branch maps `tagPathToTag(name)`
+    // (adapters/obsidian/utils/tags.ts loadTags), and tagPathToTag does NOT
+    // lowercase, so a folder named '#proj+Alpha' yields the readTags entry
+    // '#proj/Alpha' (a '/'-boundaried descendant of folded '#proj' with a
+    // MIXED-CASE child). Dispatching that raw would write the non-canonical
+    // '#work/Alpha' into file bodies (editTagInFileBody splices newTag verbatim)
+    // and into the `tags:` property (editTagInProperties stores
+    // stringFromTag(newTag) verbatim), breaking the Notidian-ehfz fold invariant
+    // (every stored tag surface lowercased) and, on a case-SENSITIVE filesystem,
+    // flipping renameTagSpacePath's renamePath branch to the deletePath else.
+    // Folding here keeps the flat loop's tuples IDENTICAL to the recursion's.
+    // (replace rewrites only the FIRST/leading occurrence, which the
+    // '/'-boundary filter guarantees is exactly the `folded` prefix.)
+    // (Notidian-i9uk; preserves Notidian-ehfz + Notidian-23bl.)
+    const subtagFolded = ensureTag(validateName(subtag));
+    if (!subtagFolded) continue;
+    const subtagNewTag = subtagFolded.replace(folded, newTag);
+    for (const path of superstate.spaceManager.pathsForTag(subtagFolded)) {
+      superstate.spaceManager.renameTag(path, subtagFolded, subtagNewTag);
     }
-    await renameTagSpacePath(superstate, subtag, subtagNewTag);
+    await renameTagSpacePath(superstate, subtagFolded, subtagNewTag);
   }
   return newTag
 };

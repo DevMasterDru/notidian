@@ -241,6 +241,57 @@ describe("renameTag — case-fold seam, recording jest.fn spies (Notidian-3dpn)"
     expect(spies.onTagRenamed).toHaveBeenCalledTimes(4);
   });
 
+  // (2b) Notidian-i9uk REGRESSION — a DESCENDANT entry whose CHILD segment is
+  //      MIXED-CASE must be dispatched with its SOURCE and TARGET both folded,
+  //      exactly as the recursion it replaced did. readTags() is only PARTLY
+  //      folded: loadTags lowercases metadataCache.getTags() keys but maps
+  //      tag-space FOLDER names via tagPathToTag(name), which does NOT lowercase,
+  //      so a folder '#proj+Alpha' yields the readTags entry '#proj/Alpha' — a
+  //      genuine '/'-boundaried descendant of folded '#proj' (passes the
+  //      startsWith('#proj/') filter) with a mixed-case child. The pre-i9uk flat
+  //      loop dispatched the RAW '#proj/Alpha' -> '#work/Alpha', writing a
+  //      non-canonical tag into file bodies (editTagInFileBody splices newTag
+  //      verbatim) and the `tags:` property (editTagInProperties stores
+  //      stringFromTag(newTag) verbatim) — a Notidian-ehfz fold-invariant break.
+  //      The in-loop fold restores the canonical lowercased dispatch. Every
+  //      OTHER fixture in this file feeds already-folded descendants, so this is
+  //      the ONLY case that exercises the descendant-side fold.
+  it("(2b) a MIXED-CASE descendant segment is dispatched FOLDED on both source and target (Notidian-i9uk)", async () => {
+    const { ss, spies } = fakeSuperstate({
+      // '#proj/Alpha' as the tag-space-folder branch (tagPathToTag) yields it,
+      // un-lowercased, beside a normally-folded sibling '#proj/beta'.
+      readTags: ["#proj", "#proj/Alpha", "#proj/beta"],
+      pathsByFoldedTag: {
+        "#proj": ["p.md"],
+        "#proj/alpha": ["a.md"],
+        "#proj/beta": ["b.md"],
+      },
+    });
+    await renameTag(ss, "#Proj", "Work");
+    // Both the source tag ('#proj/alpha') and the target ('#work/alpha') are
+    // canonically LOWERCASED — never the raw '#proj/Alpha' / '#work/Alpha'.
+    expect(spies.renameTag.mock.calls).toEqual([
+      ["p.md", "#proj", "#work"],
+      ["a.md", "#proj/alpha", "#work/alpha"],
+      ["b.md", "#proj/beta", "#work/beta"],
+    ]);
+    // No raw mixed-case ever reaches a tag-rename sink (source OR target).
+    for (const [, tag, newTag] of spies.renameTag.mock.calls as Array<
+      [string, string, string]
+    >) {
+      expect(tag).not.toMatch(/[A-Z]/);
+      expect(newTag).not.toMatch(/[A-Z]/);
+    }
+    // renameTagSpacePath / onTagRenamed are driven with the folded forms too, so
+    // folderForTagSpace resolves the real lowercased tag-space folder.
+    for (const [tag, newTag] of spies.onTagRenamed.mock.calls as Array<
+      [string, string]
+    >) {
+      expect(tag).not.toMatch(/[A-Z]/);
+      expect(newTag).not.toMatch(/[A-Z]/);
+    }
+  });
+
   // (3) siblings sharing a textual prefix are NEVER renamed.
   it("(3) a sibling sharing only a textual prefix is never renamed (no '#barbar' corruption — Notidian-23bl)", async () => {
     const { ss, spies } = fakeSuperstate({

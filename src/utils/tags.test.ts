@@ -774,4 +774,64 @@ describe("renameTag — case-fold seam (Notidian-ehfz)", () => {
     expect(await renameTag(ss, "", "#bar")).toBeNull();
     expect(renameTagCalls).toEqual([]);
   });
+
+  // --- Notidian-i9uk REGRESSION: a descendant readTags() entry whose CHILD
+  // segment is MIXED-CASE. readTags() is only PARTLY folded — the live loadTags
+  // lowercases metadataCache.getTags() keys but maps tag-space FOLDER names
+  // through tagPathToTag(name), which does NOT lowercase. So a folder named
+  // '#proj+Alpha' produces the readTags entry '#proj/Alpha': a genuine
+  // '/'-boundaried descendant of folded '#proj' (passes the startsWith('#proj/')
+  // filter) with a mixed-case child segment. The flat-loop refactor must dispatch
+  // the CANONICAL LOWERCASED source AND target for it — exactly as the recursion
+  // it replaced did (the old `renameTag(superstate, subtag, subtag.replace(...))`
+  // re-folded BOTH args at its top). The fixtures above all feed already-folded
+  // descendants, so ONLY this case proves the in-loop fold; under the pre-fix
+  // flat loop the RAW '#proj/Alpha' / '#work/Alpha' tuples leaked through.
+  it("folds a MIXED-CASE descendant segment so the dispatched source AND target are canonical (Notidian-i9uk)", async () => {
+    const { ss, renameTagCalls, spacePathRenames } = recordingSuperstate({
+      // Mixed-case child '#proj/Alpha' as the tag-space-folder branch yields it,
+      // alongside a normally-folded sibling '#proj/beta'.
+      readTags: ["#proj", "#proj/Alpha", "#proj/beta"],
+      // pathsForTag is case-insensitive (mirrors getAllFilesForTag/tagExists), so
+      // BOTH the folded and the raw key resolve the same file; keying by the
+      // folded form is sufficient.
+      pathsByFoldedTag: {
+        "#proj": ["p.md"],
+        "#proj/alpha": ["a.md"],
+        "#proj/beta": ["b.md"],
+      },
+    });
+    await renameTag(ss, "#Proj", "Work");
+    // Every dispatched (path,tag,newTag) is canonically LOWERCASED — the
+    // mixed-case child 'Alpha' is folded to 'alpha' on BOTH the source tag and
+    // the target newTag, never the raw '#proj/Alpha' / '#work/Alpha'.
+    expect(renameTagCalls).toEqual([
+      { path: "p.md", tag: "#proj", newTag: "#work" },
+      { path: "a.md", tag: "#proj/alpha", newTag: "#work/alpha" },
+      { path: "b.md", tag: "#proj/beta", newTag: "#work/beta" },
+    ]);
+    // No raw mixed-case tuple ever leaks to a tag-rename sink.
+    expect(renameTagCalls.some((c) => /[A-Z]/.test(c.tag))).toBe(false);
+    expect(renameTagCalls.some((c) => /[A-Z]/.test(c.newTag))).toBe(false);
+    // renameTagSpacePath is likewise driven with the folded forms (so on a
+    // case-sensitive filesystem folderForTagSpace resolves the real lowercased
+    // tag-space folder and stays on the renamePath branch). The load-bearing
+    // claim here is the CASING: every `from` and `to` is lowercased — the
+    // mixed-case 'Alpha' never reaches a path operation. (The nested-`to` shape
+    // — parent-of-source + '/' + newTag — is the pre-existing renameTagSpacePath
+    // behavior, unchanged by this fix and out of scope for Notidian-i9uk.)
+    expect(spacePathRenames).toEqual([
+      { from: "Spaces/#proj", to: "Spaces/#work" },
+      { from: "Spaces/#proj/alpha", to: "Spaces/#proj/#work/alpha" },
+      { from: "Spaces/#proj/beta", to: "Spaces/#proj/#work/beta" },
+    ]);
+    // The TAG portion of every space path (everything after 'Spaces/') is
+    // lowercased — the mixed-case 'Alpha' never reaches a path operation. (The
+    // 'Spaces' spacesFolder prefix is the literal setting, not a tag.)
+    const tagPart = (p: string) => p.slice("Spaces/".length);
+    for (const r of spacePathRenames) {
+      expect(tagPart(r.from)).not.toMatch(/[A-Z]/);
+      expect(tagPart(r.to)).not.toMatch(/[A-Z]/);
+    }
+  });
 });
