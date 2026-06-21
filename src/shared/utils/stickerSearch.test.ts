@@ -80,6 +80,22 @@ describe("synonymsForAliases", () => {
     expect(synonymsForAliases([])).toEqual([]);
     expect(synonymsForAliases(undefined as unknown as string[])).toEqual([]);
   });
+
+  it("does NOT inherit a group via the reverse substring direction (Notidian-s718)", () => {
+    // The reviewer-confirmed pollution mechanism: a short own-token that is a
+    // SUBSTRING of a group term (`"voltage".includes("v")`,
+    // `"electric`+`ity".includes("it")`, `"battery".includes("bat")`) must NOT
+    // pull in the whole electricity/battery group. Match is forward-only: a
+    // glyph joins a group only when ITS token contains a group term.
+    expect(synonymsForAliases(["v"])).toEqual([]); // victory-hand keycap, not voltage
+    expect(synonymsForAliases(["a"])).toEqual([]);
+    expect(synonymsForAliases(["b"])).toEqual([]);
+    expect(synonymsForAliases(["o"])).toEqual([]);
+    expect(synonymsForAliases(["it"])).toEqual([]); // Italy flag, not "electricity"
+    expect(synonymsForAliases(["de"])).toEqual([]); // Germany flag, not "thunder"
+    expect(synonymsForAliases(["ng"])).toEqual([]); // button, not "lightning"
+    expect(synonymsForAliases(["bat"])).toEqual([]); // the animal, not "battery"
+  });
 });
 
 describe("icon picker voltage discoverability (Notidian-s718)", () => {
@@ -114,6 +130,30 @@ describe("icon picker voltage discoverability (Notidian-s718)", () => {
     expect(highVoltage).toBeDefined();
     for (const keyword of requiredKeywords) {
       expect(normalizeStickerToken(highVoltage!.keywords)).toContain(keyword);
+    }
+  });
+
+  it("does NOT surface letter/flag/button glyphs for electricity queries (Notidian-s718)", () => {
+    // Regression for the reverse-substring pollution: these glyphs share only a
+    // tiny substring with the synonym terms and must never appear for an
+    // electricity/power/battery search.
+    const pollutants = new Set([
+      "270c-fe0f", // ✌ victory hand (was matched as "v" in "voltage")
+      "2b55", // ⭕ heavy large circle (was "o" in "bolt"/"voltage")
+      "1f170-fe0f", // 🅰 A button
+      "1f171-fe0f", // 🅱 B button
+      "1f1e9-1f1ea", // 🇩🇪 Germany flag (was "de" in "thunder")
+      "1f1ee-1f1f9", // 🇮🇹 Italy flag (was "it" in "electricity")
+      "1f196", // 🆖 NG button (was "ng" in "lightning")
+      "1f194", // 🆔 ID button
+      "24c2-fe0f", // Ⓜ circled M
+      "1f51f", // 🔟 keycap ten
+      "1f987", // 🦇 bat (was "bat" in "battery")
+    ]);
+    for (const keyword of ["voltage", "power", "charge", "energy", "bolt", "light"]) {
+      const hits = search(keyword);
+      const leaked = hits.filter((s) => pollutants.has(s.value));
+      expect(leaked.map((s) => `${s.name}(${s.value})`)).toEqual([]);
     }
   });
 });

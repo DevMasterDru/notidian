@@ -17,9 +17,11 @@
 /**
  * Synonym groups. Each group lists ALL interchangeable search terms for one
  * concept; any term in a group should surface a glyph whose own name/aliases
- * contain ANY term in the same group. This is intentionally bidirectional:
- * searching "voltage" finds the "zap" emoji, and searching "zap" finds a glyph
- * aliased only as "high voltage".
+ * contain ANY term in the same group. A glyph joins a group when one of its own
+ * tokens contains (or equals) a group term, so all of that group's terms become
+ * searchable for it: searching "voltage" finds the "zap" emoji (its alias
+ * "high voltage sign" contains "voltage"), and searching "zap" finds it too
+ * (alias "zap" equals the group term "zap").
  *
  * Title Case is avoided here on purpose — these are lowercase search tokens, not
  * user-facing names.
@@ -66,8 +68,23 @@ export const normalizeStickerToken = (s: string): string =>
 
 /**
  * Given a glyph's own names/aliases, return the extra synonym terms that should
- * be searchable for it. A synonym group contributes ALL of its terms when any
- * of the glyph's own tokens contains (or is contained by) any term in the group.
+ * be searchable for it. A synonym group contributes ALL of its terms when one of
+ * the glyph's own tokens CONTAINS (or equals) a term in the group — i.e. the
+ * glyph already says the concept (an alias of "high voltage sign" contains the
+ * group term "voltage"; an alias "lightning" contains "lightning").
+ *
+ * The match is one-directional on purpose. An earlier version also matched the
+ * reverse — a group term CONTAINS the glyph's own token (`t.includes(own)`) —
+ * which polluted the index with garbage synonyms: every short own-token such as
+ * the single-letter button emoji `a`/`b`/`o`/`v` (`"voltage".includes("v")`),
+ * the two-letter country-flag/keycap emoji `de`/`it`/`ng`
+ * (`"thun`+`der".includes("de")`, `"electric`+`ity".includes("it")`,
+ * `"lightni`+`ng".includes("ng")`), and even the animal `bat`
+ * (`"battery".includes("bat")`) inherited an entire electricity/battery group
+ * and surfaced for "voltage"/"power"/"charge"/"energy"/"bolt"/"light"
+ * (Notidian-s718 reviewer finding). No legitimate glyph relied on that reverse
+ * direction — every concept a glyph genuinely names is already caught by the
+ * forward `own.includes(t)` branch — so it is removed rather than guarded.
  */
 export const synonymsForAliases = (aliases: string[]): string[] => {
   const ownTokens = (aliases ?? [])
@@ -79,7 +96,7 @@ export const synonymsForAliases = (aliases: string[]): string[] => {
   for (const group of STICKER_SYNONYM_GROUPS) {
     const groupHit = group.some((term) => {
       const t = normalizeStickerToken(term);
-      return ownTokens.some((own) => own.includes(t) || t.includes(own));
+      return ownTokens.some((own) => own.includes(t));
     });
     if (groupHit) {
       for (const term of group) extra.add(normalizeStickerToken(term));
