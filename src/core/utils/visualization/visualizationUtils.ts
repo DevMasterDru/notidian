@@ -1,5 +1,6 @@
 import i18n from "shared/i18n";
 
+import { intelligentCompare } from "core/react/components/Visualization/utils/sortingUtils";
 import { MDBFrame } from "shared/types/mframe";
 import { ISuperstate } from "shared/types/superstate";
 import { VisualizationConfig } from "shared/types/visualization";
@@ -710,53 +711,18 @@ export const aggregateForLineGraph = (
     };
   });
 
-  // Sort data points from left to right
-  aggregatedData.sort((a, b) => {
-    const aVal = a._originalXValue;
-    const bVal = b._originalXValue;
-    
-    // Enhanced date detection and sorting
-    const isDateLike = (val: string): boolean => {
-      if (!val || typeof val !== 'string') return false;
-      // Check for common date patterns
-      return /\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{2}-\d{2}-\d{4}|\d{4}\/\d{2}\/\d{2}/.test(val) ||
-             /\w{3}\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+\w{3}\s+\d{4}/.test(val); // e.g., "Jan 1, 2023" or "1 Jan 2023"
-    };
-    
-    // Try date sorting first (most important for line graphs)
-    if (isDateLike(aVal) || isDateLike(bVal)) {
-      const aDate = new Date(aVal);
-      const bDate = new Date(bVal);
-      
-      // Handle invalid dates by putting them at the end
-      if (isNaN(aDate.getTime()) && isNaN(bDate.getTime())) return 0;
-      if (isNaN(aDate.getTime())) return 1;
-      if (isNaN(bDate.getTime())) return -1;
-      
-      if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
-        return aDate.getTime() - bDate.getTime();
-      }
-    }
-    
-    // Try numeric sorting
-    const aNum = parseFloat(aVal);
-    const bNum = parseFloat(bVal);
-    
-    if (!isNaN(aNum) && !isNaN(bNum)) {
-      return aNum - bNum;
-    }
-    
-    // Try pure date sorting for any remaining date-like strings
-    const aDate = new Date(aVal);
-    const bDate = new Date(bVal);
-    
-    if (!isNaN(aDate.getTime()) && !isNaN(bDate.getTime())) {
-      return aDate.getTime() - bDate.getTime();
-    }
-    
-    // Fallback to string sorting
-    return aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
-  });
+  // Sort data points from left to right.
+  //
+  // Use the canonical, ADR-0033 SWO-hardened `intelligentCompare` (per-value
+  // classification into stable date < number < string buckets, invalid-date
+  // handling, never NaN) instead of an inline per-PAIR-branch comparator. The
+  // legacy inline version selected its date/number/string branch based on the
+  // comparison PARTNER (`isDateLike(aVal) || isDateLike(bVal)`), which is the
+  // textbook non-transitive pattern ADR 0033 documents `intelligentCompare` was
+  // built to replace — on a mixed date/number/string axis it is not a strict
+  // weak ordering, so `Array.prototype.sort` produced V8/TimSort-order-dependent
+  // (effectively garbage) orderings. (Notidian-cm66.)
+  aggregatedData.sort((a, b) => intelligentCompare(a._originalXValue, b._originalXValue));
 
   // Remove the temporary sorting field and return
   return aggregatedData.map(({ _originalXValue, ...item }) => item);
