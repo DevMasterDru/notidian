@@ -769,11 +769,14 @@ export const ContextEditorProvider: React.FC<
               cols.find((col) => col.name + col.table == c.field),
               c,
               row,
-              spaceCache.properties
+              // spaceCache (= spaceState) can be null during load / for some
+              // views; null-safe so the dep array + the call never throw
+              // "Cannot read properties of null (reading 'properties')".
+              spaceCache?.properties
             )
           : p;
       }, true),
-    [predicate?.filters, cols, spaceManager, spaceCache.properties]
+    [predicate?.filters, cols, spaceManager, spaceCache?.properties]
   );
   const rowMatchesSearch = useMemo(
     () => (f: DBRow) =>
