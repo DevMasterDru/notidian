@@ -1,5 +1,5 @@
 import { parseFlexValue } from "core/schemas/parseFieldValue";
-import { formatDate, parseDate } from "core/utils/date";
+import { formatDate, isValidDate, parseDate } from "core/utils/date";
 import { median } from "mathjs";
 import { SpaceProperty } from "shared/types/mdb";
 import { MakeMDSettings } from "shared/types/settings";
@@ -34,6 +34,46 @@ export const msToDurationValue = (ms: number): { values: Record<string, number> 
     const hours = Math.floor(safe / (1000 * 60 * 60)) % 24;
     const days = Math.floor(safe / (1000 * 60 * 60 * 24));
     return { values: { days, hours, minutes, seconds } };
+};
+
+/**
+ * Collapse an aggregate input set to the usable, finite, real-Date subset —
+ * ONCE — so the date-family fns (earliest/latest/dateRange) can apply a clean
+ * empty contract WITHOUT throwing on a non-Date element. Mirrors the proven
+ * `toFiniteDates` type-gate in formulas.ts (Notidian-l6ha): it gates by TYPE
+ * BEFORE coercion, accepting only real Dates, finite epoch-millis numbers, and
+ * non-empty parseable date-strings.
+ *
+ * Why this is the direct-call hardening this bead (Notidian-h8mc) is about: the
+ * legacy bodies did `v.map(f => f.getTime())` and `new Date(Math.min/Math.max
+ * (...))`, so a non-Date element THREW "f.getTime is not a function" and an
+ * empty set produced an Invalid Date / -Infinity span. The normal
+ * calculateAggregate pipeline masked the throw by pre-mapping every value via
+ * `new Date(v)` (the `type == 'date'` branch), but the pure fns were NOT
+ * direct-call-safe — unlike their D1/D4-hardened numeric siblings
+ * (range/min/max/avg). This is the exact defect class already fixed for those.
+ *
+ * The type-gate is load-bearing: `new Date(null)`/`new Date(false)` coerce to
+ * epoch 0 and `new Date(true)` to epoch 1 — JS would silently turn a null/boolean
+ * cell into a "valid" 1970 date and poison the min/max — so those are excluded
+ * BEFORE the Date constructor, not after. `isValidDate`/`Number.isFinite` then
+ * drop Invalid Dates and non-finite epochs (e.g. `new Date('not a date')`).
+ */
+const toFiniteDateMillis = (v: any[]): number[] => {
+    if (!Array.isArray(v)) return [];
+    const out: number[] = [];
+    for (const f of v) {
+        if (f instanceof Date) {
+            if (isValidDate(f)) out.push(f.getTime());
+        } else if (typeof f === "number") {
+            if (Number.isFinite(f)) out.push(f); // finite epoch-millis
+        } else if (typeof f === "string" && f.length > 0) {
+            const t = new Date(f).getTime(); // parseable date-string -> millis
+            if (Number.isFinite(t)) out.push(t);
+        }
+        // null / undefined / boolean / object / '' -> no usable date (skip, not throw)
+    }
+    return out;
 };
 
 export const calculateAggregate = (settings: MakeMDSettings, values: any[], fn: string, col: SpaceProperty) => {
@@ -222,12 +262,32 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     earliest: {
         type: "date",
-        fn: (v) => new Date(Math.min(...v.map((f) => f.getTime()))),
+        // Direct-call-safe + empty-floored (Notidian-h8mc). Legacy
+        // `new Date(Math.min(...v.map(f => f.getTime())))` THREW on a non-Date
+        // element and returned Invalid Date on []. Coerce/filter to the finite
+        // real-Date subset ONCE (toFiniteDateMillis), then floor the empty /
+        // all-invalid set to '' (Notion-parity blank — matching the numeric
+        // siblings' D4 contract and formulas.ts's earliest empty-sentinel). For
+        // valueType 'date' the '' flows through formatDate(settings,
+        // parseDate('')=null, ...) -> caught -> '' end-to-end, so the pipeline
+        // (which pre-maps via new Date(v)) is unchanged for valid input and still
+        // renders '' for []. Returns the min Date for a non-empty usable set.
+        fn: (v) => {
+            const ts = toFiniteDateMillis(v);
+            if (ts.length == 0) return '';
+            return new Date(Math.min(...ts));
+        },
         valueType: "date",
     },
     latest: {
         type: "date",
-        fn: (v) => new Date(Math.max(...v.map((f) => f.getTime()))),
+        // Mirror of earliest (Notidian-h8mc): direct-call-safe over non-Date
+        // elements, empty / all-invalid set floored to '' (was Invalid Date).
+        fn: (v) => {
+            const ts = toFiniteDateMillis(v);
+            if (ts.length == 0) return '';
+            return new Date(Math.max(...ts));
+        },
         valueType: "date",
     },
     complete: {
@@ -248,9 +308,20 @@ export const aggregateFnTypes: Record<string, AggregateFunctionType> = {
     },
     dateRange: {
         type: "date",
+        // Direct-call-safe + empty-floored (Notidian-h8mc). Legacy
+        // `v.map(f => f.getTime())` THREW on a non-Date element and gave
+        // (-Infinity) - (Infinity) = -Infinity on []. Coerce/filter to the finite
+        // real-Date subset ONCE, then return 0 (a zero ms span) for the empty /
+        // all-invalid set. valueType is 'duration': calculateAggregate post-passes
+        // the ms span through msToDurationValue, which floors 0 (and any
+        // non-finite/negative input) to all-zero units -> '' — so the footer stays
+        // blank, matching the prior pipeline behavior with no user-visible change.
+        // 0 is preferred over the legacy -Infinity (cleaner, and never leaks a math
+        // identity if the fn is read directly). Returns the ms span otherwise.
         fn: (v) => {
-            const dates = v.map((f) => f.getTime());
-            return Math.max(...dates) - Math.min(...dates);
+            const ts = toFiniteDateMillis(v);
+            if (ts.length == 0) return 0;
+            return Math.max(...ts) - Math.min(...ts);
         },
         valueType: "duration",
     }

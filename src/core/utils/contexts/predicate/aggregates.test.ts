@@ -349,17 +349,73 @@ describe("aggregateFnTypes.fn — pure math (dates)", () => {
     const span = fnOf("dateRange")([d("2020-01-01"), d("2020-01-11")], "date");
     expect(span).toBe(10 * 24 * 60 * 60 * 1000);
   });
-  it("EDGE: earliest/latest of [] collapse to Date(Infinity)/Date(-Infinity) -> Invalid Date", () => {
-    const e = fnOf("earliest")([], "date") as Date;
-    const l = fnOf("latest")([], "date") as Date;
-    expect(Number.isNaN(e.getTime())).toBe(true);
-    expect(Number.isNaN(l.getTime())).toBe(true);
+  it("EDGE: earliest/latest of [] are floored to '' (no Invalid Date leak — Notidian-h8mc / D4 parity)", () => {
+    // Pre-fix: new Date(Math.min/Math.max(...[].map(getTime))) === new
+    // Date(±Infinity) === Invalid Date. Now each fn detects the empty (after
+    // coercion) set and returns '' (Notion-parity blank), matching the numeric
+    // siblings avg/min/max/range and formulas.ts's earliest/latest empty
+    // sentinel. For valueType 'date' the '' flows through formatDate(parseDate('')
+    // = null) -> caught -> '' end-to-end, so the pipeline is unchanged ('' both
+    // before and after — see the dateRange-of-[] L2 test and the no-throw tests).
+    expect(fnOf("earliest")([], "date")).toBe("");
+    expect(fnOf("latest")([], "date")).toBe("");
   });
-  it("EDGE: dateRange of [] is -Infinity (Math.max([])=-Infinity, Math.min([])=Infinity)", () => {
-    // (-Infinity) - (Infinity) === -Infinity, mirroring the numeric `range` edge.
-    // The pure fn is unchanged; calculateAggregate now floors this non-finite
-    // span to a zero duration (see msToDurationValue tests + the dateRange L2 tests).
-    expect(fnOf("dateRange")([], "date")).toBe(-Infinity);
+  it("EDGE: dateRange of [] is floored to 0 (no -Infinity leak — Notidian-h8mc)", () => {
+    // Pre-fix: Math.max([])=-Infinity, Math.min([])=Infinity -> -Infinity span.
+    // Now the fn returns a clean 0 ms span; calculateAggregate then floors that
+    // (and any non-finite/negative) to a zero duration via msToDurationValue ->
+    // '' (see the msToDurationValue tests + the dateRange L2 tests). 0 is
+    // preferred over the legacy -Infinity so the direct fn never leaks a math
+    // identity.
+    expect(fnOf("dateRange")([], "date")).toBe(0);
+  });
+  it("DIRECT-CALL HARDENING: earliest/latest/dateRange do NOT throw on a non-Date element (Notidian-h8mc)", () => {
+    // The motivating gap: the date-family pure fns did `f.getTime()` directly, so
+    // a non-Date element (a date-string, null, undefined, an object) THREW
+    // "f.getTime is not a function" when the fn was called directly — unlike its
+    // D1/D4-hardened numeric siblings, and unlike the pipeline which pre-maps via
+    // `new Date(v)`. Each fn now coerces/filters the input to the finite real-Date
+    // subset BEFORE the math, so direct calls over mixed/hostile input never throw.
+    const hostile = ["2024-01-01", null, undefined, {}, "not a date", 42];
+    expect(() => fnOf("earliest")(hostile, "date")).not.toThrow();
+    expect(() => fnOf("latest")(hostile, "date")).not.toThrow();
+    expect(() => fnOf("dateRange")(hostile, "date")).not.toThrow();
+    // ...and they USE the usable elements: the only parseable Dates above are the
+    // ISO string "2024-01-01" and the epoch-millis number 42, so earliest is the
+    // earlier of the two (epoch 42 = 1970) and latest is "2024-01-01".
+    const e = fnOf("earliest")(hostile, "date") as Date;
+    const l = fnOf("latest")(hostile, "date") as Date;
+    expect(e.getTime()).toBe(42);
+    // The string "2024-01-01" is coerced via `new Date(f)` inside the normalizer
+    // (the same parse the value receives), so compare against that exact parse —
+    // NOT the noon-local `d()` helper (which would differ by the TZ offset).
+    expect(l.getTime()).toBe(new Date("2024-01-01").getTime());
+  });
+  it("DIRECT-CALL: earliest/latest of a date-STRING list resolve without throwing (Notidian-h8mc)", () => {
+    // A direct caller (e.g. a future rollup) may pass raw date-strings rather than
+    // pre-mapped Dates; the fns now coerce them via the type-gated normalizer.
+    const e = fnOf("earliest")(["2020-05-10", "2019-01-01"], "date") as Date;
+    const l = fnOf("latest")(["2020-05-10", "2019-01-01"], "date") as Date;
+    expect(e.getTime()).toBe(new Date("2019-01-01").getTime());
+    expect(l.getTime()).toBe(new Date("2020-05-10").getTime());
+  });
+  it("EDGE: earliest/latest/dateRange of an all-invalid set are floored to ''/0 (Notidian-h8mc)", () => {
+    // No element resolves to a valid Date -> empty usable subset -> same empty
+    // contract as []: earliest/latest -> '', dateRange -> 0.
+    const junk = ["not a date", null, undefined, {}, ""];
+    expect(fnOf("earliest")(junk, "date")).toBe("");
+    expect(fnOf("latest")(junk, "date")).toBe("");
+    expect(fnOf("dateRange")(junk, "date")).toBe(0);
+  });
+  it("type-gate: a null/boolean cell never becomes a phantom 1970 date (Notidian-h8mc)", () => {
+    // The gate is load-bearing: `new Date(null)`/`new Date(false)` coerce to epoch
+    // 0 and `new Date(true)` to epoch 1, which would silently inject a "valid"
+    // 1970 data point into the min/max. They must be SKIPPED before coercion, so a
+    // set of only null/booleans is empty -> '' (not 1970), and mixing them with a
+    // real date does not drag the minimum to 1970.
+    expect(fnOf("earliest")([null, false, true], "date")).toBe("");
+    const e = fnOf("earliest")([null, false, d("2020-06-01")], "date") as Date;
+    expect(e.getTime()).toBe(d("2020-06-01").getTime()); // not epoch 0/1
   });
 });
 
@@ -530,10 +586,30 @@ describe("calculateAggregate — date rollups (end to end)", () => {
   });
   it("dateRange of identical/empty spans renders blank (no math-identity leak)", () => {
     // Identical dates -> 0ms span -> all-zero units -> '' (duration branch drops
-    // count==0 units). Empty set -> dateRange fn -> -Infinity -> msToDurationValue
-    // floors non-finite/negative to 0 -> '' rather than leaking '-Infinity'.
+    // count==0 units). Empty set -> dateRange fn -> 0 (Notidian-h8mc; was
+    // -Infinity) -> msToDurationValue floors to all-zero -> '' rather than leaking
+    // '-Infinity'.
     expect(calculateAggregate(settings, ["2020-01-01", "2020-01-01"], "dateRange", col("date"))).toBe("");
     expect(calculateAggregate(settings, [], "dateRange", col("date"))).toBe("");
+  });
+  it("EDGE: earliest/latest of [] render blank end-to-end (no Invalid Date leak — Notidian-h8mc)", () => {
+    // The empty-set net the date family previously lacked at Layer 2. Pre-fix the
+    // fn returned an Invalid Date which formatDate caught -> '' (so the pipeline
+    // already rendered blank — this is the proven NO user-visible change). Now the
+    // fn floors [] to '' inside itself; the date valueType post-pass
+    // formatDate(parseDate('')=null) is caught -> '' too, so the footer stays
+    // blank both before and after — pinned here so it cannot silently regress.
+    expect(calculateAggregate(settings, [], "earliest", dateCol())).toBe("");
+    expect(calculateAggregate(settings, [], "latest", dateCol())).toBe("");
+  });
+  it("EDGE: earliest/latest over hostile mixed input render the usable extreme, no throw (Notidian-h8mc)", () => {
+    // The full pipeline never threw here (it pre-maps every value via new Date(v),
+    // turning junk into Invalid Dates that the OLD getTime() spread still consumed
+    // -> Invalid Date result -> '' via formatDate). The pure-fn hardening keeps the
+    // direct fn safe too; end-to-end behavior over valid inputs is unchanged.
+    const vals = ["2020-05-10T12:00:00", "2019-01-01T12:00:00"];
+    expect(calculateAggregate(settings, vals, "earliest", dateCol())).toBe("2019-01-01");
+    expect(calculateAggregate(settings, vals, "latest", dateCol())).toBe("2020-05-10");
   });
 });
 
@@ -630,6 +706,27 @@ describe("calculateAggregate — flex column unwrapping", () => {
  *     'EDGE: empty input is floored to' tests and the Layer-2 'percentage family
  *     of [] renders ""' test. The numeric NaN/Infinity leaks above remain pinned,
  *     not fixed.
+ *
+ * D6. [FIXED — Notidian-h8mc] The date-family pure fns (earliest/latest/dateRange)
+ *     were NOT direct-call-safe, unlike their D1/D4-hardened numeric siblings.
+ *     Legacy: `v.map(f => f.getTime())` THREW "f.getTime is not a function" on any
+ *     non-Date element, and `new Date(Math.min/Math.max(...[]))` / the [] span gave
+ *     an Invalid Date (earliest/latest) or -Infinity (dateRange). Masked in the
+ *     normal pipeline only because date cols are pre-mapped via `new Date(v)`, but
+ *     the pure fns were unsafe when called directly — the EXACT defect class D1
+ *     fixed for range and D4 floored for avg/min/max (which conspicuously omitted
+ *     the date family). Fix: a shared type-gated normalizer (toFiniteDateMillis,
+ *     mirroring formulas.ts toFiniteDates — Notidian-l6ha) coerces each element to
+ *     finite epoch-millis ONCE (real Dates, finite numbers, parseable non-empty
+ *     strings; null/boolean/object/''/Invalid-Date SKIPPED, not coerced into a
+ *     phantom 1970 date), then earliest/latest floor the empty/all-invalid set to
+ *     '' and dateRange floors it to 0 (msToDurationValue -> ''). NO user-visible
+ *     pipeline change (earliest/latest of [] already rendered '' via the
+ *     formatDate-of-Invalid-Date catch; dateRange of [] already rendered '' via
+ *     msToDurationValue) — purely makes the pure fns direct-call-safe and
+ *     self-consistent with the numeric siblings. Pinned by the Layer-1
+ *     'DIRECT-CALL HARDENING'/'EDGE'/'type-gate' tests and the Layer-2
+ *     'earliest/latest of [] render blank' test above.
  *
  * D5. `sum` reducer `(a,b) => b ? a+b : a` skips falsy (0) addends. Harmless
  *     for the value 0, but a latent foot-gun if the reducer is reused.
