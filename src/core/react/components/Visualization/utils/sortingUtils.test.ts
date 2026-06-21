@@ -562,18 +562,102 @@ describe("sortByEncodingType", () => {
     ).toBe(1);
   });
 
-  it("temporal: invalid date -> NaN time -> NaN difference (characterized)", () => {
-    const r = sortByEncodingType(row("not-a-date"), row("2024-01-01"), "temporal", "k");
-    expect(Number.isNaN(r)).toBe(true);
+  // ---- temporal: junk dates obey the SWO laws (NaN-last) ------------------
+  // FIXED (Notidian-zj8b / ADR 0033): the legacy branch returned a bare
+  // `getTime() - getTime()`, so an unparseable date gave NaN — `compare(x,x)` could
+  // be NaN (non-reflexive) and `valid - NaN === NaN`, handing Array.prototype.sort
+  // (LineChartUtility.ts:173,600) a V8/TimSort-order-dependent contract. The branch
+  // now applies the same NaN-to-one-end discipline as classifyForSort: an
+  // unparseable date sorts AFTER every valid one and self-compares to 0.
+  it("temporal: unparseable date sorts AFTER a valid date, symmetrically (no NaN)", () => {
+    expect(
+      sign(sortByEncodingType(row("not-a-date"), row("2024-01-01"), "temporal", "k"))
+    ).toBe(1); // junk after valid
+    expect(
+      sign(sortByEncodingType(row("2024-01-01"), row("not-a-date"), "temporal", "k"))
+    ).toBe(-1); // valid before junk (symmetric)
+    expect(
+      Number.isNaN(sortByEncodingType(row("not-a-date"), row("2024-01-01"), "temporal", "k"))
+    ).toBe(false);
   });
 
-  it("quantitative: numeric subtraction via Number()", () => {
+  it("temporal: a junk-bearing axis obeys the SWO laws (reflexive/antisymmetric/transitive)", () => {
+    // Mirrors the intelligentCompare SWO block: valid dates, a Date instance, and
+    // unparseable cells (the exact uncontrolled user data fed to the chart sort).
+    const TEMPORAL_DOMAIN = [
+      "2024-01-01",
+      "2024-12-31",
+      "2023-06-15",
+      new Date("2024-06-15"),
+      "not-a-date",
+      "", // String("") -> Invalid Date -> NaN time
+      "garbage",
+    ];
+    const cmp = (a: any, b: any) =>
+      sortByEncodingType(row(a), row(b), "temporal", "k");
+    // reflexive: compare(x,x) === 0 (sign throws on NaN, so a regression fails loud)
+    for (const x of TEMPORAL_DOMAIN) expect(sign(cmp(x, x))).toBe(0);
+    // antisymmetric
+    for (const a of TEMPORAL_DOMAIN)
+      for (const b of TEMPORAL_DOMAIN)
+        expect(sign(cmp(a, b))).toBe(inv(sign(cmp(b, a))));
+    // transitive
+    for (const a of TEMPORAL_DOMAIN)
+      for (const b of TEMPORAL_DOMAIN)
+        for (const c of TEMPORAL_DOMAIN) {
+          const ab = sign(cmp(a, b));
+          const bc = sign(cmp(b, c));
+          const ac = sign(cmp(a, c));
+          if (ab <= 0 && bc <= 0) expect(ac).toBeLessThanOrEqual(0);
+          if (ab >= 0 && bc >= 0) expect(ac).toBeGreaterThanOrEqual(0);
+        }
+  });
+
+  it("quantitative: numeric subtraction via Number(); valid axis byte-identical", () => {
     expect(sign(sortByEncodingType(row("2"), row("10"), "quantitative", "k"))).toBe(-1);
     expect(sortByEncodingType(row(5), row(5), "quantitative", "k")).toBe(0);
-    // non-numeric -> NaN difference (characterized)
+    // all-finite pairs return the EXACT legacy `na - nb` (single-type axis unchanged)
+    expect(sortByEncodingType(row("10"), row("2"), "quantitative", "k")).toBe(8);
+  });
+
+  // ---- quantitative: non-numeric junk obeys the SWO laws (NaN-last) -------
+  // FIXED (Notidian-zj8b / ADR 0033): the legacy branch returned a bare
+  // `Number(aVal) - Number(bVal)`, so non-numeric junk gave NaN with the same
+  // non-reflexive / undefined-contract defect as the temporal branch.
+  it("quantitative: non-numeric junk sorts AFTER a number, symmetrically (no NaN)", () => {
+    expect(
+      sign(sortByEncodingType(row("x"), row(5), "quantitative", "k"))
+    ).toBe(1); // junk after number
+    expect(
+      sign(sortByEncodingType(row(5), row("x"), "quantitative", "k"))
+    ).toBe(-1); // number before junk (symmetric)
+    // two junk cells are order-equivalent (reflexive-style equality), not NaN
+    expect(sortByEncodingType(row("x"), row("y"), "quantitative", "k")).toBe(0);
     expect(
       Number.isNaN(sortByEncodingType(row("x"), row("y"), "quantitative", "k"))
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("quantitative: a junk-bearing axis obeys the SWO laws (reflexive/antisymmetric/transitive)", () => {
+    const QUANT_DOMAIN = [10, 2, -5, 0, "9", "100", "x", "", null, undefined, NaN];
+    const cmp = (a: any, b: any) =>
+      sortByEncodingType(row(a), row(b), "quantitative", "k");
+    // NOTE: Number("") === 0 and Number(null) === 0 (finite), so these participate
+    // as the numeric value 0; only genuinely non-numeric cells ("x", undefined, NaN)
+    // become NaN and sort last. The laws must hold across the whole mixed axis.
+    for (const x of QUANT_DOMAIN) expect(sign(cmp(x, x))).toBe(0); // reflexive
+    for (const a of QUANT_DOMAIN)
+      for (const b of QUANT_DOMAIN)
+        expect(sign(cmp(a, b))).toBe(inv(sign(cmp(b, a)))); // antisymmetric
+    for (const a of QUANT_DOMAIN)
+      for (const b of QUANT_DOMAIN)
+        for (const c of QUANT_DOMAIN) {
+          const ab = sign(cmp(a, b));
+          const bc = sign(cmp(b, c));
+          const ac = sign(cmp(a, c));
+          if (ab <= 0 && bc <= 0) expect(ac).toBeLessThanOrEqual(0);
+          if (ab >= 0 && bc >= 0) expect(ac).toBeGreaterThanOrEqual(0);
+        }
   });
 
   it("nominal with option fieldDefinition: orders by options index", () => {

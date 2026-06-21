@@ -125,6 +125,37 @@ export const intelligentCompare = (a: any, b: any): number => {
 };
 
 /**
+ * NaN-disciplined numeric difference for the temporal/quantitative branches of
+ * `sortByEncodingType` (ADR 0033 bug class — same defect classifyForSort fixed for
+ * intelligentCompare; Notidian-zj8b).
+ *
+ * The legacy branches returned a bare `na - nb`, so an unparseable cell (a date
+ * string that `new Date()` can't read, or non-numeric junk under `Number()`)
+ * produced NaN, and NaN propagates: `NaN - NaN === NaN` (so `compare(x, x)` could be
+ * NaN — NON-REFLEXIVE) and `valid - NaN === NaN` (so the relation is undefined),
+ * which hands Array.prototype.sort (LineChartUtility.ts:173,600) an input-dependent,
+ * V8/TimSort-order-sensitive contract.
+ *
+ * This applies the same NaN-to-one-end discipline as classifyForSort's stable
+ * buckets WITHOUT changing single-type axes: when BOTH values are finite it returns
+ * the exact same `na - nb` as before (so all-valid temporal / quantitative axes stay
+ * byte-identical); only when a value is NaN does it diverge — NaN sorts AFTER every
+ * finite value and self-compares to 0:
+ *   both NaN -> 0   (reflexive; two junk cells are order-equivalent)
+ *   a NaN    -> +1  (junk a sorts after finite b)
+ *   b NaN    -> -1  (finite a sorts before junk b)
+ *   else     -> na - nb
+ */
+const numericDiffNaNLast = (na: number, nb: number): number => {
+  const aNaN = Number.isNaN(na);
+  const bNaN = Number.isNaN(nb);
+  if (aNaN && bNaN) return 0;
+  if (aNaN) return 1;
+  if (bNaN) return -1;
+  return na - nb;
+};
+
+/**
  * Sort values based on encoding type
  */
 export const sortByEncodingType = (
@@ -139,13 +170,18 @@ export const sortByEncodingType = (
   const bVal = b[field];
   
   if (encodingType === 'temporal') {
+    // getTime() is NaN for an unparseable date; numericDiffNaNLast keeps the
+    // relation a strict weak ordering (NaN sorts last, self-compares 0) instead of
+    // the legacy NaN-propagating `dateA - dateB` (ADR 0033; Notidian-zj8b).
     const dateA = aVal instanceof Date ? aVal : new Date(String(aVal));
     const dateB = bVal instanceof Date ? bVal : new Date(String(bVal));
-    return dateA.getTime() - dateB.getTime();
+    return numericDiffNaNLast(dateA.getTime(), dateB.getTime());
   }
-  
+
   if (encodingType === 'quantitative') {
-    return Number(aVal) - Number(bVal);
+    // Number() is NaN for non-numeric junk; same NaN-to-one-end discipline so a
+    // junk-bearing quantitative axis stays a strict weak ordering (Notidian-zj8b).
+    return numericDiffNaNLast(Number(aVal), Number(bVal));
   }
   
   // For nominal/ordinal data, check if we have option field ordering
