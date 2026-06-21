@@ -197,3 +197,115 @@ describe("LineChartTransformer.transform — determinism", () => {
     expect(rows).toEqual(snapshot);
   });
 });
+
+// ===========================================================================
+// SWO-LAW / JUNK-AXIS ORDERING for the x-axis comparators (Notidian-pjv6).
+//
+// `sortData` (l~591) and the non-option fallback of `sortXDomain` (l~609) used to
+// dispatch on xEncoding.type and subtract a type-ASSERTED value:
+//   temporal     -> (a.x as Date).getTime() - (b.x as Date).getTime()
+//   quantitative -> (a.x as number) - (b.x as number)
+// The `as Date` / `as number` are runtime lies — x can be a string or an Invalid
+// Date — so getTime()/Number coercion yields NaN. A NaN comparator return is the
+// ADR 0033 defect: NON-REFLEXIVE (compare(x,x) can be NaN) and V8/TimSort-input-
+// dependent. The fix routes both through the canonical, SWO-hardened
+// intelligentCompare. These tests assert the comparators are now a strict weak
+// ordering over a junk/mixed-type temporal/quantitative axis (reflexive,
+// antisymmetric, transitive, deterministic) — the law the old code broke. They
+// reach the private static comparators directly (the methods the bug lives in) so
+// they exercise the comparator even for axis values normalizeXValue would drop.
+// ===========================================================================
+describe("LineChartTransformer x-axis comparators are a strict weak ordering (Notidian-pjv6)", () => {
+  // Reach the private static helpers — they are where the NaN-returning comparator
+  // lived, and `transform`'s normalizeXValue would otherwise filter the junk out.
+  const sortData = (data: any[], xEncoding: any) =>
+    (LineChartTransformer as any).sortData(data, xEncoding);
+  const sortXDomain = (domain: any[], xEncoding: any, tableProps?: any) =>
+    (LineChartTransformer as any).sortXDomain(domain, xEncoding, tableProps);
+
+  // A deliberately junk-bearing axis a quantitative/temporal encoding can carry at
+  // runtime: real numbers, an unparseable string, an Invalid Date, ±Infinity-coercing
+  // tokens — every operand that made the old `as Date/as number` subtraction NaN.
+  const JUNK_AXIS: any[] = [
+    10, 2, 1, "notnum", "Infinity", "-Infinity", "1e999",
+    new Date("not a date"), new Date("2020-01-01"), "2019-06-15", "", "zeta",
+  ];
+
+  const assertSWO = (cmp: (a: any, b: any) => number, axis: any[]) => {
+    // Reflexive: every self-compare is exactly 0 (never NaN) — the property the
+    // type-asserted NaN subtraction violated.
+    for (const v of axis) {
+      const r = cmp(v, v);
+      expect(Number.isNaN(r)).toBe(false);
+      expect(Math.sign(r)).toBe(0);
+    }
+    // Antisymmetric: sign(cmp(a,b)) === -sign(cmp(b,a)) for all pairs, never NaN.
+    for (const a of axis) {
+      for (const b of axis) {
+        const ab = cmp(a, b);
+        const ba = cmp(b, a);
+        expect(Number.isNaN(ab)).toBe(false);
+        expect(Number.isNaN(ba)).toBe(false);
+        // sign(cmp(a,b)) + sign(cmp(b,a)) === 0; the `+ 0` normalizes -0 so the
+        // equal-element case (sign 0) compares cleanly under Object.is.
+        expect(Math.sign(ab) + Math.sign(ba) + 0).toBe(0);
+      }
+    }
+    // Transitive (on the equivalence classes the comparator induces): if a<=b and
+    // b<=c then a<=c, over every ordered triple.
+    for (const a of axis) {
+      for (const b of axis) {
+        for (const c of axis) {
+          if (cmp(a, b) <= 0 && cmp(b, c) <= 0) {
+            expect(cmp(a, c)).toBeLessThanOrEqual(0);
+          }
+        }
+      }
+    }
+  };
+
+  it("the canonical comparator the x-axis sort now routes through obeys the SWO laws on a junk axis (never NaN)", () => {
+    // sortData / sortXDomain delegate the per-pair relation to intelligentCompare;
+    // a comparator must be a strict weak ordering to feed Array.prototype.sort safely.
+    // The OLD per-type subtraction returned NaN here (compare(x,x) === NaN) — the
+    // exact law this asserts. The deterministic-total-order its below prove the
+    // transformer actually routes the axis sort through this comparator.
+    const { intelligentCompare } = require("../utils/sortingUtils");
+    assertSWO(intelligentCompare, JUNK_AXIS);
+  });
+
+  it("sortData produces a deterministic, total order on a junk temporal axis regardless of input order", () => {
+    const mk = (axis: any[]) => sortData(axis.map((x) => ({ x, y: 0 })), { type: "temporal" }).map((p: any) => String(p.x));
+    const forward = mk([...JUNK_AXIS]);
+    const reversed = mk([...JUNK_AXIS].reverse());
+    const shuffled = mk([JUNK_AXIS[4], JUNK_AXIS[0], JUNK_AXIS[8], JUNK_AXIS[3], JUNK_AXIS[1], JUNK_AXIS[10], JUNK_AXIS[2], JUNK_AXIS[5], JUNK_AXIS[6], JUNK_AXIS[7], JUNK_AXIS[9], JUNK_AXIS[11]]);
+    expect(reversed).toEqual(forward);
+    expect(shuffled).toEqual(forward);
+  });
+
+  it("sortData produces a deterministic, total order on a junk quantitative axis regardless of input order", () => {
+    const mk = (axis: any[]) => sortData(axis.map((x) => ({ x, y: 0 })), { type: "quantitative" }).map((p: any) => String(p.x));
+    const forward = mk([...JUNK_AXIS]);
+    const reversed = mk([...JUNK_AXIS].reverse());
+    expect(reversed).toEqual(forward);
+  });
+
+  it("sortXDomain's non-option fallback produces a deterministic order on a junk quantitative axis", () => {
+    const forward = sortXDomain([...JUNK_AXIS], { type: "quantitative" }).map(String);
+    const reversed = sortXDomain([...JUNK_AXIS].reverse(), { type: "quantitative" }).map(String);
+    expect(reversed).toEqual(forward);
+  });
+
+  it("keeps an all-numeric quantitative axis in ascending numeric order (no regression vs the old subtraction)", () => {
+    const out = sortData([{ x: 10, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 0 }], { type: "quantitative" }).map((p: any) => p.x);
+    expect(out).toEqual([1, 2, 10]);
+  });
+
+  it("keeps an all-valid temporal axis in chronological order (no regression vs getTime subtraction)", () => {
+    const d1 = new Date("2019-01-01");
+    const d2 = new Date("2020-06-15");
+    const d3 = new Date("2021-12-31");
+    const out = sortData([{ x: d2, y: 0 }, { x: d3, y: 0 }, { x: d1, y: 0 }], { type: "temporal" }).map((p: any) => (p.x as Date).getTime());
+    expect(out).toEqual([d1.getTime(), d2.getTime(), d3.getTime()]);
+  });
+});

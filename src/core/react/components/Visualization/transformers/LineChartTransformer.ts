@@ -1,7 +1,7 @@
 import { VisualizationConfig } from "shared/types/visualization";
 import { LineChartData, LineChartDataPoint, AggregationType } from "../types/ChartDataSchemas";
 import { SpaceProperty } from "shared/types/mdb";
-import { sortUniqueValues } from "../utils/sortingUtils";
+import { sortUniqueValues, intelligentCompare } from "../utils/sortingUtils";
 import { ensureCorrectEncodingType } from "../utils/inferEncodingType";
 
 /**
@@ -592,15 +592,15 @@ export class LineChartTransformer {
     data: LineChartDataPoint[],
     xEncoding: any
   ): LineChartDataPoint[] {
-    return data.sort((a, b) => {
-      if (xEncoding?.type === 'temporal') {
-        return (a.x as Date).getTime() - (b.x as Date).getTime();
-      } else if (xEncoding?.type === 'quantitative') {
-        return (a.x as number) - (b.x as number);
-      } else {
-        return String(a.x).localeCompare(String(b.x), undefined, { numeric: true });
-      }
-    });
+    // Route x-axis ordering through the canonical, SWO-hardened intelligentCompare
+    // (ADR 0033; Notidian-pjv6). The legacy `(a.x as Date).getTime() - …` /
+    // `(a.x as number) - …` asserted a runtime type the value may not have — x can
+    // be a string or an Invalid Date — so getTime()/Number coercion returned NaN,
+    // making compare non-reflexive and V8/TimSort-input-dependent. intelligentCompare
+    // classifies each value ONCE into a stable bucket (dates < numbers < strings),
+    // never returns NaN, and orders all-date / all-number / all-string axes the same
+    // as before; only genuinely junk- or mixed-type axes change (deterministically).
+    return data.sort((a, b) => intelligentCompare(a.x, b.x));
   }
 
   /**
@@ -627,15 +627,11 @@ export class LineChartTransformer {
       });
     }
     
-    return domain.sort((a, b) => {
-      if (xEncoding?.type === 'temporal') {
-        return (a as Date).getTime() - (b as Date).getTime();
-      } else if (xEncoding?.type === 'quantitative') {
-        return (a as number) - (b as number);
-      } else {
-        return String(a).localeCompare(String(b), undefined, { numeric: true });
-      }
-    });
+    // Non-option axis: same SWO-hardened canonical comparator as sortData
+    // (ADR 0033; Notidian-pjv6) — replaces the type-asserted, NaN-returning
+    // getTime()/Number subtraction. The option-aware sortUniqueValues path above
+    // is intentionally preserved.
+    return domain.sort((a, b) => intelligentCompare(a, b));
   }
 
   /**

@@ -238,3 +238,108 @@ describe("AreaChartTransformer.transform — x ordering + determinism", () => {
     expect(rows).toEqual(snapshot);
   });
 });
+
+// ===========================================================================
+// SWO-LAW / JUNK-AXIS ORDERING for the x-axis comparators (Notidian-pjv6).
+//
+// `sortData` (l~659) and the non-option fallback of `sortXDomain` (l~684) used to
+// dispatch on xEncoding.type and subtract a type-ASSERTED value:
+//   temporal     -> (a.x as Date).getTime() - (b.x as Date).getTime()
+//   quantitative -> (a.x as number) - (b.x as number)
+// Identical to the LineChartTransformer defect: the `as Date`/`as number` are
+// runtime lies (x can be a string / Invalid Date), so coercion yields NaN — a
+// NON-REFLEXIVE, V8/TimSort-input-dependent comparator (ADR 0033). The fix routes
+// both through the canonical, SWO-hardened intelligentCompare while KEEPING the
+// secondary series tiebreak in sortData and the option-aware sortUniqueValues path
+// in sortXDomain. The stacked-data sort in calculateStackPositions (l~610) already
+// typeof-guards and is intentionally left unchanged.
+// ===========================================================================
+describe("AreaChartTransformer x-axis comparators are a strict weak ordering (Notidian-pjv6)", () => {
+  const sortData = (data: any[], xEncoding: any) =>
+    (AreaChartTransformer as any).sortData(data, xEncoding);
+  const sortXDomain = (domain: any[], xEncoding: any, tableProps?: any) =>
+    (AreaChartTransformer as any).sortXDomain(domain, xEncoding, tableProps);
+
+  const JUNK_AXIS: any[] = [
+    10, 2, 1, "notnum", "Infinity", "-Infinity", "1e999",
+    new Date("not a date"), new Date("2020-01-01"), "2019-06-15", "", "zeta",
+  ];
+
+  const assertSWO = (cmp: (a: any, b: any) => number, axis: any[]) => {
+    for (const v of axis) {
+      const r = cmp(v, v);
+      expect(Number.isNaN(r)).toBe(false);
+      expect(Math.sign(r)).toBe(0);
+    }
+    for (const a of axis) {
+      for (const b of axis) {
+        const ab = cmp(a, b);
+        const ba = cmp(b, a);
+        expect(Number.isNaN(ab)).toBe(false);
+        expect(Number.isNaN(ba)).toBe(false);
+        // sign(cmp(a,b)) + sign(cmp(b,a)) === 0; the `+ 0` normalizes -0 so the
+        // equal-element case (sign 0) compares cleanly under Object.is.
+        expect(Math.sign(ab) + Math.sign(ba) + 0).toBe(0);
+      }
+    }
+    for (const a of axis) {
+      for (const b of axis) {
+        for (const c of axis) {
+          if (cmp(a, b) <= 0 && cmp(b, c) <= 0) {
+            expect(cmp(a, c)).toBeLessThanOrEqual(0);
+          }
+        }
+      }
+    }
+  };
+
+  it("the canonical comparator the x-axis sort now routes through obeys the SWO laws on a junk axis (never NaN)", () => {
+    const { intelligentCompare } = require("../utils/sortingUtils");
+    assertSWO(intelligentCompare, JUNK_AXIS);
+  });
+
+  it("sortData produces a deterministic, total order on a junk temporal axis regardless of input order", () => {
+    // single series so the secondary series tiebreak never decides x ordering here
+    const mk = (axis: any[]) => sortData(axis.map((x) => ({ x, y: 0, series: "s" })), { type: "temporal" }).map((p: any) => String(p.x));
+    const forward = mk([...JUNK_AXIS]);
+    const reversed = mk([...JUNK_AXIS].reverse());
+    expect(reversed).toEqual(forward);
+  });
+
+  it("sortData produces a deterministic, total order on a junk quantitative axis regardless of input order", () => {
+    const mk = (axis: any[]) => sortData(axis.map((x) => ({ x, y: 0, series: "s" })), { type: "quantitative" }).map((p: any) => String(p.x));
+    const forward = mk([...JUNK_AXIS]);
+    const reversed = mk([...JUNK_AXIS].reverse());
+    expect(reversed).toEqual(forward);
+  });
+
+  it("sortData keeps the series tiebreak when x values are equal", () => {
+    const out = sortData(
+      [
+        { x: 1, y: 0, series: "B" },
+        { x: 1, y: 0, series: "A" },
+      ],
+      { type: "quantitative" }
+    );
+    expect(out.map((p: any) => p.series)).toEqual(["A", "B"]);
+  });
+
+  it("sortXDomain's non-option fallback produces a deterministic order on a junk quantitative axis", () => {
+    const forward = sortXDomain([...JUNK_AXIS], { type: "quantitative" }).map(String);
+    const reversed = sortXDomain([...JUNK_AXIS].reverse(), { type: "quantitative" }).map(String);
+    expect(reversed).toEqual(forward);
+  });
+
+  it("keeps an all-numeric quantitative axis in ascending numeric order (no regression)", () => {
+    const out = sortData([{ x: 10, y: 0, series: "s" }, { x: 2, y: 0, series: "s" }, { x: 1, y: 0, series: "s" }], { type: "quantitative" }).map((p: any) => p.x);
+    expect(out).toEqual([1, 2, 10]);
+  });
+
+  it("keeps an all-valid temporal axis in chronological order (no regression)", () => {
+    const d1 = new Date("2019-01-01");
+    const d2 = new Date("2020-06-15");
+    const d3 = new Date("2021-12-31");
+    const out = sortData([{ x: d2, y: 0, series: "s" }, { x: d3, y: 0, series: "s" }, { x: d1, y: 0, series: "s" }], { type: "temporal" }).map((p: any) => (p.x as Date).getTime());
+    expect(out).toEqual([d1.getTime(), d2.getTime(), d3.getTime()]);
+  });
+});
