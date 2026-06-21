@@ -27,7 +27,15 @@ export const savePathColor = async (
 export const updatePrimaryAlias = (superstate: Superstate,
   path: string, aliases: string[],
   value: string) => {
-  const newValue = serializeMultiDisplayString([value, ...ensureArray(aliases).filter(f => f == value)]);
+  // Make `value` the PRIMARY (index-0) alias while PRESERVING every OTHER
+  // existing alias. The filter MUST drop only aliases that EQUAL `value`
+  // (`f != value`), so prepending `value` cannot duplicate it. The prior
+  // predicate (`f == value`) was inverted: it kept only aliases equal to value,
+  // silently DROPPING all other aliases and duplicating value to [value, value]
+  // when already present — a data-loss bug across the canonical aliases
+  // frontmatter write path, made batch-destructive by the Path Fixer loop
+  // (Notidian-r58c). ADR 0001/0014: frontmatter is canonical owner data.
+  const newValue = serializeMultiDisplayString([value, ...ensureArray(aliases).filter(f => f != value)]);
   return saveProperties(superstate, path, { [superstate.settings.fmKeyAlias]: parseMDBStringValue("option-multi", newValue, true) });
 
 };
