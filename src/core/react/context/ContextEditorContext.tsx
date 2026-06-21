@@ -1398,7 +1398,10 @@ export const ContextEditorProvider: React.FC<
       ...(predicate ?? defPredicate),
       ...newPredicate,
     };
-    const cleanedPredicate = validatePredicate(pred, defPredicate);
+    // Pass dbSchema.id so an orphaned off-primary subItems config auto-heals on
+    // save (bd Notidian-sas8) — closes the "unclearable off-primary" gap left by
+    // the primary-only FilterBar Sub-items menu gate.
+    const cleanedPredicate = validatePredicate(pred, defPredicate, dbSchema?.id);
 
     if (frameSchema) {
       saveSchema({
@@ -1456,9 +1459,13 @@ export const ContextEditorProvider: React.FC<
 
   const parsePredicate = (predicateStr: string) => {
     const defPredicate = defaultPredicateForSchema(dbSchema);
+    // Auto-heal an orphaned off-primary subItems config on load (bd
+    // Notidian-sas8): a non-primary schema id drops the stale field that the
+    // consumption gate keeps inert but the menu can no longer clear.
     const newPredicate = validatePredicate(
       safelyParseJSON(predicateStr),
-      defPredicate
+      defPredicate,
+      dbSchema?.id
     );
     setPredicate({
       ...newPredicate,

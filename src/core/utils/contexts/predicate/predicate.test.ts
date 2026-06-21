@@ -1,3 +1,4 @@
+import { defaultContextSchemaID } from "shared/schemas/context";
 import { defaultPredicate } from "shared/schemas/predicate";
 import { cleanPredicateType, validatePredicate } from "./predicate";
 import { filterFnTypes } from "./filterFns/filterFnTypes";
@@ -220,6 +221,76 @@ describe("validatePredicate", () => {
     const result = validatePredicate(defaultPredicate, defaultPredicate);
     expect(result.chart).toBeUndefined();
     expect(result.subItems).toBeUndefined();
+  });
+
+  // bd Notidian-sas8: an orphaned off-primary subItems config (reachable only
+  // via the pre-Notidian-8k9b ungated designate path) is now UNCLEARABLE from the
+  // FilterBar menu (the whole Sub-items block is gated to the primary schema since
+  // 65d32aa). validatePredicate auto-heals it when given a non-primary schema id,
+  // so it self-clears on the next save/load. The byte-identical primary path and
+  // the schema-less pure path stay untouched.
+  describe("off-primary subItems auto-heal (bd Notidian-sas8)", () => {
+    it("drops an orphaned subItems config on a non-primary schema", () => {
+      const subItems = {
+        field: "Parent",
+        display: "flattened",
+        filterScope: "subItems",
+        collapsed: ["A.md"],
+      };
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, subItems } as any,
+          defaultPredicate,
+          "custom-db-schema"
+        ).subItems
+      ).toBeUndefined();
+    });
+
+    it("preserves subItems on the primary files schema (byte-identical)", () => {
+      const subItems = { field: "Parent" };
+      expect(
+        validatePredicate(
+          { ...defaultPredicate, subItems },
+          defaultPredicate,
+          defaultContextSchemaID
+        ).subItems
+      ).toEqual(subItems);
+    });
+
+    it("still drops default sub-item keys on the primary schema (ADR 0050)", () => {
+      // Auto-heal must not regress the default-key pruning: on-primary the same
+      // legacy { field } round-trip rule holds when a schema id is supplied.
+      expect(
+        validatePredicate(
+          {
+            ...defaultPredicate,
+            subItems: {
+              field: "Parent",
+              display: "nested",
+              filterScope: "parentsAndSubItems",
+              collapsed: [],
+            },
+          } as any,
+          defaultPredicate,
+          defaultContextSchemaID
+        ).subItems
+      ).toEqual({ field: "Parent" });
+    });
+
+    it("preserves subItems when no schema id is supplied (legacy/pure path)", () => {
+      const subItems = { field: "Parent" };
+      expect(
+        validatePredicate({ ...defaultPredicate, subItems }, defaultPredicate)
+          .subItems
+      ).toEqual(subItems);
+    });
+
+    it("leaves subItems undefined off-primary when absent (no false positive)", () => {
+      expect(
+        validatePredicate(defaultPredicate, defaultPredicate, "custom-db-schema")
+          .subItems
+      ).toBeUndefined();
+    });
   });
 
   // --- Notidian-w1bf: harden the passthrough fields against non-object /

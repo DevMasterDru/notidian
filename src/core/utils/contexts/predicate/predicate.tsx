@@ -1,3 +1,4 @@
+import { defaultContextSchemaID } from "shared/schemas/context";
 import { SpaceTableSchema } from "shared/types/mdb";
 import { Filter, Predicate, Sort } from "shared/types/predicate";
 import { defaultPredicate } from "../../../../shared/schemas/predicate";
@@ -120,8 +121,27 @@ const SUB_ITEMS_FILTER_SCOPES = ["parents", "parentsAndSubItems", "subItems"];
 // valid, rebuild explicitly and DROP each default value (display "nested",
 // filterScope "parentsAndSubItems", empty collapsed) so a legacy `{ field }`
 // predicate round-trips byte-identically and stays diff-free.
+//
+// AUTO-HEAL off-primary (bd Notidian-sas8): when a real schema id is supplied
+// and it is NOT the primary files schema, DROP the whole subItems config. A
+// child's parent link only materializes into its row on the primary files
+// schema (filesystemAdapter syncContextRow runs solely for schema ==
+// defaultContextSchemaID), so an off-primary subItems.field is an ORPHANED
+// config that can never round-trip into a tree — a state reachable only via the
+// pre-Notidian-8k9b ungated designate path. The Notidian-8k9b consumption gate
+// (resolveSubItemsCol) already keeps that orphan inert at render/write time, but
+// the FilterBar "Sub-items → None" clear option is now hidden off-primary
+// (gated to the primary schema since 65d32aa), leaving the stale field
+// UNCLEARABLE from the menu. Dropping it here lets validation self-heal the
+// orphan on the next predicate save/load — no column delete, no manual edit.
+//
+// This does NOT weaken ADR 0050's byte-identical round-trip contract: that
+// contract is about dropping DEFAULT-valued optional keys on a legitimate
+// config; an off-primary field is not a legitimate state at all. When no schema
+// id is supplied (pure validation / legacy callers) behaviour is unchanged.
 const validateSubItems = (
-  raw: unknown
+  raw: unknown,
+  schemaId?: string | null
 ): import("shared/types/predicate").SubItemsPredicate | undefined => {
   if (
     !raw ||
@@ -129,6 +149,10 @@ const validateSubItems = (
     typeof (raw as any).field !== "string"
   )
     return undefined;
+  // Off the primary files schema the orphaned config can never round-trip into a
+  // tree — heal it away. Only acts when a real schema id is provided, so the
+  // default (undefined) path stays byte-identical for every existing caller.
+  if (schemaId != null && schemaId !== defaultContextSchemaID) return undefined;
   const value = raw as any;
   const out: import("shared/types/predicate").SubItemsPredicate = {
     field: value.field,
@@ -154,7 +178,11 @@ const validateSubItems = (
 
 export const validatePredicate = (
   prevPredicate: Predicate,
-  defaultPredicate: Predicate
+  defaultPredicate: Predicate,
+  // Optional owning-schema id (bd Notidian-sas8). When supplied and non-primary,
+  // an orphaned off-primary subItems config is auto-healed (dropped). Omitting it
+  // preserves byte-identical behaviour for pure/legacy callers.
+  schemaId?: string | null
 ): Predicate => {
   if (!prevPredicate) {
     return defaultPredicate;
@@ -252,7 +280,7 @@ export const validatePredicate = (
       prevPredicate.chart && typeof prevPredicate.chart === "object"
         ? prevPredicate.chart
         : undefined,
-    subItems: validateSubItems(prevPredicate.subItems),
+    subItems: validateSubItems(prevPredicate.subItems, schemaId),
   };
 };
 

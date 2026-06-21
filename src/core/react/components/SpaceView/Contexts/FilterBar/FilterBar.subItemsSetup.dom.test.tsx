@@ -153,7 +153,12 @@ let container: HTMLElement;
 let saveColumnCalls: any[];
 let savePredicateCalls: any[];
 
-const mount = (opts: { subItemsSetup: boolean; cols: any[]; dbSchema?: any }) => {
+const mount = (opts: {
+  subItemsSetup: boolean;
+  cols: any[];
+  dbSchema?: any;
+  predicate?: any;
+}) => {
   openMenuCalls = [];
   saveColumnCalls = [];
   savePredicateCalls = [];
@@ -170,7 +175,7 @@ const mount = (opts: { subItemsSetup: boolean; cols: any[]; dbSchema?: any }) =>
       opts.dbSchema ?? { id: "files", name: "Files", type: "db", primary: "true" },
     cols: opts.cols,
     filteredData: [],
-    predicate: tablePredicate,
+    predicate: opts.predicate ?? tablePredicate,
     savePredicate: (p: any) => savePredicateCalls.push(p),
     setSearchString: () => {},
     setEditMode: () => {},
@@ -365,5 +370,51 @@ describe("FilterBar sub-items designate/reuse gate (Notidian-8k9b)", () => {
     // Designation of the eligible self-relation column survives on the primary
     // schema (where it round-trips) — the gate must not regress the happy path.
     expect(names).toContain("Parent");
+  });
+});
+
+// bd Notidian-sas8: the ORPHANED-CONFIG regression — a predicate that ALREADY
+// carries subItems.field on a non-primary schema (reachable only via the
+// pre-Notidian-8k9b ungated designate path). The 65d32aa FilterBar gate hides the
+// whole Sub-items block (incl. its "None" clear option) off-primary, so the menu
+// offers NO path to turn the stale field off — it is unclearable here. These DOM
+// tests pin that menu state (the WHY for the validatePredicate auto-heal that
+// drops the orphan on save/load — covered in predicate.test.ts) and prove the
+// designate path stays available on-primary even with the field set.
+describe("FilterBar orphaned off-primary subItems config (Notidian-sas8)", () => {
+  const orphanPredicate = {
+    ...tablePredicate,
+    subItems: { field: "Parent" },
+  } as any;
+
+  it("non-primary schema with subItems.field ALREADY set: the Sub-items entry (the only clear path) is hidden — config is unclearable from the menu, so it must auto-heal on save/load", async () => {
+    mount({
+      subItemsSetup: true,
+      cols: [...plainCols, linkCol],
+      dbSchema: { id: "customTable", name: "Custom", type: "db", primary: "" },
+      predicate: orphanPredicate,
+    });
+    // No Sub-items entry off-primary => no in-menu "None" to disable the stale
+    // field. This is exactly why validatePredicate now drops it (auto-heal).
+    const entry = findSubItemsEntry(await openViewOptionsMenu());
+    expect(entry).toBeUndefined();
+  });
+
+  it("primary files schema with subItems.field set: the Sub-items entry IS present and the submenu offers 'None' to clear it", async () => {
+    mount({
+      subItemsSetup: true,
+      cols: [...plainCols, linkCol],
+      dbSchema: { id: "files", name: "Files", type: "db", primary: "true" },
+      predicate: orphanPredicate,
+    });
+    const entry = findSubItemsEntry(await openViewOptionsMenu());
+    expect(entry).toBeTruthy();
+    // On-primary the field remains clearable (the regression is off-primary only):
+    // the submenu still offers "None", and selecting it disables sub-items.
+    const submenu = openSubItemsSubmenu(await openViewOptionsMenu());
+    const names = submenu.options.map((o: any) => o.name);
+    expect(names).toContain(i18n.menu.none);
+    act(() => submenu.saveOptions([], [""]));
+    expect(savePredicateCalls).toContainEqual({ subItems: undefined });
   });
 });
