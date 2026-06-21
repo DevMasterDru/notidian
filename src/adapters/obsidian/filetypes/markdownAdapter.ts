@@ -357,19 +357,39 @@ public app: App;
                 }));
             }
         }
-        // if (currentCache) {
-            
-        //     if (!_.isEqual(currentCache.resolvedLinks, updatedCache.resolvedLinks)) {
-        //         const newLinks = updatedCache.resolvedLinks.filter(f => !currentCache.resolvedLinks.includes(f));
-        //         const removedLinks = currentCache.resolvedLinks.filter(f => !updatedCache.resolvedLinks.includes(f));
-        //         for (const link of [...newLinks, ...removedLinks]) {
-        //             const file = this.plugin.app.vault.getAbstractFileByPath(link);
-        //             if (file && file instanceof TFile) 
-        //                 this.metadataChange(file)
-        //         }
-                
-        //     }
-        // }
+        // Live back-relation freshness (Notidian-xwgw): when THIS file's outgoing
+        // links change, re-index the targets it newly links to / no longer links
+        // to, so their cached metadata.inlinks (the snapshot back-relations read)
+        // refresh immediately — otherwise a parent's "Children" column / %-rollup
+        // stays stale until the PARENT itself re-indexes. Re-enabled now that
+        // resolvedLinks includes frontmatter links (Notidian-bk7e fix B), so a
+        // frontmatter relation change (e.g. "+ Add sub-item") actually triggers it.
+        // The guard fires ONLY on a real link change (most edits don't change
+        // links). It terminates: re-indexing a target does not change THAT
+        // target's own outgoing links, so the guard is false there — no cascade.
+        if (currentCache) {
+          const oldLinks = currentCache.resolvedLinks ?? [];
+          const newLinksAll = updatedCache.resolvedLinks ?? [];
+          const added = newLinksAll.filter((l) => !oldLinks.includes(l));
+          const removed = oldLinks.filter((l) => !newLinksAll.includes(l));
+          // Dedup (a path can appear via both a body and a frontmatter link).
+          for (const link of new Set([...added, ...removed])) {
+            const target = this.plugin.app.vault.getAbstractFileByPath(link);
+            if (target && target instanceof TFile) {
+              // Two steps, in order: (1) re-run the target's parseCache so its
+              // adapter-cache inlinks SNAPSHOT is recomputed from the now-updated
+              // link graph (getInverse); (2) reloadPath to rebuild the target's
+              // superstate PathState from that fresh snapshot — which is what the
+              // back-relation (path.metadata.inlinks) reads. parseCache alone
+              // refreshes only the adapter cache; reloadPath alone propagates a
+              // stale snapshot. Re-indexing the target does not change ITS OWN
+              // outgoing links, so this does not recurse.
+              void this.parseCache(tFileToAFile(target), true).then(() =>
+                this.plugin.superstate.reloadPath(link, true)
+              );
+            }
+          }
+        }
         this.cache.set(file.path, updatedCache);
         
         this.middleware.updateFileCache(file.path, updatedCache, refresh);
