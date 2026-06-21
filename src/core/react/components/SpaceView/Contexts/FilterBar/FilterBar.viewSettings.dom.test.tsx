@@ -8,9 +8,12 @@
 //       indicator (data-mk-active + mk-active) derived from the predicate;
 //   (2) DE-DUP (flag ON, default): the 3-knobs ("view options") menu does NOT
 //       re-list Filter or Sort — their single home is inline;
-//   (3) KILL-SWITCH (flag OFF): the inline trio still renders (legacy buttons),
-//       AND Filter/Sort REAPPEAR in the 3-knobs menu — byte-for-byte legacy IA
-//       (the prior inside/outside duplication restored).
+//   (3) KILL-SWITCH (flag OFF): byte-for-byte legacy IA is RESTORED — the
+//       net-new .mk-view-settings-bar wrapper, .mk-view-setting* classes and
+//       data-mk-* / aria-pressed attrs are GONE (the trio reverts to bare
+//       .mk-toolbar-button direct children of .mk-view-options with only the
+//       legacy .mk-active background, no accent underline), AND Filter/Sort
+//       REAPPEAR in the 3-knobs menu (the prior inside/outside duplication).
 //
 // It re-declares the same heavy-graph mock surface the sibling
 // FilterBar.subItemsSetup.dom.test.tsx uses (each dom test file owns its mocks).
@@ -244,6 +247,14 @@ const inlineControl = (id: string): HTMLButtonElement | null =>
     `.mk-view-settings-bar button[data-mk-control="${id}"]`
   );
 
+// OFF (legacy) markup has no wrapper and no data-mk-control: the trio are bare
+// .mk-toolbar-button direct children of .mk-view-options, identified by their
+// aria-label (exactly the pre-vrmf Notidian-ddk/-nmr markup).
+const legacyControl = (ariaLabel: string): HTMLButtonElement | null =>
+  container.querySelector(
+    `.mk-view-options > button.mk-toolbar-button[aria-label="${ariaLabel}"]`
+  );
+
 describe("FilterBar inline view-settings bar (Notidian-vrmf)", () => {
   it("flag ON: the Filter/Sort/Group-By trio renders inline in the settings bar", () => {
     mount({ viewSettingsInlineBar: true });
@@ -296,14 +307,32 @@ describe("FilterBar inline view-settings bar (Notidian-vrmf)", () => {
     expect(names).toContain(i18n.labels.limit);
   });
 
-  it("flag OFF (kill-switch): the inline trio still renders, marked off", () => {
+  it("flag OFF (kill-switch): restores byte-for-byte legacy IA — no net-new wrapper/classes/attrs", () => {
     mount({ viewSettingsInlineBar: false });
-    const bar = container.querySelector(".mk-view-settings-bar");
-    expect(bar).toBeTruthy();
-    expect(bar!.getAttribute("data-mk-inline-bar")).toBe("off");
-    expect(inlineControl("filter")).toBeTruthy();
-    expect(inlineControl("sort")).toBeTruthy();
-    expect(inlineControl("groupBy")).toBeTruthy();
+    // The net-new inline-bar wrapper must be GONE (a true revert, not a tagged
+    // bar) so the kill-switch cannot leak the new IA. data-mk-inline-bar="off"
+    // is itself net-new, so it must not appear either.
+    expect(container.querySelector(".mk-view-settings-bar")).toBeNull();
+    expect(
+      container.querySelector("[data-mk-inline-bar]")
+    ).toBeNull();
+    // None of the net-new per-control classes/attrs exist OFF.
+    expect(container.querySelector(".mk-view-setting")).toBeNull();
+    expect(container.querySelector("[data-mk-control]")).toBeNull();
+    expect(container.querySelector("[data-mk-active]")).toBeNull();
+    expect(container.querySelector("[aria-pressed]")).toBeNull();
+    // The legacy trio still renders, as bare .mk-toolbar-button DIRECT children
+    // of .mk-view-options (the pre-vrmf layout the accent-underline CSS, scoped
+    // to data-mk-inline-bar="on", can no longer reach).
+    expect(legacyControl("Filter")).toBeTruthy();
+    expect(legacyControl("Sort")).toBeTruthy();
+    expect(legacyControl("Group By")).toBeTruthy();
+    for (const label of ["Filter", "Sort", "Group By"]) {
+      const btn = legacyControl(label)!;
+      expect(btn.classList.contains("mk-view-setting")).toBe(false);
+      expect(btn.hasAttribute("data-mk-control")).toBe(false);
+      expect(btn.hasAttribute("aria-pressed")).toBe(false);
+    }
   });
 
   it("flag OFF (kill-switch): Filter + Sort REAPPEAR in the 3-knobs menu (legacy duplication restored)", async () => {
@@ -315,7 +344,7 @@ describe("FilterBar inline view-settings bar (Notidian-vrmf)", () => {
     expect(names).toContain(i18n.menu.filters);
   });
 
-  it("flag OFF (kill-switch): inline active state still derives from the predicate (legacy expressions)", () => {
+  it("flag OFF (kill-switch): legacy buttons show active via the legacy .mk-active background only (no data-mk-active attr)", () => {
     mount({
       viewSettingsInlineBar: false,
       predicate: {
@@ -323,10 +352,13 @@ describe("FilterBar inline view-settings bar (Notidian-vrmf)", () => {
         sort: [{ field: "Status", fn: "alphabetical" }],
       },
     });
-    const sort = inlineControl("sort")!;
-    expect(sort.getAttribute("data-mk-active")).toBe("true");
+    const sort = legacyControl("Sort")!;
+    // OFF derives active from the exact legacy expression (predicate.sort.length
+    // > 0) and reflects it ONLY through the pre-vrmf .mk-active background — the
+    // net-new data-mk-active attribute must not exist OFF.
     expect(sort.classList.contains("mk-active")).toBe(true);
-    const filter = inlineControl("filter")!;
-    expect(filter.getAttribute("data-mk-active")).toBe("false");
+    expect(sort.hasAttribute("data-mk-active")).toBe(false);
+    const filter = legacyControl("Filter")!;
+    expect(filter.classList.contains("mk-active")).toBe(false);
   });
 });

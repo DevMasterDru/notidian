@@ -2068,87 +2068,166 @@ export const FilterBar = (props: {
                     removed from the 3-knobs menu when the inline bar is enabled
                     (de-dup). Each control reuses the same add menu and persists
                     via savePredicate (no new data authority); its active
-                    indicator (mk-active) is derived from one pure helper
-                    (deriveInlineControlActiveState) so the owner sees at a glance
-                    which settings are applied. The grouping div is tagged so the
-                    live DOM / jsdom can assert the inline-home set. */}
-                <div
-                  className="mk-view-settings-bar"
-                  data-mk-inline-bar={inlineBarEnabled ? "on" : "off"}
-                >
-                <button
-                  className={classNames(
-                    "mk-toolbar-button",
-                    "mk-view-setting",
-                    "mk-view-setting--filter",
-                    filterInlineActive && "mk-active"
-                  )}
-                  data-mk-control="filter"
-                  data-mk-active={filterInlineActive ? "true" : "false"}
-                  aria-label="Filter"
-                  aria-pressed={filterInlineActive ? "true" : "false"}
-                  title="Filter"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    showAddFilterMenu(
-                      e.currentTarget.getBoundingClientRect(),
-                      windowFromDocument(e.view.document),
-                      null
-                    );
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: props.superstate.ui.getSticker("ui//filter"),
-                  }}
-                ></button>
-                <button
-                  className={classNames(
-                    "mk-toolbar-button",
-                    "mk-view-setting",
-                    "mk-view-setting--sort",
-                    sortInlineActive && "mk-active"
-                  )}
-                  data-mk-control="sort"
-                  data-mk-active={sortInlineActive ? "true" : "false"}
-                  aria-label="Sort"
-                  aria-pressed={sortInlineActive ? "true" : "false"}
-                  title="Sort"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    showSortMenu(
-                      e.currentTarget.getBoundingClientRect(),
-                      windowFromDocument(e.view.document),
-                      null
-                    );
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: props.superstate.ui.getSticker("ui//sort-desc"),
-                  }}
-                ></button>
-                <button
-                  className={classNames(
-                    "mk-toolbar-button",
-                    "mk-view-setting",
-                    "mk-view-setting--group-by",
-                    groupByInlineActive && "mk-active"
-                  )}
-                  data-mk-control="groupBy"
-                  data-mk-active={groupByInlineActive ? "true" : "false"}
-                  aria-label="Group By"
-                  aria-pressed={groupByInlineActive ? "true" : "false"}
-                  title="Group By"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    showGroupByMenu(
-                      e.currentTarget.getBoundingClientRect(),
-                      windowFromDocument(e.view.document),
-                      null
-                    );
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: props.superstate.ui.getSticker("ui//columns"),
-                  }}
-                ></button>
-                </div>
+                    indicator (mk-active + accent underline) is derived from one
+                    pure helper (deriveInlineControlActiveState) so the owner sees
+                    at a glance which settings are applied. The grouping div is
+                    tagged so the live DOM / jsdom can assert the inline-home set.
+
+                    KILL-SWITCH: the whole bar — the .mk-view-settings-bar
+                    wrapper, the .mk-view-setting* classes, the data-mk-* /
+                    aria-pressed attributes AND the net-new accent-underline CSS
+                    (FilterBar.css ::after, scoped to data-mk-inline-bar="on") —
+                    is gated behind inlineBarEnabled. OFF renders the exact legacy
+                    bare buttons (mk-toolbar-button + conditional mk-active, no
+                    wrapper, no net-new markup or visual), so viewSettingsInlineBar
+                    =false restores byte-for-byte the prior Notidian-ddk/-nmr IA
+                    (and the menu de-dup above reverts too). */}
+                {inlineBarEnabled ? (
+                  <div
+                    className="mk-view-settings-bar"
+                    data-mk-inline-bar="on"
+                  >
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        "mk-view-setting",
+                        "mk-view-setting--filter",
+                        filterInlineActive && "mk-active"
+                      )}
+                      data-mk-control="filter"
+                      data-mk-active={filterInlineActive ? "true" : "false"}
+                      aria-label="Filter"
+                      aria-pressed={filterInlineActive ? "true" : "false"}
+                      title="Filter"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showAddFilterMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document),
+                          null
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//filter"),
+                      }}
+                    ></button>
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        "mk-view-setting",
+                        "mk-view-setting--sort",
+                        sortInlineActive && "mk-active"
+                      )}
+                      data-mk-control="sort"
+                      data-mk-active={sortInlineActive ? "true" : "false"}
+                      aria-label="Sort"
+                      aria-pressed={sortInlineActive ? "true" : "false"}
+                      title="Sort"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showSortMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document),
+                          null
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//sort-desc"),
+                      }}
+                    ></button>
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        "mk-view-setting",
+                        "mk-view-setting--group-by",
+                        groupByInlineActive && "mk-active"
+                      )}
+                      data-mk-control="groupBy"
+                      data-mk-active={groupByInlineActive ? "true" : "false"}
+                      aria-label="Group By"
+                      aria-pressed={groupByInlineActive ? "true" : "false"}
+                      title="Group By"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showGroupByMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document),
+                          null
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//columns"),
+                      }}
+                    ></button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Legacy IA (Notidian-ddk Filter/Sort + Notidian-nmr
+                        Group-By): bare toolbar buttons, direct children of
+                        .mk-view-options, with only the legacy .mk-active
+                        background highlight (no wrapper, no .mk-view-setting*
+                        classes, no data-mk-* / aria-pressed, no accent
+                        underline). This is the exact pre-vrmf markup that the
+                        kill-switch restores. */}
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        filterInlineActive && "mk-active"
+                      )}
+                      aria-label="Filter"
+                      title="Filter"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showAddFilterMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document),
+                          null
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//filter"),
+                      }}
+                    ></button>
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        sortInlineActive && "mk-active"
+                      )}
+                      aria-label="Sort"
+                      title="Sort"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showSortMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document),
+                          null
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//sort-desc"),
+                      }}
+                    ></button>
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        groupByInlineActive && "mk-active"
+                      )}
+                      aria-label="Group By"
+                      title="Group By"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showGroupByMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document),
+                          null
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//columns"),
+                      }}
+                    ></button>
+                  </>
+                )}
                 <button
                   className="mk-toolbar-button"
                   onClick={(e) => showLayoutMenu(e)}

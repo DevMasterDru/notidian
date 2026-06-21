@@ -93,18 +93,25 @@ button.mk-toolbar-button.mk-active {
    The grouping is a simple flex row; each control keeps .mk-toolbar-button so
    it inherits the toolbar look and the .mk-active highlight above. An active
    control additionally carries a small accent underline so the at-a-glance
-   "this setting is applied" feedback is unmistakable. KILL-SWITCH OFF still
-   renders this bar (data-mk-inline-bar="off") for byte-compatible layout; only
-   the de-dup + the shared active-derivation change behavior, not the bar. */
-.mk-view-settings-bar {
+   "this setting is applied" feedback is unmistakable.
+
+   KILL-SWITCH: this entire block is net-new (the parent commit had no
+   .mk-view-settings-bar, .mk-view-setting, or ::after) and is scoped to the
+   ON state via [data-mk-inline-bar="on"]. With viewSettingsInlineBar=false the
+   TSX renders the legacy bare buttons (no .mk-view-settings-bar wrapper, no
+   .mk-view-setting* classes), so none of these selectors match and the layout
+   reverts byte-for-byte to the pre-vrmf .mk-view-options direct-flex-children
+   IA with only the legacy .mk-active background. */
+.mk-view-settings-bar[data-mk-inline-bar="on"] {
   display: flex;
   align-items: center;
   gap: 4px;
 }
-button.mk-view-setting.mk-active {
+.mk-view-settings-bar[data-mk-inline-bar="on"] button.mk-view-setting.mk-active {
   position: relative;
 }
-button.mk-view-setting.mk-active::after {
+.mk-view-settings-bar[data-mk-inline-bar="on"]
+  button.mk-view-setting.mk-active::after {
   content: "";
   position: absolute;
   left: 8px;

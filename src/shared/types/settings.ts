@@ -164,11 +164,15 @@ export interface MakeMDSettings {
   // parent. Set false to render the prior tree with no add-rows.
   subItemAddRow: boolean;
   // View-settings inline bar IA (Notidian-vrmf). DEFAULT-ON / KILL-SWITCH.
-  // When true, the FilterBar inline controls (Filter/Sort/Group-By/Search)
-  // derive their active indicator from a shared pure helper AND the 3-knobs
+  // When true, the FilterBar wraps the Filter/Sort/Group-By trio in a
+  // .mk-view-settings-bar with per-control active indicators (mk-active +
+  // accent underline) derived from a shared pure helper, AND the 3-knobs
   // ("view options") menu stops re-listing Filter/Sort (single home: inline).
-  // Set false to restore the legacy IA: inline buttons keep their prior inline
-  // active expressions and the 3-knobs menu re-lists Filter/Sort (duplication).
+  // Set false to restore byte-for-byte legacy IA: the trio reverts to bare
+  // .mk-toolbar-button direct children of .mk-view-options (no wrapper, no
+  // .mk-view-setting* classes, no data-mk-* / aria-pressed, no accent
+  // underline) with their prior inline active expressions, and the 3-knobs
+  // menu re-lists Filter/Sort (the prior duplication).
   viewSettingsInlineBar: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;

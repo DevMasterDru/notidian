@@ -24,10 +24,14 @@ import { Predicate } from "shared/types/predicate";
 // frontmatter, no MDB writes, no row mutation.
 //
 // KILL-SWITCH semantics: when `viewSettingsInlineBar` is OFF, FilterBar takes
-// the LEGACY branch — the inline buttons keep their pre-feature inline
-// active expressions AND the 3-knobs menu re-lists Filter and Sort (the prior
-// duplication). So `false` restores byte-for-byte legacy IA. The pure logic
-// here is exercised only on the ON branch.
+// the LEGACY render branch — the Filter/Sort/Group-By trio reverts to bare
+// .mk-toolbar-button direct children of .mk-view-options (no
+// .mk-view-settings-bar wrapper, no .mk-view-setting* classes, no data-mk-* /
+// aria-pressed, no accent-underline CSS) with their pre-feature inline
+// `predicate?.x.length > 0` active expressions, AND the 3-knobs menu re-lists
+// Filter and Sort (the prior duplication). So `false` restores byte-for-byte
+// legacy IA — markup AND visual. The pure logic here is exercised only on the
+// ON branch.
 // ---------------------------------------------------------------------------
 
 // The canonical inline controls whose single home is the toolbar bar beside the

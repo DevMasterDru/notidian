@@ -143,12 +143,15 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // their active indicator from the pure deriveInlineControlActiveState helper
   // (Notidian-vrmf), so each shows whether its setting is applied at a glance.
   // The flag is RETAINED as a KILL-SWITCH: set it false to restore the
-  // byte-for-byte legacy IA — the inline buttons revert to their prior inline
-  // `predicate?.x.length > 0` expressions AND Filter/Sort reappear in the
-  // 3-knobs menu (the prior inside/outside duplication). The decision logic
+  // byte-for-byte legacy IA — the trio reverts to bare .mk-toolbar-button
+  // direct children of .mk-view-options (no .mk-view-settings-bar wrapper, no
+  // .mk-view-setting* classes, no data-mk-* / aria-pressed, no accent-underline
+  // CSS, which is scoped to data-mk-inline-bar="on") with their prior inline
+  // `predicate?.x.length > 0` active expressions, AND Filter/Sort reappear in
+  // the 3-knobs menu (the prior inside/outside duplication). The decision logic
   // (active-state derivation + single-home invariant) is pure and unit-tested
-  // (viewSettings.test.ts); the render + de-dup wiring is jsdom-tested
-  // (FilterBar.viewSettings.dom.test.tsx).
+  // (viewSettings.test.ts); the render + de-dup + OFF-revert wiring is
+  // jsdom-tested (FilterBar.viewSettings.dom.test.tsx).
   viewSettingsInlineBar: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
