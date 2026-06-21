@@ -63,6 +63,14 @@ jest.mock("core/superstate/utils/spaces", () => ({
 jest.mock("core/utils/properties/frontmatterWrite", () => ({
   saveFrontmatterProperties: jest.fn(),
 }));
+// Non-destructive parent-delete (Notidian-5ond.8): mock ONLY deletePath (whose
+// real module pulls a heavy transitive graph ts-jest cannot parse here). The
+// decision helper (requestRowDeleteWithSubItems), the pure collectSubtreePaths,
+// and the SubItemDeleteModal are kept REAL so these tests exercise the actual
+// leaf-vs-parent branch and recursive descendant removal.
+jest.mock("core/superstate/utils/path", () => ({
+  deletePath: jest.fn(),
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { showRowContextMenu } = require("./rowContextMenu");
@@ -317,5 +325,188 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1)", () => {
     for (const call of saveFrontmatterProperties.mock.calls) {
       expect(call[0].path).not.toBe(PARENT_PATH);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Non-destructive parent-delete 3-way prompt (Notidian-5ond.8, ADR 0050)
+// Proves: a LEAF row deletes silently (no modal); a PARENT row opens the 3-way
+// prompt; the recursive option removes the correct counted descendant paths AND
+// the parent; the "delete only" option promotes (parent gone, NO child rewrite);
+// and Cancel is a no-op. Drives the non-primary branch so the MDB deleteRow
+// option lands in the menu, and threads a real subItemsDelete config.
+// ---------------------------------------------------------------------------
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { deleteRowInTable } = require("core/utils/contexts/context");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { deletePath } = require("core/superstate/utils/path");
+
+// Tree over the visible rows: P > C1, C2 ; C1 > G (grandchild). Leaf = L.
+// Row data uses PathPropertyName ("File") for paths and "parent" for links.
+const VISIBLE_ROWS = [
+  { File: "P", parent: "" },
+  { File: "C1", parent: "[[P]]" },
+  { File: "C2", parent: "[[P]]" },
+  { File: "G", parent: "[[C1]]" },
+  { File: "L", parent: "" },
+];
+
+describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
+  let openedMenus: any[];
+  let openedModals: any[];
+  let tableRows: Record<string, any>[];
+  let superstate: any;
+  let root: Root;
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    deleteRowInTable.mockReset();
+    deletePath.mockReset();
+    openedMenus = [];
+    openedModals = [];
+    // The menu re-reads the table; order it so the index maps to a known row.
+    tableRows = [
+      { File: "P", parent: "" }, // index 0 -> parent with subtree
+      { File: "L", parent: "" }, // index 1 -> leaf
+    ];
+    superstate = {
+      ui: {
+        openMenu: (_rect: any, menu: any) => {
+          openedMenus.push(menu);
+          return { update: () => {}, hide: () => {} };
+        },
+        openModal: (title: string, modal: any, _win: Window) => {
+          openedModals.push({ title, modal });
+          return { update: () => {}, hide: () => {} };
+        },
+      },
+      spaceManager: {
+        readTable: async () => ({
+          schema: { id: "t", name: "Table", type: "db", primary: "false" },
+          rows: tableRows,
+        }),
+        spaceInfoForPath: () => ({ path: "Some/Space" }),
+      },
+      pathsIndex: new Map(),
+    };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  const deleteOption = async (index: number) => {
+    await showRowContextMenu(
+      fakeEvent(),
+      superstate,
+      "Some/Space",
+      "table",
+      index,
+      undefined,
+      undefined,
+      undefined, // subItemsField — not exercised here
+      // The non-destructive-delete config: visible rows + tree parent key.
+      { parentKey: "parent", rows: VISIBLE_ROWS }
+    );
+    await Promise.resolve();
+    const options = openedMenus[openedMenus.length - 1]?.options ?? [];
+    return options.find((o: any) => o && o.icon === "ui//trash");
+  };
+
+  // Render a captured modal element so we can click its buttons.
+  const renderModal = (modalEl: JSX.Element): HTMLElement => {
+    act(() => {
+      // The modal framework injects `hide`; supply a no-op so the component runs.
+      root.render(React.cloneElement(modalEl, { hide: () => {} }));
+    });
+    return container;
+  };
+
+  it("LEAF row deletes silently — no modal, immediate deleteRowInTable", async () => {
+    const option = await deleteOption(1); // index 1 -> "L" (leaf)
+    expect(option).toBeTruthy();
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    expect(openedModals).toHaveLength(0); // never prompts a childless row
+    expect(deleteRowInTable).toHaveBeenCalledTimes(1);
+    expect(deletePath).not.toHaveBeenCalled();
+  });
+
+  it("PARENT row opens the 3-way prompt instead of deleting", async () => {
+    const option = await deleteOption(0); // index 0 -> "P" (has subtree)
+    expect(option).toBeTruthy();
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    expect(openedModals).toHaveLength(1);
+    // Nothing deleted yet — the user must choose.
+    expect(deleteRowInTable).not.toHaveBeenCalled();
+    expect(deletePath).not.toHaveBeenCalled();
+    // The modal renders three buttons (promote / recursive / cancel).
+    const host = renderModal(openedModals[0].modal);
+    const buttons = host.querySelectorAll("button");
+    expect(buttons).toHaveLength(3);
+  });
+
+  it("recursive option removes the COUNTED descendants AND the parent", async () => {
+    const option = await deleteOption(0);
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    const host = renderModal(openedModals[0].modal);
+    const buttons = Array.from(host.querySelectorAll("button"));
+    // The destructive (recursive) button carries mod-warning.
+    const recursive = buttons.find((b) =>
+      b.classList.contains("mod-warning")
+    ) as HTMLButtonElement;
+    expect(recursive).toBeTruthy();
+    // P's descendants are C1, G, C2 (3) — the count the modal showed.
+    expect(recursive.textContent).toContain("3");
+    act(() => recursive.click());
+    // The recursive branch awaits each descendant deletePath, THEN deleteSelf —
+    // flush enough microtasks for the whole chain (3 descendants + the parent).
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    // Every descendant path was deleted...
+    const deleted = deletePath.mock.calls.map((c: any[]) => c[1]);
+    expect(deleted.sort()).toEqual(["C1", "C2", "G"]);
+    // ...and the parent row itself via the MDB remover (deleteSelf).
+    expect(deleteRowInTable).toHaveBeenCalledTimes(1);
+  });
+
+  it("'delete item only' deletes JUST the parent — children promote, never rewritten", async () => {
+    const option = await deleteOption(0);
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    const host = renderModal(openedModals[0].modal);
+    const buttons = Array.from(host.querySelectorAll("button"));
+    // The default (promote) button is the non-warning, non-cancel one.
+    const promote = buttons.find(
+      (b) =>
+        !b.classList.contains("mod-warning") &&
+        b.textContent !== "Cancel"
+    ) as HTMLButtonElement;
+    expect(promote).toBeTruthy();
+    act(() => promote.click());
+    await Promise.resolve();
+    // Only the parent removed; NO descendant deletePath (children promote).
+    expect(deleteRowInTable).toHaveBeenCalledTimes(1);
+    expect(deletePath).not.toHaveBeenCalled();
+  });
+
+  it("Cancel is a no-op — nothing deleted", async () => {
+    const option = await deleteOption(0);
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    const host = renderModal(openedModals[0].modal);
+    const cancel = Array.from(host.querySelectorAll("button")).find(
+      (b) => b.textContent === "Cancel"
+    ) as HTMLButtonElement;
+    expect(cancel).toBeTruthy();
+    act(() => cancel.click());
+    await Promise.resolve();
+    expect(deleteRowInTable).not.toHaveBeenCalled();
+    expect(deletePath).not.toHaveBeenCalled();
   });
 });

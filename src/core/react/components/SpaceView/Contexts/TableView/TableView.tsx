@@ -45,6 +45,7 @@ import { ColumnHeader } from "./ColumnHeader";
 import classNames from "classnames";
 import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowContextMenu";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
+import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
@@ -466,6 +467,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     subItemsInfo,
     subItemsDisplay,
     subItemsField,
+    subItemsParentKey,
     collapsedSubItems,
     toggleSubItemCollapse,
     subItemAddRows,
@@ -2487,7 +2489,21 @@ export const TableView = (props: { superstate: Superstate }) => {
                       // Sub-items (ADR 0024): enables the "Add sub-item" action.
                       // The frontmatter key of the parent-link column, or
                       // undefined when sub-items isn't configured for this view.
-                      subItemsField ?? undefined
+                      subItemsField ?? undefined,
+                      // Non-destructive parent-delete (Notidian-5ond.8): when
+                      // sub-items is active, thread the VISIBLE rows + the tree's
+                      // parent READ key + the live resolver so deleting a parent
+                      // opens the 3-way prompt (vs a silent recursive delete),
+                      // using the SAME ancestry the rendered tree resolves by.
+                      subItemsParentKey
+                        ? {
+                            parentKey: subItemsParentKey,
+                            rows: data,
+                            resolveLink: makeRelationLinkResolver(
+                              props.superstate
+                            ),
+                          }
+                        : undefined
                     );
                   }}
                 >

@@ -1,5 +1,6 @@
 import {
   buildRowTree,
+  collectSubtreePaths,
   flattenVisibleTree,
   subItemAddRowsAfter,
   nextCollapsedPaths,
@@ -176,6 +177,115 @@ describe("buildRowTree surfacedAsRoot (ADR 0024 C2)", () => {
     expect(flagged([{ File: "A", parent: "[[A]]" }])).toEqual([
       { path: "A", depth: 0, surfacedAsRoot: true },
     ]);
+  });
+});
+
+describe("collectSubtreePaths (Notidian-5ond.8 non-destructive parent-delete)", () => {
+  const collect = (
+    rows: Record<string, any>[],
+    rootPath: string,
+    resolveLink?: (link: string, src: string) => string
+  ) => collectSubtreePaths(rows, "parent", "File", resolveLink, rootPath);
+
+  it("returns the single child of a parent (and the parent is excluded)", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    expect(collect(rows, "A")).toEqual(["B"]);
+  });
+
+  it("leaf row returns an empty subtree (silent-delete path, no prompt)", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    // B is a leaf (no children); deleting it never prompts.
+    expect(collect(rows, "B")).toEqual([]);
+  });
+
+  it("a row absent from the set returns empty (no descendants resolvable)", () => {
+    const rows = [{ File: "A", parent: "" }];
+    expect(collect(rows, "Missing")).toEqual([]);
+  });
+
+  it("collects a DEEP chain (children, grandchildren, …) depth-first", () => {
+    // A > B > C > D (single chain).
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+      { File: "C", parent: "[[B]]" },
+      { File: "D", parent: "[[C]]" },
+    ];
+    expect(collect(rows, "A")).toEqual(["B", "C", "D"]);
+    // From a mid-chain node, only what is beneath it.
+    expect(collect(rows, "B")).toEqual(["C", "D"]);
+  });
+
+  it("collects a WIDE subtree (multiple branches), each branch depth-first", () => {
+    // A > {B > D, C}.
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+      { File: "D", parent: "[[B]]" },
+      { File: "C", parent: "[[A]]" },
+    ];
+    expect(collect(rows, "A")).toEqual(["B", "D", "C"]);
+  });
+
+  it("counts ONLY descendants of the target, not unrelated rows or siblings", () => {
+    // A > B ; X > Y (separate tree). Deleting A must not pull X or Y.
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+      { File: "X", parent: "" },
+      { File: "Y", parent: "[[X]]" },
+    ];
+    expect(collect(rows, "A")).toEqual(["B"]);
+  });
+
+  it("multi-parent surfaced-as-root: a child attaches to the FIRST resolving parent only", () => {
+    // C names two parents; buildRowTree (and collectSubtreePaths) attach to the
+    // first resolving link (A), so A's subtree includes C but B's does not.
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "" },
+      { File: "C", parent: "[[A]], [[B]]" },
+    ];
+    expect(collect(rows, "A")).toEqual(["C"]);
+    expect(collect(rows, "B")).toEqual([]);
+  });
+
+  it("is cycle-safe: a parent/child loop terminates and never re-emits the root", () => {
+    const rows = [
+      { File: "A", parent: "[[B]]" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    // From A: B is A's child via the loop; A must not re-appear, no infinite loop.
+    const fromA = collect(rows, "A");
+    expect(fromA).toEqual(["B"]);
+    expect(fromA).not.toContain("A");
+  });
+
+  it("self-parent yields no subtree (cannot be its own descendant)", () => {
+    expect(collect([{ File: "A", parent: "[[A]]" }], "A")).toEqual([]);
+  });
+
+  it("applies resolveLink so bare/aliased parent links match the resolved paths", () => {
+    const rows = [
+      { File: "Tasks/A.md", parent: "" },
+      { File: "Tasks/B.md", parent: "[[A]]" },
+      { File: "Tasks/C.md", parent: "[[B]]" },
+    ];
+    const resolveLink = (link: string) => `Tasks/${link}.md`;
+    expect(collect(rows, "Tasks/A.md", resolveLink)).toEqual([
+      "Tasks/B.md",
+      "Tasks/C.md",
+    ]);
+  });
+
+  it("empty rows -> empty subtree", () => {
+    expect(collect([], "A")).toEqual([]);
   });
 });
 

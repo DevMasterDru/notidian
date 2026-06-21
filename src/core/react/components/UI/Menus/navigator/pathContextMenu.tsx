@@ -24,6 +24,10 @@ import { default as i18n } from "shared/i18n";
 import { removeIconsForPaths } from "shared/utils/sticker";
 
 import { deletePath, movePathToSpace } from "core/superstate/utils/path";
+import {
+  requestRowDeleteWithSubItems,
+  SubItemsDeleteConfig,
+} from "core/utils/contexts/nonDestructiveDelete";
 import { isTouchScreen } from "core/utils/ui/screen";
 import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import { Anchors, Rect } from "shared/types/Pos";
@@ -202,7 +206,12 @@ export const showPathContextMenu = (
   // Caller-supplied options prepended to the file menu (Notidian-f0pj.1): the
   // row context menu injects "Add sub-item" here for the primary folder context,
   // whose rows short-circuit to this menu rather than the MDB row options.
-  extraOptions?: SelectOption[]
+  extraOptions?: SelectOption[],
+  // Non-destructive parent-delete config (Notidian-5ond.8): when the primary
+  // folder row routes here, its visible row set + tree resolution come along so
+  // this menu's own Delete shows the 3-way prompt for a parent (vs a silent
+  // recursive delete). Undefined => the legacy single-path delete.
+  subItemsDelete?: SubItemsDeleteConfig
 ) => {
   const cache = superstate.pathsIndex.get(path);
    
@@ -421,7 +430,20 @@ export const showPathContextMenu = (
     name: i18n.menu.delete,
     icon: "ui//trash",
     onClick: (e) => {
-      deletePath(superstate, path);
+      // Non-destructive parent-delete (Notidian-5ond.8): a leaf path deletes
+      // silently (legacy); a path with visible sub-items opens the 3-way prompt
+      // instead of a silent recursive delete. subItemsDelete is undefined for the
+      // ordinary navigator file menu, so this stays a plain delete there.
+      requestRowDeleteWithSubItems({
+        superstate,
+        rootPath: path,
+        subItemsDelete,
+        deleteSelf: () => deletePath(superstate, path),
+        win:
+          e?.view?.document != null
+            ? windowFromDocument(e.view.document)
+            : win,
+      });
     },
   });
 

@@ -1,5 +1,9 @@
 import { deleteRowInTable } from "core/utils/contexts/context";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
+import {
+  requestRowDeleteWithSubItems,
+  SubItemsDeleteConfig,
+} from "core/utils/contexts/nonDestructiveDelete";
 import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React from "react";
@@ -32,7 +36,11 @@ export const showRowContextMenu = async (
   // parent-link column (= subItemsCol.name), or undefined when sub-items is off.
   // When set, an "Add sub-item" action is offered that creates a child row and
   // writes ONLY the child's parent link (one-way, B1) — the parent is untouched.
-  subItemsField?: string
+  subItemsField?: string,
+  // Non-destructive parent-delete (Notidian-5ond.8): the visible row set + tree
+  // resolution so deleting a row WITH sub-items opens the 3-way prompt instead of
+  // a silent recursive delete. Undefined => leaf-style silent delete (legacy).
+  subItemsDelete?: SubItemsDeleteConfig
 ) => {
   e.preventDefault();
 
@@ -116,7 +124,10 @@ export const showRowContextMenu = async (
         undefined,
         // Folder-context rows short-circuit here, so the sub-item action must be
         // injected into the path menu rather than the MDB options below.
-        subItemOption ? [subItemOption] : undefined
+        subItemOption ? [subItemOption] : undefined,
+        // ...and the non-destructive-delete config (Notidian-5ond.8) so the path
+        // menu's own Delete prompts the 3-way modal for a parent row too.
+        subItemsDelete
       );
       return;
     }
@@ -173,12 +184,25 @@ export const showRowContextMenu = async (
 
       // Use spaceInfoForPath instead of spacesIndex lookup to properly handle folder notes
       const spaceInfo = superstate.spaceManager.spaceInfoForPath(contextPath);
-      await deleteRowInTable(
-        superstate.spaceManager,
-        spaceInfo,
-        schema,
-        index
-      );
+      // Surface-specific removal of JUST this row (children are never rewritten).
+      const deleteSelf = () =>
+        deleteRowInTable(superstate.spaceManager, spaceInfo, schema, index);
+      // Non-destructive parent-delete (Notidian-5ond.8): a leaf row deletes
+      // silently; a row WITH visible sub-items opens the 3-way prompt instead of
+      // the old silent recursive delete. The descendant resolution uses the same
+      // ancestry the rendered tree does.
+      requestRowDeleteWithSubItems({
+        superstate,
+        rootPath: String(freshRows[index]?.[PathPropertyName] ?? ""),
+        subItemsDelete,
+        deleteSelf,
+        // Open the modal in the same window the menu lives in. The synchronous
+        // caller's anchorWindow is always valid; the event-derived window is a
+        // best-effort refinement when this onClick fires with a live event.
+        win: e?.view?.document
+          ? windowFromDocument(e.view.document)
+          : anchorWindow,
+      });
     },
   });
   if (subItemOption) {

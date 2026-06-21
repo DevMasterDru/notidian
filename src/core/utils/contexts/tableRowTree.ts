@@ -113,6 +113,55 @@ export const buildRowTree = (params: {
   return result;
 };
 
+// Non-destructive parent-delete (Notidian-5ond.8). Given the VISIBLE row set and
+// a parent row's path, return EVERY descendant path beneath it (children,
+// grandchildren, …) — NOT including the parent itself — in depth-first order.
+// Pure: reuses the EXACT parseRelationLinks + resolveLink ancestry resolution
+// buildRowTree nests by (via the shared resolveParentMap), so the recursive-delete
+// count and the rendered tree can never disagree about what is "beneath" a row.
+//
+// Used to decide whether a delete needs the 3-way prompt (a row with descendants)
+// and, for the recursive branch, exactly which paths to remove. A leaf returns []
+// (silent delete stays a no-prompt path — never a regression for childless rows).
+// Cycle-safe: each path is emitted at most once even with a parent/child loop.
+export const collectSubtreePaths = (
+  rows: Record<string, any>[],
+  parentKey: string,
+  pathKey: string,
+  resolveLink: ((link: string, sourcePath: string) => string) | undefined,
+  rootPath: string
+): string[] => {
+  const { pathOf, parentPathOf } = resolveParentMap(
+    rows,
+    parentKey,
+    pathKey,
+    resolveLink
+  );
+  const childrenOf = new Map<string, Record<string, any>[]>();
+  for (const row of rows) {
+    const parent = parentPathOf(row);
+    if (parent) {
+      if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+      childrenOf.get(parent).push(row);
+    }
+  }
+  const result: string[] = [];
+  // Guard the whole walk by rootPath so a child whose parent is itself (or a
+  // cycle that loops back to the root) can never re-emit the root or spin.
+  const visited = new Set<string>([rootPath]);
+  const walk = (path: string) => {
+    for (const child of childrenOf.get(path) ?? []) {
+      const childPath = pathOf(child);
+      if (visited.has(childPath)) continue; // cycle / re-entry guard
+      visited.add(childPath);
+      result.push(childPath);
+      walk(childPath);
+    }
+  };
+  walk(rootPath);
+  return result;
+};
+
 // Filter a depth-first tree (from buildRowTree) down to the rows that are
 // visible given a set of collapsed parent paths: a collapsed node keeps its own
 // row but hides every descendant beneath it. Pure — the collapse state and the
