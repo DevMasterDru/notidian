@@ -577,16 +577,19 @@ describe("renameTag recursive rewrite (.replace) under the tightened subtag set"
 type RenameTagCall = { path: string; tag: string; newTag: string };
 type SpacePathRename = { from: string; to: string };
 
-// De-duplicate (tag,newTag) rewrites for assertions. renameTag's recursion is
-// flat-subtree-then-recurse: getAllSubtags returns the WHOLE descendant subtree
-// and renameTag then recurses on each entry, which RE-FETCHES the subtree, so a
-// grandchild at depth d below the renamed root is dispatched d times. This
-// multiplicity PRE-DATES the case-fold fix and is harmless on disk (every
-// redundant pass rewrites the same folded prefix to the same newTag —
-// idempotent). The casing claim under test is "the folded prefix is used at
-// every level", so we assert on the DISTINCT set of rewrites and separately
-// pin (below) that no rewrite ever uses the raw mixed-case prefix. The
-// redundant recursion itself is tracked as a follow-up (Notidian-ehfz notes).
+// De-duplicate (tag,newTag) rewrites for assertions. HISTORY (Notidian-i9uk,
+// fixed): renameTag USED TO be flat-subtree-then-recurse — getAllSubtags returned
+// the WHOLE descendant subtree and renameTag then RECURSED on each entry, which
+// RE-FETCHED the subtree, so a grandchild at depth d below the renamed root was
+// dispatched d times. That multiplicity was harmless on disk (every redundant
+// pass rewrote the same folded prefix to the same newTag — idempotent) but it was
+// O(sum-of-depths) writes + onTagRenamed events. The i9uk fix replaced the
+// self-recursion with a FLAT loop that runs each node's per-node side-effects
+// EXACTLY ONCE — O(n). The DISTINCT (path,tag,newTag) rewrite set is UNCHANGED
+// (the redundant pass was the same idempotent tuple), so the case-fold assertions
+// below still assert on distinctRewrites; the raw exactly-once-per-node count is
+// pinned separately in the recursive-rewrite test. The casing claim under test
+// remains "the folded prefix is used at every level".
 const distinctRewrites = (calls: RenameTagCall[]): RenameTagCall[] => {
   const seen = new Set<string>();
   const out: RenameTagCall[] = [];
@@ -703,6 +706,18 @@ describe("renameTag — case-fold seam (Notidian-ehfz)", () => {
       { path: "v.md", tag: "#proj/alpha/v1", newTag: "#work/alpha/v1" },
       { path: "b.md", tag: "#proj/beta", newTag: "#work/beta" },
     ]);
+    // MULTIPLICITY (Notidian-i9uk) — the RAW (NOT deduped) recorder proves the
+    // flat loop dispatches each of the 4 nodes EXACTLY ONCE. PRE-fix the depth-3
+    // fixture re-dispatched the grandchild '#proj/alpha/v1' twice (5 raw calls);
+    // POST-fix there are exactly 4 raw renameTag rewrites, identical to the
+    // distinct set above (the redundant pass was the same idempotent tuple).
+    expect(renameTagCalls).toEqual([
+      { path: "p.md", tag: "#proj", newTag: "#work" },
+      { path: "a.md", tag: "#proj/alpha", newTag: "#work/alpha" },
+      { path: "v.md", tag: "#proj/alpha/v1", newTag: "#work/alpha/v1" },
+      { path: "b.md", tag: "#proj/beta", newTag: "#work/beta" },
+    ]);
+    expect(renameTagCalls).toHaveLength(4);
   });
 
   it("an ALREADY-lowercased source tag is unchanged by the fold (idempotent)", async () => {

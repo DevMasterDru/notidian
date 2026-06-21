@@ -33,6 +33,17 @@ export const renameTag = async (
   const folded = ensureTag(validateName(tag));
   if (!folded) return null;
 
+  // getAllSubtags returns the COMPLETE flat descendant subtree of `folded`
+  // (every entry under the `folded/` boundary, at every depth — Notidian-23bl).
+  // It is therefore the full, already-flat set of nodes to rename; there is no
+  // need to RE-DESCEND it. The previous implementation recursed
+  // (`for (const subtag of tags) await renameTag(superstate, subtag, ...)`) and
+  // each recursive call RE-FETCHED getAllSubtags, so a descendant at depth d
+  // below the renamed root was dispatched d times — O(sum-of-depths) filesystem/
+  // property writes and O(sum-of-depths) onTagRenamed events. Idempotent on disk
+  // (each redundant pass rewrites the same `folded/` prefix to the same newTag),
+  // but wasteful and noisy. Collapsing to a FLAT loop runs the SAME per-node
+  // side-effects EXACTLY ONCE each — O(n) total. (Notidian-i9uk)
   const tags = getAllSubtags(superstate, folded);
   const newTag = ensureTag(validateName(toTag));
   const paths = superstate.spaceManager.pathsForTag(folded);
@@ -41,7 +52,18 @@ export const renameTag = async (
   }
   await renameTagSpacePath(superstate, folded, newTag);
   for (const subtag of tags) {
-    await renameTag(superstate, subtag, subtag.replace(folded, newTag));
+    // Every descendant shares the SAME root `folded/` prefix, so computing its
+    // new tag against the ROOT folded prefix (not a parent's) is correct for
+    // EVERY node regardless of order — the recursion derived the identical
+    // value, just via per-level replaces. String.prototype.replace rewrites only
+    // the FIRST (leading) occurrence, which the '/'-boundary filter guarantees
+    // is exactly the `folded` prefix. This is the same per-node work the
+    // recursion did once per node, with the redundant re-descent removed.
+    const subtagNewTag = subtag.replace(folded, newTag);
+    for (const path of superstate.spaceManager.pathsForTag(subtag)) {
+      superstate.spaceManager.renameTag(path, subtag, subtagNewTag);
+    }
+    await renameTagSpacePath(superstate, subtag, subtagNewTag);
   }
   return newTag
 };

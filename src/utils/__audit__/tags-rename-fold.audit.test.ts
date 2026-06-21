@@ -136,12 +136,16 @@ const fakeSuperstate = (opts: FakeOpts) => {
   return { ss, spies };
 };
 
-// renameTag's recursion is flat-subtree-then-recurse (getAllSubtags returns the
-// WHOLE subtree, then renameTag recurses on each entry which RE-FETCHES the
-// subtree), so a grandchild at depth d is dispatched d times — idempotent on
-// disk (same folded prefix -> same newTag every pass). The casing claim is "the
-// FOLDED prefix is used at every level", so assertions are on the DISTINCT set
-// of (path,tag,newTag) rewrites. Multiplicity pre-dates the fold fix.
+// HISTORY (Notidian-i9uk, fixed): renameTag USED TO be flat-subtree-then-recurse
+// — getAllSubtags returned the WHOLE subtree, then renameTag RECURSED on each
+// entry which RE-FETCHED the subtree, so a grandchild at depth d below the root
+// was dispatched d times (idempotent on disk: same folded prefix -> same newTag
+// every pass, but O(sum-of-depths) writes + onTagRenamed events). The fix
+// replaced that self-recursion with a FLAT loop that runs each node's per-node
+// side-effects EXACTLY ONCE — O(n). So the DISTINCT (path,tag,newTag) rewrite
+// set is UNCHANGED (still asserted via distinctRenameTagArgs), but the RAW
+// (multiplicity-included) call count is now exactly once per node. The casing
+// claim remains "the FOLDED prefix is used at every level".
 const distinctRenameTagArgs = (
   mock: jest.Mock
 ): Array<[string, string, string]> => {
@@ -211,6 +215,30 @@ describe("renameTag — case-fold seam, recording jest.fn spies (Notidian-3dpn)"
       ["v.md", "#proj/alpha/v1", "#work/alpha/v1"],
       ["b.md", "#proj/beta", "#work/beta"],
     ]);
+    // MULTIPLICITY (Notidian-i9uk) — the depth-3 '#proj/alpha/v1' fixture has 4
+    // nodes (root '#proj' + 3 descendants), each carrying exactly one file path.
+    // PRE-fix (flat-subtree-then-recurse) the grandchild '#proj/alpha/v1' (depth
+    // 2 below root) was dispatched TWICE — once from the root's direct subtag
+    // loop and once nested under '#proj/alpha' — for 5 RAW spaceManager.renameTag
+    // calls. POST-fix the flat loop visits each node ONCE: exactly 4 raw calls,
+    // one per node. distinctRenameTagArgs (above) is unchanged because the
+    // redundant pass was the SAME idempotent (path,tag,newTag) tuple.
+    expect(spies.renameTag.mock.calls).toEqual([
+      ["p.md", "#proj", "#work"],
+      ["a.md", "#proj/alpha", "#work/alpha"],
+      ["v.md", "#proj/alpha/v1", "#work/alpha/v1"],
+      ["b.md", "#proj/beta", "#work/beta"],
+    ]);
+    expect(spies.renameTag).toHaveBeenCalledTimes(4);
+    // onTagRenamed (via renameTagSpacePath) likewise fires EXACTLY ONCE per node
+    // — pre-fix the deep grandchild's notification fired twice.
+    expect(spies.onTagRenamed.mock.calls).toEqual([
+      ["#proj", "#work"],
+      ["#proj/alpha", "#work/alpha"],
+      ["#proj/alpha/v1", "#work/alpha/v1"],
+      ["#proj/beta", "#work/beta"],
+    ]);
+    expect(spies.onTagRenamed).toHaveBeenCalledTimes(4);
   });
 
   // (3) siblings sharing a textual prefix are NEVER renamed.
@@ -264,10 +292,17 @@ describe("renameTag — case-fold seam, recording jest.fn spies (Notidian-3dpn)"
     ];
     expect(distinctRenameTagArgs(lower.spies.renameTag)).toEqual(expected);
     expect(distinctRenameTagArgs(mixed.spies.renameTag)).toEqual(expected);
-    // Identical right down to the raw (multiplicity-included) call sequence.
+    // Identical right down to the raw (multiplicity-included) call sequence:
+    // both flatten to the SAME exactly-once-per-node dispatch (Notidian-i9uk).
     expect(mixed.spies.renameTag.mock.calls).toEqual(
       lower.spies.renameTag.mock.calls
     );
+    // Depth-2 fixture ('#foo/a/b'): 3 nodes -> exactly 3 raw calls each, one per
+    // node. PRE-fix the depth-2 grandchild '#foo/a/b' was dispatched twice (4
+    // raw calls); the flat loop now visits it once.
+    expect(lower.spies.renameTag.mock.calls).toEqual(expected);
+    expect(lower.spies.renameTag).toHaveBeenCalledTimes(3);
+    expect(mixed.spies.renameTag).toHaveBeenCalledTimes(3);
   });
 });
 
