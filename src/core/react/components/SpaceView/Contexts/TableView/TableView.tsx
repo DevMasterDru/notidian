@@ -45,7 +45,7 @@ import { ColumnHeader } from "./ColumnHeader";
 import classNames from "classnames";
 import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowContextMenu";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
-import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
+import { removePathInContexts } from "core/utils/contexts/context";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
@@ -471,6 +471,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     collapsedSubItems,
     toggleSubItemCollapse,
     subItemAddRows,
+    subItemsTreeNodes,
   } = useContext(ContextEditorContext);
 
   // "+ New sub-item" affordance (Notidian-gr8t) → the single one-way create path,
@@ -2490,18 +2491,32 @@ export const TableView = (props: { superstate: Superstate }) => {
                       // The frontmatter key of the parent-link column, or
                       // undefined when sub-items isn't configured for this view.
                       subItemsField ?? undefined,
-                      // Non-destructive parent-delete (Notidian-5ond.8): when
-                      // sub-items is active, thread the VISIBLE rows + the tree's
-                      // parent READ key + the live resolver so deleting a parent
-                      // opens the 3-way prompt (vs a silent recursive delete),
-                      // using the SAME ancestry the rendered tree resolves by.
-                      subItemsParentKey
+                      // Non-destructive parent-delete (Notidian-5ond.8, hardened in
+                      // review): thread the FULL sub-items tree (subItemsTreeNodes —
+                      // collapse-/limit-/display-independent), NOT filteredData. The
+                      // delete handler slices the descendant set straight out of
+                      // this list's depth window, so a parent whose descendants are
+                      // collapsed, limited away, or roots-only in parents-only mode
+                      // is never mistaken for a leaf and silently deleted (review
+                      // findings 1/2/3), and the set is provably the rendered tree
+                      // (finding 5). Descendant-removal authority matches the parent
+                      // surface (finding 4): on the primary files schema the parent
+                      // and its descendants are real file deletes; on a non-primary
+                      // MDB row surface both are un-listed only (never file-deleted).
+                      subItemsParentKey && subItemsTreeNodes
                         ? {
-                            parentKey: subItemsParentKey,
-                            rows: data,
-                            resolveLink: makeRelationLinkResolver(
-                              props.superstate
-                            ),
+                            treeNodes: subItemsTreeNodes,
+                            isPrimarySurface: dbSchema?.primary == "true",
+                            removeFromSurface:
+                              dbSchema?.primary == "true"
+                                ? undefined
+                                : async (path: string): Promise<void> => {
+                                    await removePathInContexts(
+                                      props.superstate.spaceManager,
+                                      path,
+                                      [spaceInfo]
+                                    );
+                                  },
                           }
                         : undefined
                     );

@@ -113,17 +113,58 @@ export const buildRowTree = (params: {
   return result;
 };
 
-// Non-destructive parent-delete (Notidian-5ond.8). Given the VISIBLE row set and
-// a parent row's path, return EVERY descendant path beneath it (children,
-// grandchildren, …) — NOT including the parent itself — in depth-first order.
-// Pure: reuses the EXACT parseRelationLinks + resolveLink ancestry resolution
-// buildRowTree nests by (via the shared resolveParentMap), so the recursive-delete
-// count and the rendered tree can never disagree about what is "beneath" a row.
+// Non-destructive parent-delete (Notidian-5ond.8, hardened in 5ond.8 review). Given
+// the EXACT depth-first node list buildRowTree produced (the FULL, collapse- and
+// limit-independent tree — see subtreePathsFromTree's callers) and a parent row's
+// path, return EVERY descendant path beneath it (children, grandchildren, …) — NOT
+// including the parent itself — in depth-first order.
+//
+// Why derive from the tree's OWN output rather than re-walking the parent map:
+// buildRowTree resolves cycles and multi-parent links by emitting each row exactly
+// once and picking, for an in-set parent cycle, whichever member it reaches first as
+// the visual root (its partner then renders as a nested leaf with nothing beneath
+// it). A second, independent childrenOf walk (the previous collectSubtreePaths) had
+// NO notion of that choice, so for the non-root cycle member it walked back into the
+// loop and reported the row's RENDERED ANCESTOR / SIBLING as "descendants" — the
+// recursive delete could then destroy a row's visible parent (5ond.8 review). By
+// slicing the descendant window straight out of buildRowTree's depth-first order
+// (every following node deeper than the root's depth, until depth returns to <= it),
+// the count, the rendered nesting, and the deletion set are PROVABLY the same object.
 //
 // Used to decide whether a delete needs the 3-way prompt (a row with descendants)
-// and, for the recursive branch, exactly which paths to remove. A leaf returns []
-// (silent delete stays a no-prompt path — never a regression for childless rows).
-// Cycle-safe: each path is emitted at most once even with a parent/child loop.
+// and, for the recursive branch, exactly which paths to remove. A leaf (or a path
+// not in the tree) returns [] (silent delete stays a no-prompt path — never a
+// regression for childless rows). A cycle's non-root member is rendered as a leaf,
+// so it too returns [] — it can no longer escalate into its partner's subtree.
+export const subtreePathsFromTree = (
+  treeNodes: RowTreeNode[],
+  pathKey: string,
+  rootPath: string
+): string[] => {
+  if (!rootPath) return [];
+  const pathOf = (node: RowTreeNode) => String(node.row[pathKey] ?? "");
+  // buildRowTree emits each path at most once, so the first match is THE node.
+  const startIndex = treeNodes.findIndex((n) => pathOf(n) === rootPath);
+  if (startIndex === -1) return [];
+  const rootDepth = treeNodes[startIndex].depth;
+  const result: string[] = [];
+  for (let i = startIndex + 1; i < treeNodes.length; i++) {
+    const node = treeNodes[i];
+    // Descendants are the contiguous run of deeper nodes; the first node back at
+    // (or above) the root's depth ends the subtree window.
+    if (node.depth <= rootDepth) break;
+    result.push(pathOf(node));
+  }
+  return result;
+};
+
+// Back-compat shim (Notidian-5ond.8). The original signature took the raw VISIBLE
+// row set and re-resolved ancestry. It is retained ONLY for the pure unit suite's
+// row-based fixtures; the live delete path uses subtreePathsFromTree over the full
+// buildRowTree output (see the comment above for why). This wrapper builds the tree
+// from the given rows first, so it now inherits the same tree-derived,
+// cycle-correct semantics — but callers that already hold the full tree MUST pass it
+// to subtreePathsFromTree directly (do not re-derive from a collapsed/limited set).
 export const collectSubtreePaths = (
   rows: Record<string, any>[],
   parentKey: string,
@@ -131,35 +172,8 @@ export const collectSubtreePaths = (
   resolveLink: ((link: string, sourcePath: string) => string) | undefined,
   rootPath: string
 ): string[] => {
-  const { pathOf, parentPathOf } = resolveParentMap(
-    rows,
-    parentKey,
-    pathKey,
-    resolveLink
-  );
-  const childrenOf = new Map<string, Record<string, any>[]>();
-  for (const row of rows) {
-    const parent = parentPathOf(row);
-    if (parent) {
-      if (!childrenOf.has(parent)) childrenOf.set(parent, []);
-      childrenOf.get(parent).push(row);
-    }
-  }
-  const result: string[] = [];
-  // Guard the whole walk by rootPath so a child whose parent is itself (or a
-  // cycle that loops back to the root) can never re-emit the root or spin.
-  const visited = new Set<string>([rootPath]);
-  const walk = (path: string) => {
-    for (const child of childrenOf.get(path) ?? []) {
-      const childPath = pathOf(child);
-      if (visited.has(childPath)) continue; // cycle / re-entry guard
-      visited.add(childPath);
-      result.push(childPath);
-      walk(childPath);
-    }
-  };
-  walk(rootPath);
-  return result;
+  const tree = buildRowTree({ rows, parentKey, pathKey, resolveLink });
+  return subtreePathsFromTree(tree, pathKey, rootPath);
 };
 
 // Filter a depth-first tree (from buildRowTree) down to the rows that are

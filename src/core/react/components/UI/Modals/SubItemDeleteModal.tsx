@@ -12,7 +12,9 @@ import i18n from "shared/i18n";
 //       on the next render — promotion is automatic, the children's files are
 //       never touched (one-way invariant, ADR 0050).
 //   (2) Delete this item and all N sub-items       [destructive, counted]
-//       Deletes the parent AND every descendant path (collectSubtreePaths).
+//       Removes the parent AND every descendant (subtreePathsFromTree over the
+//       FULL buildRowTree output), matching the parent surface's authority —
+//       file-delete on the primary files schema, un-list on a non-primary MDB row.
 //   (3) Cancel — a no-op.
 //
 // The component is pure UI: the two actions are supplied by the caller, and the

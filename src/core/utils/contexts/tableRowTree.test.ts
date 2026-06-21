@@ -1,6 +1,7 @@
 import {
   buildRowTree,
   collectSubtreePaths,
+  subtreePathsFromTree,
   flattenVisibleTree,
   subItemAddRowsAfter,
   nextCollapsedPaths,
@@ -286,6 +287,113 @@ describe("collectSubtreePaths (Notidian-5ond.8 non-destructive parent-delete)", 
 
   it("empty rows -> empty subtree", () => {
     expect(collect([], "A")).toEqual([]);
+  });
+});
+
+// subtreePathsFromTree (Notidian-5ond.8 review hardening). The live delete path
+// slices descendants straight out of buildRowTree's OWN depth-first output, so the
+// count, the rendered nesting, and the delete set are provably the same object —
+// regardless of collapse / limit / display-mode projections of that tree, and
+// correct for in-set parent cycles (which a second independent walk got wrong).
+describe("subtreePathsFromTree (review: delete set == rendered tree)", () => {
+  const treeOf = (rows: Record<string, any>[]) =>
+    buildRowTree({ rows, parentKey: "parent", pathKey: "File" });
+  const sub = (rows: Record<string, any>[], rootPath: string) =>
+    subtreePathsFromTree(treeOf(rows), "File", rootPath);
+
+  it("collects the full descendant window depth-first (parent excluded)", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+      { File: "C", parent: "[[B]]" },
+      { File: "D", parent: "[[A]]" },
+    ];
+    expect(sub(rows, "A")).toEqual(["B", "C", "D"]);
+    expect(sub(rows, "B")).toEqual(["C"]);
+  });
+
+  it("a leaf returns [] (silent-delete path, no prompt)", () => {
+    const rows = [
+      { File: "A", parent: "" },
+      { File: "B", parent: "[[A]]" },
+    ];
+    expect(sub(rows, "B")).toEqual([]);
+  });
+
+  it("a path not in the tree returns []", () => {
+    expect(sub([{ File: "A", parent: "" }], "Missing")).toEqual([]);
+    expect(sub([{ File: "A", parent: "" }], "")).toEqual([]);
+  });
+
+  // ---- Review finding 5: cycle parity. buildRowTree picks ONE cycle member as
+  // the rendered root; its partner renders as a nested leaf. The delete set for
+  // the partner must be [] (it has nothing rendered beneath it) — it must NEVER
+  // walk back into the cycle and report its rendered ANCESTOR / SIBLING.
+  it("cycle: the non-root member is a rendered leaf -> [] (never destroys its ancestor/sibling)", () => {
+    const rows = [
+      { File: "A", parent: "[[B]]" },
+      { File: "B", parent: "[[A]]" },
+      { File: "X", parent: "[[A]]" },
+    ];
+    // buildRowTree renders A@0 (surfacedAsRoot) > B@1, X@1.
+    const t = treeOf(rows);
+    expect(t.map((n) => [String(n.row.File), n.depth])).toEqual([
+      ["A", 0],
+      ["B", 1],
+      ["X", 1],
+    ]);
+    // A (the chosen root) owns the rendered subtree.
+    expect(subtreePathsFromTree(t, "File", "A")).toEqual(["B", "X"]);
+    // B (the partner, rendered as a depth-1 leaf) owns NOTHING — must not pull A
+    // (its rendered parent) or X (its sibling). This is the regression fix.
+    expect(subtreePathsFromTree(t, "File", "B")).toEqual([]);
+    expect(subtreePathsFromTree(t, "File", "X")).toEqual([]);
+  });
+
+  it("self-parent renders as a root leaf -> []", () => {
+    expect(sub([{ File: "A", parent: "[[A]]" }], "A")).toEqual([]);
+  });
+
+  // ---- Review findings 1/2/3: independence from the VISIBLE projection. The
+  // delete set is derived from the FULL tree, so it is identical whether the
+  // caller is looking at a collapsed parent, a parents-only view, or a
+  // limit-truncated row set — none of which can hide descendants from the count.
+  it("is IDENTICAL whether the parent is collapsed, parents-only, or limit-truncated", () => {
+    const rows = [
+      { File: "P", parent: "" },
+      { File: "C1", parent: "[[P]]" },
+      { File: "C2", parent: "[[P]]" },
+      { File: "G", parent: "[[C1]]" },
+    ];
+    const full = treeOf(rows);
+    const expected = ["C1", "G", "C2"];
+    // The full tree (rendered, expanded) — the baseline.
+    expect(subtreePathsFromTree(full, "File", "P")).toEqual(expected);
+    // Finding 1: P collapsed — flattenVisibleTree would DROP C1/C2/G from the
+    // visible rows, but the delete set comes from the FULL tree, so it is unchanged.
+    const collapsed = flattenVisibleTree(full, new Set(["P"]), "File");
+    expect(collapsed.map((n) => String(n.row.File))).toEqual(["P"]); // proves children hidden
+    expect(subtreePathsFromTree(full, "File", "P")).toEqual(expected);
+    // Finding 2: parents-only — the visible rows are roots-only, yet the FULL tree
+    // still carries every descendant for the delete decision.
+    const parentsOnly = full.filter((n) => n.depth === 0);
+    expect(parentsOnly.map((n) => String(n.row.File))).toEqual(["P"]);
+    expect(subtreePathsFromTree(full, "File", "P")).toEqual(expected);
+    // Finding 3: limit truncation — the visible set may be sliced to [P], but the
+    // FULL tree (un-sliced) still yields the complete, correctly-counted subtree.
+    expect(subtreePathsFromTree(full, "File", "P")).toHaveLength(3);
+  });
+
+  it("a parent with hidden descendants is NEVER mistaken for a leaf (no silent delete)", () => {
+    const rows = [
+      { File: "P", parent: "" },
+      { File: "C", parent: "[[P]]" },
+    ];
+    const full = treeOf(rows);
+    // Even when the only rendered row is the collapsed parent, the FULL-tree
+    // delete set is non-empty, so requestRowDeleteWithSubItems opens the prompt
+    // instead of silently deleting P (the footgun this bead removes).
+    expect(subtreePathsFromTree(full, "File", "P").length).toBeGreaterThan(0);
   });
 });
 

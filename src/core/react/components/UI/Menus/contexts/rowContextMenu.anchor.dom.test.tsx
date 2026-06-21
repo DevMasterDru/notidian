@@ -65,9 +65,9 @@ jest.mock("core/utils/properties/frontmatterWrite", () => ({
 }));
 // Non-destructive parent-delete (Notidian-5ond.8): mock ONLY deletePath (whose
 // real module pulls a heavy transitive graph ts-jest cannot parse here). The
-// decision helper (requestRowDeleteWithSubItems), the pure collectSubtreePaths,
+// decision helper (requestRowDeleteWithSubItems), the pure subtreePathsFromTree,
 // and the SubItemDeleteModal are kept REAL so these tests exercise the actual
-// leaf-vs-parent branch and recursive descendant removal.
+// leaf-vs-parent branch and surface-matched recursive descendant removal.
 jest.mock("core/superstate/utils/path", () => ({
   deletePath: jest.fn(),
 }));
@@ -351,6 +351,16 @@ const VISIBLE_ROWS = [
   { File: "L", parent: "" },
 ];
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { buildRowTree } = require("core/utils/contexts/tableRowTree");
+// The FULL tree the delete config now threads (review hardening): built from the
+// complete row set, collapse-/limit-/display-independent — never filteredData.
+const VISIBLE_TREE = buildRowTree({
+  rows: VISIBLE_ROWS,
+  parentKey: "parent",
+  pathKey: "File",
+});
+
 describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
   let openedMenus: any[];
   let openedModals: any[];
@@ -358,10 +368,14 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
   let superstate: any;
   let root: Root;
   let container: HTMLElement;
+  // Surface-matched un-lister for the NON-PRIMARY MDB row surface (review finding
+  // 4): descendants are un-listed here, never file-deleted (deletePath).
+  let removeFromSurface: jest.Mock;
 
   beforeEach(() => {
     deleteRowInTable.mockReset();
     deletePath.mockReset();
+    removeFromSurface = jest.fn();
     openedMenus = [];
     openedModals = [];
     // The menu re-reads the table; order it so the index maps to a known row.
@@ -409,8 +423,13 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
       undefined,
       undefined,
       undefined, // subItemsField — not exercised here
-      // The non-destructive-delete config: visible rows + tree parent key.
-      { parentKey: "parent", rows: VISIBLE_ROWS }
+      // The non-destructive-delete config: the FULL tree + non-primary surface
+      // authority (descendants un-list via removeFromSurface, never deletePath).
+      {
+        treeNodes: VISIBLE_TREE,
+        isPrimarySurface: false,
+        removeFromSurface,
+      }
     );
     await Promise.resolve();
     const options = openedMenus[openedMenus.length - 1]?.options ?? [];
@@ -451,7 +470,7 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     expect(buttons).toHaveLength(3);
   });
 
-  it("recursive option removes the COUNTED descendants AND the parent", async () => {
+  it("recursive option un-lists the COUNTED descendants AND the parent — never file-deletes children on a non-primary surface (review finding 4)", async () => {
     const option = await deleteOption(0);
     await option.onClick(fakeEvent());
     await Promise.resolve();
@@ -465,12 +484,14 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     // P's descendants are C1, G, C2 (3) — the count the modal showed.
     expect(recursive.textContent).toContain("3");
     act(() => recursive.click());
-    // The recursive branch awaits each descendant deletePath, THEN deleteSelf —
-    // flush enough microtasks for the whole chain (3 descendants + the parent).
+    // The recursive branch awaits deleteSelf, THEN each descendant removal —
+    // flush enough microtasks for the whole chain (the parent + 3 descendants).
     for (let i = 0; i < 8; i++) await Promise.resolve();
-    // Every descendant path was deleted...
-    const deleted = deletePath.mock.calls.map((c: any[]) => c[1]);
-    expect(deleted.sort()).toEqual(["C1", "C2", "G"]);
+    // Authority match (finding 4): descendants are UN-LISTED via removeFromSurface
+    // (the parent surface's authority), NOT permanently file-deleted (deletePath).
+    const unlisted = removeFromSurface.mock.calls.map((c: any[]) => c[0]);
+    expect(unlisted.sort()).toEqual(["C1", "C2", "G"]);
+    expect(deletePath).not.toHaveBeenCalled();
     // ...and the parent row itself via the MDB remover (deleteSelf).
     expect(deleteRowInTable).toHaveBeenCalledTimes(1);
   });
@@ -490,9 +511,10 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     expect(promote).toBeTruthy();
     act(() => promote.click());
     await Promise.resolve();
-    // Only the parent removed; NO descendant deletePath (children promote).
+    // Only the parent removed; NO descendant removal of ANY kind (children promote).
     expect(deleteRowInTable).toHaveBeenCalledTimes(1);
     expect(deletePath).not.toHaveBeenCalled();
+    expect(removeFromSurface).not.toHaveBeenCalled();
   });
 
   it("Cancel is a no-op — nothing deleted", async () => {
@@ -508,5 +530,39 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     await Promise.resolve();
     expect(deleteRowInTable).not.toHaveBeenCalled();
     expect(deletePath).not.toHaveBeenCalled();
+    expect(removeFromSurface).not.toHaveBeenCalled();
+  });
+
+  // Authority-match the OTHER direction (review finding 4): on the PRIMARY files
+  // schema the parent's own removal IS a file delete, so descendants are file-
+  // deleted too (deletePath) — never un-listed. We drive the decision helper
+  // directly with isPrimarySurface:true to assert the primary branch.
+  it("primary surface recursive delete file-deletes descendants (deletePath), not un-list", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const {
+      requestRowDeleteWithSubItems,
+    } = require("core/utils/contexts/nonDestructiveDelete");
+    const deleteSelf = jest.fn();
+    requestRowDeleteWithSubItems({
+      superstate,
+      rootPath: "P",
+      subItemsDelete: {
+        treeNodes: VISIBLE_TREE,
+        isPrimarySurface: true, // primary files schema => file-delete authority
+      },
+      deleteSelf,
+      win: window,
+    });
+    expect(openedModals).toHaveLength(1);
+    const host = renderModal(openedModals[0].modal);
+    const recursive = Array.from(host.querySelectorAll("button")).find((b) =>
+      b.classList.contains("mod-warning")
+    ) as HTMLButtonElement;
+    act(() => recursive.click());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const deleted = deletePath.mock.calls.map((c: any[]) => c[1]);
+    expect(deleted.sort()).toEqual(["C1", "C2", "G"]);
+    expect(removeFromSurface).not.toHaveBeenCalled();
+    expect(deleteSelf).toHaveBeenCalledTimes(1);
   });
 });

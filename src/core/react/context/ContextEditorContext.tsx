@@ -53,6 +53,7 @@ import {
   flattenVisibleTree,
   subItemAddRowsAfter,
   SubItemAddRow,
+  RowTreeNode,
   nextCollapsedPaths,
   rootDescendantCounts,
   scopeRowsByFilter,
@@ -204,6 +205,14 @@ type ContextEditorContextProps = {
   // descendant), valued by the ordered add-rows (deepest-first for nested
   // parents). null when sub-items is off, the flag is off, or in read mode.
   subItemAddRows: Map<string, SubItemAddRow[]> | null;
+  // The FULL depth-first sub-items tree (Notidian-5ond.8 review): collapse-,
+  // predicate.limit-, AND display-mode-independent (built in flattened mode too,
+  // where the rendered tree is null). Non-destructive parent-delete resolves a
+  // row's descendant set from THIS, never from filteredData (the visible
+  // projection), so a parent whose descendants are hidden / limited away /
+  // roots-only / flattened is never mistaken for a leaf and silently deleted.
+  // null only when no sub-items parent column is configured.
+  subItemsTreeNodes: RowTreeNode[] | null;
 };
 
 export const ContextEditorContext = createContext<ContextEditorContextProps>({
@@ -250,6 +259,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   toggleSubItemCollapse: () => null,
   setSubItemsCollapsedAll: () => null,
   subItemAddRows: null,
+  subItemsTreeNodes: null,
 });
 
 const frontmatterRenameIssueMessage = ({
@@ -855,6 +865,27 @@ export const ContextEditorProvider: React.FC<
     rowMatchesFilters,
     props.superstate,
   ]);
+
+  // Full delete-decision tree (Notidian-5ond.8 review). buildRowTree over the
+  // COMPLETE eligible row set, INDEPENDENT of display mode, collapse, and
+  // predicate.limit — the authoritative answer to "what is beneath this row" for
+  // non-destructive parent-delete. Distinct from subItemsFullTree below, which is
+  // null in flattened display (rendering skips the tree there); delete-correctness
+  // must hold in EVERY display mode (a flattened parent still has descendants whose
+  // parent link breaks on delete), so this is built whenever a parent column is
+  // configured. Uses filteredSortedData (the pre-limit visible set) when the scope
+  // machinery is inert (flattened / default scope), else scopedTreeRows.
+  const subItemsDeleteTreeNodes = useMemo(() => {
+    if (!subItemsCol) return null;
+    const rows = scopedTreeRows ?? filteredSortedData;
+    if (!rows) return null;
+    return buildRowTree({
+      rows,
+      parentKey: subItemsCol.name + subItemsCol.table,
+      pathKey: PathPropertyName,
+      resolveLink: makeRelationLinkResolver(props.superstate),
+    });
+  }, [subItemsCol, scopedTreeRows, filteredSortedData, props.superstate]);
 
   // The full depth-first tree (collapse-independent), so collapse-all can target
   // EVERY parent — even ones currently hidden under a collapsed ancestor.
@@ -2066,6 +2097,7 @@ export const ContextEditorProvider: React.FC<
         toggleSubItemCollapse,
         setSubItemsCollapsedAll,
         subItemAddRows,
+        subItemsTreeNodes: subItemsDeleteTreeNodes,
       }}
     >
       {props.children}
