@@ -13,7 +13,10 @@ export type GradientColorStop = {
 const typeName = (name: string) => `${name}-gradient(`;
 
 export const stringifyGradient = (gradient: Gradient): string => {
-    let handlers = gradient.values;
+    // Copy before sorting — sorting in place would mutate the caller's array
+    // (the live editor shares this array with React state via a shallow
+    // {...gradient} spread), reordering it as a hidden side effect.
+    let handlers = [...gradient.values];
     handlers.sort((l, r) => l.position - r.position);
     handlers = handlers.length == 1 ? [handlers[0], handlers[0]] : handlers;
     const color = handlers.map((handler) => `${handler.color} ${handler.position}%`).join(', ');
@@ -108,8 +111,11 @@ export const parseGradient = (value: string): Gradient | null => {
         colorParts = parts.slice(1);
     }
 
-    // Parse color stops
-    const values = [];
+    // Parse color stops. Track whether each stop's position was AUTHORED or
+    // SYNTHESIZED (defaulted) so the even-distribution heuristic below can fire
+    // only when no positions were actually typed — a stop authored at 0% or
+    // 100% must never be silently rewritten.
+    const values: (GradientColorStop & { synthesized: boolean })[] = [];
     for (const part of colorParts) {
         const trimmed = part.trim();
         if (!trimmed) continue;
@@ -122,22 +128,28 @@ export const parseGradient = (value: string): Gradient | null => {
             if (!isNaN(position)) {
                 values.push({
                     color: color.trim(),
-                    position: position
+                    position: position,
+                    synthesized: false
                 });
             }
         } else {
-            // If no percentage, assume it's evenly distributed
+            // If no percentage, supply a placeholder position; mark it
+            // synthesized so it can be redistributed (only if ALL are).
             const color = trimmed;
             const positionValue: number = values.length === 0 ? 0 : 100;
             values.push({
                 color: color,
-                position: positionValue
+                position: positionValue,
+                synthesized: true
             });
         }
     }
 
-    // If we only have colors without positions, distribute them evenly
-    if (values.length > 1 && values.every(v => v.position === 0 || v.position === 100)) {
+    // If NO positions were authored (every stop's position is a synthesized
+    // default), distribute the stops evenly. When even one position was typed
+    // by the author, leave all positions exactly as written — never clobber an
+    // intentional hard color stop that happens to land on 0%/100%.
+    if (values.length > 1 && values.every(v => v.synthesized)) {
         values.forEach((v, index) => {
             v.position = (index / (values.length - 1)) * 100;
         });
@@ -148,19 +160,26 @@ export const parseGradient = (value: string): Gradient | null => {
         if (values.length === 1) {
             values.push({
                 color: '#ffffff',
-                position: 100
+                position: 100,
+                synthesized: true
             });
         } else {
             values.push(
-                { color: '#000000', position: 0 },
-                { color: '#ffffff', position: 100 }
+                { color: '#000000', position: 0, synthesized: true },
+                { color: '#ffffff', position: 100, synthesized: true }
             );
         }
     }
 
+    // Strip the internal synthesized flag from the returned, sorted stops.
+    const stops: GradientColorStop[] = values
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map(({ color, position }) => ({ color, position }));
+
     return {
         type,
         direction,
-        values: values.sort((a, b) => a.position - b.position)
+        values: stops
     };
 }
