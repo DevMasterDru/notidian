@@ -554,6 +554,12 @@ export const TableView = (props: { superstate: Superstate }) => {
   const ref = useRef(null);
   const primaryCol = cols.find((f) => f.primary == "true");
   const displayProperty = displayPropertyForPredicate(predicate);
+  // Link/context-typed display columns store a (possibly path-qualified)
+  // wikilink; resolveRowDisplayLabel must render their basename, not the raw
+  // "Folder/Parent" value (Notidian-xsau).
+  const displayPropertyType = displayProperty
+    ? cols.find((f) => f.name == displayProperty)?.type ?? null
+    : null;
   const tableDirection = predicate?.tableDirection ?? "ltr";
   const isRTLTable = tableDirection == "rtl";
   const visibleRowOrder = useMemo(() => data.map((f) => f._index), [data]);
@@ -1512,7 +1518,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                       props.superstate.pathsIndex.get(
                         data[index]?.[PathPropertyName]
                       ),
-                      displayProperty
+                      displayProperty,
+                      displayPropertyType
                     ) ?? undefined
                   : undefined,
             };

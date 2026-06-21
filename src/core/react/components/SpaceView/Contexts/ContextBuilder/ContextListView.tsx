@@ -260,6 +260,12 @@ export const ContextListView = (props: {
   };
 
   const displayProperty = displayPropertyForPredicate(predicate);
+  // Link/context-typed display columns store a (possibly path-qualified)
+  // wikilink; resolveRowDisplayLabel must render their basename, not the raw
+  // "Folder/Parent" value (Notidian-xsau).
+  const displayPropertyType = displayProperty
+    ? cols.find((f) => f.name == displayProperty)?.type ?? null
+    : null;
 
   const rowsExpandable =
     listItemSupportsRowExpansion(itemURI) &&
@@ -283,7 +289,8 @@ export const ContextListView = (props: {
                   resolveRowDisplayLabel(
                     c,
                     spaceManager.getPathState(c[primaryKey]),
-                    displayProperty
+                    displayProperty,
+                    displayPropertyType
                   ) ?? spaceManager.getPathState(c[primaryKey])?.name,
                 _values: c,
                 ...context,
@@ -338,7 +345,7 @@ export const ContextListView = (props: {
         }, {});
   
   return contextMap;
-  }, [data, cols, source, contextTable, spaceState, displayProperty]);
+  }, [data, cols, source, contextTable, spaceState, displayProperty, displayPropertyType]);
 
   return (
     <FrameContainerView
