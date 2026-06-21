@@ -86,7 +86,7 @@ if (!previousItem) return;
   
 const previousItemDroppable = previousItem.type != 'file'
 const insert = activeItem.depth > 0 &&  overItem.collapsed && previousItemDroppable && (!overItem.sortable || dirDown && yOffset <= 13 || !dirDown && yOffset >= 13)
-  const sortable = overItem.sortable || previousItemDroppable && !insert && nextItem.sortable
+  const sortable = overItem.sortable || previousItemDroppable && !insert && (nextItem?.sortable ?? false)
   const projectedDepth = dragDepth;
   const maxDepth = activeItem.depth == 0 ? 0 : getMaxDepth(
     previousItem, dirDown

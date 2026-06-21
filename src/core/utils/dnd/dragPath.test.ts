@@ -333,7 +333,8 @@ describe("getProjection — a depth-0 active item is pinned to the root (maxDept
 describe("getProjection — getParentId ladder consistency with chosen depth", () => {
   it("depth 0 always yields a null parent (root placement)", () => {
     // overItem.sortable=true short-circuits the `sortable` `||` so the missing
-    // nextItem is never read (see the nextItem-undefined fragility test below).
+    // nextItem is never read (see the last-droppable-row guard test below, where
+    // the nextItem read is now null-safe via `nextItem?.sortable ?? false`).
     const items: TreeNode[] = [
       node({
         id: "s",
@@ -349,11 +350,14 @@ describe("getProjection — getParentId ladder consistency with chosen depth", (
     expect(p.parentId).toBeNull();
   });
 
-  it("FRAGILITY: hovering the last droppable row (no nextItem, non-sortable, no insert) THROWS", () => {
-    // previousItem is a non-sortable, non-collapsed space at the end of the list
-    // => previousItemDroppable && !insert is true, but `nextItem.sortable` reads
-    // an undefined nextItem. We pin this real crash so a future fix is a
-    // deliberate, test-visible change rather than silent behavior drift.
+  it("hovering the last droppable row (no nextItem, non-sortable, no insert) is null-safe and returns sortable:false (Notidian-h5fi)", () => {
+    // overItem/previousItem is a non-sortable, non-collapsed space at the END of
+    // the list, so previousItemDroppable && !insert is true and the `sortable`
+    // expression reaches the trailing `nextItem.sortable` read — but nextItem
+    // (items[overItemIndex+1]) is undefined. This USED to throw a TypeError
+    // mid-drag, aborting the projection useEffect. The guard
+    // `nextItem?.sortable ?? false` makes the read null-safe, so we now get a
+    // real projection (sortable resolves to false) instead of a crash.
     const items: TreeNode[] = [
       node({
         id: "s",
@@ -365,9 +369,17 @@ describe("getProjection — getParentId ladder consistency with chosen depth", (
       }),
     ];
     const active = node({ id: "drag", depth: 1, type: "file", itemType: "file" });
-    expect(() =>
-      getProjection(active, items, ["drag"], 0, 0, 0, true, MOVE, "root")
-    ).toThrow(TypeError);
+    const p = getProjection(active, items, ["drag"], 0, 0, 0, true, MOVE, "root");
+    // No throw: the missing nextItem no longer aborts the projection.
+    expect(p).not.toBeNull();
+    // previousItemDroppable && !insert && (nextItem?.sortable ?? false)
+    //   => true && true && false => sortable is false (overItem.sortable is also false).
+    expect(p.sortable).toBe(false);
+    // depth-0 root placement: depth clamps to 0, parent is null (getParentId).
+    expect(p.depth).toBe(0);
+    expect(p.parentId).toBeNull();
+    // overItem.collapsed=false => insert is false.
+    expect(p.insert).toBe(false);
   });
 
   it("depth == previousItem.depth => SIBLING: inherits previousItem.parentId", () => {
