@@ -47,6 +47,7 @@ import {
   menuStateToVisibleProperties,
   shouldShowListItemPropertyPicker,
 } from "core/utils/contexts/listItemProperties";
+import { deriveInlineControlActiveState } from "core/utils/contexts/viewSettings";
 import { discoverFrontmatterPropertiesFromPathStates } from "core/utils/properties/allProperties";
 import { formatDate } from "core/utils/date";
 import { nameForField } from "core/utils/frames/frames";
@@ -224,6 +225,15 @@ export const FilterBar = (props: {
   };
 
   const filteredCols = cols.filter((f) => f.hidden != "true");
+  // View-settings inline bar IA (bd Notidian-vrmf), DEFAULT-ON / KILL-SWITCH.
+  // Declared early so both the render and the showViewOptionsMenu closure read
+  // the same value. When ON, the inline controls' active indicator comes from
+  // one pure helper (deriveInlineControlActiveState) and the 3-knobs menu drops
+  // the duplicated Filter/Sort entries (single home: inline). When OFF, the
+  // inline buttons fall back to their legacy per-call `predicate?.x.length > 0`
+  // expressions and the menu re-lists Filter/Sort — byte-for-byte legacy IA.
+  const inlineBarEnabled =
+    props.superstate.settings.viewSettingsInlineBar !== false;
   const [expanded, setExpanded] = useState(false);
   const saveViewType = (type: string) => {
     if (type == "table") {
@@ -655,35 +665,41 @@ export const FilterBar = (props: {
         },
       });
     }
-    // Group-By is hoisted to a dedicated toolbar button (Notidian-nmr); it is
-    // intentionally no longer duplicated here in the view-options ("3 knobs")
-    // overflow menu, matching how Filter and Sort already moved to the bar.
-    menuOptions.push({
-      name: i18n.menu.sortBy,
-      icon: "ui//sort-desc",
-      type: SelectOptionType.Submenu,
-      onSubmenu: (offset, onHide) => {
-        return showSortMenu(
-          offset,
-          windowFromDocument(e.view.document),
-          onHide
-        );
-      },
-    });
-    menuOptions.push({
-      name: i18n.menu.filters,
-      icon: "ui//filter",
-      type: SelectOptionType.Submenu,
-      onSubmenu: (rect, onHide) => {
-        return showAddFilterMenu(
-          rect,
-          windowFromDocument(e.view.document),
-          onHide
-        );
-      },
-    });
+    // De-dup / single home (bd Notidian-vrmf): Group-By already moved to a
+    // dedicated inline toolbar button (Notidian-nmr) and is not re-listed here.
+    // When the inline view-settings bar is enabled (default-ON kill-switch
+    // `viewSettingsInlineBar`), Filter and Sort likewise have their SINGLE HOME
+    // inline, so they are dropped from this 3-knobs overflow menu — no control
+    // appears both inside AND outside the menu. The KILL-SWITCH (flag OFF)
+    // restores the legacy duplication: Sort By + Filters reappear here.
+    if (!inlineBarEnabled) {
+      menuOptions.push({
+        name: i18n.menu.sortBy,
+        icon: "ui//sort-desc",
+        type: SelectOptionType.Submenu,
+        onSubmenu: (offset, onHide) => {
+          return showSortMenu(
+            offset,
+            windowFromDocument(e.view.document),
+            onHide
+          );
+        },
+      });
+      menuOptions.push({
+        name: i18n.menu.filters,
+        icon: "ui//filter",
+        type: SelectOptionType.Submenu,
+        onSubmenu: (rect, onHide) => {
+          return showAddFilterMenu(
+            rect,
+            windowFromDocument(e.view.document),
+            onHide
+          );
+        },
+      });
 
-    menuOptions.push(menuSeparator);
+      menuOptions.push(menuSeparator);
+    }
     menuOptions.push({
       name: predicate?.chart?.visible ? "Hide chart" : "Show chart",
       icon: "ui//bar-chart",
@@ -1875,6 +1891,23 @@ export const FilterBar = (props: {
     ],
     [listGroupOptions, listViewOptions, listItemOptions, predicate]
   );
+  // Per-control active flags for the inline view-settings bar (bd Notidian-vrmf).
+  // `inlineBarEnabled` is declared up top (read by showViewOptionsMenu too).
+  const inlineActive = deriveInlineControlActiveState(predicate, searchActive);
+  // The flag-gated active flags the inline render reads. OFF preserves the exact
+  // legacy expressions so the kill-switch restores prior rendering.
+  const filterInlineActive = inlineBarEnabled
+    ? inlineActive.filter
+    : predicate?.filters.length > 0;
+  const sortInlineActive = inlineBarEnabled
+    ? inlineActive.sort
+    : predicate?.sort.length > 0;
+  const groupByInlineActive = inlineBarEnabled
+    ? inlineActive.groupBy
+    : predicate?.groupBy.length > 0;
+  const searchInlineActive = inlineBarEnabled
+    ? inlineActive.search
+    : searchActive;
   return (
     <>
       {props.minMode ? (
@@ -1999,7 +2032,7 @@ export const FilterBar = (props: {
                     className={classNames(
                       "mk-toolbar-button",
                       "mk-view-search-toggle",
-                      searchActive && "mk-active"
+                      searchInlineActive && "mk-active"
                     )}
                     aria-label={i18n.labels.searchView}
                     title={i18n.labels.searchViewTooltip}
@@ -2027,18 +2060,33 @@ export const FilterBar = (props: {
                     setSearchActive). ADR 0042 (Notidian-fws1) then deleted the
                     now-unreachable highlight-on-match engine outright at the
                     owner's request — no dormant quick-find machinery remains. */}
-                {/* Inline Filter/Sort affordances (Notidian-ddk): surface
-                    filtering + sorting directly on the bar, Notion-style, rather
-                    than buried in the view-options ("3 knobs") menu. They reuse
-                    the same add menus and persist via savePredicate (no new data
-                    authority); active state is highlighted so the user sees at a
-                    glance that a filter/sort is applied. */}
+                {/* Inline view-settings bar (Notidian-vrmf, building on the
+                    Notidian-ddk Filter/Sort + Notidian-nmr Group-By inline
+                    moves): the Filter/Sort/Group-By trio is the SINGLE HOME for
+                    those controls — they are exposed inline beside the 3-knobs
+                    button (using the unused horizontal space) and intentionally
+                    removed from the 3-knobs menu when the inline bar is enabled
+                    (de-dup). Each control reuses the same add menu and persists
+                    via savePredicate (no new data authority); its active
+                    indicator (mk-active) is derived from one pure helper
+                    (deriveInlineControlActiveState) so the owner sees at a glance
+                    which settings are applied. The grouping div is tagged so the
+                    live DOM / jsdom can assert the inline-home set. */}
+                <div
+                  className="mk-view-settings-bar"
+                  data-mk-inline-bar={inlineBarEnabled ? "on" : "off"}
+                >
                 <button
                   className={classNames(
                     "mk-toolbar-button",
-                    predicate?.filters.length > 0 && "mk-active"
+                    "mk-view-setting",
+                    "mk-view-setting--filter",
+                    filterInlineActive && "mk-active"
                   )}
+                  data-mk-control="filter"
+                  data-mk-active={filterInlineActive ? "true" : "false"}
                   aria-label="Filter"
+                  aria-pressed={filterInlineActive ? "true" : "false"}
                   title="Filter"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2055,9 +2103,14 @@ export const FilterBar = (props: {
                 <button
                   className={classNames(
                     "mk-toolbar-button",
-                    predicate?.sort.length > 0 && "mk-active"
+                    "mk-view-setting",
+                    "mk-view-setting--sort",
+                    sortInlineActive && "mk-active"
                   )}
+                  data-mk-control="sort"
+                  data-mk-active={sortInlineActive ? "true" : "false"}
                   aria-label="Sort"
+                  aria-pressed={sortInlineActive ? "true" : "false"}
                   title="Sort"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2071,19 +2124,17 @@ export const FilterBar = (props: {
                     __html: props.superstate.ui.getSticker("ui//sort-desc"),
                   }}
                 ></button>
-                {/* Group-By hoisted to its own toolbar button (Notidian-nmr):
-                    completes the Notion-style Filter/Sort/Group-By trio on the
-                    bar rather than leaving Group-By buried in the view-options
-                    ("3 knobs") menu. It reuses the same showGroupByMenu opener
-                    (no new data authority); active state highlights when a
-                    grouping is applied. Anchors via e.currentTarget so it does
-                    not inherit the i23 SVG-child anti-pattern. */}
                 <button
                   className={classNames(
                     "mk-toolbar-button",
-                    predicate?.groupBy.length > 0 && "mk-active"
+                    "mk-view-setting",
+                    "mk-view-setting--group-by",
+                    groupByInlineActive && "mk-active"
                   )}
+                  data-mk-control="groupBy"
+                  data-mk-active={groupByInlineActive ? "true" : "false"}
                   aria-label="Group By"
+                  aria-pressed={groupByInlineActive ? "true" : "false"}
                   title="Group By"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2097,6 +2148,7 @@ export const FilterBar = (props: {
                     __html: props.superstate.ui.getSticker("ui//columns"),
                   }}
                 ></button>
+                </div>
                 <button
                   className="mk-toolbar-button"
                   onClick={(e) => showLayoutMenu(e)}

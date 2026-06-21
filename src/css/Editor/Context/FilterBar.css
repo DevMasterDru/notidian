@@ -88,6 +88,33 @@ button.mk-toolbar-button.mk-active {
   background: var(--nav-item-background-hover);
 }
 
+/* Inline view-settings bar (Notidian-vrmf): the de-duped Filter/Sort/Group-By
+   trio exposed beside the 3-knobs button, using the unused horizontal space.
+   The grouping is a simple flex row; each control keeps .mk-toolbar-button so
+   it inherits the toolbar look and the .mk-active highlight above. An active
+   control additionally carries a small accent underline so the at-a-glance
+   "this setting is applied" feedback is unmistakable. KILL-SWITCH OFF still
+   renders this bar (data-mk-inline-bar="off") for byte-compatible layout; only
+   the de-dup + the shared active-derivation change behavior, not the bar. */
+.mk-view-settings-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+button.mk-view-setting.mk-active {
+  position: relative;
+}
+button.mk-view-setting.mk-active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--interactive-accent, var(--mk-ui-text-accent, currentColor));
+}
+
 body:not(.is-mobile) button.mk-toolbar-button:hover {
   color: var(--mk-ui-text-primary);
   background: var(--mk-ui-background-hover);

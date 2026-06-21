@@ -134,6 +134,22 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // visible child (owner verifies by USE). KILL-SWITCH: false renders the tree
   // with no add-rows (and restores row virtualization on those views).
   subItemAddRow: true,
+  // Default-ON view-settings inline bar IA (bd Notidian-vrmf) — an
+  // owner-requested (2026-06-21) FilterBar render-path UX standardization, so it
+  // ships ON and the owner verifies it by USE. Two halves, both on this flag:
+  // (1) DE-DUP — the 3-knobs ("view options") menu no longer re-lists Filter or
+  // Sort; their single home is the inline toolbar trio (Group-By already moved
+  // inline-only via Notidian-nmr). (2) ACTIVE-STATE — the inline controls derive
+  // their active indicator from the pure deriveInlineControlActiveState helper
+  // (Notidian-vrmf), so each shows whether its setting is applied at a glance.
+  // The flag is RETAINED as a KILL-SWITCH: set it false to restore the
+  // byte-for-byte legacy IA — the inline buttons revert to their prior inline
+  // `predicate?.x.length > 0` expressions AND Filter/Sort reappear in the
+  // 3-knobs menu (the prior inside/outside duplication). The decision logic
+  // (active-state derivation + single-home invariant) is pure and unit-tested
+  // (viewSettings.test.ts); the render + de-dup wiring is jsdom-tested
+  // (FilterBar.viewSettings.dom.test.tsx).
+  viewSettingsInlineBar: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,
