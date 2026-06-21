@@ -114,3 +114,48 @@ export const enableSubItemsWithColumn = (args: {
   savePredicate({ subItems: { ...(currentSubItems ?? {}), field } });
   return { ok: true, field, created: true };
 };
+
+// One-click "Add children column" (Notidian-bk7e): a read-only backlink column
+// that lists each row's DIRECT children — the rows whose parent-link
+// (subItemsField) points at it. computeRowBackRelation resolves it from the
+// target's inlinks, so the path-qualified parent links (kg81) make it exact. It
+// is the relation a `percent`/`percent_checked` rollup aggregates over to show
+// "% of children done". DIRECT children only (matches the count badge), NOT all
+// descendants — so it is named "Children", never "Sub-items".
+export const addSubItemChildrenColumn = (args: {
+  cols: SpaceTableColumn[];
+  saveColumn: (col: SpaceTableColumn) => boolean;
+  subItemsField: string;
+  schemaId?: string;
+  columnName?: string;
+}): { ok: boolean; name: string | null; created: boolean } => {
+  const { cols, saveColumn, subItemsField, schemaId, columnName } = args;
+  if (!subItemsField) return { ok: false, name: null, created: false };
+
+  // Reuse an existing children-list backlink over the SAME parent column rather
+  // than stacking duplicates.
+  const existing = cols.find((c) => {
+    if (c.type !== "backlink" || (c.table ?? "") !== "") return false;
+    let cfg: { ref?: string; fn?: string } = {};
+    try {
+      cfg = JSON.parse(c.value ?? "{}");
+    } catch {
+      return false;
+    }
+    return cfg.ref === subItemsField && (cfg.fn ?? "list") === "list";
+  });
+  if (existing) return { ok: true, name: existing.name, created: false };
+
+  const name = uniqueParentColumnName(columnName ?? "Children", cols);
+  const col: SpaceTableColumn = {
+    name,
+    type: "backlink",
+    // Read-only computed config: the children are the rows whose subItemsField
+    // links back to this row. fn "list" shows their titles.
+    value: JSON.stringify({ ref: subItemsField, fn: "list" }),
+    table: "",
+    schemaId: schemaId ?? defaultContextSchemaID,
+  };
+  const created = saveColumn(col);
+  return { ok: created, name: created ? name : null, created };
+};

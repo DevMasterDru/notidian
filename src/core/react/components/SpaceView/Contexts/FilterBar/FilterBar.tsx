@@ -21,7 +21,10 @@ import { openContextCreateItemModal } from "core/react/components/UI/Modals/Cont
 import { CsvImportModal } from "core/react/components/UI/Modals/CsvImportModal";
 import { executeCsvImport } from "core/utils/contexts/tableCsvImportRuntime";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
-import { enableSubItemsWithColumn } from "core/utils/contexts/subItemsSetup";
+import {
+  enableSubItemsWithColumn,
+  addSubItemChildrenColumn,
+} from "core/utils/contexts/subItemsSetup";
 import { repairSubItemLinks } from "core/utils/contexts/subItemLinkRepair";
 import { PathPropertyName } from "shared/types/context";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
@@ -821,6 +824,27 @@ export const FilterBar = (props: {
               repaired > 0
                 ? `Repaired ${repaired} sub-item link${repaired === 1 ? "" : "s"}`
                 : "No sub-item links needed repair"
+            );
+          },
+        });
+        // One-click read-only "Children" backlink column (Notidian-bk7e): the
+        // relation a percent rollup aggregates over for "% of children done".
+        menuOptions.push({
+          name: i18n.menu.addChildrenColumn,
+          icon: "ui//links-coming-in",
+          onClick: () => {
+            const { created, name } = addSubItemChildrenColumn({
+              cols,
+              saveColumn,
+              subItemsField,
+              schemaId: dbSchema?.id,
+            });
+            props.superstate.ui.notify(
+              name
+                ? created
+                  ? `Added "${name}" children column`
+                  : `"${name}" children column already exists`
+                : "Could not add children column"
             );
           },
         });

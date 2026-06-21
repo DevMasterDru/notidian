@@ -303,7 +303,19 @@ public app: App;
                 );
                 
                 
-                const links = fCache.links?.map(f => this.plugin.app.metadataCache.getFirstLinkpathDest(f.link, file.path)?.path).filter(f => f)
+                // Build the forward-link graph from BOTH body links and FRONTMATTER
+                // links (Notidian-bk7e). Obsidian splits frontmatter wikilinks into
+                // fCache.frontmatterLinks (separate from fCache.links); Notidian's
+                // relations live in frontmatter, so omitting them left every
+                // frontmatter relation invisible to the inlinks index (getInverse) —
+                // breaking all back-relations on live update (the resolvedLinks
+                // fallback only runs on a file's FIRST index).
+                const resolveLink = (link: string) =>
+                  this.plugin.app.metadataCache.getFirstLinkpathDest(link, file.path)?.path;
+                const links = [
+                  ...(fCache.links?.map((f) => resolveLink(f.link)) ?? []),
+                  ...(fCache.frontmatterLinks?.map((f) => resolveLink(f.link)) ?? []),
+                ].filter((f) => f);
                 this.linksMap.set(file.path, new Set(links));
         const updatedCache : CleanCachedMetadata = {
             resolvedLinks: links ?? [],

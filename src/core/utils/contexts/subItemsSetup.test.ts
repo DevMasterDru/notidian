@@ -4,7 +4,10 @@
 // set predicate.subItems.field — and must NEVER point the predicate at a column
 // that saveColumn rejected. The created column shape is the hard round-trip
 // invariant (type:"link", source:"frontmatter", table:"") asserted exactly here.
-import { enableSubItemsWithColumn } from "./subItemsSetup";
+import {
+  enableSubItemsWithColumn,
+  addSubItemChildrenColumn,
+} from "./subItemsSetup";
 import { DEFAULT_SETTINGS } from "core/schemas/settings";
 import type { SpaceTableColumn } from "shared/types/mdb";
 
@@ -205,5 +208,81 @@ describe("enableSubItemsWithColumn (Notidian-xqxc front-door)", () => {
   // default so a future flip to false is a deliberate, reviewed change.
   it("ships default-ON (kill-switch)", () => {
     expect(DEFAULT_SETTINGS.subItemsSetup).toBe(true);
+  });
+});
+
+describe("addSubItemChildrenColumn (Notidian-bk7e)", () => {
+  const backlink = (name: string, ref: string, fn = "list"): SpaceTableColumn => ({
+    name,
+    type: "backlink",
+    table: "",
+    value: JSON.stringify({ ref, fn }),
+  });
+
+  it("creates a read-only backlink column over the parent-link field", () => {
+    const saveColumn = jest.fn(() => true);
+    const result = addSubItemChildrenColumn({
+      cols: [{ name: "File", type: "file", table: "" }],
+      saveColumn,
+      subItemsField: "Parent item",
+      schemaId: "files",
+    });
+    expect(saveColumn).toHaveBeenCalledWith({
+      name: "Children",
+      type: "backlink",
+      value: JSON.stringify({ ref: "Parent item", fn: "list" }),
+      table: "",
+      schemaId: "files",
+    });
+    expect(result).toEqual({ ok: true, name: "Children", created: true });
+  });
+
+  it("reuses an existing children backlink over the SAME parent field (no duplicate)", () => {
+    const saveColumn = jest.fn(() => true);
+    const result = addSubItemChildrenColumn({
+      cols: [backlink("Kids", "Parent item")],
+      saveColumn,
+      subItemsField: "Parent item",
+    });
+    expect(saveColumn).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, name: "Kids", created: false });
+  });
+
+  it("does NOT reuse a backlink over a DIFFERENT relation field", () => {
+    const saveColumn = jest.fn(() => true);
+    addSubItemChildrenColumn({
+      cols: [backlink("Other", "Some Other Rel")],
+      saveColumn,
+      subItemsField: "Parent item",
+    });
+    expect(saveColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes the name when 'Children' is taken", () => {
+    const saveColumn = jest.fn(() => true);
+    const result = addSubItemChildrenColumn({
+      cols: [{ name: "Children", type: "text", table: "" }],
+      saveColumn,
+      subItemsField: "Parent item",
+    });
+    expect(saveColumn).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Children 2", type: "backlink" })
+    );
+    expect(result.name).toBe("Children 2");
+  });
+
+  it("returns ok:false and creates nothing when subItemsField is empty", () => {
+    const saveColumn = jest.fn(() => true);
+    expect(
+      addSubItemChildrenColumn({ cols: [], saveColumn, subItemsField: "" })
+    ).toEqual({ ok: false, name: null, created: false });
+    expect(saveColumn).not.toHaveBeenCalled();
+  });
+
+  it("returns ok:false when saveColumn rejects", () => {
+    const saveColumn = jest.fn(() => false);
+    expect(
+      addSubItemChildrenColumn({ cols: [], saveColumn, subItemsField: "Parent item" })
+    ).toEqual({ ok: false, name: null, created: false });
   });
 });

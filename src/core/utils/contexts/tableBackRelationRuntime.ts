@@ -23,8 +23,14 @@ export const computeRowBackRelation = (
 ): string => {
   if (!config?.relationProperty || !targetPath) return "";
 
-  const inlinks = superstate.pathsIndex.get(targetPath)?.inlinks ?? [];
-  const candidates = inlinks.map((path) => ({
+  // The reverse-link index lives on the path's METADATA (path.metadata.inlinks),
+  // computed by the markdown adapter; the top-level PathState.inlinks is not
+  // populated, so reading it left every back-relation empty (Notidian-bk7e). Fall
+  // back to the top-level field defensively.
+  const pathState = superstate.pathsIndex.get(targetPath);
+  const inlinks: string[] =
+    pathState?.metadata?.inlinks ?? pathState?.inlinks ?? [];
+  const candidates = inlinks.map((path: string) => ({
     path,
     relationValue:
       superstate.pathsIndex.get(path)?.metadata?.property?.[

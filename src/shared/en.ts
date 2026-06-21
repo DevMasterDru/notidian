@@ -272,6 +272,7 @@ export const en = {
     "collapseAllSubItems": "Collapse all sub-items",
     "expandAllSubItems": "Expand all sub-items",
     "repairSubItemLinks": "Repair sub-item links",
+    "addChildrenColumn": "Add children column",
     "tableView": "Table View",
     "cardView": "Card View",
     "boardView": "Board View",
