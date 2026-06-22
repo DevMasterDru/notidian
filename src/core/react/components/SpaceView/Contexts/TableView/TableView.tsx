@@ -106,6 +106,7 @@ import {
   moveCellSelection,
   selectionContainsCell,
   shouldClearSelectionOnOutsideClick,
+  shouldClearSelectionOnWindowBlur,
 } from "core/utils/contexts/tableSelection";
 import {
   moveVisibleRows,
@@ -185,6 +186,57 @@ declare module "@tanstack/table-core" {
     fieldType?: string;
   }
 }
+
+// Clipboard I/O with a desktop (Electron) fallback. The async Clipboard API
+// (navigator.clipboard) is the primary path, but on Obsidian desktop its
+// readText()/writeText() can REJECT when the document momentarily lacks focus or
+// when the OS gates async clipboard access. Previously table paste was
+// `navigator.clipboard.readText().then(pasteSelection)` with NO .catch(), so any
+// such rejection made paste fail silently (and copy's writeText was un-guarded
+// too). On reject we fall back to Electron's synchronous clipboard (no focus /
+// permission gating on desktop) and only throw if both paths are unavailable, so
+// callers can surface a single clear notice instead of a dead keypress.
+// (Notidian-clip-io)
+const electronClipboard = (): {
+  readText?: () => string;
+  writeText?: (text: string) => void;
+} | null => {
+  try {
+    return (window as any)?.require?.("electron")?.clipboard ?? null;
+  } catch (e) {
+    return null;
+  }
+};
+
+const readClipboardText = async (): Promise<string> => {
+  try {
+    if (navigator?.clipboard?.readText) {
+      return await navigator.clipboard.readText();
+    }
+  } catch (e) {
+    // async read rejected (focus/permission) — try the desktop clipboard
+  }
+  const desktop = electronClipboard();
+  if (desktop?.readText) return desktop.readText();
+  throw new Error("Clipboard read is unavailable.");
+};
+
+const writeClipboardText = async (text: string): Promise<void> => {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch (e) {
+    // async write rejected — try the desktop clipboard
+  }
+  const desktop = electronClipboard();
+  if (desktop?.writeText) {
+    desktop.writeText(text);
+    return;
+  }
+  throw new Error("Clipboard write is unavailable.");
+};
 
 type TableUndoJournalState = {
   undo: TableUndoEntry[];
@@ -562,7 +614,12 @@ export const TableView = (props: { superstate: Superstate }) => {
     : null;
   const tableDirection = predicate?.tableDirection ?? "ltr";
   const isRTLTable = tableDirection == "rtl";
-  const visibleRowOrder = useMemo(() => data.map((f) => f._index), [data]);
+  // visibleRowOrder is defined LOWER, after the react-table instance, because the
+  // order the user actually sees is the table's rendered row model (sort +
+  // sub-item tree + grouping), NOT the pre-render `data`/filteredData order.
+  // Building it from `data` silently scattered copy/paste and cell-selection
+  // geometry across the wrong rows on any sorted/grouped/tree table
+  // (bd Notidian-2kf7).
   const visibleColumnOrder = useMemo(
     () => cols.map((f) => f.name + f.table),
     [cols]
@@ -645,22 +702,14 @@ export const TableView = (props: { superstate: Superstate }) => {
   // drag/marquee gesture (those own their own document listeners), and a no-op
   // when nothing is selected so background clicks never force a re-render.
   useEffect(() => {
-    const clearSelectionOnOutsideClick = (e: MouseEvent) => {
-      const tableEl = ref.current as HTMLElement | null;
-      const target = e.target as Node | null;
-      const hasSelection =
-        selectedRowsRef.current.length > 0 ||
-        !!cellSelection ||
-        selectedColumn != null ||
-        lastSelectedIndex != null;
-      const shouldClear = shouldClearSelectionOnOutsideClick({
-        button: e.button,
-        insideTable: !tableEl || !target || tableEl.contains(target),
-        isEditing: !!currentEdit,
-        isDragging: !!activeDragTypeRef.current || !!rowMarqueeRef.current?.active,
-        hasSelection,
-      });
-      if (!shouldClear) return;
+    const currentHasSelection = () =>
+      selectedRowsRef.current.length > 0 ||
+      !!cellSelection ||
+      selectedColumn != null ||
+      lastSelectedIndex != null;
+    const isDragging = () =>
+      !!activeDragTypeRef.current || !!rowMarqueeRef.current?.active;
+    const clearSelection = () => {
       selectRows(null, []);
       setCellSelection(null);
       setSelectedColumn(null);
@@ -668,9 +717,46 @@ export const TableView = (props: { superstate: Superstate }) => {
       rowMarqueeRef.current = null;
       setRowMarqueeRect(null);
     };
+    const clearSelectionOnOutsideClick = (e: MouseEvent) => {
+      const tableEl = ref.current as HTMLElement | null;
+      const target = e.target as Node | null;
+      const shouldClear = shouldClearSelectionOnOutsideClick({
+        button: e.button,
+        insideTable: !tableEl || !target || tableEl.contains(target),
+        isEditing: !!currentEdit,
+        isDragging: isDragging(),
+        hasSelection: currentHasSelection(),
+      });
+      if (!shouldClear) return;
+      clearSelection();
+    };
+    // Cross-window click-away (clicking into another app/window) raises the
+    // window 'blur' event but never delivers a document 'mousedown', so the
+    // outside-click listener alone cannot reach it — a drag-selected range would
+    // otherwise stay highlighted forever. The isEditing/isDragging guards keep
+    // an open inline editor (currentEdit set) or an in-flight drag from wiping
+    // their own state; an inline editor lives in this same window and so does
+    // NOT raise window 'blur' regardless. (We intentionally do NOT gate on
+    // document.activeElement: on a real cross-window blur Chromium keeps the
+    // focused table element as activeElement, so an activeElement-inside-table
+    // check would bail in exactly the case this is meant to handle.)
+    const clearSelectionOnWindowBlur = () => {
+      if (
+        !shouldClearSelectionOnWindowBlur({
+          isEditing: !!currentEdit,
+          isDragging: isDragging(),
+          hasSelection: currentHasSelection(),
+        })
+      )
+        return;
+      clearSelection();
+    };
     document.addEventListener("mousedown", clearSelectionOnOutsideClick);
-    return () =>
+    window.addEventListener("blur", clearSelectionOnWindowBlur);
+    return () => {
       document.removeEventListener("mousedown", clearSelectionOnOutsideClick);
+      window.removeEventListener("blur", clearSelectionOnWindowBlur);
+    };
   }, [currentEdit, cellSelection, selectedColumn, lastSelectedIndex, selectRows]);
 
   useEffect(() => {
@@ -1063,7 +1149,9 @@ export const TableView = (props: { superstate: Superstate }) => {
         }
         grid.push(values);
       }
-      navigator.clipboard.writeText(serializeTableClipboardGrid(grid));
+      writeClipboardText(serializeTableClipboardGrid(grid)).catch(() =>
+        props.superstate.ui.notify("Couldn't copy the selection to the clipboard.")
+      );
     };
     const pasteSelection = async (clipboardText: string, label?: string) => {
       if (!activeSelection) return;
@@ -1236,8 +1324,12 @@ export const TableView = (props: { superstate: Superstate }) => {
       e.preventDefault();
     }
     if (e.key == "v" && (e.metaKey || e.ctrlKey)) {
-      navigator.clipboard.readText().then((f) => pasteSelection(f));
       e.preventDefault();
+      readClipboardText()
+        .then((f) => pasteSelection(f))
+        .catch(() =>
+          props.superstate.ui.notify("Couldn't read the clipboard to paste.")
+        );
     }
     if (
       ((e.key.toLowerCase() == "z" && e.shiftKey) ||
@@ -1634,6 +1726,64 @@ export const TableView = (props: { superstate: Superstate }) => {
   // windowing below slices it. With the kill-switch OFF this is exactly the
   // legacy page window.
   const renderRows = table.getRowModel().rows;
+
+  // The row order copy/paste and ALL cell-selection geometry must use: the rows
+  // exactly as the table renders them (predicate sort + sub-item tree + grouping),
+  // mapped back to each row's stable `_index`. We read the PRE-pagination model so
+  // the order covers every assembled row (not just the current page) while still
+  // reflecting the real visual order. Group-header rows carry no `_index` and are
+  // excluded. Using the unsorted `data` order here scattered a column paste across
+  // unrelated rows on any sorted/grouped table (bd Notidian-2kf7).
+  const visibleRowOrder = table
+    .getPrePaginationRowModel()
+    .rows.filter(
+      (row) => !row.getIsGrouped() && (row.original as DBRow)?.["_index"] != null
+    )
+    .map((row) => String((row.original as DBRow)["_index"]));
+
+  // Per-column data anchor, computed ONCE per render. The cell body used to call
+  // columnDataAnchorForCells({ values: table.getRowModel().rows.map(...) }) inside
+  // EVERY <td>, so each render scanned the full row model once per visible cell
+  // (O(visibleCells × rows)). On a large table that scan, paid twice per undo/redo
+  // (the begin+finish cell-feedback re-renders), is what made undo/redo laggy.
+  // Hoisting it to a memo keyed on the rendered rows + anchor/width inputs makes it
+  // O(cols × rows) once per render. (bd Notidian-2kf7 follow-up: undo/redo perf)
+  const dataAnchorByColumn = useMemo(() => {
+    const out: Record<string, ReturnType<typeof columnDataAnchorForCells>> = {};
+    for (const column of table.getVisibleLeafColumns()) {
+      const accessorKey = (column.columnDef as any).accessorKey as
+        | string
+        | undefined;
+      if (!accessorKey) continue;
+      const frozenOffset = frozenColumnOffsets[accessorKey];
+      const columnWidth =
+        frozenOffset?.width ??
+        propertyHeaderColumnWidthForSize(
+          colsSize[accessorKey],
+          defaultTableColumnWidth
+        );
+      out[accessorKey] = columnDataAnchorForCells({
+        mode: columnDataAnchorModeForValue(
+          predicate?.colsDataAnchor?.[accessorKey]
+        ),
+        headerDisplayMode: propertyHeaderDisplayModeForValue(
+          predicate?.colsHeaderDisplay?.[accessorKey]
+        ),
+        columnWidth,
+        values: renderRows.map((row) => row.getValue(accessorKey)),
+        tableDirection,
+      });
+    }
+    return out;
+  }, [
+    renderRows,
+    frozenColumnOffsets,
+    colsSize,
+    predicate?.colsDataAnchor,
+    predicate?.colsHeaderDisplay,
+    tableDirection,
+    table,
+  ]);
 
   // Track the scroll container's live scrollTop + clientHeight so the pure window
   // seam can pick the visible slice. Only attaches when virtualization is active
@@ -2189,6 +2339,14 @@ export const TableView = (props: { superstate: Superstate }) => {
     setActiveDragType(null);
     setActiveRowDragIds([]);
     // setDropPlaceholderItem(null);
+    // Drop any stale cell highlight left by a drag-reorder (a column-header
+    // drag, a no-op row drop, or a cancel). For a COMMITTED row move
+    // selectMovedWholeRows runs BEFORE this and already nulled these, so this is
+    // idempotent there and never clobbers the moved-row whole-row selection or
+    // its lastSelectedIndex keyboard anchor — we deliberately do NOT touch
+    // selectedRows / lastSelectedIndex here. (Notidian stuck-highlight, drag path)
+    setCellSelection(null);
+    setSelectedColumn(null);
     document.body.style.setProperty("cursor", "");
   }
   const activeRowDragRows = activeRowDragIds
@@ -2628,21 +2786,9 @@ export const TableView = (props: { superstate: Superstate }) => {
                       const compactCell =
                         propertyHeaderUsesCompactCellLayout(columnWidth);
                       const fieldType = cell.column.columnDef.meta?.fieldType;
-                      const headerDisplayMode =
-                        propertyHeaderDisplayModeForValue(
-                          predicate?.colsHeaderDisplay?.[accessorKey]
-                        );
-                      const dataAnchor = columnDataAnchorForCells({
-                        mode: columnDataAnchorModeForValue(
-                          predicate?.colsDataAnchor?.[accessorKey]
-                        ),
-                        headerDisplayMode,
-                        columnWidth,
-                        values: table
-                          .getRowModel()
-                          .rows.map((row) => row.getValue(accessorKey)),
-                        tableDirection,
-                      });
+                      // Computed once per render in dataAnchorByColumn (above)
+                      // instead of re-scanning the full row model per cell.
+                      const dataAnchor = dataAnchorByColumn[accessorKey];
                       const wrap = columnWrapModeForValue(
                         predicate?.colsWrap?.[accessorKey]
                       );

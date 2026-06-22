@@ -15,6 +15,10 @@ const DEFAULT_TABLE_UI_MULTI_SELECT_STAGE = ["multi-alpha", "multi-beta"];
 const DEFAULT_TABLE_UI_TYPE_COLUMN = "stage";
 const DEFAULT_TABLE_UI_CONFLICT_EXTERNAL = "conflict-external";
 const DEFAULT_TABLE_UI_CONFLICT_APPLIED = "conflict-applied";
+const DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_STATUS = "multi-alpha-status";
+const DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_RATING = "31";
+const DEFAULT_TABLE_UI_MULTI_PASTE_BETA_STATUS = "multi-beta-status";
+const DEFAULT_TABLE_UI_MULTI_PASTE_BETA_RATING = "47";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
 
@@ -789,6 +793,242 @@ const tableUiPasteEvalCode = ({
         reason: "exception",
         message: String(error?.message ?? error),
       });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const tableUiMultiPasteEvalCode = ({
+  folder,
+  firstRowTitle,
+  secondRowTitle,
+  firstStatus,
+  firstRating,
+  secondStatus,
+  secondRating,
+  firstCurrentStatus,
+  firstCurrentRating,
+  secondCurrentStatus,
+  secondCurrentRating,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianTableUiMultiPaste";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const folder = ${JSON.stringify(folder)};
+    const firstRowTitle = ${JSON.stringify(firstRowTitle)};
+    const secondRowTitle = ${JSON.stringify(secondRowTitle)};
+    const firstStatus = ${JSON.stringify(firstStatus)};
+    const firstRating = ${JSON.stringify(firstRating)};
+    const secondStatus = ${JSON.stringify(secondStatus)};
+    const secondRating = ${JSON.stringify(secondRating)};
+    const firstCurrentStatus = ${JSON.stringify(firstCurrentStatus)};
+    const firstCurrentRating = ${JSON.stringify(firstCurrentRating)};
+    const secondCurrentStatus = ${JSON.stringify(secondCurrentStatus)};
+    const secondCurrentRating = ${JSON.stringify(secondCurrentRating)};
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const findTable = () => {
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) {
+        return { ok: false, reason: !view ? "missing-view" : "missing-table" };
+      }
+      const headers = Array.from(table.querySelectorAll("thead th"))
+        .map((header) => header.innerText.trim());
+      const rows = Array.from(table.querySelectorAll("tbody tr[data-row-id]"));
+      const firstRow = rows.find((row) => row.innerText.includes(firstRowTitle));
+      const secondRow = rows.find((row) => row.innerText.includes(secondRowTitle));
+      if (!firstRow || !secondRow) {
+        return {
+          ok: false,
+          reason: "missing-row",
+          rows: rows.map((row) => row.innerText.slice(0, 120)),
+          columns: headers.filter(Boolean),
+        };
+      }
+      const visibleRows = Array.from(table.querySelectorAll("tbody tr[data-row-id]"));
+      return {
+        ok: true,
+        table,
+        headers,
+        firstRow,
+        secondRow,
+        firstRowIsTop: visibleRows.indexOf(firstRow) < visibleRows.indexOf(secondRow),
+      };
+    };
+    const cellByColumn = (row, headers, columnName) => {
+      const columnIndex = headers.findIndex(
+        (header) => header.toLowerCase() === columnName.toLowerCase()
+      );
+      const cell = columnIndex < 0 ? null : row.children[columnIndex];
+      return cell
+        ? { ok: true, cell, columnIndex }
+        : {
+            ok: false,
+            reason: columnIndex < 0 ? "missing-column" : "missing-cell",
+            columnName,
+            columnIndex,
+            cellCount: row.children.length,
+          };
+    };
+    const selectRange = async (tableState) => {
+      const start = cellByColumn(tableState.firstRow, tableState.headers, "status");
+      const end = cellByColumn(tableState.secondRow, tableState.headers, "rating");
+      if (!start.ok || !end.ok) return { ok: false, ...(start.ok ? end : start) };
+      start.cell.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, buttons: 1 })
+      );
+      await sleep(50);
+      end.cell.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          buttons: 1,
+          shiftKey: true,
+        })
+      );
+      tableState.table.focus();
+      await sleep(50);
+      return { ok: true };
+    };
+    const renderedValues = (tableState) => {
+      const cells = [
+        cellByColumn(tableState.firstRow, tableState.headers, "status"),
+        cellByColumn(tableState.firstRow, tableState.headers, "rating"),
+        cellByColumn(tableState.secondRow, tableState.headers, "status"),
+        cellByColumn(tableState.secondRow, tableState.headers, "rating"),
+      ];
+      if (cells.some((cell) => !cell.ok)) return null;
+      return cells.map((cell) => cell.cell.innerText.trim());
+    };
+    const waitForPastedValues = async (firstRowIsTop) => {
+      const expected = firstRowIsTop
+        ? [firstStatus, firstRating, secondStatus, secondRating]
+        : [secondStatus, secondRating, firstStatus, firstRating];
+      const start = Date.now();
+      let latest = null;
+      do {
+        const tableState = findTable();
+        if (!tableState.ok) return tableState;
+        latest = renderedValues(tableState);
+        if (JSON.stringify(latest) === JSON.stringify(expected)) {
+          return { ok: true, editedValues: latest };
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      return { ok: false, reason: "display-not-settled", latest };
+    };
+    const originalClipboard = navigator.clipboard;
+    const originalReadText = originalClipboard?.readText;
+    const originalWriteText = originalClipboard?.writeText;
+    const clipboardText = [
+      [firstStatus, firstRating].join("\\t"),
+      [secondStatus, secondRating].join("\\t"),
+    ].join("\\n");
+    let copiedText = "";
+    let replacedClipboard = false;
+    const restoreClipboard = () => {
+      try {
+        if (replacedClipboard) {
+          Object.defineProperty(navigator, "clipboard", {
+            configurable: true,
+            value: originalClipboard,
+          });
+        } else if (originalClipboard) {
+          originalClipboard.readText = originalReadText;
+          originalClipboard.writeText = originalWriteText;
+        }
+      } catch (_error) {}
+    };
+    try {
+      try {
+        originalClipboard.readText = async () => clipboardText;
+        originalClipboard.writeText = async (text) => {
+          copiedText = String(text);
+        };
+      } catch (_error) {
+        replacedClipboard = true;
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: {
+            ...(originalClipboard || {}),
+            readText: async () => clipboardText,
+            writeText: async (text) => {
+              copiedText = String(text);
+            },
+          },
+        });
+      }
+      const start = Date.now();
+      let tableState = null;
+      do {
+        tableState = findTable();
+        if (tableState.ok) break;
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      if (!tableState?.ok) return finish(tableState || { ok: false, reason: "missing-table" });
+      const expectedCopiedText = tableState.firstRowIsTop
+        ? [
+            [firstCurrentStatus, firstCurrentRating].join("\\t"),
+            [secondCurrentStatus, secondCurrentRating].join("\\t"),
+          ].join("\\n")
+        : [
+            [secondCurrentStatus, secondCurrentRating].join("\\t"),
+            [firstCurrentStatus, firstCurrentRating].join("\\t"),
+          ].join("\\n");
+      const copiedSelection = await selectRange(tableState);
+      if (!copiedSelection.ok) return finish(copiedSelection);
+      tableState.table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "c",
+          code: "KeyC",
+          metaKey: true,
+        })
+      );
+      await sleep(100);
+      if (copiedText !== expectedCopiedText) {
+        return finish({
+          ok: false,
+          reason: "copy-mismatch",
+          copiedText,
+          expectedCopiedText,
+          firstRowIsTop: tableState.firstRowIsTop,
+        });
+      }
+      const latestTableState = findTable();
+      if (!latestTableState.ok) return finish(latestTableState);
+      const pastedSelection = await selectRange(latestTableState);
+      if (!pastedSelection.ok) return finish(pastedSelection);
+      latestTableState.table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "v",
+          code: "KeyV",
+          metaKey: true,
+        })
+      );
+      await sleep(300);
+      return finish({
+        copiedText,
+        firstRowIsTop: latestTableState.firstRowIsTop,
+        ...(await waitForPastedValues(latestTableState.firstRowIsTop)),
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    } finally {
+      restoreClipboard();
     }
   })()`.replace(/\s+/g, " ");
 
@@ -2352,6 +2592,9 @@ const formatUiFailure = (result) =>
     result?.pasteDebug
       ? `pasteDebug=${JSON.stringify(result.pasteDebug).slice(0, 400)}`
       : "",
+    result?.copiedText !== undefined
+      ? `copiedText=${String(result.copiedText).slice(0, 400)}`
+      : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -2474,6 +2717,8 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     })
   );
   assertUiEvalOk("setup", setupResult);
+  let alphaStatusAfterMultiPaste = "active";
+  let alphaRatingAfterMultiPaste = "1";
 
   const uiResult = parseJsonEvalResult(
     await runObsidian(config, runner, "eval", {
@@ -2632,6 +2877,81 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     path: paths.betaPath,
     property: "rating",
     expected: DEFAULT_TABLE_UI_PASTE_RATING,
+  });
+
+  const multiPasteResult = parseJsonEvalResult(
+    await runObsidian(config, runner, "eval", {
+      code: tableUiMultiPasteEvalCode({
+        folder: paths.folder,
+        firstRowTitle: `${paths.runId}-Alpha Renamed`,
+        secondRowTitle: `${paths.runId}-Beta`,
+        firstStatus: DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_STATUS,
+        firstRating: DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_RATING,
+        secondStatus: DEFAULT_TABLE_UI_MULTI_PASTE_BETA_STATUS,
+        secondRating: DEFAULT_TABLE_UI_MULTI_PASTE_BETA_RATING,
+        firstCurrentStatus: "active",
+        firstCurrentRating: "1",
+        secondCurrentStatus: DEFAULT_TABLE_UI_PASTE_STATUS,
+        secondCurrentRating: DEFAULT_TABLE_UI_PASTE_RATING,
+        timeoutMs: config.timeoutMs,
+        pollIntervalMs: config.pollIntervalMs,
+      }),
+    })
+  );
+  assertUiEvalOk("multi-row copy/paste", multiPasteResult);
+  if (typeof multiPasteResult.firstRowIsTop != "boolean") {
+    throw new Error(
+      "Notidian table UI multi-row copy/paste failed: row order was not reported."
+    );
+  }
+  const expectedAlpha = multiPasteResult.firstRowIsTop
+    ? {
+        status: DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_STATUS,
+        rating: DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_RATING,
+      }
+    : {
+        status: DEFAULT_TABLE_UI_MULTI_PASTE_BETA_STATUS,
+        rating: DEFAULT_TABLE_UI_MULTI_PASTE_BETA_RATING,
+      };
+  const expectedBeta = multiPasteResult.firstRowIsTop
+    ? {
+        status: DEFAULT_TABLE_UI_MULTI_PASTE_BETA_STATUS,
+        rating: DEFAULT_TABLE_UI_MULTI_PASTE_BETA_RATING,
+      }
+    : {
+        status: DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_STATUS,
+        rating: DEFAULT_TABLE_UI_MULTI_PASTE_ALPHA_RATING,
+      };
+  alphaStatusAfterMultiPaste = expectedAlpha.status;
+  alphaRatingAfterMultiPaste = expectedAlpha.rating;
+
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.alphaRenamedPath,
+    property: "status",
+    expected: expectedAlpha.status,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.alphaRenamedPath,
+    property: "rating",
+    expected: expectedAlpha.rating,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "status",
+    expected: expectedBeta.status,
+  });
+  await waitForMetadataValue({
+    config,
+    runner,
+    path: paths.betaPath,
+    property: "rating",
+    expected: expectedBeta.rating,
   });
 
   const typeMatrixResult = parseJsonEvalResult(
@@ -2833,7 +3153,7 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
     runner,
     path: primaryPath,
     property: "status",
-    expected: "active",
+    expected: alphaStatusAfterMultiPaste,
   });
 
   return {

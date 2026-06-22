@@ -501,9 +501,19 @@ export const ContextEditorProvider: React.FC<
     // calculateTableData(newTable);
   };
   useEffect(() => {
+    // Capture the latest closures and flush once on the trailing edge so a
+    // burst collapses to a single read-back. A "tables" reload supersedes a
+    // pending "primary" recompute (loadTables already re-reads the primary
+    // table); a "primary" request never downgrades a pending "tables" one.
+    const scheduleReload = (kind: "tables" | "primary", run: () => void) => {
+      if (kind === "tables" || pendingReloadRef.current?.kind !== "tables") {
+        pendingReloadRef.current = { kind, run };
+      }
+      flushReload.current();
+    };
     const refreshMDB = (payload: { path: string }) => {
       if (payload.path == contextPath) {
-        loadTables();
+        scheduleReload("tables", () => loadTables());
       } else {
         const tag = Object.keys(contextTable).find(
           (t) => spaceManager.spaceInfoForPath(t)?.path == payload.path
@@ -513,12 +523,13 @@ export const ContextEditorProvider: React.FC<
     };
     const refreshPath = (payload: { path: string }) => {
       if (payload.path == contextPath) {
-        loadTables();
+        scheduleReload("tables", () => loadTables());
       } else if (
         dbSchema?.primary == "true" &&
         tableData?.rows.some((f) => f[PathPropertyName] == payload.path)
       ) {
-        retrieveCachedTable(dbSchema);
+        const schemaToRecompute = dbSchema;
+        scheduleReload("primary", () => retrieveCachedTable(schemaToRecompute));
       }
     };
     props.superstate.eventsDispatcher.addListener(
@@ -567,6 +578,42 @@ export const ContextEditorProvider: React.FC<
   // add-option, which fires one mirror per new option) cannot lose updates to
   // the hub `fields` map (Notidian-miy).
   const typeProfileMirrorRef = useRef(createTypeProfileMirrorQueue());
+  // Coalesce the reactive reindex storm. A paste/undo/redo across M rows writes
+  // frontmatter per-row; each write fires its own metadata-cache callback which
+  // dispatches BOTH `pathStateUpdated` (-> retrieveCachedTable, a full primary
+  // readTable + context-field reloads) AND, for a primary file-context,
+  // `contextStateUpdated` for THIS contextPath (-> loadTables). Un-coalesced
+  // that is O(M) full recomputes, which hangs the table on large DBs (the "slow
+  // paste / undo-redo hangs" report). One trailing executor collapses a whole
+  // burst into a SINGLE read-back: a "tables" reload (loadTables) supersedes a
+  // "primary" recompute (retrieveCachedTable) because loadTables already
+  // re-reads the primary table (directly when schemas are unchanged — the
+  // steady-state edit case — else via the dbSchema effect), so a burst firing
+  // BOTH vectors does one read, not two. Only the read-BACK is deferred
+  // (~100ms); the write path (runSerializedContextEdit / the pathsIndex conflict
+  // gate — Notidian-lg1) is untouched, so no last-write-wins / stale-snapshot
+  // regression. bd Notidian (reindex-storm).
+  const pendingReloadRef = useRef<
+    null | { kind: "tables" | "primary"; run: () => void }
+  >(null);
+  const flushReload = useRef(
+    _.debounce(() => {
+      const pending = pendingReloadRef.current;
+      pendingReloadRef.current = null;
+      if (pending) pending.run();
+    }, 100)
+  );
+  // Cancel any pending read-back when the context identity (path or schema)
+  // changes or the provider unmounts, so a stale closure captured before the
+  // switch can never run a read for the OLD context and write it into the NEW
+  // provider state — the fresh context reloads via its own dbSchema effect.
+  useEffect(
+    () => () => {
+      flushReload.current.cancel();
+      pendingReloadRef.current = null;
+    },
+    [contextPath, dbSchema?.id]
+  );
   useEffect(() => {
     if (!tableData || !dbSchema) return;
     if (readMode || spaceInfo?.readOnly) return;
@@ -1081,10 +1128,11 @@ export const ContextEditorProvider: React.FC<
     return runSerializedContextEdit(
       editSerializerRef.current,
       tableData,
-      ({ tableData: latestTable, onRootTableSaved }) =>
+      ({ tableData: latestTable, onRootTableSaved, sessionEditedKeys }) =>
         executeTableValueWrites({
           writes,
           tableData: latestTable,
+          sessionEditedKeys,
           contextTable,
           dbSchemaId: dbSchema?.id,
           contextPath,

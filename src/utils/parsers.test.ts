@@ -10,6 +10,7 @@ import {
   serializeMultiDisplayString,
   serializeMultiString,
 } from "./serializers";
+import { parseMDBStringValue } from "./properties";
 import { PathPropertyName } from "shared/types/context";
 
 // ---------------------------------------------------------------------------
@@ -461,5 +462,44 @@ describe("parseObject", () => {
   });
   it("CHARACTERIZE: multi mode of a JSON object yields [] (ensureArray of non-array, non-string)", () => {
     expect(parseObject('{"a":1}', true)).toEqual([]);
+  });
+});
+
+// =========================================================================
+// Paste round-trip fidelity (bd Notidian-2kf7) — copying a cell and pasting
+// it back into the same column type must be IDEMPOTENT. Regression for the
+// option-multi "inserts a space that wasn't there" symptom: an option-multi
+// stored as a bare comma scalar must normalize to the JSON multi form on read
+// so the value the user copies survives the parseMDBStringValue write path.
+// =========================================================================
+describe("parseProperty option-multi paste round-trip (no inserted space)", () => {
+  it("normalizes a bare comma-string option-multi to the canonical JSON form", () => {
+    // The value the COPY path reads (rowData[col]) must already be JSON, not the
+    // raw `apple,banana` scalar — that scalar is what got re-split + re-spaced.
+    expect(parseProperty("field", "apple,banana", "option-multi")).toBe(
+      serializeMultiString(["apple", "banana"])
+    );
+    // A comma-space scalar trims to the same canonical form (no doubled space).
+    expect(parseProperty("field", "apple, banana", "option-multi")).toBe(
+      serializeMultiString(["apple", "banana"])
+    );
+  });
+
+  it("is idempotent across copy -> paste-write -> re-read for option-multi", () => {
+    const copyText = parseProperty("field", "apple,banana", "option-multi");
+    const written = parseMDBStringValue("option-multi", copyText, true);
+    const displayedAfter = parseProperty("field", written, "option-multi");
+    expect(displayedAfter).toBe(copyText);
+    // And crucially, no space was injected anywhere in the cycle.
+    expect(displayedAfter).not.toContain(", ");
+  });
+
+  it("leaves an already-JSON option-multi value untouched", () => {
+    const json = serializeMultiString(["apple", "banana"]);
+    expect(parseProperty("field", json, "option-multi")).toBe(json);
+  });
+
+  it("keeps an empty option-multi string empty (no '[]' hallucination)", () => {
+    expect(parseProperty("field", "", "option-multi")).toBe("");
   });
 });

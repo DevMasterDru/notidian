@@ -104,7 +104,27 @@ const resolvedPath = resolvePath(_row[PathPropertyName], path?.path, (spacePath)
   const tagData : Record<string, string> = {};
   const tagField = fields.find(f => f.name?.toLowerCase() == 'tags');
   if (tagField) {
-    tagData[tagField.name] = serializeMultiString([...(paths.get(resolvedPath)?.tags ?? [])]) 
+    // The tags column is an editable frontmatter-backed property, so project the
+    // file's actual frontmatter `tags:` value — case preserved, no '#' — so a
+    // copy/paste round-trips losslessly. The resolved PathState's `.tags` is the
+    // vault tag cache: ensureTag/cacheParsers prepend '#' and lowercase every
+    // entry, which would otherwise hallucinate a leading '#' and lowercase the
+    // value on paste (bd Notidian-2kf7). Fall back to that cache (stripped of
+    // '#') only when the file has no frontmatter tags, so body/inline-tagged
+    // files still populate the column.
+    const frontmatterTags = frontmatter[tagField.name];
+    const hasFrontmatterTags =
+      frontmatterTags != null &&
+      (Array.isArray(frontmatterTags)
+        ? frontmatterTags.length > 0
+        : String(frontmatterTags).trim().length > 0);
+    tagData[tagField.name] = hasFrontmatterTags
+      ? parseProperty(tagField.name, frontmatterTags, tagField.type)
+      : serializeMultiString(
+          [...(paths.get(resolvedPath)?.tags ?? [])].map((tag) =>
+            typeof tag == "string" && tag.startsWith("#") ? tag.slice(1) : tag
+          )
+        );
   }
   return {
         ..._row,

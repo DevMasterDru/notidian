@@ -26,6 +26,9 @@ type DeferredTxn = {
   invocations: number;
   // The tableData the serializer passed in on the (latest) invocation.
   lastTableData(): SpaceTable;
+  // The session-edited-keys set the serializer passed in on the (latest)
+  // invocation (the stale-conflict lag tracker, bd Notidian-2kf7).
+  lastSessionEditedKeys(): Set<string>;
   // Synchronously fire onRootTableSaved with a given table (simulating the
   // transaction having persisted a new root table) before settling.
   saveRootTable(table: SpaceTable): void;
@@ -50,12 +53,18 @@ const makeDeferredTxn = (): DeferredTxn => {
 
   let capturedTableData: SpaceTable | null = null;
   let capturedOnRootTableSaved: ((table: SpaceTable) => void) | null = null;
+  let capturedSessionEditedKeys: Set<string> | null = null;
   let invocations = 0;
 
-  const run: SerializedEditRun = ({ tableData, onRootTableSaved }) => {
+  const run: SerializedEditRun = ({
+    tableData,
+    onRootTableSaved,
+    sessionEditedKeys,
+  }) => {
     invocations += 1;
     capturedTableData = tableData;
     capturedOnRootTableSaved = onRootTableSaved;
+    capturedSessionEditedKeys = sessionEditedKeys;
     invokedResolve();
     return settlePromise;
   };
@@ -71,6 +80,12 @@ const makeDeferredTxn = (): DeferredTxn => {
         throw new Error("run has not been invoked yet");
       }
       return capturedTableData;
+    },
+    lastSessionEditedKeys() {
+      if (!capturedSessionEditedKeys) {
+        throw new Error("run has not been invoked yet");
+      }
+      return capturedSessionEditedKeys;
     },
     saveRootTable(table: SpaceTable) {
       if (!capturedOnRootTableSaved) {
@@ -357,6 +372,61 @@ describe("contextEditSerializer", () => {
 
     txnA.resolve();
     await pA;
+  });
+
+  it("threads ONE session-edited-keys set across edits sharing a rendered reference (cross-edit lag tracking)", async () => {
+    // The stale-conflict gate's lag tracker (bd Notidian-2kf7) must persist
+    // across consecutive edits on the same rendered snapshot: an edit records
+    // the cells it wrote so the NEXT rapid edit can tell its own pathsIndex lag
+    // from a genuine external change. Same rendered reference -> same Set.
+    const state = createContextEditSerializerState();
+    const rendered = makeTable("rendered");
+
+    const txnA = makeDeferredTxn();
+    const txnB = makeDeferredTxn();
+
+    const pA = runSerializedContextEdit(state, rendered, txnA.run);
+    const pB = runSerializedContextEdit(state, rendered, txnB.run);
+
+    await txnA.invoked;
+    // Simulate the transaction recording a written cell.
+    txnA.lastSessionEditedKeys().add("Notes/A.md status");
+    txnA.resolve();
+
+    await txnB.invoked;
+    // B sees the SAME set, including A's recorded write.
+    expect(txnB.lastSessionEditedKeys()).toBe(txnA.lastSessionEditedKeys());
+    expect(txnB.lastSessionEditedKeys().has("Notes/A.md status")).toBe(true);
+
+    txnB.resolve();
+    await Promise.all([pA, pB]);
+  });
+
+  it("resets session-edited-keys on a rendered-reference change (reload re-syncs pathsIndex)", async () => {
+    // After a reload (new rendered reference) pathsIndex has caught up, so the
+    // lag-relaxation must NOT carry stale keys forward — otherwise a genuine
+    // external change to a previously-edited cell could slip past the gate.
+    const state = createContextEditSerializerState();
+    const renderedV1 = makeTable("rendered-v1");
+    const renderedV2 = makeTable("rendered-v2");
+
+    const txnA = makeDeferredTxn();
+    const txnB = makeDeferredTxn();
+
+    const pA = runSerializedContextEdit(state, renderedV1, txnA.run);
+    await txnA.invoked;
+    txnA.lastSessionEditedKeys().add("Notes/A.md status");
+    txnA.resolve();
+    await pA;
+
+    const pB = runSerializedContextEdit(state, renderedV2, txnB.run);
+    await txnB.invoked;
+    // Fresh set on reload — A's recorded write does not leak across the reload.
+    expect(txnB.lastSessionEditedKeys()).not.toBe(txnA.lastSessionEditedKeys());
+    expect(txnB.lastSessionEditedKeys().size).toBe(0);
+
+    txnB.resolve();
+    await pB;
   });
 
   it("isolates serializer state per instance (two states do not cross-thread)", async () => {

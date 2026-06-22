@@ -18,6 +18,17 @@ describe("tableClipboard", () => {
     ]);
   });
 
+  it("preserves quoted tabs, newlines, and quotes as one TSV cell", () => {
+    const grid = [
+      ["left", "contains\ta tab", 'says "hello"'],
+      ["next", "two\nlines", "right"],
+    ];
+
+    expect(parseTableClipboardText(serializeTableClipboardGrid(grid))).toEqual(
+      grid
+    );
+  });
+
   it("serializes rectangular values as TSV", () => {
     expect(
       serializeTableClipboardGrid([

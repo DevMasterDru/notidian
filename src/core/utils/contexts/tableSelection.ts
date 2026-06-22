@@ -141,6 +141,25 @@ export const shouldClearSelectionOnOutsideClick = (
   return state.hasSelection;
 };
 
+/**
+ * Focus leaving the whole window (clicking into another pane or another app)
+ * clears the selection, unless a cell edit or drag gesture is in progress, or
+ * nothing is selected. A cross-window click-away delivers NO document mousedown,
+ * so the outside-click rule above cannot see it — this is the blur-path
+ * complement that stops a drag-selected range from staying highlighted forever
+ * once the table loses focus (Notidian stuck-highlight, click-away path).
+ */
+export const shouldClearSelectionOnWindowBlur = (
+  state: Pick<
+    OutsideClickSelectionState,
+    "isEditing" | "isDragging" | "hasSelection"
+  >
+): boolean => {
+  if (state.isEditing) return false;
+  if (state.isDragging) return false;
+  return state.hasSelection;
+};
+
 export const selectionContainsCell = (
   selection: CellSelection,
   rowOrder: string[],

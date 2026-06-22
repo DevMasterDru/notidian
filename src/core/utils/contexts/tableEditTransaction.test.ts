@@ -43,12 +43,14 @@ const execute = async ({
   contexts = {},
   frontmatterOk = true,
   currentFrontmatterValues = {},
+  sessionEditedKeys,
 }: {
   writes: TableCellWrite[];
   table?: SpaceTable;
   contexts?: SpaceTables;
   frontmatterOk?: boolean;
   currentFrontmatterValues?: Record<string, Record<string, string>>;
+  sessionEditedKeys?: Set<string>;
 }) => {
   const savedFrontmatter: { path: string; properties: Record<string, unknown> }[] =
     [];
@@ -79,6 +81,7 @@ const execute = async ({
       savedContexts.push({ key, table: nextTable });
     },
     contextKeyForTable: (tableName) => `contexts/${tableName}`,
+    sessionEditedKeys,
   });
 
   return {
@@ -326,6 +329,84 @@ describe("executeTableValueWrites", () => {
         },
       },
     ]);
+  });
+
+  it("re-applies a write to a cell this session already wrote while the canonical index still lags", async () => {
+    // Repro of the user-reported paste corruption (bd Notidian-2kf7): the edit
+    // serializer threads the optimistically-updated table into the next
+    // transaction, so baseValue reflects our own just-written value ('done'),
+    // while pathsIndex (canonicalValue) still lags at the pre-edit value
+    // ('todo') until the debounced reload settles. The gate must NOT read that
+    // self-induced lag as an external conflict — otherwise the second paste is
+    // silently skipped and the cell keeps a stale value (looks like a
+    // hallucinated value / a stray space to the user).
+    const sessionEditedKeys = new Set<string>();
+    const inSyncTable: SpaceTable = {
+      ...rootTable(),
+      rows: [
+        { [PathPropertyName]: "Relays & Devices/A.md", status: "todo" },
+        { [PathPropertyName]: "Relays & Devices/B.md", status: "todo" },
+      ],
+    };
+
+    // Paste #1: snapshot is in sync (canonical 'todo' == base 'todo').
+    const first = await execute({
+      table: inSyncTable,
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": { status: "todo" },
+      },
+      sessionEditedKeys,
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "done" },
+      ],
+    });
+    expect(first.result).toMatchObject({ ok: true, applied: 1, skipped: [] });
+
+    // Paste #2: the optimistically-threaded snapshot now shows 'done', but
+    // pathsIndex still lags at 'todo' (reload not yet settled).
+    const optimisticTable = first.savedTables[first.savedTables.length - 1];
+    const second = await execute({
+      table: optimisticTable,
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": { status: "todo" },
+      },
+      sessionEditedKeys,
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "in-progress" },
+      ],
+    });
+
+    expect(second.result).toMatchObject({ ok: true, applied: 1, skipped: [] });
+    expect(second.savedFrontmatter).toEqual([
+      {
+        path: "Relays & Devices/Relays & Devices/A.md",
+        properties: { status: "in-progress" },
+      },
+    ]);
+  });
+
+  it("still skips a genuine external change on the first touch of a cell this session", async () => {
+    // Companion guard to the test above: the relaxation must apply ONLY to
+    // cells we already wrote this session. A first-touch conflict (the value
+    // changed out of band before we ever wrote it) must still be protected
+    // (bd Notidian-29g).
+    const sessionEditedKeys = new Set<string>();
+    const { result, savedFrontmatter } = await execute({
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": { status: "external" },
+      },
+      sessionEditedKeys,
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "active" },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      applied: 0,
+      skipped: [expect.objectContaining({ reason: "frontmatter-conflict" })],
+    });
+    expect(savedFrontmatter).toEqual([]);
   });
 
   it("allows explicit forced frontmatter writes after conflict review", async () => {

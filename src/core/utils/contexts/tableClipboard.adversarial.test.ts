@@ -12,8 +12,8 @@
  *   - Line endings are normalized \r\n -> \n and \r -> \n BEFORE splitting.
  *   - Exactly ONE trailing newline is trimmed (anchored /\n$/), never more — so an
  *     intentional trailing empty row survives.
- *   - Cells are split on raw TAB; there is NO RFC-4180 / Excel quote handling, so a
- *     quoted cell keeps its quotes and an embedded TAB inside quotes still splits.
+ *   - RFC-4180-style quote handling keeps quoted tabs/newlines inside their cell
+ *     and doubles embedded quotes on encode/decode.
  *   - Leading/trailing whitespace inside a cell is preserved verbatim.
  *   - Empty input and a single newline both collapse to the [[""]] single-empty grid.
  *   - Ragged rows are preserved AS-IS (the plan layer, not the parser, rectangularizes).
@@ -67,14 +67,13 @@ describe("parseTableClipboardText — adversarial clipboard input", () => {
     });
   });
 
-  describe("no TSV / RFC-4180 quote handling (quotes are literal)", () => {
-    it("keeps surrounding double-quotes as literal cell characters", () => {
-      expect(parseTableClipboardText('"hello"')).toEqual([['"hello"']]);
+  describe("quoted TSV fields", () => {
+    it("dequotes a surrounding quoted field", () => {
+      expect(parseTableClipboardText('"hello"')).toEqual([["hello"]]);
     });
 
-    it("does NOT treat a TAB inside quotes as escaped — it still splits the cell", () => {
-      // Excel would emit "a\tb" as one cell; Notidian splits it into two.
-      expect(parseTableClipboardText('"a\tb"\tc')).toEqual([['"a', 'b"', "c"]]);
+    it("keeps a TAB inside quotes in the same cell", () => {
+      expect(parseTableClipboardText('"a\tb"\tc')).toEqual([["a\tb", "c"]]);
     });
 
     it("keeps embedded quotes verbatim (no doubled-quote unescaping)", () => {
@@ -158,20 +157,18 @@ describe("parseTableClipboardText — adversarial clipboard input", () => {
       );
     });
 
-    it("does NOT round-trip cells that themselves contain a TAB (lossy by design)", () => {
-      // A cell holding a TAB serializes to an extra delimiter and re-parses as two
-      // cells — pinning that the TSV format cannot transport an in-cell TAB.
+    it("round-trips cells that contain a TAB", () => {
       const grid = [["a\tb"]];
       const serialized = serializeTableClipboardGrid(grid);
-      expect(serialized).toBe("a\tb");
-      expect(parseTableClipboardText(serialized)).toEqual([["a", "b"]]);
+      expect(serialized).toBe('"a\tb"');
+      expect(parseTableClipboardText(serialized)).toEqual(grid);
     });
 
-    it("does NOT round-trip a cell containing a newline (lossy by design)", () => {
+    it("round-trips a cell containing a newline", () => {
       const grid = [["a\nb"]];
       const serialized = serializeTableClipboardGrid(grid);
-      // The in-cell newline becomes a row break on re-parse.
-      expect(parseTableClipboardText(serialized)).toEqual([["a"], ["b"]]);
+      expect(serialized).toBe('"a\nb"');
+      expect(parseTableClipboardText(serialized)).toEqual(grid);
     });
   });
 });

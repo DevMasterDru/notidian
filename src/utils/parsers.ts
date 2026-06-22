@@ -84,6 +84,17 @@ export const parseMultiString = (str: string): string[] => ensureString(str).sta
     case "link-multi":
       case "context-multi":
       if (typeof value === "string") {
+        if (YAMLtype === "option-multi") {
+          // A bare string here is a legacy/hand-authored YAML scalar such as
+          // `apple,banana`. Normalize it to the SAME JSON multi-string form
+          // parseProperty emits for the common array case, so a copy/paste
+          // round-trips losslessly. Leaving it opaque made copy emit
+          // `apple,banana` while paste's parseMDBStringValue re-split it and the
+          // display re-joined with ", ", inserting a space every cycle
+          // (bd Notidian-2kf7). Empty/whitespace stays as-is.
+          const normalized = parseMultiString(value);
+          return normalized.length > 0 ? serializeMultiString(normalized) : value;
+        }
         return parseLinkString(value);
       }
       return serializeMultiString(value

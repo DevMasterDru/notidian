@@ -6,6 +6,7 @@ import {
   moveCellSelection,
   selectionContainsCell,
   shouldClearSelectionOnOutsideClick,
+  shouldClearSelectionOnWindowBlur,
 } from "./tableSelection";
 
 const rows = ["r1", "r2", "r3"];
@@ -147,6 +148,36 @@ describe("shouldClearSelectionOnOutsideClick", () => {
   it("is a no-op when nothing is selected", () => {
     expect(
       shouldClearSelectionOnOutsideClick({ ...base, hasSelection: false })
+    ).toBe(false);
+  });
+});
+
+describe("shouldClearSelectionOnWindowBlur", () => {
+  const base = {
+    isEditing: false,
+    isDragging: false,
+    hasSelection: true,
+  };
+
+  it("clears a stuck selection when the window loses focus (cross-window click-away)", () => {
+    expect(shouldClearSelectionOnWindowBlur(base)).toBe(true);
+  });
+
+  it("does not interrupt an active cell edit", () => {
+    expect(
+      shouldClearSelectionOnWindowBlur({ ...base, isEditing: true })
+    ).toBe(false);
+  });
+
+  it("does not clear mid drag/marquee gesture", () => {
+    expect(
+      shouldClearSelectionOnWindowBlur({ ...base, isDragging: true })
+    ).toBe(false);
+  });
+
+  it("is a no-op when nothing is selected", () => {
+    expect(
+      shouldClearSelectionOnWindowBlur({ ...base, hasSelection: false })
     ).toBe(false);
   });
 });

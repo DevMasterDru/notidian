@@ -288,6 +288,13 @@ body.mk-property-header-tooltip-visible > .tooltip {
 .mk-group-header {
   display: flex;
   align-items: center;
+  /* The header is a <button>, and Chromium's UA stylesheet centers a button's
+     flex content (justify-content: center). With width:100% spanning the full
+     horizontal scroll width, that pushed the group value to the centre of the
+     table — appearing far to the right of the viewport in LTR/English mode.
+     Pin the content to the inline-start edge (left in LTR, right in RTL) so the
+     group value sits where Notion shows it. (Notidian-grpby-align) */
+  justify-content: flex-start;
   gap: 8px;
   width: 100%;
   padding: 8px 12px;

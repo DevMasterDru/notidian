@@ -223,12 +223,16 @@ describe("notidian real vault harness", () => {
       "=> 2",
       "=> paste-active",
       "=> 7",
+      "=> multi-beta-status",
+      "=> 47",
+      "=> multi-alpha-status",
+      "=> 31",
       "=> option-review",
       "=> todo",
       "=> option-review",
       '=> ["multi-alpha","multi-beta"]',
       "=> conflict-applied",
-      "=> active",
+      "=> multi-beta-status",
     ];
     const uiRenamedPath =
       "Notidian Integration Fixtures/notidian-smoke-2026-05-25T10-20-30-456Z-Alpha UI Renamed.md";
@@ -268,6 +272,14 @@ describe("notidian real vault harness", () => {
           return JSON.stringify({
             ok: true,
             editedValues: { status: "paste-active", rating: "7" },
+          });
+        }
+        if (code.includes("notidianTableUiMultiPaste")) {
+          return JSON.stringify({
+            ok: true,
+            copiedText: "paste-active\t7\nactive\t1",
+            editedValues: ["multi-beta-status", "47", "multi-alpha-status", "31"],
+            firstRowIsTop: false,
           });
         }
         if (code.includes("notidianTableUiUndo")) {
@@ -356,10 +368,11 @@ describe("notidian real vault harness", () => {
       cleanedUp: true,
     });
     expect(calls.map((args) => args[1]).filter((command) => command == "eval"))
-      .toHaveLength(37);
+      .toHaveLength(42);
     [
       "notidianTableUiEdit",
       "notidianTableUiPaste",
+      "notidianTableUiMultiPaste",
       "notidianTableUiUndo",
       "notidianTableUiRedo",
       "notidianTableUiTypeMatrix",

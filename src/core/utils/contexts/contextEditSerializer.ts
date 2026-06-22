@@ -14,6 +14,13 @@ import { TableEditTransactionResult } from "./tableEditTransaction";
 export type ContextEditSerializerState = {
   lastRendered: SpaceTable | null;
   latest: SpaceTable | null;
+  // (resolvedPath, column) cells written since the last rendered-table reset.
+  // The stale-conflict gate uses this to distinguish its own pathsIndex lag
+  // (a cell we already wrote, whose canonical value simply hasn't settled) from
+  // a genuine external change (a cell we have not touched this session). Reset
+  // together with `latest` when the rendered table reloads, since a reload
+  // re-syncs pathsIndex. (bd Notidian-2kf7)
+  editedKeys: Set<string>;
   tail: Promise<unknown>;
 };
 
@@ -21,12 +28,14 @@ export const createContextEditSerializerState =
   (): ContextEditSerializerState => ({
     lastRendered: null,
     latest: null,
+    editedKeys: new Set<string>(),
     tail: Promise.resolve(),
   });
 
 export type SerializedEditRun = (params: {
   tableData: SpaceTable;
   onRootTableSaved: (table: SpaceTable) => void;
+  sessionEditedKeys: Set<string>;
 }) => Promise<TableEditTransactionResult>;
 
 export const runSerializedContextEdit = (
@@ -44,12 +53,16 @@ export const runSerializedContextEdit = (
     if (state.lastRendered !== renderedTable) {
       state.lastRendered = renderedTable;
       state.latest = renderedTable;
+      // A fresh rendered table means pathsIndex has caught up; the lag-tracking
+      // record from the previous snapshot no longer applies.
+      state.editedKeys = new Set<string>();
     }
     return run({
       tableData: state.latest ?? renderedTable,
       onRootTableSaved: (table) => {
         state.latest = table;
       },
+      sessionEditedKeys: state.editedKeys,
     });
   };
   // Chain on the tail so transactions run strictly in order.

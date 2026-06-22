@@ -113,6 +113,53 @@ describe("syncContextRow", () => {
     expect(JSON.parse(row.Tags as string)).toEqual(tags);
   });
 
+  it("projects the frontmatter tags (case preserved, no '#') over the '#'-prefixed cache for a 'tags' column", () => {
+    // Regression for bd Notidian-2kf7: the vault tag cache (PathState.tags) is
+    // ensureTag-normalized — '#'-prefixed and lowercased — so copying a tags
+    // cell sourced from it and pasting hallucinated a leading '#' and lowercased
+    // the value. The column must instead reflect the file's actual frontmatter
+    // `tags:` value so a copy/paste round-trips losslessly.
+    const paths = new Map<string, PathState>([
+      ["Folder", spaceState],
+      [
+        "Folder/A.md",
+        pathState({ tags: ["projectX", "Status"] }, ["#projectx", "#status"]),
+      ],
+    ]);
+
+    const row = syncContextRow(
+      paths,
+      { [PathPropertyName]: "Folder/A.md" },
+      [frontmatterField("tags", "tags-multi")],
+      spaceState
+    );
+
+    expect(row.tags).toBe(serializeMultiString(["projectX", "Status"]));
+    // No '#' hallucinated, original casing preserved.
+    expect(row.tags).not.toContain("#");
+    expect(JSON.parse(row.tags as string)).toEqual(["projectX", "Status"]);
+  });
+
+  it("falls back to the cache tags (stripped of '#') for a 'tags' column when frontmatter has none", () => {
+    // Files with only body/inline tags (no frontmatter `tags:`) still populate
+    // the column from PathState.tags, but with the cache's '#' prefix removed so
+    // the value matches the frontmatter storage form.
+    const paths = new Map<string, PathState>([
+      ["Folder", spaceState],
+      ["Folder/A.md", pathState({}, ["#inline", "#todo"])],
+    ]);
+
+    const row = syncContextRow(
+      paths,
+      { [PathPropertyName]: "Folder/A.md" },
+      [frontmatterField("tags", "tags-multi")],
+      spaceState
+    );
+
+    expect(row.tags).toBe(serializeMultiString(["inline", "todo"]));
+    expect(row.tags).not.toContain("#");
+  });
+
   it("emits a serialized empty list for a 'tags' field when the PathState carries no tags", () => {
     // Same branch (line 107) with the `?? []` fallback: a resolved PathState with
     // no `.tags` yields an empty serialized multi-string, not an absent key.
