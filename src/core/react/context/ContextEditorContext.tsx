@@ -603,6 +603,26 @@ export const ContextEditorProvider: React.FC<
       if (pending) pending.run();
     }, 100)
   );
+  // Notidian-oxjk: coalesce the IMPERATIVE saveDB read-back the same way the
+  // reactive reindex storm above is coalesced. A burst of saveDB writes (rapid
+  // undo/redo, multi-row paste) each optimistically repaints via updateTable
+  // immediately, so collapsing the authoritative reloadContext to ONE trailing
+  // read-back removes the duplicate O(N) full recomputes that hung the table.
+  // Only the read-BACK is deferred (~100ms); saveTable (the write) is awaited
+  // inline, so no last-write-wins / stale-snapshot regression. The reload target
+  // rides a ref so a context switch can never fire a read for the OLD space.
+  const saveDBReloadTargetRef = useRef(spaceInfo);
+  saveDBReloadTargetRef.current = spaceInfo;
+  const flushSaveDBReload = useRef(
+    _.debounce(() => {
+      const target = saveDBReloadTargetRef.current;
+      if (target)
+        props.superstate.reloadContext(target, {
+          force: true,
+          calculate: true,
+        });
+    }, 100)
+  );
   // Cancel any pending read-back when the context identity (path or schema)
   // changes or the provider unmounts, so a stale closure captured before the
   // switch can never run a read for the OLD context and write it into the NEW
@@ -611,6 +631,7 @@ export const ContextEditorProvider: React.FC<
     () => () => {
       flushReload.current.cancel();
       pendingReloadRef.current = null;
+      flushSaveDBReload.current.cancel();
     },
     [contextPath, dbSchema?.id]
   );
@@ -680,14 +701,10 @@ export const ContextEditorProvider: React.FC<
   const saveDB = async (newTable: SpaceTable) => {
     if (spaceInfo.readOnly) return;
     updateTable(newTable);
-    await props.superstate.spaceManager
-      .saveTable(contextPath, newTable, true)
-      .then((f) =>
-        props.superstate.reloadContext(spaceInfo, {
-          force: true,
-          calculate: true,
-        })
-      );
+    await props.superstate.spaceManager.saveTable(contextPath, newTable, true);
+    // Coalesced trailing read-back (Notidian-oxjk) instead of an immediate
+    // per-call reloadContext: a burst of saveDB writes collapses to ONE recompute.
+    flushSaveDBReload.current();
   };
 
   const cols: SpaceTableColumn[] = useMemo(
@@ -1172,6 +1189,9 @@ export const ContextEditorProvider: React.FC<
   ): Promise<TableEditTransactionResult> => executeValueWrites(writes);
 
   const reloadContextData = async (): Promise<void> => {
+    // An explicit authoritative reload supersedes any pending coalesced saveDB
+    // read-back (Notidian-oxjk), so we never re-read the same context twice.
+    flushSaveDBReload.current.cancel();
     if (props.superstate.reloadContextByPath) {
       await props.superstate.reloadContextByPath(contextPath, {
         force: true,

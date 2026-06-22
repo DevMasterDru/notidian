@@ -14,6 +14,7 @@ import { PathContext } from "core/react/context/PathContext";
 import i18n from "shared/i18n";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
+import { rowMatchesGroupOption } from "core/utils/contexts/listGroupBucket";
 import {
   displayPropertyForPredicate,
   resolveRowDisplayLabel,
@@ -171,21 +172,13 @@ export const ContextListView = (props: {
           ];
         }
         
-        // Check if it's a multi-value field
-        const isMultiField = groupBy.type?.endsWith('-multi') || groupBy.type === 'tags';
-        
-        const newItems = data.filter((r) => {
-          const value = r[groupBy.name + groupBy.table];
-          
-          if (isMultiField && value) {
-            // For multi-value fields, check if the current option is in the parsed values
-            const values = parseMultiString(value);
-            return c === "" ? values.length === 0 : values.includes(c);
-          }
-          
-          // For single-value fields, use the existing filter
-          return groupByFilter.fn(value, c);
-        });
+        // Bucket each row into the group for option `c` ("" = None). The helper
+        // normalizes a MISSING property (undefined) to "" so value-less rows land
+        // in None instead of vanishing (Notidian-kxka), and keeps the existing
+        // multi-value semantics. Pure + unit-tested in listGroupBucket.test.ts.
+        const newItems = data.filter((r) =>
+          rowMatchesGroupOption(r, groupBy, c, groupByFilter)
+        );
         return [
           newItems.length > 0
             ? {

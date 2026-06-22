@@ -274,4 +274,51 @@ describe("grouped view group header (Notidian-brlx)", () => {
       expect(dataRow.querySelector(".mk-row-number")).not.toBeNull();
     }
   });
+
+  // Notidian-kxka: rows with NO value for the grouped property must be shown as a
+  // single "No <property>" ungrouped group — never dropped, and never split into
+  // two separate blank bands. tanstack keys groups by String(groupingValue), so
+  // an ABSENT value (key "undefined") and an EMPTY value (key "") would otherwise
+  // render as two distinct unlabeled headers that read as "missing".
+  const groupedDataWithEmpties = [
+    { _index: "0", [PathPropertyName]: "Note 0", Status: "Open" },
+    { _index: "1", [PathPropertyName]: "Note 1", Status: "Done" },
+    { _index: "2", [PathPropertyName]: "Note 2", Status: "" }, // present, empty
+    { _index: "3", [PathPropertyName]: "Note 3" }, // property absent (undefined)
+    { _index: "4", [PathPropertyName]: "Note 4", Status: "Open" },
+  ] as any[];
+
+  it("merges absent + empty values into ONE labeled 'No <prop>' group, dropping nothing", async () => {
+    await render(groupedDataWithEmpties, {
+      ...basePredicate,
+      groupBy: ["Status"],
+    });
+
+    const headers = groupHeaderRows();
+    // Three groups: Open, Done, and the single merged no-value group — NOT four
+    // (which is what the pre-fix undefined/"" split produced).
+    expect(headers.length).toBe(3);
+
+    // Exactly one merged ungrouped band, and it carries the real "No Status"
+    // label (not a blank header).
+    const emptyLabels = container.querySelectorAll(".mk-group-header-empty");
+    expect(emptyLabels.length).toBe(1);
+    expect(emptyLabels[0].textContent).toBe("No Status");
+
+    // The no-value group's count badge reflects BOTH no-value rows (absent +
+    // empty), proving neither was dropped.
+    const emptyHeaderRow = emptyLabels[0].closest(
+      "tr.mk-row-group-header"
+    ) as HTMLTableRowElement;
+    expect(emptyHeaderRow).not.toBeNull();
+    expect(
+      emptyHeaderRow.querySelector(".mk-group-header-count")?.textContent
+    ).toBe("2");
+
+    // Every data row still renders — no row vanished because it lacked the value.
+    const dataRows = Array.from(
+      container.querySelectorAll<HTMLTableRowElement>("tbody tr[data-row-id]")
+    ).filter((tr) => !tr.classList.contains("mk-row-group-header"));
+    expect(dataRows.length).toBe(groupedDataWithEmpties.length);
+  });
 });

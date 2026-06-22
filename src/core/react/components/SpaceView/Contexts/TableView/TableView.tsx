@@ -267,8 +267,35 @@ type TableRowMarqueeState = {
 const tableUndoJournalStore = new Map<string, TableUndoJournalState>();
 const defaultTableColumnWidth = 150;
 
+// Grouping no-value sentinel (Notidian-kxka). tanstack keys each group by
+// `String(getGroupingValue(columnId))`, so a row with the grouped property
+// ABSENT (undefined) and a row with it EMPTY ("") fall into two SEPARATE groups
+// that both render a blank header band — they read as "missing"/ungrouped. We
+// override ONLY the group key (not the accessor/getValue) so absent+empty
+// collapse into ONE ungrouped group with a real "No <property>" label, while the
+// header cell, aggregates, and flexRender still see the raw cell value.
+const GROUP_NO_VALUE = "__notidian_no_value__";
+const groupingValueForCell = (raw: unknown): unknown => {
+  if (raw === null || raw === undefined) return GROUP_NO_VALUE;
+  if (typeof raw === "string" && raw.trim().length === 0) return GROUP_NO_VALUE;
+  return raw;
+};
+
 const tableUndoJournalForKey = (key: string): TableUndoJournalState =>
   tableUndoJournalStore.get(key) ?? { undo: [], redo: [] };
+
+// Test-only seam (Notidian-oxjk): dom tests seed/clear the module-level undo
+// journal directly instead of driving a full edit flow, so the undo/redo
+// re-entrancy guard can be exercised. Never imported by production code.
+export const __seedTableUndoJournalForTest = (
+  key: string,
+  state: TableUndoJournalState
+): void => {
+  tableUndoJournalStore.set(key, state);
+};
+export const __resetTableUndoJournalForTest = (): void => {
+  tableUndoJournalStore.clear();
+};
 
 export enum CellEditMode {
   EditModeReadOnly,
@@ -582,6 +609,13 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [tableRedoStack, setTableRedoStack] = useState<TableUndoEntry[]>([]);
   const tableUndoStackRef = useRef<TableUndoEntry[]>([]);
   const tableRedoStackRef = useRef<TableUndoEntry[]>([]);
+  // Notidian-oxjk: serialize undo/redo. A held Cmd+Z autorepeats ~30x/sec; each
+  // press fired a full async apply (file writes + reload), stacking dozens of
+  // overlapping operations that hung the table AND raced the journal (two presses
+  // popping the same entry). This guard drops presses while one op is in flight,
+  // so a held key applies operations one at a time at the rate the table can keep
+  // up. Awaited sequential calls (tests, single presses) are never blocked.
+  const undoRedoInFlightRef = useRef(false);
   const selectedRowsRef = useRef<string[]>([]);
   const rowMarqueeRef = useRef<TableRowMarqueeState>(null);
   const activeDragTypeRef = useRef<"column" | "row" | null>(null);
@@ -1217,65 +1251,79 @@ export const TableView = (props: { superstate: Superstate }) => {
       }
     };
     const undoLastTableOperation = async () => {
+      // Drop overlapping presses while an op is applying (Notidian-oxjk).
+      if (undoRedoInFlightRef.current) return;
       const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
       const undoEntry = currentJournal.undo[currentJournal.undo.length - 1];
       if (!undoEntry) return;
-      const nextUndoStack = currentJournal.undo.slice(0, -1);
-      replaceTableUndoJournal(nextUndoStack, currentJournal.redo);
+      undoRedoInFlightRef.current = true;
+      try {
+        const nextUndoStack = currentJournal.undo.slice(0, -1);
+        replaceTableUndoJournal(nextUndoStack, currentJournal.redo);
 
-      const operationId = beginCellFeedbackOperation(undoEntry.writes);
-      const result = await applyTableEdits(undoEntry.writes);
-      finishCellFeedbackOperation(operationId, result);
-      if (
-        result.ok &&
-        result.failed.length == 0 &&
-        result.skipped.length == 0
-      ) {
-        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-        const nextRedoStack = pushTableUndoEntry(
-          latestJournal.redo,
-          undoEntry
-        );
-        replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
-        props.superstate.ui.notify(`Undid ${undoEntry.label}.`);
-      } else {
-        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-        const restoredUndoStack = pushTableUndoEntry(
-          latestJournal.undo,
-          undoEntry
-        );
-        replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);
+        const operationId = beginCellFeedbackOperation(undoEntry.writes);
+        const result = await applyTableEdits(undoEntry.writes);
+        finishCellFeedbackOperation(operationId, result);
+        if (
+          result.ok &&
+          result.failed.length == 0 &&
+          result.skipped.length == 0
+        ) {
+          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+          const nextRedoStack = pushTableUndoEntry(
+            latestJournal.redo,
+            undoEntry
+          );
+          replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
+          props.superstate.ui.notify(`Undid ${undoEntry.label}.`);
+        } else {
+          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+          const restoredUndoStack = pushTableUndoEntry(
+            latestJournal.undo,
+            undoEntry
+          );
+          replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);
+        }
+      } finally {
+        undoRedoInFlightRef.current = false;
       }
     };
     const redoLastTableOperation = async () => {
+      // Drop overlapping presses while an op is applying (Notidian-oxjk).
+      if (undoRedoInFlightRef.current) return;
       const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
       const redoEntry = currentJournal.redo[currentJournal.redo.length - 1];
       if (!redoEntry) return;
-      const nextRedoStack = currentJournal.redo.slice(0, -1);
-      replaceTableUndoJournal(currentJournal.undo, nextRedoStack);
+      undoRedoInFlightRef.current = true;
+      try {
+        const nextRedoStack = currentJournal.redo.slice(0, -1);
+        replaceTableUndoJournal(currentJournal.undo, nextRedoStack);
 
-      const operationId = beginCellFeedbackOperation(redoEntry.redoWrites);
-      const result = await applyTableEdits(redoEntry.redoWrites);
-      finishCellFeedbackOperation(operationId, result);
-      if (
-        result.ok &&
-        result.failed.length == 0 &&
-        result.skipped.length == 0
-      ) {
-        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-        const nextUndoStack = pushTableUndoEntry(
-          latestJournal.undo,
-          redoEntry
-        );
-        replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
-        props.superstate.ui.notify(`Redid ${redoEntry.label}.`);
-      } else {
-        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-        const restoredRedoStack = pushTableUndoEntry(
-          latestJournal.redo,
-          redoEntry
-        );
-        replaceTableUndoJournal(latestJournal.undo, restoredRedoStack);
+        const operationId = beginCellFeedbackOperation(redoEntry.redoWrites);
+        const result = await applyTableEdits(redoEntry.redoWrites);
+        finishCellFeedbackOperation(operationId, result);
+        if (
+          result.ok &&
+          result.failed.length == 0 &&
+          result.skipped.length == 0
+        ) {
+          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+          const nextUndoStack = pushTableUndoEntry(
+            latestJournal.undo,
+            redoEntry
+          );
+          replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
+          props.superstate.ui.notify(`Redid ${redoEntry.label}.`);
+        } else {
+          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+          const restoredRedoStack = pushTableUndoEntry(
+            latestJournal.redo,
+            redoEntry
+          );
+          replaceTableUndoJournal(latestJournal.undo, restoredRedoStack);
+        }
+      } finally {
+        undoRedoInFlightRef.current = false;
       }
     };
     const nextRow = () => {
@@ -1444,6 +1492,11 @@ export const TableView = (props: { superstate: Superstate }) => {
           header: f.name,
           footer: () => "test",
           accessorKey: f.name + f.table,
+          // Collapse absent + empty values into ONE ungrouped group key
+          // (Notidian-kxka). Only consulted for the column actually being grouped;
+          // returns the raw value otherwise so non-empty grouping is unchanged.
+          getGroupingValue: (row: DBRow) =>
+            groupingValueForCell(row?.[f.name + f.table]),
           minSize: propertyHeaderMinimumColumnWidth,
           // enableResizing: true,
           meta: {
@@ -2753,9 +2806,20 @@ export const TableView = (props: { superstate: Superstate }) => {
                             aria-hidden="true"
                           ></span>
                           <span className="mk-group-header-label">
-                            {flexRender(
-                              cell.column.columnDef.cell,
-                              cell.getContext()
+                            {row.getGroupingValue(cell.column.id) ===
+                            GROUP_NO_VALUE ? (
+                              // The merged ungrouped bucket (Notidian-kxka):
+                              // rows with no value for the grouped property.
+                              <span className="mk-group-header-empty">
+                                {`No ${String(
+                                  cell.column.columnDef.header ?? ""
+                                )}`}
+                              </span>
+                            ) : (
+                              flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext()
+                              )
                             )}
                           </span>
                           <span className="mk-group-header-count">
