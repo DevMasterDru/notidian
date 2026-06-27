@@ -91,11 +91,27 @@ describe("parseMDBStringValue", () => {
       expect(parseMDBStringValue("datetime", "")).toBeNull();
       expect(parseMDBStringValue("date-end", "")).toBeNull();
     });
-    it("a valid date string parses to a Date instance", () => {
-      const d = parseMDBStringValue("date", "2024-03-05");
-      expect(d).toBeInstanceOf(Date);
-      // "2024-03-05" is parsed as a UTC instant by the Date constructor.
-      expect((d as Date).toISOString()).toBe("2024-03-05T00:00:00.000Z");
+    it("parses date-only strings as local midnight, not UTC midnight", () => {
+      const priorTZ = process.env.TZ;
+      process.env.TZ = "America/Los_Angeles";
+      try {
+        const d = parseMDBStringValue("date", "2024-03-05");
+        expect(d).toBeInstanceOf(Date);
+        expect((d as Date).getTime()).toBe(new Date(2024, 2, 5).getTime());
+        expect([
+          (d as Date).getFullYear(),
+          (d as Date).getMonth(),
+          (d as Date).getDate(),
+          (d as Date).getHours(),
+          (d as Date).getMinutes(),
+        ]).toEqual([2024, 2, 5, 0, 0]);
+      } finally {
+        if (priorTZ === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = priorTZ;
+        }
+      }
     });
     it("a valid datetime string parses to a Date instance (datetime/date-end share the branch)", () => {
       const dt = parseMDBStringValue("datetime", "2024-03-05T10:00:00Z");

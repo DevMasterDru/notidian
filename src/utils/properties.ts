@@ -138,7 +138,10 @@ export const parseMDBStringValue = (type: string, value: string, frontmatter?: b
   } else if (type == "date" || type == "datetime" || type == "date-end") {
     // Parse date strings to Date objects for proper temporal scaling
     if (!value || value === '') return null;
-    const date = new Date(value);
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const date = dateOnly
+      ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+      : new Date(value);
     // Return the date object if valid, otherwise return the original string
     return !isNaN(date.getTime()) ? date : value;
   } else if (type.includes("-multi")) {
@@ -165,4 +168,3 @@ export const propertyIsObjectType = (property: SpaceProperty) => {
   return false
   
 };
-
