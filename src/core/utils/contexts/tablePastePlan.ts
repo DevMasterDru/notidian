@@ -67,7 +67,31 @@ const dimensionsForPaste = (
   columns: number;
   repeat: boolean;
 } => {
-  const bounds = cellSelectionBounds(selection, rowOrder, columnOrder);
+  const anchorRow = rowOrder.indexOf(selection.anchor.rowId);
+  const focusRow = rowOrder.indexOf(selection.focus.rowId);
+  const anchorColumn = columnOrder.indexOf(selection.anchor.columnId);
+  const focusColumn = columnOrder.indexOf(selection.focus.columnId);
+  if (
+    anchorRow < 0 ||
+    focusRow < 0 ||
+    anchorColumn < 0 ||
+    focusColumn < 0
+  ) {
+    return {
+      startRow: -1,
+      startColumn: -1,
+      rows: 1,
+      columns: 1,
+      repeat: false,
+    };
+  }
+
+  const bounds = {
+    minRow: Math.min(anchorRow, focusRow),
+    maxRow: Math.max(anchorRow, focusRow),
+    minColumn: Math.min(anchorColumn, focusColumn),
+    maxColumn: Math.max(anchorColumn, focusColumn),
+  };
   const selectedRows = bounds.maxRow - bounds.minRow + 1;
   const selectedColumns = bounds.maxColumn - bounds.minColumn + 1;
   const sourceRows = clipboardGrid.length;

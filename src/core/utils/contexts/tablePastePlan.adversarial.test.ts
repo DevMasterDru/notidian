@@ -325,6 +325,29 @@ describe("planTablePaste — AUTHORITY guardrails (the security/parity core)", (
     ]);
   });
 
+  it("rejects a stale multi-cell range whose row ids are no longer visible (no snap to first row)", () => {
+    const plan = planTablePaste({
+      rowOrder: rows,
+      columns,
+      selection: {
+        anchor: { rowId: "old-a", columnId: "status" },
+        focus: { rowId: "old-b", columnId: "manual" },
+        active: { rowId: "old-a", columnId: "status" },
+      },
+      clipboardGrid: [["v"]],
+    });
+
+    expect(plan.writes).toEqual([]);
+    expect(plan.rejections).toEqual([
+      {
+        rowId: "old-a",
+        columnId: "status",
+        value: "v",
+        reason: "out-of-bounds",
+      },
+    ]);
+  });
+
   it("rejects a non-repeatable multi-cell range as a single 'non-repeatable-range' (atomic, no partial writes)", () => {
     // 3-row selection, 2-row source -> 3 % 2 != 0 -> reject the whole paste.
     const plan = planTablePaste({
