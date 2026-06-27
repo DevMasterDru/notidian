@@ -21,6 +21,7 @@
 //   npm run deploy:vault -- --no-reload        # install only (Obsidian closed)
 //   npm run deploy:vault -- --verify-only      # FAIL if installed != built (no writes)
 //   npm run deploy:vault -- --vault-path="/path/to/Vault"
+//   npm run deploy:vault -- --obsidian-command-timeout-ms=20000
 
 const fs = require("fs");
 const path = require("path");
@@ -30,7 +31,13 @@ const { installPluginToVault } = require("./notidianInstallToVault");
 
 const DEFAULT_VAULT_PATH = "/Users/druker/Atlas Vault";
 const DEFAULT_PLUGIN_ID = "notidian";
+const DEFAULT_OBSIDIAN_COMMAND_TIMEOUT_MS = 20000;
 const ARTIFACTS = ["manifest.json", "main.js", "styles.css"];
+
+const parsePositiveInteger = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+};
 
 const parseArgs = (argv, env) => {
   const cfg = {
@@ -42,6 +49,10 @@ const parseArgs = (argv, env) => {
     build: true,
     reload: true,
     verifyOnly: false,
+    obsidianCommandTimeoutMs: parsePositiveInteger(
+      env.NOTIDIAN_OBSIDIAN_COMMAND_TIMEOUT_MS,
+      DEFAULT_OBSIDIAN_COMMAND_TIMEOUT_MS
+    ),
   };
   for (const arg of argv) {
     const eq = arg.indexOf("=");
@@ -66,6 +77,12 @@ const parseArgs = (argv, env) => {
         break;
       case "verify-only":
         cfg.verifyOnly = true;
+        break;
+      case "obsidian-command-timeout-ms":
+        cfg.obsidianCommandTimeoutMs = parsePositiveInteger(
+          value,
+          cfg.obsidianCommandTimeoutMs
+        );
         break;
       default:
         break;
@@ -99,8 +116,14 @@ const targetDirFor = (vaultPath, pluginId) =>
 
 // The binary is `obsidian`. A login-interactive shell resolves the homebrew PATH
 // the same way an interactive terminal does (a non-interactive shell may miss it).
-const runObsidian = (args) =>
-  execFileSync("zsh", ["-ilc", `obsidian ${args}`], { encoding: "utf8" });
+const runObsidian = (args, timeoutMs) =>
+  execFileSync("zsh", ["-ilc", `obsidian ${args}`], {
+    encoding: "utf8",
+    timeout: parsePositiveInteger(
+      timeoutMs,
+      DEFAULT_OBSIDIAN_COMMAND_TIMEOUT_MS
+    ),
+  });
 
 const main = async () => {
   const cfg = parseArgs(process.argv.slice(2), process.env);
@@ -147,11 +170,14 @@ const main = async () => {
 
   if (cfg.reload) {
     try {
-      const out = runObsidian(`plugin:reload id=${cfg.pluginId}`);
+      const out = runObsidian(
+        `plugin:reload id=${cfg.pluginId}`,
+        cfg.obsidianCommandTimeoutMs
+      );
       console.log(`[deploy:vault] reloaded: ${out.trim()}`);
     } catch (e) {
       console.error(
-        "[deploy:vault] FAIL: `obsidian plugin:reload` failed — is Obsidian open? " +
+        "[deploy:vault] FAIL: `obsidian plugin:reload` failed or timed out — is Obsidian open? " +
           "The build IS installed and will load on next Obsidian start. " +
           (e.stderr ? String(e.stderr).trim() : e.message || "")
       );
@@ -159,10 +185,17 @@ const main = async () => {
     }
     // Best-effort: surface any captured plugin errors (non-fatal).
     try {
-      const errs = runObsidian("dev:errors limit=20").trim();
+      const errs = runObsidian(
+        "dev:errors limit=20",
+        cfg.obsidianCommandTimeoutMs
+      ).trim();
       console.log(`[deploy:vault] obsidian dev:errors:\n${errs || "(none)"}`);
-    } catch {
-      console.log("[deploy:vault] (dev:errors unavailable — skipping)");
+    } catch (e) {
+      console.log(
+        `[deploy:vault] (dev:errors unavailable or timed out — skipping: ${
+          e.message || e
+        })`
+      );
     }
   } else {
     console.log("[deploy:vault] --no-reload: skipped plugin reload");

@@ -4,6 +4,12 @@ const { execFileSync } = require("child_process");
 
 const DEFAULT_PLUGIN_ID = "notidian";
 const DEFAULT_VAULT_PATH = "/Users/druker/Atlas Vault";
+const DEFAULT_LIVE_COMMAND_TIMEOUT_MS = 20000;
+
+const parsePositiveInteger = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+};
 
 const parseHealthArgs = (
   argv = process.argv.slice(2),
@@ -16,6 +22,10 @@ const parseHealthArgs = (
     skipVault: false,
     live: false,
     json: false,
+    liveCommandTimeoutMs: parsePositiveInteger(
+      env.NOTIDIAN_LIVE_COMMAND_TIMEOUT_MS,
+      DEFAULT_LIVE_COMMAND_TIMEOUT_MS
+    ),
   };
 
   for (const arg of argv) {
@@ -51,6 +61,12 @@ const parseHealthArgs = (
         break;
       case "plugin-id":
         config.pluginId = value;
+        break;
+      case "live-command-timeout-ms":
+        config.liveCommandTimeoutMs = parsePositiveInteger(
+          value,
+          config.liveCommandTimeoutMs
+        );
         break;
     }
   }
@@ -167,10 +183,14 @@ const findActiveLegacyArtifacts = async (vaultPath) => {
   return artifacts.sort();
 };
 
-const defaultRunner = (command, args) =>
+const defaultRunner = (command, args, options = {}) =>
   execFileSync(command, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: parsePositiveInteger(
+      options.timeoutMs,
+      DEFAULT_LIVE_COMMAND_TIMEOUT_MS
+    ),
   });
 
 const addCheck = async (results, name, predicate, detail) => {
@@ -441,15 +461,27 @@ const runHealthAudit = async (config) => {
   }
 
   if (config.live) {
+    const liveRunnerOptions = {
+      timeoutMs: parsePositiveInteger(
+        config.liveCommandTimeoutMs,
+        DEFAULT_LIVE_COMMAND_TIMEOUT_MS
+      ),
+    };
     const state = JSON.parse(
       stripEvalPrefix(
-        runner("obsidian", [
-          "eval",
-          "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key)), spaceSubFolder: app.plugins.plugins.notidian?.superstate?.settings?.spaceSubFolder, legacyStorageRootGuardInstalled: Boolean(app.plugins.plugins.notidian?.legacyStorageRootGuardInstalled), spaceAdapterSchemes: app.plugins.plugins.notidian?.superstate?.spaceManager?.spaceAdapters?.map((adapter) => adapter.schemes) ?? [], rootCachePersisters: [app.plugins.plugins.notidian?.superstate?.persister?.storageDBPath, app.plugins.plugins.notidian?.obsidianAdapter?.persister?.storageDBPath].filter(Boolean)})",
-        ])
+        runner(
+          "obsidian",
+          [
+            "eval",
+            "code=JSON.stringify({notidianEnabled: app.plugins.enabledPlugins.has('notidian'), notidianLoaded: Boolean(app.plugins.plugins.notidian), basesCore: app.internalPlugins?.plugins?.bases ? app.internalPlugins.plugins.bases.enabled : null, retiredSyncSettingsPresent: ['saveAllContextToFrontmatter','syncFormulaToFrontmatter'].filter((key) => Object.prototype.hasOwnProperty.call(app.plugins.plugins.notidian?.superstate?.settings ?? {}, key)), spaceSubFolder: app.plugins.plugins.notidian?.superstate?.settings?.spaceSubFolder, legacyStorageRootGuardInstalled: Boolean(app.plugins.plugins.notidian?.legacyStorageRootGuardInstalled), spaceAdapterSchemes: app.plugins.plugins.notidian?.superstate?.spaceManager?.spaceAdapters?.map((adapter) => adapter.schemes) ?? [], rootCachePersisters: [app.plugins.plugins.notidian?.superstate?.persister?.storageDBPath, app.plugins.plugins.notidian?.obsidianAdapter?.persister?.storageDBPath].filter(Boolean)})",
+          ],
+          liveRunnerOptions
+        )
       )
     );
-    const errors = String(runner("obsidian", ["dev:errors"]));
+    const errors = String(
+      runner("obsidian", ["dev:errors"], liveRunnerOptions)
+    );
 
     await addCheck(
       results,
@@ -530,6 +562,7 @@ const usage = () => [
   "  --plugin-id=<id>         Defaults to notidian.",
   "  --skip-vault             Skip installed-vault manifest and enablement checks.",
   "  --live                   Check live Obsidian plugin state and dev errors.",
+  `  --live-command-timeout-ms=<ms> Bound each live Obsidian CLI command. Defaults to ${DEFAULT_LIVE_COMMAND_TIMEOUT_MS}.`,
   "  --json                   Emit JSON.",
 ].join("\n");
 

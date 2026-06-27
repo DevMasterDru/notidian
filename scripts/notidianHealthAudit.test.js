@@ -95,6 +95,7 @@ describe("notidian health audit", () => {
           "--skip-vault",
           "--live",
           "--json",
+          "--live-command-timeout-ms=1234",
         ],
         { NOTIDIAN_VAULT_PATH: "/env-vault" }
       )
@@ -105,6 +106,7 @@ describe("notidian health audit", () => {
       skipVault: true,
       live: true,
       json: true,
+      liveCommandTimeoutMs: 1234,
     });
 
     expect(parseHealthArgs([], { NOTIDIAN_VAULT_PATH: "/env-vault" }))
@@ -113,6 +115,7 @@ describe("notidian health audit", () => {
         pluginId: "notidian",
         skipVault: false,
         live: false,
+        liveCommandTimeoutMs: 20000,
       });
   });
 
@@ -168,8 +171,8 @@ describe("notidian health audit", () => {
       await writeSource(sourceDir);
 
       const commands = [];
-      const runner = (command, args) => {
-        commands.push([command, args]);
+      const runner = (command, args, options) => {
+        commands.push([command, args, options]);
         if (args[0] == "eval") {
           return '=> {"notidianEnabled":true,"notidianLoaded":true,"basesCore":false,"retiredSyncSettingsPresent":[],"spaceSubFolder":".notidian","legacyStorageRootGuardInstalled":true,"spaceAdapterSchemes":[["spaces","vault"]],"rootCachePersisters":[".notidian/superstate.mdc",".notidian/fileCache.mdc"]}';
         }
@@ -185,11 +188,16 @@ describe("notidian health audit", () => {
         pluginId: "notidian",
         skipVault: true,
         live: true,
+        liveCommandTimeoutMs: 1234,
         runner,
       });
 
       expect(result.ok).toBe(true);
       expect(commands.map(([command]) => command)).toEqual(["obsidian", "obsidian"]);
+      expect(commands.map(([, , options]) => options)).toEqual([
+        { timeoutMs: 1234 },
+        { timeoutMs: 1234 },
+      ]);
     });
   });
 
