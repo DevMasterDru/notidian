@@ -1,7 +1,7 @@
 export type TableClipboardGrid = string[][];
 
 const trimFinalClipboardNewline = (text: string): string =>
-  text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n$/, "");
+  text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n+$/, "");
 
 const parseUnquotedTsv = (text: string): TableClipboardGrid =>
   text.split("\n").map((row) => row.split("\t"));

@@ -10,8 +10,8 @@
  *
  * Pinned invariants (verified against the implementation, not assumed):
  *   - Line endings are normalized \r\n -> \n and \r -> \n BEFORE splitting.
- *   - Exactly ONE trailing newline is trimmed (anchored /\n$/), never more — so an
- *     intentional trailing empty row survives.
+ *   - All terminal row separators are trimmed so spreadsheet clipboards that append
+ *     \n\n do not create phantom empty rows.
  *   - RFC-4180-style quote handling keeps quoted tabs/newlines inside their cell
  *     and doubles embedded quotes on encode/decode.
  *   - Leading/trailing whitespace inside a cell is preserved verbatim.
@@ -43,23 +43,25 @@ describe("parseTableClipboardText — adversarial clipboard input", () => {
     });
   });
 
-  describe("trailing-newline trimming is single and anchored", () => {
-    it("trims exactly one trailing LF", () => {
+  describe("trailing-newline trimming removes terminal row separators", () => {
+    it("trims a trailing LF", () => {
       expect(parseTableClipboardText("A\n")).toEqual([["A"]]);
     });
 
-    it("trims exactly one trailing CRLF (normalized then trimmed)", () => {
+    it("trims a trailing CRLF (normalized then trimmed)", () => {
       expect(parseTableClipboardText("A\r\n")).toEqual([["A"]]);
     });
 
-    it("KEEPS an intentional trailing empty row when there are two trailing newlines", () => {
-      // "A\n\n" -> trim ONE -> "A\n" -> split -> [["A"], [""]]
-      expect(parseTableClipboardText("A\n\n")).toEqual([["A"], [""]]);
+    it("trims Google Sheets double trailing LF without creating a phantom empty row", () => {
+      expect(parseTableClipboardText("A\n\n")).toEqual([["A"]]);
     });
 
-    it("KEEPS the trailing empty row for a double bare-CR too (CR->LF first)", () => {
-      // "A\r\r" -> "A\n\n" -> trim one -> "A\n" -> [["A"], [""]]
-      expect(parseTableClipboardText("A\r\r")).toEqual([["A"], [""]]);
+    it("trims multiple trailing bare-CR row separators too (CR->LF first)", () => {
+      expect(parseTableClipboardText("A\r\r")).toEqual([["A"]]);
+    });
+
+    it("trims more than two trailing row separators", () => {
+      expect(parseTableClipboardText("A\n\n\n")).toEqual([["A"]]);
     });
 
     it("preserves a genuine empty line in the MIDDLE of the grid", () => {
