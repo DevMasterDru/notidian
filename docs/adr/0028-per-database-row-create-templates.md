@@ -2,18 +2,18 @@
 
 ## Status
 
-Parked — build when the owner asks.
+Accepted — implemented 2026-06-27.
 
-Parked to [docs/ROADMAP.md](../ROADMAP.md); build only when the owner explicitly
-asks. This is genuinely-speculative product direction the owner has not requested
-(the owner validates by USING the tool), so it is not a decision-that-waits — it
-is parked, with this ADR retained as the grounding reference. Tracked by bd
-`Notidian-e29`. This ADR was written instead of building the feature blind. It is
-roadmap item (2) of epic `Notidian-2w0` ("per-database templates on row create"),
-the last item in that epic with **no ADR yet** (items 3/4/5 have 0024/0020/0021).
-A wrong call here would change what frontmatter and body land in the owner's real
-notes on every row create — expensive to undo across a vault — so the build stops
-at the contract.
+The owner pulled the next Notion-parity row-create step after grouped-row add.
+The recommended contract below was implemented by bd `Notidian-2w0.1`: shared
+database row-create routing now honors a space's default template from table row
+creation, grouped-row add, the context create modal, `api.context.insert`, and
+context-cell linked-row creation. Template creation copies the `.md` template's
+frontmatter and body and skips Type Profile defaults; no-template creation keeps
+the existing `newPathInSpace` Type Profile default behavior. Caller-supplied
+create values, such as grouped-row inherited fields or API insert row values, are
+written after the row exists and intentionally override template frontmatter for
+the fields the explicit create action supplies.
 
 ## Date
 
@@ -66,10 +66,11 @@ directly (never `newTemplateInSpace`):
 - **Context cell new-link** — `ContextCell.tsx:113` (typing a not-yet-existing
   `[[link]]` into a relation cell mints a new row) → `newPathInSpace`.
 
-So a user who has set a default template for a database gets it from the sidebar
-`+` but **not** when they add a row in the table view — the most common row-create
-gesture in a database. That is the bug epic item (2) names: "space template helpers
-exist; modal creates empty file."
+Pre-implementation, a user who set a default template for a database got it from
+the sidebar `+` but **not** when adding a row in the table view, modal, API insert,
+or context-cell link minting path. That was the bug epic item (2) named: "space
+template helpers exist; modal creates empty file." As of `Notidian-2w0.1`, those
+database row-create paths share the same template-aware helper.
 
 ### How templates interact with the Type Profile defaults already shipped
 

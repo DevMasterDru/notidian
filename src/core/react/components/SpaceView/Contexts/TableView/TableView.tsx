@@ -64,7 +64,7 @@ import { SpaceContext } from "core/react/context/SpaceContext";
 import { SpaceChart } from "./SpaceChart";
 import { ChartPredicate } from "shared/types/predicate";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
-import { newPathInSpace } from "core/superstate/utils/spaces";
+import { newRowPathInSpace } from "core/superstate/utils/spaces";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { PointerModifiers } from "core/types/ui";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
@@ -1180,10 +1180,9 @@ export const TableView = (props: { superstate: Superstate }) => {
   const newRow = async (name: string, index?: number, data?: DBRow) => {
     if (dbSchema?.id == defaultContextSchemaID) {
       try {
-        const path = await newPathInSpace(
+        const path = await newRowPathInSpace(
           props.superstate,
           spaceCache,
-          "md",
           name,
           true
         );

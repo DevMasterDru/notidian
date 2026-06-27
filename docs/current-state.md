@@ -146,6 +146,14 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - Accepted v1 consequence: a frontmatter-rich folder opened as a context gets a wide-by-default table. Column visibility is managed from there through the view's hidden-columns state.
 - Accepted v1 consequence: a user who deletes every non-default column and reopens the context gets the discovered frontmatter columns imported again.
 
+### Per-Database Row-Create Templates
+
+- A space's default `.md` template is file-canonical under the space template folder; Notidian stores only the default-template pointer as view configuration.
+- Database row-create surfaces honor that default template: table row add, grouped-header row add, the context create modal, `api.context.insert`, and context-cell linked-row creation all route through the shared row-create helper.
+- A templated row copies the whole template note, including frontmatter and body, and does not layer Type Profile defaults over it. The template is the authored scaffold.
+- A no-template row keeps the existing empty-file creation path and Type Profile default seeding.
+- Explicit create-action values are written after the row exists: grouped-row inherited values, modal field inputs, and API insert row values intentionally override template frontmatter for those supplied fields.
+
 ### Properties Visibility Panel
 
 - The view-options `Properties` item opens a Notion-style panel with two groups: `Shown in view` (columns not in `predicate.colsHidden`, ordered by `predicate.colsOrder` like the live table) and `Hidden in view` (columns in `colsHidden`).

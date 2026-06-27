@@ -47,6 +47,7 @@ const updateValueInContext = jest.fn();
 const addRowInTable = jest.fn();
 const saveProperties = jest.fn();
 const newPathInSpace = jest.fn();
+const newRowPathInSpace = jest.fn();
 
 jest.mock("core/utils/contexts/context", () => ({
   __esModule: true,
@@ -59,6 +60,7 @@ jest.mock("./utils/spaces", () => ({
   __esModule: true,
   saveProperties: (...args: unknown[]) => saveProperties(...args),
   newPathInSpace: (...args: unknown[]) => newPathInSpace(...args),
+  newRowPathInSpace: (...args: unknown[]) => newRowPathInSpace(...args),
 }));
 
 // api.ts pulls in the heavy UI/menu graph (context menus, modals, makemd-core)
@@ -138,6 +140,7 @@ beforeEach(() => {
   addRowInTable.mockClear();
   saveProperties.mockClear();
   newPathInSpace.mockClear();
+  newRowPathInSpace.mockClear();
 });
 
 describe("api.context.update pre-gate default (bd Notidian-1da, api.ts:280)", () => {
@@ -178,7 +181,7 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
   it("creates the path then writes the row's non-File fields to frontmatter for the default schema", async () => {
     const { superstate, spacePath } = buildSuperstate([]);
     const createdPath = "Folder/New.md";
-    newPathInSpace.mockResolvedValue(createdPath);
+    newRowPathInSpace.mockResolvedValue(createdPath);
     const api = new API(superstate);
 
     await api.context.insert(spacePath, defaultContextSchemaID, "New", {
@@ -188,11 +191,10 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
     });
     await flushAsync();
 
-    expect(newPathInSpace).toHaveBeenCalledTimes(1);
-    expect(newPathInSpace).toHaveBeenCalledWith(
+    expect(newRowPathInSpace).toHaveBeenCalledTimes(1);
+    expect(newRowPathInSpace).toHaveBeenCalledWith(
       superstate,
       superstate.spacesIndex.get(spacePath),
-      "md",
       "New",
       true
     );
@@ -224,7 +226,7 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
       { name: "total", type: "rollup" },
     ]);
     const createdPath = "Folder/Leaky.md";
-    newPathInSpace.mockResolvedValue(createdPath);
+    newRowPathInSpace.mockResolvedValue(createdPath);
     const api = new API(superstate);
 
     await api.context.insert(spacePath, defaultContextSchemaID, "Leaky", {
@@ -259,7 +261,7 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
       { name: "manual", type: "text", source: notidianPropertySource },
     ]);
     const createdPath = "Folder/Mixed.md";
-    newPathInSpace.mockResolvedValue(createdPath);
+    newRowPathInSpace.mockResolvedValue(createdPath);
     const api = new API(superstate);
 
     await api.context.insert(spacePath, defaultContextSchemaID, "Mixed", {
@@ -294,7 +296,7 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
       { name: "owner", type: "text", source: notidianPropertySource },
     ]);
     const createdPath = "Folder/Multi.md";
-    newPathInSpace.mockResolvedValue(createdPath);
+    newRowPathInSpace.mockResolvedValue(createdPath);
     const api = new API(superstate);
 
     await api.context.insert(spacePath, defaultContextSchemaID, "Multi", {
@@ -320,13 +322,13 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
   it("creates the path even when the row is empty (no File key to strip)", async () => {
     const { superstate, spacePath } = buildSuperstate([]);
     const createdPath = "Folder/Empty.md";
-    newPathInSpace.mockResolvedValue(createdPath);
+    newRowPathInSpace.mockResolvedValue(createdPath);
     const api = new API(superstate);
 
     await api.context.insert(spacePath, defaultContextSchemaID, "Empty", {});
     await flushAsync();
 
-    expect(newPathInSpace).toHaveBeenCalledTimes(1);
+    expect(newRowPathInSpace).toHaveBeenCalledTimes(1);
     expect(saveProperties).toHaveBeenCalledTimes(1);
     expect(saveProperties).toHaveBeenCalledWith(superstate, createdPath, {});
   });
@@ -346,7 +348,7 @@ describe("api.context.insert row-create write path (bd Notidian-1da / Notidian-2
     await flushAsync();
 
     expect(readTable).toHaveBeenCalledWith(spacePath, "custom-schema");
-    expect(newPathInSpace).not.toHaveBeenCalled();
+    expect(newRowPathInSpace).not.toHaveBeenCalled();
     expect(saveProperties).not.toHaveBeenCalled();
   });
 });

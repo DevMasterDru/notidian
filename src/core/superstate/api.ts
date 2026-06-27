@@ -22,7 +22,11 @@ import { windowFromDocument } from "shared/utils/dom";
 import { sanitizeTableName } from "shared/utils/sanitizers";
 import { parseMDBStringValue } from "utils/properties";
 import { ISuperstate } from "shared/types/superstate";
-import { newPathInSpace, saveProperties } from "./utils/spaces";
+import {
+    newPathInSpace,
+    newRowPathInSpace,
+    saveProperties,
+} from "./utils/spaces";
 
 // Interface for the minimal space manager functionality needed by API
 export interface APISpaceManager {
@@ -308,7 +312,7 @@ update: (property: string, value: string, path: string, saveState: (state: any) 
             if (schema == defaultContextSchemaID)
             {
                 const space = this.superstate.spacesIndex.get(path)
-                newPathInSpace(this.superstate, space, "md", name, true).then(f =>
+                newRowPathInSpace(this.superstate, space, name, true).then(f =>
                 {
                     if (row)
                     {

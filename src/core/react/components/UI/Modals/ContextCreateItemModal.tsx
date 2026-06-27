@@ -14,7 +14,7 @@ import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow } from "shared/types/mdb";
 import { renamePageTitleForRow } from "core/utils/contexts/pageTitleRename";
-import { applyNewRowTypeProfileDefaults } from "core/utils/contexts/typeProfileDefaults";
+import { newRowPathInSpace } from "core/superstate/utils/spaces";
 
 export interface ContextCreateItemModalProps {
   superstate: Superstate;
@@ -26,6 +26,15 @@ export interface ContextCreateItemModalProps {
   initialData?: DBRow;
   onSave?: (data: DBRow, index: number) => Promise<void> | void;
 }
+
+export const createDefaultSchemaItemPath = async (
+  superstate: Superstate,
+  source: string,
+  itemName: string
+) => {
+  const space = superstate.spacesIndex.get(source);
+  return newRowPathInSpace(superstate, space, itemName, true);
+};
 
 export const openContextCreateItemModal = (
   superstate: Superstate,
@@ -227,25 +236,18 @@ const ContextCreateItemContent = (props: {
 
           // Create the file and capture its actual path. The created path is
           // `source/itemName` in a subfolder context, so properties must target
-          // the returned path, not the bare title. bd Notidian-te8.
-          const createdResult = await props.superstate.api.path.create(
-            itemName, // name/path
-            source, // space/context path
-            "md", // type (markdown file)
-            "" // content (empty initially)
+          // the returned path, not the bare title. This is a database row-create
+          // surface, so it honors the database's default template when present;
+          // the no-template path keeps Type Profile default seeding.
+          const createdResult = await createDefaultSchemaItemPath(
+            props.superstate,
+            source,
+            itemName
           );
           const createdPath =
             typeof createdResult === "string" && createdResult
               ? createdResult
               : itemName;
-
-          // Seed Type Profile value defaults first (Notidian-drv); the user's
-          // own field inputs below override any overlapping default.
-          await applyNewRowTypeProfileDefaults(
-            props.superstate,
-            source,
-            createdPath
-          );
 
           // Add other properties to the created file
           const otherFields = { ...newItem };

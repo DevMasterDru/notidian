@@ -2,7 +2,7 @@ import { PathCrumb } from "core/react/components/UI/Crumbs/PathCrumb";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import {
   addPathToSpaceAtIndex,
-  newPathInSpace,
+  newRowPathInSpace,
 } from "core/superstate/utils/spaces";
 import {
   deletePropertyMultiValue,
@@ -110,7 +110,7 @@ export const ContextCell = (
         if (props.superstate.pathsIndex.get(f)) {
           addPathToSpaceAtIndex(props.superstate, space, f);
         } else {
-          newPathInSpace(props.superstate, space, "md", f, true);
+          newRowPathInSpace(props.superstate, space, f, true);
         }
       });
     }

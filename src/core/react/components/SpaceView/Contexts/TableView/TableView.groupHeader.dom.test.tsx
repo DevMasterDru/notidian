@@ -78,8 +78,10 @@ jest.mock(
 );
 
 const mockNewPathInSpace = jest.fn();
+const mockNewRowPathInSpace = jest.fn();
 jest.mock("core/superstate/utils/spaces", () => ({
   newPathInSpace: (...args: any[]) => mockNewPathInSpace(...args),
+  newRowPathInSpace: (...args: any[]) => mockNewRowPathInSpace(...args),
 }));
 
 const mockSaveFrontmatterProperties = jest.fn();
@@ -246,6 +248,8 @@ beforeEach(() => {
   openCustomMenuMock = jest.fn(() => ({ hide: jest.fn(), update: jest.fn() }));
   mockNewPathInSpace.mockReset();
   mockNewPathInSpace.mockResolvedValue("Test/Space/Note 5.md");
+  mockNewRowPathInSpace.mockReset();
+  mockNewRowPathInSpace.mockResolvedValue("Test/Space/Note 5.md");
   mockSaveFrontmatterProperties.mockReset();
   mockSaveFrontmatterProperties.mockResolvedValue({ ok: true });
   container = document.createElement("div");
@@ -384,10 +388,9 @@ describe("grouped view group header (Notidian-brlx)", () => {
       await Promise.resolve();
     });
 
-    expect(mockNewPathInSpace).toHaveBeenCalledWith(
+    expect(mockNewRowPathInSpace).toHaveBeenCalledWith(
       lastSuperstate,
       { path: "Test/Space" },
-      "md",
       "Note 5",
       true
     );

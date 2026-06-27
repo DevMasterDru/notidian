@@ -455,22 +455,85 @@ export const newTemplateInSpace = async (
   name: string,
   location?: TargetLocation
 ) => {
-  let newName: string;
+  return newTemplatePathInSpace(superstate, space, name, {
+    dontOpen: false,
+    location,
+  });
+};
+
+export const newTemplatePathInSpace = async (
+  superstate: Superstate,
+  space: SpaceState,
+  templateName: string,
+  options?: {
+    dontOpen?: boolean;
+    fallbackName?: string;
+    location?: TargetLocation;
+  }
+) => {
+  let newName: string | undefined = options?.fallbackName;
   try {
     if (space.metadata.templateName?.length > 0) {
-      const result = runFormulaWithContext(superstate.formulaContext,superstate.pathsIndex, superstate.spacesMap, space.metadata.templateName, {}, {}, superstate.pathsIndex.get(space.path))
-      if (result?.length> 0) newName = result
+      const result = runFormulaWithContext(
+        superstate.formulaContext,
+        superstate.pathsIndex,
+        superstate.spacesMap,
+        space.metadata.templateName,
+        {},
+        {},
+        superstate.pathsIndex.get(space.path)
+      );
+      if (result?.length > 0) newName = result;
     }
   } catch (e) {
   }
-  if (!(await superstate.spaceManager.pathExists(`${space.path}/${superstate.settings.spaceSubFolder}/templates/${name}`))) {
-    newPathInSpace(superstate, space, "md", null, false, null, location);
-    return;
+  const templatePath =
+    `${space.path}/${superstate.settings.spaceSubFolder}/templates/${templateName}`;
+  if (!(await superstate.spaceManager.pathExists(templatePath))) {
+    return newPathInSpace(
+      superstate,
+      space,
+      "md",
+      options?.fallbackName,
+      options?.dontOpen,
+      null,
+      options?.location
+    );
   }
-const newPath = await superstate.spaceManager.copyPath(`${space.path}/${superstate.settings.spaceSubFolder}/templates/${name}`, space.path, newName)
-if (newPath)
-superstate.ui.openPath(newPath, location)
-}
+  const newPath = await superstate.spaceManager.copyPath(
+    templatePath,
+    space.path,
+    newName
+  );
+  if (newPath && !options?.dontOpen)
+    superstate.ui.openPath(newPath, options?.location);
+  return newPath;
+};
+
+export const newRowPathInSpace = async (
+  superstate: Superstate,
+  space: SpaceState,
+  name: string,
+  dontOpen?: boolean,
+  location?: TargetLocation
+) => {
+  if (space?.metadata.template?.length > 0) {
+    return newTemplatePathInSpace(superstate, space, space.metadata.template, {
+      dontOpen,
+      fallbackName: name,
+      location,
+    });
+  }
+  return newPathInSpace(
+    superstate,
+    space,
+    "md",
+    name,
+    dontOpen,
+    undefined,
+    location
+  );
+};
 
 
 export const newPathInSpace = async (
