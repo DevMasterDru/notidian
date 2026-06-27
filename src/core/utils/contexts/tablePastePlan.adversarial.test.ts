@@ -126,6 +126,39 @@ describe("planTablePaste — ragged rows (pad / spill / rectangularize)", () => 
     ]);
   });
 
+  it("does not synthesize empty writes from a short ragged row when repeat-tiling", () => {
+    const repeatColumns: TablePasteColumn[] = [
+      { id: "a", name: "a", type: "text", source: frontmatterPropertySource },
+      { id: "b", name: "b", type: "text", source: frontmatterPropertySource },
+      { id: "c", name: "c", type: "text", source: frontmatterPropertySource },
+      { id: "d", name: "d", type: "text", source: frontmatterPropertySource },
+    ];
+
+    const plan = planTablePaste({
+      rowOrder: rows,
+      columns: repeatColumns,
+      selection: range(["0", "a"], ["1", "d"]),
+      clipboardGrid: [
+        ["r0a", "r0b"],
+        ["r1a"],
+      ],
+    });
+
+    expect(plan.rejections).toEqual([]);
+    expect(
+      plan.writes.map((write) => [write.rowId, write.columnId, write.value])
+    ).toEqual([
+        ["0", "a", "r0a"],
+        ["0", "b", "r0b"],
+        ["0", "c", "r0a"],
+        ["0", "d", "r0b"],
+        ["1", "a", "r1a"],
+        ["1", "b", "r1a"],
+        ["1", "c", "r1a"],
+        ["1", "d", "r1a"],
+    ]);
+  });
+
   it("CLAMPS cells that spill past the last column into 'out-of-bounds' rejections, not silent loss", () => {
     // Start at the last (computed) column; a 2-wide grid spills one cell off the edge.
     const plan = planTablePaste({

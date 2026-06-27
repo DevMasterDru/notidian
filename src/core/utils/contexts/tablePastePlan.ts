@@ -138,10 +138,11 @@ const valueAt = (
   repeat: boolean
 ): string => {
   const sourceRow = repeat ? row % clipboardGrid.length : row;
+  const sourceRowValues = clipboardGrid[sourceRow] ?? [];
   const sourceColumn = repeat
-    ? column % Math.max(1, ...clipboardGrid.map((r) => r.length))
+    ? column % Math.max(1, sourceRowValues.length)
     : column;
-  return clipboardGrid[sourceRow]?.[sourceColumn] ?? "";
+  return sourceRowValues[sourceColumn] ?? "";
 };
 
 export const planTablePaste = ({
