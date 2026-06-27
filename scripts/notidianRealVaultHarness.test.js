@@ -708,6 +708,14 @@ describe("notidian real vault harness", () => {
     ).rejects.toThrow("timed out after 25ms");
   });
 
+  it("resolves after the CLI process exits even if a descendant keeps stdio open briefly", async () => {
+    const runner = createObsidianRunner("/bin/sh", 25);
+
+    await expect(
+      runner(["-c", "printf ready; (sleep 0.2) & exit 0"])
+    ).resolves.toBe("ready");
+  });
+
   it("escalates timed out Obsidian CLI children that ignore SIGTERM", async () => {
     const runner = createObsidianRunner("/bin/sh", 25);
     const started = Date.now();

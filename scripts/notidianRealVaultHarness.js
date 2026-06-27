@@ -203,9 +203,15 @@ const createObsidianRunner = (
     let stderr = "";
     let timedOut = false;
     let forceKillTimeout = null;
+    let exitCloseGraceTimeout = null;
+    let settled = false;
     const commandKillGraceMs = Math.min(
       1000,
       Math.max(50, Math.floor(commandTimeoutMs / 2))
+    );
+    const stdioCloseGraceMs = Math.min(
+      100,
+      Math.max(10, Math.floor(commandTimeoutMs / 10))
     );
     const signalChildTree = (signal) => {
       try {
@@ -219,26 +225,11 @@ const createObsidianRunner = (
     const clearTimers = () => {
       clearTimeout(timeout);
       if (forceKillTimeout) clearTimeout(forceKillTimeout);
+      if (exitCloseGraceTimeout) clearTimeout(exitCloseGraceTimeout);
     };
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      signalChildTree("SIGTERM");
-      forceKillTimeout = setTimeout(() => {
-        signalChildTree("SIGKILL");
-      }, commandKillGraceMs);
-    }, commandTimeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (error) => {
-      clearTimers();
-      reject(error);
-    });
-    child.on("close", (code) => {
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
       clearTimers();
       if (timedOut) {
         reject(
@@ -259,6 +250,34 @@ const createObsidianRunner = (
           `obsidian ${args.join(" ")} failed with exit code ${code}: ${stderr.trim()}`
         )
       );
+    };
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      signalChildTree("SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        signalChildTree("SIGKILL");
+      }, commandKillGraceMs);
+    }, commandTimeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      reject(error);
+    });
+    child.on("exit", (code) => {
+      exitCloseGraceTimeout = setTimeout(() => {
+        finish(code);
+      }, stdioCloseGraceMs);
+    });
+    child.on("close", (code) => {
+      finish(code);
     });
   });
 
