@@ -113,6 +113,33 @@ const validateStringScalar = (value: unknown, fallback: string): string =>
 const validateStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter(isString) : [];
 
+// Grouped-table state is keyed by the grouped column id, then holds option/group
+// values in user-selected order. It is optional view state: omit an absent or
+// wholly-invalid record so legacy predicates remain byte-identical. Empty keys,
+// blank values, duplicates, and non-string entries are never useful selectors,
+// so drop them while preserving the user's first declared order.
+const validateGroupedIslandRecord = (
+  value: unknown
+): Record<string, string[]> | undefined => {
+  if (!isPlainRecord(value)) return undefined;
+  const result: Record<string, string[]> = {};
+  for (const [columnId, rawValues] of Object.entries(value)) {
+    if (columnId.length == 0 || !Array.isArray(rawValues)) continue;
+    const values = rawValues.reduce((out, rawValue) => {
+      if (
+        typeof rawValue === "string" &&
+        rawValue.length > 0 &&
+        !out.includes(rawValue)
+      ) {
+        out.push(rawValue);
+      }
+      return out;
+    }, [] as string[]);
+    if (values.length > 0) result[columnId] = values;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+};
+
 const SUB_ITEMS_DISPLAYS = ["nested", "flattened", "parents-only"];
 const SUB_ITEMS_FILTER_SCOPES = ["parents", "parentsAndSubItems", "subItems"];
 
@@ -256,6 +283,8 @@ export const validatePredicate = (
       ? cleanPredicateType(prevPredicate.sort, sortFnTypes)
       : [],
     groupBy: validateStringArray(prevPredicate.groupBy),
+    groupOrder: validateGroupedIslandRecord(prevPredicate.groupOrder),
+    collapsedGroups: validateGroupedIslandRecord(prevPredicate.collapsedGroups),
     colsOrder: validateStringArray(prevPredicate.colsOrder),
     colsHidden: validateStringArray(prevPredicate.colsHidden),
     colsSize: validateRecordField(prevPredicate.colsSize, isFiniteNumber),

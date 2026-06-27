@@ -29,6 +29,11 @@ export type Filter = {
     filters: Filter[];
     sort: Sort[];
     groupBy: string[];
+    // ADR 0052: grouped-table island state is per-view configuration. Both
+    // fields stay optional so legacy predicates retain the fully-expanded,
+    // global-option-order behaviour without a migration.
+    groupOrder?: Record<string, string[]>;
+    collapsedGroups?: Record<string, string[]>;
 
     colsOrder: string[];
     colsHidden: string[];

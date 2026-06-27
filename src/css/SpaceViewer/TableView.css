@@ -311,6 +311,101 @@ body.mk-property-header-tooltip-visible > .tooltip {
 .mk-group-header:hover {
   background-color: var(--background-modifier-hover);
 }
+.mk-group-header-collapsed {
+  /* A muted collapsed island remains easy to find without competing with
+     expanded group bands or ordinary data rows (ADR 0052). */
+  background-color: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.mk-group-header-caret-button,
+.mk-group-header-label-button {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  justify-content: flex-start;
+}
+.mk-group-header-caret-button {
+  cursor: pointer;
+}
+.mk-group-header-label-button {
+  flex: 1;
+  cursor: pointer;
+  text-align: start;
+}
+.mk-group-header-label-button:hover {
+  text-decoration: underline;
+}
+.mk-grouped-island-order-scope,
+.mk-grouped-island-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mk-grouped-island-menu {
+  width: max-content;
+  min-width: 280px;
+  max-width: min(80vw, 720px);
+  resize: horizontal;
+  overflow: auto;
+}
+.mk-grouped-island-menu .mk-menu-suggestions {
+  min-width: 100%;
+  width: max-content;
+  max-width: 100%;
+}
+.mk-grouped-island-width-sizers {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+.mk-grouped-island-width-sizer {
+  display: inline-block;
+  width: max-content;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.mk-grouped-island-order-scope {
+  padding: 6px 8px;
+}
+.mk-grouped-island-option {
+  justify-content: flex-start;
+  gap: 4px;
+}
+.mk-grouped-island-disabled-reason {
+  max-width: 280px;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.mk-grouped-island-order-scope .is-active {
+  background-color: var(--background-modifier-hover);
+}
+.mk-grouped-island-option-name {
+  /* Its natural width makes the menu open at its longest value. It may still
+     shrink (and ellipsize) once the viewport-safe maximum is reached. */
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-end: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mk-grouped-island-drag-handle {
+  flex: 0 0 auto;
+  cursor: grab;
+  color: var(--text-muted);
+  line-height: 1;
+}
+.mk-grouped-island-drag-handle:active {
+  cursor: grabbing;
+}
 .mk-group-header-caret {
   display: inline-flex;
   width: 0;
@@ -349,6 +444,28 @@ body.mk-property-header-tooltip-visible > .tooltip {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: var(--font-normal, 400);
+}
+.mk-group-header-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+.mk-group-header-add-button:hover {
+  border-color: var(--background-modifier-border);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .mk-td-group .mk-cell-option {
   width: unset;

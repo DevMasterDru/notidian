@@ -194,6 +194,8 @@ const tablePredicate = {
   colsOrder: [],
 } as any;
 
+let openViewSearchMock = jest.fn();
+
 const renderFilterBar = (
   superstate: any,
   predicateOverride?: any
@@ -216,6 +218,9 @@ const renderFilterBar = (
     hideColumn: () => {},
     delColumn: () => {},
     saveColumn: () => false,
+    openViewSearch: openViewSearchMock,
+    setSearchActive: jest.fn(),
+    searchActive: false,
     reloadContextData: async () => {},
   } as any;
   const framesValue = {
@@ -253,6 +258,7 @@ describe("FilterBar toolbar menu anchoring (Notidian-i23)", () => {
 
   beforeEach(() => {
     openMenuCalls = [];
+    openViewSearchMock = jest.fn();
     superstate = makeSuperstate(openMenuCalls);
     ({ root, container } = renderFilterBar(superstate));
   });
@@ -302,6 +308,16 @@ describe("FilterBar toolbar menu anchoring (Notidian-i23)", () => {
     const searchToggle = viewOptions.querySelector(".mk-view-search-toggle");
     expect(searchToggle).toBeTruthy();
     expect(searchToggle!.getAttribute("aria-label")).toBe("Search");
+  });
+
+  it("opens search through the shared view-search action", () => {
+    const searchToggle = container.querySelector(
+      ".mk-view-search-toggle"
+    ) as HTMLButtonElement;
+    act(() => {
+      searchToggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(openViewSearchMock).toHaveBeenCalledTimes(1);
   });
 
   it("anchors the 3-knobs (view-options) menu to the button, not the clicked SVG child", () => {

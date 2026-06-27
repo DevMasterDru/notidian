@@ -103,6 +103,7 @@ export const FilterBar = (props: {
     // the table's Cmd/Ctrl+F can open this same SearchBar.
     searchActive,
     setSearchActive,
+    openViewSearch,
   } = useContext(ContextEditorContext);
 
   const { frameSchema, saveSchema, setFrameSchema } =
@@ -2038,7 +2039,7 @@ export const FilterBar = (props: {
                     title={i18n.labels.searchViewTooltip}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSearchActive((f) => !f);
+                      openViewSearch();
                     }}
                     dangerouslySetInnerHTML={{
                       __html: props.superstate.ui.getSticker("ui//search"),

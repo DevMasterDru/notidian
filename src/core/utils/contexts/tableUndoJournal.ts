@@ -22,7 +22,7 @@ export type CreateTableUndoEntryParams = {
 
 export type DirectEditColumn = Pick<
   SpaceProperty,
-  "name" | "source" | "type" | "value"
+  "name" | "source" | "type" | "value" | "attrs"
 > & {
   table?: string;
 };
@@ -33,6 +33,7 @@ export type TableUndoWriteForDirectEditParams = {
   value: string;
   path?: string;
   fieldValue?: string;
+  fieldAttrs?: string | null;
 };
 
 const undoKeyForWrite = (write: TablePasteWrite): string =>
@@ -57,6 +58,7 @@ export const tableUndoWriteForDirectEdit = ({
   value,
   path,
   fieldValue,
+  fieldAttrs,
 }: TableUndoWriteForDirectEditParams): TablePasteWrite | null => {
   const authority = propertyAuthorityForColumn(column);
   if (authority == "computed") return null;
@@ -70,6 +72,7 @@ export const tableUndoWriteForDirectEdit = ({
       value,
       path,
       fieldValue,
+      fieldAttrs,
       authority,
     }).filter(([, entryValue]) => entryValue !== undefined)
   ) as unknown as TablePasteWrite;
@@ -179,6 +182,10 @@ export const createTableUndoEntry = ({
         fieldValue:
           net.fieldValue !== undefined
             ? columnForWrite(columns, net)?.value ?? ""
+            : undefined,
+        fieldAttrs:
+          net.fieldAttrs !== undefined
+            ? columnForWrite(columns, net)?.attrs ?? null
             : undefined,
       })
     );

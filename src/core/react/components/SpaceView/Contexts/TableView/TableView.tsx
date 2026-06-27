@@ -44,9 +44,18 @@ import { ColumnHeader } from "./ColumnHeader";
 
 import classNames from "classnames";
 import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowContextMenu";
+import { showGroupedIslandMenu } from "core/react/components/UI/Menus/contexts/groupedIslandMenu";
+import { ConfirmationModal } from "core/react/components/UI/Modals/ConfirmationModal";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import { removePathInContexts } from "core/utils/contexts/context";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
+import { serializeOptionValue } from "core/utils/serializer";
+import {
+  attrsWithTextGroupOrder,
+  effectiveTextGroupOrder,
+  textGroupOrderFromAttrs,
+} from "core/utils/contexts/groupedIslandOrder";
+import { planGroupedRowCreate } from "core/utils/contexts/groupedRowCreate";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
@@ -56,8 +65,10 @@ import { SpaceChart } from "./SpaceChart";
 import { ChartPredicate } from "shared/types/predicate";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { newPathInSpace } from "core/superstate/utils/spaces";
+import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { PointerModifiers } from "core/types/ui";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
+import { propertyAuthorityForColumn } from "core/utils/properties/propertyAuthority";
 import {
   lifecycleValuesFromColumnValue,
   stepLifecycleValue,
@@ -280,6 +291,74 @@ const groupingValueForCell = (raw: unknown): unknown => {
   if (typeof raw === "string" && raw.trim().length === 0) return GROUP_NO_VALUE;
   return raw;
 };
+
+const distinctGroupOrderValues = (values: string[]): string[] => {
+  const seen = new Set<string>();
+  return values.reduce<string[]>((result, value) => {
+    if (value.length == 0 || seen.has(value)) return result;
+    seen.add(value);
+    result.push(value);
+    return result;
+  }, []);
+};
+
+const stagedGroupOrderForRename = (
+  values: string[],
+  oldValue: string,
+  nextValue: string
+): string[] => {
+  let sawOldValue = false;
+  const staged = values.flatMap((value) => {
+    if (value != oldValue) return [value];
+    sawOldValue = true;
+    return [oldValue, nextValue];
+  });
+  if (!sawOldValue) staged.push(oldValue, nextValue);
+  return distinctGroupOrderValues(staged);
+};
+
+const renamedGroupOrder = (
+  values: string[],
+  oldValue: string,
+  nextValue: string
+): string[] =>
+  distinctGroupOrderValues(
+    values.map((value) => (value == oldValue ? nextValue : value))
+  );
+
+// TanStack's grouped model preserves first-row group order. Select properties
+// instead have an explicit option lifecycle, so reorder ONLY the root grouped
+// rows. Leaf rows and the flat model remain untouched: view configuration must
+// not leak into manual row order, sub-items, or copy/paste identity (ADR 0052).
+const orderedGroupedRowModel = (orderByColumnRef: {
+  current: Record<string, string[]>;
+}) =>
+  (table: any) => {
+    const base = getGroupedRowModel()(table);
+    return () => {
+      // TanStack caches this factory in `table._getGroupedRowModel` on its first
+      // invocation. Read through a stable ref so a saved group order affects the
+      // existing table instance instead of waiting for an unrelated remount.
+      const orderByColumn = orderByColumnRef.current;
+      const model = base();
+      if (model.rows.length < 2) return model;
+      const rows = model.rows
+        .map((row: any, originalIndex: number) => ({ row, originalIndex }))
+        .sort((left, right) => {
+          const rank = (candidate: any) => {
+            const order = orderByColumn[candidate.groupingColumnId] ?? [];
+            const value = String(candidate.groupingValue);
+            if (value == GROUP_NO_VALUE) return Number.MAX_SAFE_INTEGER;
+            const index = order.indexOf(value);
+            return index == -1 ? order.length : index;
+          };
+          const difference = rank(left.row) - rank(right.row);
+          return difference || left.originalIndex - right.originalIndex;
+        })
+        .map(({ row }: { row: any }) => row);
+      return { ...model, rows };
+    };
+  };
 
 const tableUndoJournalForKey = (key: string): TableUndoJournalState =>
   tableUndoJournalStore.get(key) ?? { undo: [], redo: [] };
@@ -535,6 +614,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     filteredData: data,
     predicate,
     savePredicate,
+    saveColumn,
 
     updateFieldValue,
     updateValue,
@@ -542,7 +622,6 @@ export const TableView = (props: { superstate: Superstate }) => {
     applyTableEdits,
     reloadContextData,
     renameRowTitle,
-    setSearchActive,
     subItemsInfo,
     subItemsDisplay,
     subItemsField,
@@ -552,6 +631,17 @@ export const TableView = (props: { superstate: Superstate }) => {
     subItemAddRows,
     subItemsTreeNodes,
   } = useContext(ContextEditorContext);
+
+  // ADR 0052: a collapsed grouped island is view state, not a row mutation.
+  // Keep an optimistic local copy so the header responds immediately; the
+  // predicate save then makes the same state durable for the next render/load.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, string[]>>(
+    () => predicate?.collapsedGroups ?? {}
+  );
+  const persistedCollapsedGroups = predicate?.collapsedGroups;
+  useEffect(() => {
+    setCollapsedGroups(persistedCollapsedGroups ?? {});
+  }, [persistedCollapsedGroups]);
 
   // "+ New sub-item" affordance (Notidian-gr8t) → the single one-way create path,
   // passing the parent's path directly (no table-index re-read).
@@ -1069,9 +1159,45 @@ export const TableView = (props: { superstate: Superstate }) => {
     pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
   };
 
-  const newRow = (name: string, index?: number, data?: DBRow) => {
+  const frontmatterValuesForNewRow = (rowData?: DBRow): Record<string, string> => {
+    if (!rowData) return {};
+    return Object.entries(rowData).reduce<Record<string, string>>(
+      (properties, [name, value]) => {
+        if (name == PathPropertyName) return properties;
+        const column = cols.find(
+          (item) => item.name == name && (item.table ?? "") == ""
+        );
+        if (!column || propertyAuthorityForColumn(column) != "frontmatter") {
+          return properties;
+        }
+        properties[name] = String(value ?? "");
+        return properties;
+      },
+      {}
+    );
+  };
+
+  const newRow = async (name: string, index?: number, data?: DBRow) => {
     if (dbSchema?.id == defaultContextSchemaID) {
-      newPathInSpace(props.superstate, spaceCache, "md", name, true);
+      try {
+        const path = await newPathInSpace(
+          props.superstate,
+          spaceCache,
+          "md",
+          name,
+          true
+        );
+        if (typeof path == "string" && path.length > 0) {
+          await saveFrontmatterProperties({
+            superstate: props.superstate,
+            path,
+            properties: frontmatterValuesForNewRow(data),
+            failureMessage: "Could not apply group defaults to the new row.",
+          });
+        }
+      } catch (error) {
+        props.superstate.ui.notify("Could not create a new row.");
+      }
     } else {
       saveDB(
         createNewRow(
@@ -1083,6 +1209,21 @@ export const TableView = (props: { superstate: Superstate }) => {
         )
       );
     }
+  };
+
+  const createGroupedRow = async (
+    columnId: string,
+    groupValue: unknown,
+    groupRows: DBRow[]
+  ) => {
+    const plan = planGroupedRowCreate({
+      rows: groupRows,
+      columns: cols,
+      groupColumnId: columnId,
+      groupValue,
+      noValueSentinel: GROUP_NO_VALUE,
+    });
+    await newRow(plan.name, undefined, plan.values);
   };
 
   const selectItem = (modifier: PointerModifiers, index: string) => {
@@ -1119,21 +1260,6 @@ export const TableView = (props: { superstate: Superstate }) => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    // ADR 0041 (Notidian-z8q): Cmd/Ctrl+F opens the ONE consolidated view
-    // search (the filter-search SearchBar) when the table is focused — it no
-    // longer opens the separate quick-find bar (now dormant). Obsidian's editor
-    // find does not bind inside this custom view, so intercepting here is safe
-    // and does not fight the app.
-    if (
-      (e.metaKey || e.ctrlKey) &&
-      !e.shiftKey &&
-      !e.altKey &&
-      (e.key == "f" || e.key == "F")
-    ) {
-      e.preventDefault();
-      setSearchActive(true);
-      return;
-    }
     const pasteColumns = cols.map((f) => ({
       id: f.name + f.table,
       name: f.name,
@@ -1722,6 +1848,317 @@ export const TableView = (props: { superstate: Superstate }) => {
         : [],
     [predicate, cols, subItemsInfo]
   );
+  const groupOrderByColumn = useMemo(
+    () =>
+      groupBy.reduce((result, columnId) => {
+        const column = cols.find((f) => f.name + f.table == columnId);
+        const viewOrder = predicate?.groupOrder?.[columnId];
+        if (column?.type == "text") {
+          const observed = data
+            .map((row) => String(row?.[columnId] ?? ""))
+            .filter((value) => value.trim().length > 0);
+          result[columnId] = effectiveTextGroupOrder({
+            observed,
+            global: textGroupOrderFromAttrs(column.attrs),
+            view: viewOrder,
+          });
+          return result;
+        }
+        if (viewOrder && viewOrder.length > 0) {
+          result[columnId] = viewOrder;
+          return result;
+        }
+        if (column?.type?.startsWith("option")) {
+          result[columnId] = lifecycleValuesFromColumnValue(column.value);
+        }
+        return result;
+      }, {} as Record<string, string[]>),
+    [cols, data, groupBy, predicate?.groupOrder]
+  );
+  const groupOrderByColumnRef = useRef(groupOrderByColumn);
+  groupOrderByColumnRef.current = groupOrderByColumn;
+  // TanStack identifies a top-level group row as `${columnId}:${groupValue}`.
+  // Supply every current group explicitly so absent predicate state means fully
+  // expanded, while a persisted collapsed value hides only that group's rows.
+  const expandedGroupRows = useMemo(() => {
+    if (groupBy.length == 0) return true;
+    const columnId = groupBy[0];
+    const collapsedValues = new Set(collapsedGroups[columnId] ?? []);
+    return data.reduce((expanded, row) => {
+      const value = String(groupingValueForCell(row?.[columnId]));
+      expanded[`${columnId}:${value}`] = !collapsedValues.has(value);
+      return expanded;
+    }, {} as Record<string, boolean>);
+  }, [collapsedGroups, data, groupBy]);
+  const toggleGroupExpansion = useCallback(
+    (columnId: string, rawValue: unknown) => {
+      const value = String(rawValue);
+      const current = collapsedGroups[columnId] ?? [];
+      const isCollapsed = current.includes(value);
+      const nextForColumn = isCollapsed
+        ? current.filter((item) => item != value)
+        : [...current, value];
+      const next = { ...collapsedGroups };
+      if (nextForColumn.length > 0) next[columnId] = nextForColumn;
+      else delete next[columnId];
+      setCollapsedGroups(next);
+      savePredicate({
+        collapsedGroups:
+          Object.keys(next).length > 0 ? next : undefined,
+      });
+    },
+    [collapsedGroups, savePredicate]
+  );
+  const showGroupedIslandManager = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>, columnId: string) => {
+      event.stopPropagation();
+      // The manager callbacks run after React has released this click event.
+      // Capture its anchor data synchronously instead of closing over
+      // event.currentTarget (which is null by the time Rename opens a modal).
+      const anchorRect = event.currentTarget.getBoundingClientRect();
+      const anchorWindow = windowFromDocument(event.currentTarget.ownerDocument);
+      const column = cols.find((item) => item.name + item.table == columnId);
+      if (!column) return;
+      const isTextGroup = column.type == "text";
+      const isOptionGroup = column.type?.startsWith("option");
+      if (!isTextGroup && !isOptionGroup) {
+        showGroupedIslandMenu(
+          props.superstate,
+          anchorRect,
+          anchorWindow,
+          {
+            options: [],
+            saveGlobalOrder: () => {},
+            saveViewOrder: () => {},
+            clearViewOrder: () => {},
+            disabledReason:
+              "This grouped property is not a Select field, so it has no shared option order or safe rename operation.",
+          }
+        );
+        return;
+      }
+      const parsed = isOptionGroup
+        ? parseFieldValue(column.value, column.type)
+        : null;
+      const observedTextValues = isTextGroup
+        ? data
+            .map((row) => String(row?.[columnId] ?? ""))
+            .filter((value) => value.trim().length > 0)
+        : [];
+      const globalTextOrder = isTextGroup
+          ? effectiveTextGroupOrder({
+            observed: observedTextValues,
+            global: textGroupOrderFromAttrs(column.attrs),
+          })
+        : [];
+      const options: Array<SelectOption & { name: string; value: string }> =
+        isTextGroup
+          ? globalTextOrder.map((value) => ({ name: value, value }))
+          : (((parsed?.options ?? []) as SelectOption[])
+              .map((option) => ({
+                name: String(option.name ?? option.value ?? ""),
+                value: String(option.value ?? ""),
+                color: option.color,
+              }))
+              .filter((option) => option.value.length > 0) as Array<
+              SelectOption & { name: string; value: string }
+            >);
+      const saveGlobalOrder = (values: string[]) => {
+        if (isTextGroup) {
+          saveColumn(
+            {
+              ...column,
+              attrs: attrsWithTextGroupOrder(column.attrs, values),
+            },
+            column
+          );
+          return;
+        }
+        const byValue = new Map(options.map((option) => [option.value, option]));
+        const nextOptions = values
+          .map((value) => byValue.get(value))
+          .filter(Boolean);
+        saveColumn(
+          {
+            ...column,
+            value: serializeOptionValue(nextOptions, parsed!),
+          },
+          column
+        );
+      };
+      const saveViewOrder = (values: string[]) =>
+        savePredicate({
+          groupOrder: {
+            ...(predicate?.groupOrder ?? {}),
+            [columnId]: values,
+          },
+        });
+      const clearViewOrder = () => {
+        const next = { ...(predicate?.groupOrder ?? {}) };
+        delete next[columnId];
+        savePredicate({
+          groupOrder: Object.keys(next).length > 0 ? next : undefined,
+        });
+      };
+      const renameOption =
+        (isTextGroup || (column.type == "option" && !parsed?.source))
+          ? (oldValue: string, rawNextValue: string) => {
+              const nextValue = rawNextValue.trim();
+              if (nextValue.length == 0) {
+                props.superstate.ui.notify("A group name cannot be empty.");
+                return;
+              }
+              if (nextValue != oldValue && options.some((option) => option.value == nextValue)) {
+                props.superstate.ui.notify("A group with that name already exists.");
+                return;
+              }
+              if (nextValue == oldValue) return;
+              const nextOptions = options.map((option) =>
+                option.value == oldValue
+                  ? { ...option, name: nextValue, value: nextValue }
+                  : option
+              );
+              const fieldValue = isTextGroup
+                ? undefined
+                : serializeOptionValue(nextOptions, parsed!);
+              const matchingRows = data.filter(
+                (row) => String(row?.[columnId] ?? "") == oldValue
+              );
+              const applyRename = async () => {
+                const viewOrder = predicate?.groupOrder?.[columnId];
+                if (matchingRows.length == 0) {
+                  if (isTextGroup) {
+                    saveColumn(
+                      {
+                        ...column,
+                        attrs: attrsWithTextGroupOrder(
+                          column.attrs,
+                          renamedGroupOrder(
+                            textGroupOrderFromAttrs(column.attrs),
+                            oldValue,
+                            nextValue
+                          )
+                        ),
+                      },
+                      column
+                    );
+                  } else {
+                    saveColumn({ ...column, value: fieldValue }, column);
+                  }
+                  if (viewOrder) {
+                    savePredicate({
+                      groupOrder: {
+                        ...(predicate?.groupOrder ?? {}),
+                        [columnId]: renamedGroupOrder(
+                          viewOrder,
+                          oldValue,
+                          nextValue
+                        ),
+                      },
+                    });
+                  }
+                  return;
+                }
+                const fieldAttrs = isTextGroup
+                  ? attrsWithTextGroupOrder(
+                      column.attrs,
+                      stagedGroupOrderForRename(
+                        globalTextOrder,
+                        oldValue,
+                        nextValue
+                      )
+                    ) ?? null
+                  : undefined;
+                const stagedViewOrder = viewOrder
+                  ? stagedGroupOrderForRename(viewOrder, oldValue, nextValue)
+                  : undefined;
+                if (stagedViewOrder) {
+                  await Promise.resolve(
+                    savePredicate({
+                      groupOrder: {
+                        ...(predicate?.groupOrder ?? {}),
+                        [columnId]: stagedViewOrder,
+                      },
+                    })
+                  );
+                }
+                const renameWrites = matchingRows.flatMap((row) => {
+                  const write = tableUndoWriteForDirectEdit({
+                    rowId: String(row._index),
+                    column,
+                    value: nextValue,
+                    path: String(row?.[PathPropertyName] ?? ""),
+                    ...(fieldValue ? { fieldValue } : {}),
+                    ...(fieldAttrs !== undefined ? { fieldAttrs } : {}),
+                  });
+                  return write ? [write] : [];
+                });
+                const undoEntry = createTableUndoEntry({
+                  label: "Rename group",
+                  rows: data,
+                  columns: cols,
+                  writes: renameWrites,
+                });
+                const result = await applyValueEdits(renameWrites, {
+                  allOrNothing: true,
+                });
+                if (!result.ok) {
+                  if (stagedViewOrder) {
+                    await Promise.resolve(
+                      savePredicate({
+                        groupOrder: {
+                          ...(predicate?.groupOrder ?? {}),
+                          [columnId]: viewOrder,
+                        },
+                      })
+                    );
+                  }
+                  props.superstate.ui.notify(
+                    "Group rename was not applied because one or more values changed. Reload and try again."
+                  );
+                  return;
+                }
+                if (result.applied > 0) {
+                  pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
+                }
+              };
+              props.superstate.ui.openModal(
+                "Rename group",
+                <ConfirmationModal
+                  message={`Rename “${oldValue}” to “${nextValue}” in ${matchingRows.length} row${
+                    matchingRows.length == 1 ? "" : "s"
+                  }?`}
+                  confirmLabel="Rename"
+                  confirmAction={() => void applyRename()}
+                />,
+                anchorWindow
+              );
+            }
+          : undefined;
+      showGroupedIslandMenu(
+        props.superstate,
+        anchorRect,
+        anchorWindow,
+        {
+          options,
+          viewOrder: predicate?.groupOrder?.[columnId],
+          saveGlobalOrder,
+          saveViewOrder,
+          clearViewOrder,
+          renameOption,
+        }
+      );
+    },
+    [
+      applyValueEdits,
+      cols,
+      data,
+      predicate?.groupOrder,
+      props.superstate,
+      saveColumn,
+      savePredicate,
+    ]
+  );
   // Kill-switch chokepoint: virtualization runs only when the flag is ON and the
   // table is the flat, uniform-height case (grouping interleaves group-header and
   // nested sub-rows the uniform-row window kernel does not model, so a grouped
@@ -1759,13 +2196,13 @@ export const TableView = (props: { superstate: Superstate }) => {
         ...colsSize,
       },
       grouping: groupBy,
-      expanded: true,
+      expanded: expandedGroupRows,
       pagination: effectivePagination,
     },
     onColumnSizingChange: saveColsSize,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
-    getGroupedRowModel: getGroupedRowModel(),
+    getGroupedRowModel: orderedGroupedRowModel(groupOrderByColumnRef),
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,
     meta: {
@@ -2791,12 +3228,28 @@ export const TableView = (props: { superstate: Superstate }) => {
                         className="mk-td-group"
                         colSpan={cols.length + (readMode ? 0 : 1)}
                       >
-                        <button
-                          type="button"
-                          className="mk-group-header"
-                          aria-expanded={row.getIsExpanded()}
-                          onClick={row.getToggleExpandedHandler()}
+                        <div
+                          className={classNames(
+                            "mk-group-header",
+                            !row.getIsExpanded() && "mk-group-header-collapsed"
+                          )}
                         >
+                          <button
+                            type="button"
+                            className="mk-group-header-caret-button"
+                            aria-label={
+                              row.getIsExpanded()
+                                ? "Collapse group"
+                                : "Expand group"
+                            }
+                            aria-expanded={row.getIsExpanded()}
+                            onClick={() =>
+                              toggleGroupExpansion(
+                                cell.column.id,
+                                row.getGroupingValue(cell.column.id)
+                              )
+                            }
+                          >
                           <span
                             className={classNames(
                               "mk-group-header-caret",
@@ -2805,6 +3258,14 @@ export const TableView = (props: { superstate: Superstate }) => {
                             )}
                             aria-hidden="true"
                           ></span>
+                          </button>
+                          <button
+                            type="button"
+                            className="mk-group-header-label-button"
+                            onClick={(event) =>
+                              showGroupedIslandManager(event, cell.column.id)
+                            }
+                          >
                           <span className="mk-group-header-label">
                             {row.getGroupingValue(cell.column.id) ===
                             GROUP_NO_VALUE ? (
@@ -2822,10 +3283,35 @@ export const TableView = (props: { superstate: Superstate }) => {
                               )
                             )}
                           </span>
+                          </button>
                           <span className="mk-group-header-count">
                             {row.subRows.length}
                           </span>
-                        </button>
+                          {!readMode ? (
+                            <button
+                              type="button"
+                              className="mk-group-header-add-button"
+                              aria-label="Add row to group"
+                              title="Add row to group"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                const groupRows = (
+                                  ((row as any).leafRows ?? row.subRows) as any[]
+                                )
+                                  .map((leafRow) => leafRow.original as DBRow)
+                                  .filter(Boolean);
+                                void createGroupedRow(
+                                  cell.column.id,
+                                  row.getGroupingValue(cell.column.id),
+                                  groupRows
+                                );
+                              }}
+                            >
+                              +
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     ) : cell.getIsAggregated() ? (
                       // If the cell is aggregated, use the Aggregated

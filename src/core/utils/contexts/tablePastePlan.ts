@@ -20,6 +20,7 @@ export type TablePasteWrite = {
   value: string;
   path?: string;
   fieldValue?: string;
+  fieldAttrs?: string | null;
   authority: Exclude<PropertyAuthority, "computed">;
   clear?: true;
   // Set only on undo/redo replay writes (see TableCellWrite.expectedCurrentValue).

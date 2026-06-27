@@ -1096,29 +1096,39 @@ const tableUiUndoEvalCode = ({
       }
       return { ok: true, value: cell.innerText.trim() };
     };
+    const dispatchUndoShortcut = (table) => {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "z",
+        code: "KeyZ",
+        metaKey: true,
+      });
+      table.focus();
+      table.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
     try {
       const tableState = findTable();
       if (!tableState.ok) return finish(tableState);
-      tableState.table.focus();
-      tableState.table.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: "z",
-          code: "KeyZ",
-          metaKey: true,
-        })
-      );
       const start = Date.now();
       let last = null;
+      let shortcutAccepted = false;
+      let lastShortcutAt = 0;
+      const shortcutRetryMs = Math.max(250, pollIntervalMs);
       do {
         const nextState = findTable();
         if (!nextState.ok) return finish(nextState);
+        if (!shortcutAccepted && Date.now() - lastShortcutAt >= shortcutRetryMs) {
+          shortcutAccepted = dispatchUndoShortcut(nextState.table);
+          lastShortcutAt = Date.now();
+          await sleep(50);
+        }
         const status = cellText(nextState, "status");
         if (!status.ok) return finish(status);
         const rating = cellText(nextState, "rating");
         if (!rating.ok) return finish(rating);
-        last = { status: status.value, rating: rating.value };
+        last = { status: status.value, rating: rating.value, shortcutAccepted };
         if (last.status == statusValue && last.rating == ratingValue) {
           return finish({ ok: true, editedValues: last });
         }
@@ -1202,30 +1212,40 @@ const tableUiRedoEvalCode = ({
       }
       return { ok: true, value: cell.innerText.trim() };
     };
+    const dispatchRedoShortcut = (table) => {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "z",
+        code: "KeyZ",
+        metaKey: true,
+        shiftKey: true,
+      });
+      table.focus();
+      table.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
     try {
       const tableState = findTable();
       if (!tableState.ok) return finish(tableState);
-      tableState.table.focus();
-      tableState.table.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: "z",
-          code: "KeyZ",
-          metaKey: true,
-          shiftKey: true,
-        })
-      );
       const start = Date.now();
       let last = null;
+      let shortcutAccepted = false;
+      let lastShortcutAt = 0;
+      const shortcutRetryMs = Math.max(250, pollIntervalMs);
       do {
         const nextState = findTable();
         if (!nextState.ok) return finish(nextState);
+        if (!shortcutAccepted && Date.now() - lastShortcutAt >= shortcutRetryMs) {
+          shortcutAccepted = dispatchRedoShortcut(nextState.table);
+          lastShortcutAt = Date.now();
+          await sleep(50);
+        }
         const status = cellText(nextState, "status");
         if (!status.ok) return finish(status);
         const rating = cellText(nextState, "rating");
         if (!rating.ok) return finish(rating);
-        last = { status: status.value, rating: rating.value };
+        last = { status: status.value, rating: rating.value, shortcutAccepted };
         if (last.status == statusValue && last.rating == ratingValue) {
           return finish({ ok: true, editedValues: last });
         }
@@ -1353,6 +1373,51 @@ const tableUiOptionEvalCode = ({
       }
       return { ok: true, table, cell, optionCell, headers };
     };
+    const waitForOptionColumnReady = async () => {
+      const readyStart = Date.now();
+      const retryIntervalMs = Math.max(250, pollIntervalMs);
+      let lastRetryAt = 0;
+      let latest = {
+        type: "",
+        columnValue: "",
+        render: "",
+        cellText: "",
+      };
+      do {
+        const updatedTable = await plugin.superstate.spaceManager.readTable(folder, ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)});
+        const updatedColumn = updatedTable.cols.find((column) => column.name == columnName);
+        const found = findOptionCell();
+        latest = {
+          type: String(updatedColumn?.type ?? ""),
+          columnValue: String(updatedColumn?.value ?? ""),
+          render: found.ok ? "option" : found.reason,
+          cellText: found.ok ? found.cell.innerText.trim() : "",
+          columns: found.headers?.filter(Boolean) ?? found.columns ?? [],
+          cellHtml: found.cellHtml,
+        };
+        const columnReady =
+          updatedColumn?.type == "option" &&
+          String(updatedColumn?.value ?? "").includes(currentValue);
+        if (
+          columnReady &&
+          found.ok &&
+          found.cell.innerText.includes(currentValue)
+        ) {
+          return { ok: true, found };
+        }
+        if (!columnReady && Date.now() - lastRetryAt >= retryIntervalMs) {
+          const retry = await ensureOptionColumn();
+          if (!retry.ok) return retry;
+          lastRetryAt = Date.now();
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - readyStart <= timeoutMs);
+      return {
+        ok: false,
+        reason: "option-column-not-ready",
+        latest,
+      };
+    };
     const setInputValue = (input, value) => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
       if (setter) {
@@ -1372,14 +1437,9 @@ const tableUiOptionEvalCode = ({
     try {
       const setup = await ensureOptionColumn();
       if (!setup.ok) return finish(setup);
-      const renderStart = Date.now();
-      let found = null;
-      do {
-        found = findOptionCell();
-        if (found.ok && found.cell.innerText.includes(currentValue)) break;
-        await sleep(pollIntervalMs);
-      } while (Date.now() - renderStart <= timeoutMs);
-      if (!found?.ok) return finish(found || { ok: false, reason: "missing-option-cell" });
+      const ready = await waitForOptionColumnReady();
+      if (!ready.ok) return finish(ready);
+      const found = ready.found;
       const optionChip = found.cell.querySelector(".mk-cell-option-item");
       if (!optionChip) {
         return finish({

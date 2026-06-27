@@ -767,12 +767,11 @@ describe("dropPathsInTree — delegation, ancestor guard, newSpace bail", () => 
     expect(movePathToNewSpaceAtIndex.mock.calls[0][3]).toBe(-1);
   });
 
-  it("CHARACTERIZATION (latent crash, Notidian follow-up) — a multi-drag over a ROOT-level file THROWS: dropTarget is null and `(dropTarget as SpaceState).path` is unguarded", async () => {
+  it("REGRESSION LOCK — a multi-drag over a ROOT-level file does not crash when there is no drop target container", async () => {
     // overItem is a depth-0 file => dropTarget = null (the `overItem.depth == 0 ?
-    // null` leg). Unlike the single-path path, dropPathsInTree reads
-    // `(dropTarget as SpaceState).path` WITHOUT a null guard, so the ancestor
-    // filter throws. We pin the current (buggy) behavior so a future null-guard
-    // fix flips this test deliberately. Tracked as a follow-up bead.
+    // null` leg). With no container target there is no ancestor target to guard
+    // against, so the multi-drop should simply commit every selected path into
+    // the projected destination.
     const flattened: TreeNode[] = [
       node({ id: "Folder", type: "space", itemPath: "Folder", rank: 0 }),
       node({
@@ -790,20 +789,25 @@ describe("dropPathsInTree — delegation, ancestor guard, newSpace bail", () => 
       parentId: "Folder",
       sortable: true,
     });
-    await expect(
-      dropPathsInTree(
-        ss,
-        ["Other/b.md", "Folder/a.md"],
-        null as any,
-        "rootFile",
-        proj,
-        flattened,
-        [],
-        MOVE
-      )
-    ).rejects.toThrow(TypeError);
-    // No commit happened — the throw aborted before any mutator fired.
-    expect(movePathToNewSpaceAtIndex).not.toHaveBeenCalled();
+    await dropPathsInTree(
+      ss,
+      ["Other/b.md", "Folder/a.md"],
+      null as any,
+      "rootFile",
+      proj,
+      flattened,
+      [],
+      MOVE
+    );
+    expect(movePathToNewSpaceAtIndex).toHaveBeenCalledTimes(2);
+    expect(movePathToNewSpaceAtIndex.mock.calls.map((call: any[]) => call[1])).toEqual([
+      ss.pathsIndex.get("Other/b.md"),
+      ss.pathsIndex.get("Folder/a.md"),
+    ]);
+    expect(movePathToNewSpaceAtIndex.mock.calls.map((call: any[]) => call[2])).toEqual([
+      "Folder",
+      "Folder",
+    ]);
   });
 
   it("multi-drag with INSERT => parentId = `over` (the collapsed container itself), not projected.parentId", async () => {

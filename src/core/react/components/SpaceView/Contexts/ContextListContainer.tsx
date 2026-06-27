@@ -46,6 +46,7 @@ export const ContextListContainer = (props: {
     tableData,
     data,
     updateRow,
+    openViewSearch,
   } = useContext(ContextEditorContext);
   
   const { frameSchema } = useContext(FramesMDBContext);
@@ -191,9 +192,21 @@ export const ContextListContainer = (props: {
   };
 
   const viewType = props.viewType ?? predicate?.view;
+  const onViewKeyDownCapture = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.shiftKey &&
+      !event.altKey &&
+      event.key.toLowerCase() == "f"
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      openViewSearch();
+    }
+  };
 
   return tableData ? (
-    <div className="mk-context-container">
+    <div className="mk-context-container" onKeyDownCapture={onViewKeyDownCapture}>
       {!props.minMode && (
         <FilterBar
           showTitle={props.showTitle}

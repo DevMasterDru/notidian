@@ -366,6 +366,70 @@ describe("tableUndoJournal", () => {
     });
   });
 
+  it("captures inverse field attrs for direct text group renames", () => {
+    const previousFieldAttrs = JSON.stringify({
+      notidianGroupOrder: ["old", "paused"],
+    });
+    const nextFieldAttrs = JSON.stringify({
+      notidianGroupOrder: ["old", "active", "paused"],
+    });
+
+    expect(
+      createTableUndoEntry({
+        label: "Rename group",
+        rows,
+        columns: [
+          {
+            name: "status",
+            type: "text",
+            attrs: previousFieldAttrs,
+            source: "frontmatter",
+            table: "",
+          },
+        ],
+        writes: [
+          {
+            rowId: "0",
+            columnId: "status",
+            columnName: "status",
+            table: "",
+            value: "active",
+            authority: "frontmatter",
+            fieldAttrs: nextFieldAttrs,
+          },
+        ],
+      })
+    ).toEqual({
+      label: "Rename group",
+      redoWrites: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          path: "Relays & Devices/Relay A.md",
+          value: "active",
+          expectedCurrentValue: "old",
+          authority: "frontmatter",
+          fieldAttrs: nextFieldAttrs,
+        },
+      ],
+      writes: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          path: "Relays & Devices/Relay A.md",
+          value: "old",
+          expectedCurrentValue: "active",
+          authority: "frontmatter",
+          fieldAttrs: previousFieldAttrs,
+        },
+      ],
+    });
+  });
+
   it("removes skipped and failed targets from undo and redo history", () => {
     const entry = createTableUndoEntry({
       label: "Paste cells",

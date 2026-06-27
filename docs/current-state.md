@@ -191,6 +191,28 @@ The durable decision is recorded in [ADR 0014](adr/0014-notidian-only-personal-d
 - A successful row drag clears active sort/group state so the view becomes manual order. Filters can remain active; hidden rows keep their relative order while visible rows move.
 - Row movement is view/order governance only. It does not write frontmatter values and does not create a second owner for ordinary metadata.
 
+### Grouped Table Islands
+
+- Group headers are independent islands: the caret collapses/expands the group,
+  while clicking its label opens **Manage groups**. Collapsed islands use a
+  muted treatment and persist per view in predicate state.
+- A grouped select property follows its configured global option order by
+  default. The group manager can create a view-local order override or clear it
+  to return to global order; unknown values retain stable order after configured
+  options, and `No <property>` remains last.
+- An editable text grouping uses its distinct observed values in **Manage
+  groups**. Its shared/default order is explicit Notidian column configuration
+  (`SpaceProperty.attrs.notidianGroupOrder`), while a predicate override remains per view;
+  text-group rename is a counted all-or-nothing authority-aware bulk value
+  write. File, computed, non-text, and source-backed/dynamic groups remain
+  non-renameable.
+- Renaming a static single-select group is confirmed with its affected-row
+  count, then updates option configuration and matching values atomically
+  through the authority-aware transaction path. Source-backed, computed, and
+  file-identity groups are not renameable from this panel.
+- Cmd/Ctrl+F is captured at the view container and invokes the same open-only
+  **Search This View** action as the toolbar button, focusing the mounted input.
+
 ### Unified Table Edit Transactions
 
 Normal value edits, field-option value edits, and paste value writes go through `executeTableValueWrites`.

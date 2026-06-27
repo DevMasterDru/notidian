@@ -118,7 +118,7 @@ type ContextEditorContextProps = {
   selectedRows: string[];
   selectRows: (lastSelected: string, rows: string[]) => void;
   predicate: Predicate;
-  savePredicate: (predicate: Partial<Predicate>) => void;
+  savePredicate: (predicate: Partial<Predicate>) => Promise<void>;
   source: string;
   hideColumn: (column: SpaceTableColumn, hidden: boolean) => void;
   sortColumn: (sort: Sort) => void;
@@ -145,6 +145,9 @@ type ContextEditorContextProps = {
   // handler lives in TableView, the input renders in FilterBar.
   searchActive: boolean;
   setSearchActive: React.Dispatch<React.SetStateAction<boolean>>;
+  // The one open-only entry point for Search This View. The toolbar and keyboard
+  // shortcut use this rather than independently toggling transient state.
+  openViewSearch: () => void;
   tableData: SpaceTable;
   cols: SpaceTableColumn[];
   saveDB: (table: SpaceTable) => void;
@@ -161,7 +164,8 @@ type ContextEditorContextProps = {
     writes: TablePasteWrite[]
   ) => Promise<TableEditTransactionResult>;
   applyValueEdits: (
-    writes: TableCellWrite[]
+    writes: TableCellWrite[],
+    options?: { allOrNothing?: boolean }
   ) => Promise<TableEditTransactionResult>;
   reloadContextData: () => Promise<void>;
   renameRowTitle: (row: DBRow, value: string) => Promise<string | null>;
@@ -229,7 +233,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   selectRows: () => null,
   setContextTable: () => null,
   predicate: null,
-  savePredicate: () => null,
+  savePredicate: async () => undefined,
   saveDB: () => null,
   hideColumn: () => null,
   saveColumn: () => false,
@@ -242,6 +246,7 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   setSearchString: () => null,
   searchActive: false,
   setSearchActive: () => null,
+  openViewSearch: () => null,
   data: [],
   applyTableEdits: async () => emptyTableEditTransactionResult(),
   applyValueEdits: async () => emptyTableEditTransactionResult(),
@@ -394,6 +399,7 @@ export const ContextEditorProvider: React.FC<
 
   const [searchString, setSearchString] = useState<string>(null);
   const [searchActive, setSearchActive] = useState<boolean>(false);
+  const openViewSearch = () => setSearchActive(true);
   const [predicate, setPredicate] = useState<Predicate>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editMode, setEditMode] = useState<number>(0);
@@ -1137,7 +1143,8 @@ export const ContextEditorProvider: React.FC<
   };
 
   const executeValueWrites = async (
-    writes: TableCellWrite[]
+    writes: TableCellWrite[],
+    options: { allOrNothing?: boolean } = {}
   ): Promise<TableEditTransactionResult> => {
     // Serialize per-context value transactions and thread the latest root table
     // into the next, so two concurrent edits sharing one rendered snapshot do not
@@ -1180,13 +1187,15 @@ export const ContextEditorProvider: React.FC<
           },
           saveContextDB,
           contextKeyForTable: tagSpacePathFromTag,
+          allOrNothing: options.allOrNothing,
         })
     );
   };
 
   const applyValueEdits = async (
-    writes: TableCellWrite[]
-  ): Promise<TableEditTransactionResult> => executeValueWrites(writes);
+    writes: TableCellWrite[],
+    options?: { allOrNothing?: boolean }
+  ): Promise<TableEditTransactionResult> => executeValueWrites(writes, options);
 
   const reloadContextData = async (): Promise<void> => {
     // An explicit authoritative reload supersedes any pending coalesced saveDB
@@ -1448,7 +1457,10 @@ export const ContextEditorProvider: React.FC<
     }
   };
 
-  const savePredicate = (newPredicate: Partial<Predicate>) => {
+  const savePredicate = async (
+    newPredicate: Partial<Predicate>,
+    options?: { optimistic?: boolean }
+  ) => {
     const defPredicate = defaultPredicateForSchema(dbSchema);
     const pred = {
       ...(predicate ?? defPredicate),
@@ -1459,13 +1471,15 @@ export const ContextEditorProvider: React.FC<
     // the primary-only FilterBar Sub-items menu gate.
     const cleanedPredicate = validatePredicate(pred, defPredicate, dbSchema?.id);
 
+    const optimistic = options?.optimistic !== false;
+    if (optimistic) setPredicate(cleanedPredicate);
     if (frameSchema) {
-      saveSchema({
+      await saveSchema({
         ...frameSchema,
         predicate: JSON.stringify(cleanedPredicate),
       });
     } else {
-      saveSchema({
+      await saveSchema({
         id: uniqueNameFromString(
           dbSchema.id + "View",
           frameSchemas.map((f) => f.id)
@@ -1476,7 +1490,7 @@ export const ContextEditorProvider: React.FC<
         predicate: JSON.stringify(cleanedPredicate),
       });
     }
-    setPredicate(cleanedPredicate);
+    if (!optimistic) setPredicate(cleanedPredicate);
   };
 
   // Sub-items collapse writers (Notidian-5ond.3): persist into
@@ -1672,7 +1686,7 @@ export const ContextEditorProvider: React.FC<
       }),
     };
 
-    savePredicate({
+    await savePredicate({
       filters: (predicate?.filters ?? []).map((filter) =>
         filter.field == column.name + column.table
           ? { ...filter, field: normalizedNewKey + column.table }
@@ -1741,7 +1755,7 @@ export const ContextEditorProvider: React.FC<
         predicate?.subItems?.field == column.name + column.table
           ? { ...predicate.subItems, field: normalizedNewKey + column.table }
           : predicate?.subItems,
-    });
+    }, { optimistic: false });
 
     await saveDB(tablePreview);
     if (dbSchema?.id == defaultContextSchemaID) {
@@ -2146,6 +2160,7 @@ export const ContextEditorProvider: React.FC<
         setSearchString,
         searchActive,
         setSearchActive,
+        openViewSearch,
         updateValue,
         applyTableEdits,
         applyValueEdits,

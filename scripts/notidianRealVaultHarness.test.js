@@ -402,6 +402,31 @@ describe("notidian real vault harness", () => {
           args[1] == "eval" && args.join(" ").includes(".mk-cell-option-item")
       )
     ).toBe(true);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" &&
+          args.join(" ").includes("notidianTableUiUndo") &&
+          args.join(" ").includes("shortcutAccepted")
+      )
+    ).toBe(true);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" &&
+          args.join(" ").includes("notidianTableUiRedo") &&
+          args.join(" ").includes("shortcutAccepted")
+      )
+    ).toBe(true);
+    expect(
+      calls.some(
+        (args) =>
+          args[1] == "eval" &&
+          args.join(" ").includes("waitForOptionColumnReady") &&
+          args.join(" ").includes('updatedColumn?.type == "option"') &&
+          args.join(" ").includes("const retry = await ensureOptionColumn();")
+      )
+    ).toBe(true);
     expect(calls.some((args) => args.includes(`path=${uiRenamedPath}`))).toBe(
       true
     );

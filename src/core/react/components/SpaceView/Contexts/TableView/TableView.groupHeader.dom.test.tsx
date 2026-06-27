@@ -77,6 +77,17 @@ jest.mock(
   })
 );
 
+const mockNewPathInSpace = jest.fn();
+jest.mock("core/superstate/utils/spaces", () => ({
+  newPathInSpace: (...args: any[]) => mockNewPathInSpace(...args),
+}));
+
+const mockSaveFrontmatterProperties = jest.fn();
+jest.mock("core/utils/properties/frontmatterWrite", () => ({
+  saveFrontmatterProperties: (...args: any[]) =>
+    mockSaveFrontmatterProperties(...args),
+}));
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { SpaceContext } = require("core/react/context/SpaceContext");
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -86,7 +97,7 @@ const {
   ContextEditorContext,
 } = require("core/react/context/ContextEditorContext");
 
-import { TableView } from "./TableView";
+import { TableView, __resetTableUndoJournalForTest } from "./TableView";
 import { PathPropertyName } from "shared/types/context";
 
 // --- Scaffolding ----------------------------------------------------------
@@ -99,7 +110,18 @@ const cols = [
     table: "",
     primary: "true",
   },
-  { name: "Status", schemaId: "files", type: "text", table: "" },
+  {
+    name: "Status",
+    schemaId: "files",
+    type: "option",
+    table: "",
+    value: JSON.stringify({
+      options: [
+        { name: "Open", value: "Open" },
+        { name: "Done", value: "Done" },
+      ],
+    }),
+  },
 ] as any;
 
 // Two distinct Status values -> two groups, each with multiple member rows.
@@ -128,8 +150,10 @@ const basePredicate = {
   frozenColumnCount: 0,
 } as any;
 
-const makeSuperstate = () =>
-  ({
+let lastSuperstate: any;
+
+const makeSuperstate = () => {
+  const superstate = {
     settings: {
       contextPagination: 25,
       rowVirtualization: false,
@@ -140,30 +164,44 @@ const makeSuperstate = () =>
       notify: jest.fn(),
       openPath: jest.fn(),
       openMenu: jest.fn(),
+      openCustomMenu: openCustomMenuMock,
+      openModal: jest.fn(),
       getSticker: () => "",
       setActivePath: jest.fn(),
       primaryInteractionType: () => 1,
       getScreenType: () => 1,
     },
     pathsIndex: new Map(),
-  } as any);
+  } as any;
+  lastSuperstate = superstate;
+  return superstate;
+};
 
-const makeContextValue = (data: any[], predicate: any) =>
-  ({
-    tableData: { schema: { id: "files" }, rows: data, cols },
+let openCustomMenuMock: jest.Mock;
+let lastContextValue: any;
+
+const makeContextValue = (data: any[], predicate: any, tableCols = cols) => {
+  const value = {
+    tableData: { schema: { id: "files" }, rows: data, cols: tableCols },
     dbSchema: { id: "files", primary: "true" },
     contextTable: {},
     saveDB: jest.fn(),
     source: "Test/Space",
     selectedRows: [],
     selectRows: jest.fn(),
-    sortedColumns: cols,
+    sortedColumns: tableCols,
     filteredData: data,
     predicate,
     savePredicate: jest.fn(),
+    saveColumn: jest.fn(),
     updateFieldValue: jest.fn(),
     updateValue: jest.fn(),
-    applyValueEdits: jest.fn(),
+    applyValueEdits: jest.fn().mockResolvedValue({
+      ok: true,
+      applied: data.length,
+      skipped: [],
+      failed: [],
+    }),
     applyTableEdits: jest.fn(),
     reloadContextData: jest.fn(),
     renameRowTitle: jest.fn(),
@@ -171,12 +209,15 @@ const makeContextValue = (data: any[], predicate: any) =>
     subItemsInfo: null,
     collapsedSubItems: new Set<string>(),
     toggleSubItemCollapse: jest.fn(),
-  } as any);
+  } as any;
+  lastContextValue = value;
+  return value;
+};
 
 let container: HTMLDivElement;
 let root: Root;
 
-const render = async (data: any[], predicate: any) => {
+const render = async (data: any[], predicate: any, tableCols = cols) => {
   await act(async () => {
     root.render(
       <SpaceContext.Provider
@@ -187,7 +228,7 @@ const render = async (data: any[], predicate: any) => {
       >
         <PathContext.Provider value={{ readMode: false }}>
           <ContextEditorContext.Provider
-            value={makeContextValue(data, predicate)}
+            value={makeContextValue(data, predicate, tableCols)}
           >
             <TableView superstate={makeSuperstate()} />
           </ContextEditorContext.Provider>
@@ -201,6 +242,12 @@ const render = async (data: any[], predicate: any) => {
 };
 
 beforeEach(() => {
+  __resetTableUndoJournalForTest();
+  openCustomMenuMock = jest.fn(() => ({ hide: jest.fn(), update: jest.fn() }));
+  mockNewPathInSpace.mockReset();
+  mockNewPathInSpace.mockResolvedValue("Test/Space/Note 5.md");
+  mockSaveFrontmatterProperties.mockReset();
+  mockSaveFrontmatterProperties.mockResolvedValue({ ok: true });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -232,7 +279,12 @@ describe("grouped view group header (Notidian-brlx)", () => {
     // a collapse caret, a label, and a count badge.
     for (const header of headers) {
       expect(header.querySelector(".mk-group-header")).not.toBeNull();
-      expect(header.querySelector(".mk-group-header-caret")).not.toBeNull();
+      expect(
+        header.querySelector(".mk-group-header-caret-button")
+      ).not.toBeNull();
+      expect(
+        header.querySelector(".mk-group-header-label-button")
+      ).not.toBeNull();
       expect(header.querySelector(".mk-group-header-count")).not.toBeNull();
       // The header spans the columns via the dedicated group cell, not per-column
       // data cells.
@@ -273,6 +325,465 @@ describe("grouped view group header (Notidian-brlx)", () => {
     for (const dataRow of dataRows) {
       expect(dataRow.querySelector(".mk-row-number")).not.toBeNull();
     }
+  });
+
+  it("collapses only the selected group when its caret is pressed", async () => {
+    await render(groupedData, { ...basePredicate, groupBy: ["Status"] });
+
+    const firstHeader = groupHeaderRows()[0];
+    const caretButton = firstHeader.querySelector<HTMLButtonElement>(
+      ".mk-group-header-caret-button"
+    );
+    expect(caretButton).not.toBeNull();
+
+    await act(async () => {
+      caretButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    // Open contains three rows; collapsing it leaves the two Done rows visible.
+    // The header itself stays present so the user can expand it again.
+    expect(groupHeaderRows()).toHaveLength(2);
+    expect(
+      container.querySelectorAll("tbody tr[data-row-id]").length
+    ).toBe(2);
+    expect(
+      groupHeaderRows()[0].querySelector(".mk-group-header")?.classList
+    ).toContain("mk-group-header-collapsed");
+  });
+
+  it("opens the group manager from the label without collapsing the island", async () => {
+    await render(groupedData, { ...basePredicate, groupBy: ["Status"] });
+
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    expect(labelButton).not.toBeNull();
+
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(openCustomMenuMock).toHaveBeenCalledTimes(1);
+    expect(container.querySelectorAll("tbody tr[data-row-id]").length).toBe(
+      groupedData.length
+    );
+  });
+
+  it("adds a row from a group header with the inherited group property", async () => {
+    await render(groupedData, { ...basePredicate, groupBy: ["Status"] });
+
+    const addButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-add-button"
+    );
+    expect(addButton).not.toBeNull();
+
+    await act(async () => {
+      addButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(mockNewPathInSpace).toHaveBeenCalledWith(
+      lastSuperstate,
+      { path: "Test/Space" },
+      "md",
+      "Note 5",
+      true
+    );
+    expect(mockSaveFrontmatterProperties).toHaveBeenCalledWith({
+      superstate: lastSuperstate,
+      path: "Test/Space/Note 5.md",
+      properties: { Status: "Open" },
+      failureMessage: "Could not apply group defaults to the new row.",
+    });
+  });
+
+  it("provides the manager a rename action for a static select group", async () => {
+    await render(groupedData, { ...basePredicate, groupBy: ["Status"] });
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    expect(menuElement.props.renameOption).toEqual(expect.any(Function));
+  });
+
+  it("manages observed text group values globally or per view", async () => {
+    const textColumns = cols.map((column: any) =>
+      column.name == "Status" ? { ...column, type: "text", value: "" } : column
+    );
+    await render(
+      groupedData,
+      { ...basePredicate, groupBy: ["Status"] },
+      textColumns
+    );
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(openCustomMenuMock).toHaveBeenCalledTimes(1);
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    expect(menuElement.props.disabledReason).toBeUndefined();
+    expect(menuElement.props.options.map((option: any) => option.value)).toEqual([
+      "Open",
+      "Done",
+    ]);
+    expect(menuElement.props.renameOption).toEqual(expect.any(Function));
+
+    menuElement.props.saveGlobalOrder(["Done", "Open"]);
+    expect(lastContextValue.saveColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attrs: JSON.stringify({ notidianGroupOrder: ["Done", "Open"] }),
+      }),
+      textColumns[1]
+    );
+
+    menuElement.props.saveViewOrder(["Done", "Open"]);
+    expect(lastContextValue.savePredicate).toHaveBeenCalledWith({
+      groupOrder: { Status: ["Done", "Open"] },
+    });
+  });
+
+  it("uses the saved global text order in both rows and the manager", async () => {
+    const textColumns = cols.map((column: any) =>
+      column.name == "Status"
+        ? {
+            ...column,
+            type: "text",
+            value: "",
+            attrs: JSON.stringify({ notidianGroupOrder: ["Done", "Open"] }),
+          }
+        : column
+    );
+    await render(
+      groupedData,
+      { ...basePredicate, groupBy: ["Status"] },
+      textColumns
+    );
+
+    expect(
+      groupHeaderRows().map(
+        (header) => header.querySelector(".mk-group-header-label")?.textContent
+      )
+    ).toEqual(["Done", "Open"]);
+
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    expect(menuElement.props.options.map((option: any) => option.value)).toEqual([
+      "Done",
+      "Open",
+    ]);
+  });
+
+  it("reorders the already-mounted grouped table after a global text order is saved", async () => {
+    const initialTextColumns = cols.map((column: any) =>
+      column.name == "Status" ? { ...column, type: "text", value: "" } : column
+    );
+    const superstate = makeSuperstate();
+
+    const StatefulGroupedTable = () => {
+      const [tableCols, setTableCols] = React.useState(initialTextColumns);
+      const contextValue = makeContextValue(
+        groupedData,
+        { ...basePredicate, groupBy: ["Status"] },
+        tableCols
+      );
+      contextValue.saveColumn = (nextColumn: any) => {
+        setTableCols((previous: any[]) =>
+          previous.map((column) =>
+            column.name == nextColumn.name && column.table == nextColumn.table
+              ? nextColumn
+              : column
+          )
+        );
+        return true;
+      };
+      return (
+        <SpaceContext.Provider
+          value={{
+            spaceInfo: { path: "Test/Space" },
+            spaceState: { path: "Test/Space" },
+          }}
+        >
+          <PathContext.Provider value={{ readMode: false }}>
+            <ContextEditorContext.Provider value={contextValue}>
+              <TableView superstate={superstate} />
+            </ContextEditorContext.Provider>
+          </PathContext.Provider>
+        </SpaceContext.Provider>
+      );
+    };
+
+    await act(async () => {
+      root.render(<StatefulGroupedTable />);
+      await Promise.resolve();
+    });
+
+    expect(
+      groupHeaderRows().map(
+        (header) => header.querySelector(".mk-group-header-label")?.textContent
+      )
+    ).toEqual(["Open", "Done"]);
+
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+
+    await act(async () => {
+      menuElement.props.saveGlobalOrder(["Done", "Open"]);
+      await Promise.resolve();
+    });
+
+    expect(
+      groupHeaderRows().map(
+        (header) => header.querySelector(".mk-group-header-label")?.textContent
+      )
+    ).toEqual(["Done", "Open"]);
+  });
+
+  it("confirms a text-group rename with the number of affected rows", async () => {
+    const textColumns = cols.map((column: any) =>
+      column.name == "Status" ? { ...column, type: "text", value: "" } : column
+    );
+    await render(
+      groupedData,
+      { ...basePredicate, groupBy: ["Status"] },
+      textColumns
+    );
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    menuElement.props.renameOption("Open", "In progress");
+
+    expect(lastSuperstate.ui.openModal).toHaveBeenCalledWith(
+      "Rename group",
+      expect.objectContaining({
+        props: expect.objectContaining({
+          message: "Rename “Open” to “In progress” in 3 rows?",
+        }),
+      }),
+      expect.anything()
+    );
+    const confirmation = lastSuperstate.ui.openModal.mock.calls[0][1] as any;
+    await act(async () => {
+      await confirmation.props.confirmAction();
+    });
+    expect(lastContextValue.applyValueEdits).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ rowId: "0", columnName: "Status", value: "In progress" }),
+        expect.objectContaining({ rowId: "1", columnName: "Status", value: "In progress" }),
+        expect.objectContaining({ rowId: "4", columnName: "Status", value: "In progress" }),
+      ],
+      { allOrNothing: true }
+    );
+  });
+
+  it("stages text group order before renaming rows so the group keeps its position", async () => {
+    const textColumns = cols.map((column: any) =>
+      column.name == "Status"
+        ? {
+            ...column,
+            type: "text",
+            value: "",
+            attrs: JSON.stringify({ notidianGroupOrder: ["Open", "Done"] }),
+          }
+        : column
+    );
+    await render(
+      groupedData,
+      { ...basePredicate, groupBy: ["Status"] },
+      textColumns
+    );
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    menuElement.props.renameOption("Open", "In progress");
+    const confirmation = lastSuperstate.ui.openModal.mock.calls[0][1] as any;
+    await act(async () => {
+      await confirmation.props.confirmAction();
+    });
+
+    expect(lastContextValue.applyValueEdits).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          rowId: "0",
+          fieldAttrs: JSON.stringify({
+            notidianGroupOrder: ["Open", "In progress", "Done"],
+          }),
+        }),
+        expect.objectContaining({
+          rowId: "1",
+          fieldAttrs: JSON.stringify({
+            notidianGroupOrder: ["Open", "In progress", "Done"],
+          }),
+        }),
+        expect.objectContaining({
+          rowId: "4",
+          fieldAttrs: JSON.stringify({
+            notidianGroupOrder: ["Open", "In progress", "Done"],
+          }),
+        }),
+      ],
+      { allOrNothing: true }
+    );
+  });
+
+  it("adds group renames to the table undo journal", async () => {
+    const textColumns = cols.map((column: any) =>
+      column.name == "Status" ? { ...column, type: "text", value: "" } : column
+    );
+    await render(
+      groupedData,
+      { ...basePredicate, groupBy: ["Status"] },
+      textColumns
+    );
+    lastContextValue.applyTableEdits.mockResolvedValue({
+      ok: true,
+      applied: 3,
+      skipped: [],
+      failed: [],
+    });
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    menuElement.props.renameOption("Open", "In progress");
+    const confirmation = lastSuperstate.ui.openModal.mock.calls[0][1] as any;
+    await act(async () => {
+      await confirmation.props.confirmAction();
+    });
+
+    const table = container.querySelector<HTMLElement>(".mk-table");
+    await act(async () => {
+      table!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          metaKey: true,
+          bubbles: true,
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(lastContextValue.applyTableEdits).toHaveBeenCalledWith([
+      expect.objectContaining({
+        rowId: "0",
+        columnName: "Status",
+        value: "Open",
+        expectedCurrentValue: "In progress",
+      }),
+      expect.objectContaining({
+        rowId: "1",
+        columnName: "Status",
+        value: "Open",
+        expectedCurrentValue: "In progress",
+      }),
+      expect.objectContaining({
+        rowId: "4",
+        columnName: "Status",
+        value: "Open",
+        expectedCurrentValue: "In progress",
+      }),
+    ]);
+    expect(lastSuperstate.ui.notify).toHaveBeenCalledWith("Undid Rename group.");
+  });
+
+  it("keeps a renamed select group at its view-specific position", async () => {
+    await render(groupedData, {
+      ...basePredicate,
+      groupBy: ["Status"],
+      groupOrder: { Status: ["Done", "Open"] },
+    });
+    const labelButton = groupHeaderRows()[0].querySelector<HTMLButtonElement>(
+      ".mk-group-header-label-button"
+    );
+    await act(async () => {
+      labelButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const menuElement = openCustomMenuMock.mock.calls[0][1] as any;
+    menuElement.props.renameOption("Open", "In progress");
+    const confirmation = lastSuperstate.ui.openModal.mock.calls[0][1] as any;
+    await act(async () => {
+      await confirmation.props.confirmAction();
+    });
+
+    expect(lastContextValue.savePredicate).toHaveBeenCalledWith({
+      groupOrder: { Status: ["Done", "Open", "In progress"] },
+    });
+  });
+
+  it("uses the grouped select property's global option order, not first row order", async () => {
+    await render(
+      [
+        { _index: "0", [PathPropertyName]: "Done first", Status: "Done" },
+        { _index: "1", [PathPropertyName]: "Open second", Status: "Open" },
+      ] as any[],
+      { ...basePredicate, groupBy: ["Status"] }
+    );
+
+    expect(
+      groupHeaderRows().map(
+        (header) => header.querySelector(".mk-group-header-label")?.textContent
+      )
+    ).toEqual(["Open", "Done"]);
+  });
+
+  it("keeps the no-value group last even when an empty row appears first", async () => {
+    await render(
+      [
+        { _index: "0", [PathPropertyName]: "Empty first", Status: "" },
+        { _index: "1", [PathPropertyName]: "Done second", Status: "Done" },
+        { _index: "2", [PathPropertyName]: "Open third", Status: "Open" },
+      ] as any[],
+      { ...basePredicate, groupBy: ["Status"] }
+    );
+
+    expect(
+      groupHeaderRows().map(
+        (header) => header.querySelector(".mk-group-header-label")?.textContent
+      )
+    ).toEqual(["Open", "Done", "No Status"]);
   });
 
   // Notidian-kxka: rows with NO value for the grouped property must be shown as a

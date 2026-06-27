@@ -44,6 +44,7 @@ const execute = async ({
   frontmatterOk = true,
   currentFrontmatterValues = {},
   sessionEditedKeys,
+  allOrNothing = false,
 }: {
   writes: TableCellWrite[];
   table?: SpaceTable;
@@ -51,11 +52,13 @@ const execute = async ({
   frontmatterOk?: boolean;
   currentFrontmatterValues?: Record<string, Record<string, string>>;
   sessionEditedKeys?: Set<string>;
+  allOrNothing?: boolean;
 }) => {
   const savedFrontmatter: { path: string; properties: Record<string, unknown> }[] =
     [];
   const savedTables: SpaceTable[] = [];
   const savedContexts: { key: string; table: SpaceTable }[] = [];
+  const operations: string[] = [];
 
   const result = await executeTableValueWrites({
     writes,
@@ -71,17 +74,21 @@ const execute = async ({
     currentFrontmatterValue: ({ path, column }) =>
       currentFrontmatterValues[path]?.[column.name],
     saveFrontmatterProperties: async ({ path, properties }) => {
+      operations.push("frontmatter");
       savedFrontmatter.push({ path, properties });
       return frontmatterOk ? { ok: true } : { ok: false };
     },
     saveDB: async (nextTable) => {
+      operations.push("saveDB");
       savedTables.push(nextTable);
     },
     saveContextDB: async (nextTable, key) => {
+      operations.push("saveContextDB");
       savedContexts.push({ key, table: nextTable });
     },
     contextKeyForTable: (tableName) => `contexts/${tableName}`,
     sessionEditedKeys,
+    ...(allOrNothing ? ({ allOrNothing: true } as any) : {}),
   });
 
   return {
@@ -89,10 +96,47 @@ const execute = async ({
     savedFrontmatter,
     savedTables,
     savedContexts,
+    operations,
   };
 };
 
 describe("executeTableValueWrites", () => {
+  it("keeps both values and option configuration untouched when an atomic batch conflicts", async () => {
+    const fieldValue = JSON.stringify({
+      options: [{ name: "Renamed", value: "renamed" }],
+    });
+    const { result, savedFrontmatter, savedTables } = await execute({
+      allOrNothing: true,
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": { status: "external" },
+      },
+      writes: [
+        {
+          rowId: "0",
+          columnName: "status",
+          table: "",
+          value: "renamed",
+          fieldValue,
+        },
+        {
+          rowId: "1",
+          columnName: "status",
+          table: "",
+          value: "renamed",
+          fieldValue,
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ reason: "frontmatter-conflict" }),
+    ]);
+    expect(savedFrontmatter).toEqual([]);
+    expect(savedTables).toEqual([]);
+  });
+
   it("combines transaction results for mixed edit operations", () => {
     expect(
       combineTableEditTransactionResults(
@@ -494,6 +538,60 @@ describe("executeTableValueWrites", () => {
       { value: "manual,auto" }
     );
     expect(savedTables[0].rows[1]).toMatchObject({ local: "manual" });
+  });
+
+  it("persists root field config before frontmatter writes trigger a reload", async () => {
+    const fieldValue = '{"options":[{"name":"review","value":"review"}]}';
+    const { savedTables, savedFrontmatter, operations } = await execute({
+      writes: [
+        {
+          rowId: "1",
+          columnName: "status",
+          table: "",
+          value: "review",
+          fieldValue,
+        },
+      ],
+    });
+
+    expect(savedFrontmatter).toHaveLength(1);
+    expect(operations).toEqual(["saveDB", "frontmatter", "saveDB"]);
+    expect(savedTables).toHaveLength(2);
+    expect(savedTables[0].cols.find((col) => col.name == "status")).toMatchObject(
+      { value: fieldValue }
+    );
+    expect(savedTables[0].rows[1]).toMatchObject({ status: "old" });
+    expect(savedTables[1].cols.find((col) => col.name == "status")).toMatchObject(
+      { value: fieldValue }
+    );
+    expect(savedTables[1].rows[1]).toMatchObject({ status: "review" });
+  });
+
+  it("persists root field attrs before frontmatter writes trigger a reload", async () => {
+    const fieldAttrs = '{"notidianGroupOrder":["old","review","later"]}';
+    const { savedTables, savedFrontmatter, operations } = await execute({
+      writes: [
+        {
+          rowId: "1",
+          columnName: "status",
+          table: "",
+          value: "review",
+          fieldAttrs,
+        },
+      ],
+    });
+
+    expect(savedFrontmatter).toHaveLength(1);
+    expect(operations).toEqual(["saveDB", "frontmatter", "saveDB"]);
+    expect(savedTables).toHaveLength(2);
+    expect(savedTables[0].cols.find((col) => col.name == "status")).toMatchObject(
+      { attrs: fieldAttrs }
+    );
+    expect(savedTables[0].rows[1]).toMatchObject({ status: "old" });
+    expect(savedTables[1].cols.find((col) => col.name == "status")).toMatchObject(
+      { attrs: fieldAttrs }
+    );
+    expect(savedTables[1].rows[1]).toMatchObject({ status: "review" });
   });
 
   it("persists context field config updates when the context row is temporarily missing", async () => {

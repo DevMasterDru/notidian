@@ -127,6 +127,18 @@ describe("savePropertyToDBTables", () => {
       });
     });
 
+    it("persists Notidian-owned group order inside attrs without requiring a new m_fields column", () => {
+      const attrs = JSON.stringify({
+        icon: "lucide-circle",
+        notidianGroupOrder: ["Done", "Open"],
+      });
+      const out = savePropertyToDBTables(prop({ name: "Status", attrs }), []);
+
+      expect(fieldSchema.cols).toContain("attrs");
+      expect(fieldSchema.cols).not.toContain("groupOrder");
+      expect((out.m_fields.rows[0] as SpaceProperty).attrs).toBe(attrs);
+    });
+
     // --- sanitizeColumnName INTERACTION (the persisted identity transform) ---
     // sanitizeColumnName strips ALL double-quotes, then peels a LEADING run of
     // `_`/`$`. Order matters: quotes are stripped FIRST and can EXPOSE a

@@ -28,9 +28,10 @@ export const dropPathsInTree = async (superstate: Superstate, paths: string[], a
         overItem.type == "file"
           ? overItem.depth == 0 ? null : flattenedTree.find((f) => f.id == overItem.parentId)?.item
           : overItem.item;
+      const dropTargetPath = (dropTarget as SpaceState | null | undefined)?.path;
           
       const droppable = paths.filter((f) =>
-       !nodeIsAncestorOfTarget(f, (dropTarget as SpaceState).path)
+       !dropTargetPath || !nodeIsAncestorOfTarget(f, dropTargetPath)
       );
 
       const parentId = projected.insert ? over : projected.parentId;
@@ -141,4 +142,3 @@ export const dropPathInSpaceAtIndex = async (superstate: Superstate,
     paths.forEach(path => addTagToPath(superstate, path, newSpaceCache.name));
   }
 };
-

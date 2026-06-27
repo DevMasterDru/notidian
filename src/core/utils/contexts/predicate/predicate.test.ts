@@ -485,6 +485,36 @@ describe("validatePredicate", () => {
     });
   });
 
+  describe("grouped-island view state (ADR 0052)", () => {
+    it("keeps a valid per-view group order and collapse set while dropping malformed entries", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupOrder: {
+            Status: ["Later", "Now", "Later", "", 7],
+            "": ["orphaned"],
+            Priority: "not-an-array",
+          },
+          collapsedGroups: {
+            Status: ["Later", "Later", "", null],
+            "": ["orphaned"],
+            Priority: { nope: true },
+          },
+        } as any,
+        defaultPredicate
+      ) as any;
+
+      expect(result.groupOrder).toEqual({ Status: ["Later", "Now"] });
+      expect(result.collapsedGroups).toEqual({ Status: ["Later"] });
+    });
+
+    it("keeps both fields absent for a legacy predicate", () => {
+      const result = validatePredicate(defaultPredicate, defaultPredicate) as any;
+      expect(result.groupOrder).toBeUndefined();
+      expect(result.collapsedGroups).toBeUndefined();
+    });
+  });
+
   it("strips a filter with an unknown fn (validate-loud primary guard, ADR 0034)", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     try {
