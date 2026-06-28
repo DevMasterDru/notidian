@@ -1,4 +1,7 @@
-import { deleteRowInTable } from "core/utils/contexts/context";
+import {
+  deleteRowInTable,
+  deleteRowsInTable,
+} from "core/utils/contexts/context";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import {
   requestRowDeleteWithSubItems,
@@ -41,7 +44,10 @@ export const showRowContextMenu = async (
   // Non-destructive parent-delete (Notidian-5ond.8): the visible row set + tree
   // resolution so deleting a row WITH sub-items opens the 3-way prompt instead of
   // a silent recursive delete. Undefined => leaf-style silent delete (legacy).
-  subItemsDelete?: SubItemsDeleteConfig
+  subItemsDelete?: SubItemsDeleteConfig,
+  // Whole-row multi-selection from TableView. When the clicked row belongs to a
+  // selected set, Delete targets that set instead of only the clicked row.
+  selectedRowIndices?: number[]
 ) => {
   e.preventDefault();
 
@@ -88,6 +94,19 @@ export const showRowContextMenu = async (
     console.warn("showRowContextMenu: Index out of bounds", index, "rows:", rows.length);
     return;
   }
+
+  const selectedDeleteIndices = Array.from(
+    new Set(
+      (selectedRowIndices ?? []).filter(
+        (rowIndex) =>
+          Number.isInteger(rowIndex) &&
+          rowIndex >= 0 &&
+          rowIndex < rows.length
+      )
+    )
+  );
+  const shouldDeleteSelectedRows =
+    selectedDeleteIndices.length > 1 && selectedDeleteIndices.includes(index);
 
   // Sub-items (ADR 0024 B1/C2): a single "Add sub-item" action, shared by the
   // primary folder menu (below) and the MDB row menu. It re-reads the table for
@@ -193,6 +212,15 @@ export const showRowContextMenu = async (
 
       // Use spaceInfoForPath instead of spacesIndex lookup to properly handle folder notes
       const spaceInfo = superstate.spaceManager.spaceInfoForPath(contextPath);
+      if (shouldDeleteSelectedRows) {
+        await deleteRowsInTable(
+          superstate.spaceManager,
+          spaceInfo,
+          schema,
+          selectedDeleteIndices
+        );
+        return;
+      }
       // Surface-specific removal of JUST this row (children are never rewritten).
       const deleteSelf = () =>
         deleteRowInTable(superstate.spaceManager, spaceInfo, schema, index);

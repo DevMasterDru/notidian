@@ -516,6 +516,32 @@ export const renameTagInContexts = async ( manager: SpaceManager,
             return newDB;
           })
       }
+
+export const deleteRowsInTable = async (
+  manager: SpaceManager,
+  context: SpaceInfo,
+  table: string,
+  indices: number[]
+): Promise<void> => {
+  const indexSet = new Set(
+    indices.filter((index) => Number.isInteger(index) && index >= 0)
+  );
+  if (indexSet.size == 0) return;
+
+  return processTable(manager, context, table, async (mdb, space) => {
+    const newDB = {
+      ...mdb,
+      rows: mdb.rows.filter((_row, index) => !indexSet.has(index)),
+    };
+    if (!_.isEqual(mdb, newDB)) {
+      if (manager.superstate.settings.enhancedLogs) {
+        // Delete Rows in Table
+      }
+      await saveContext(manager, space, newDB);
+    }
+    return newDB;
+  });
+};
     
 
 export const addPathInContexts = async (manager: SpaceManager,
@@ -660,4 +686,3 @@ export const removePathsInContext = async (manager: SpaceManager,
         return newDB;
       })
 }
-

@@ -47,7 +47,10 @@ import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowC
 import { showGroupedIslandMenu } from "core/react/components/UI/Menus/contexts/groupedIslandMenu";
 import { ConfirmationModal } from "core/react/components/UI/Modals/ConfirmationModal";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
-import { removePathInContexts } from "core/utils/contexts/context";
+import {
+  deleteRowsInTable,
+  removePathInContexts,
+} from "core/utils/contexts/context";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { serializeOptionValue } from "core/utils/serializer";
 import {
@@ -56,6 +59,7 @@ import {
   textGroupOrderFromAttrs,
 } from "core/utils/contexts/groupedIslandOrder";
 import { planGroupedRowCreate } from "core/utils/contexts/groupedRowCreate";
+import { deletePath } from "core/superstate/utils/path";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
@@ -123,6 +127,13 @@ import {
   moveVisibleRows,
   rowDragSet,
 } from "core/utils/contexts/tableRowOrder";
+import {
+  pointRelativeToScrolledContainer,
+  rectFromPoints,
+  rectRelativeToScrolledContainer,
+  rectsIntersect,
+  TableMarqueeRect,
+} from "core/utils/contexts/tableRowMarquee";
 import {
   clampFrozenColumnCount,
   rowGutterWidthForRowCount,
@@ -254,13 +265,6 @@ type TableUndoJournalState = {
   redo: TableUndoEntry[];
 };
 
-type TableMarqueeRect = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
 type TableRowMarqueeItem = {
   rowId: string;
   rect: DOMRect;
@@ -273,7 +277,11 @@ type TableRowMarqueeState = {
   anchorRowId: string;
   rowRects: TableRowMarqueeItem[];
   tableRect: DOMRect;
+  scrollLeft: number;
+  scrollTop: number;
 };
+
+type TableUndoRedoCommand = "undo" | "redo";
 
 const tableUndoJournalStore = new Map<string, TableUndoJournalState>();
 const defaultTableColumnWidth = 150;
@@ -402,37 +410,6 @@ export type TableCellProp = {
 export type TableCellMultiProp = TableCellProp & {
   multi: boolean;
 };
-
-const rectFromPoints = (
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number
-): TableMarqueeRect => ({
-  left: Math.min(startX, endX),
-  top: Math.min(startY, endY),
-  width: Math.max(1, Math.abs(endX - startX)),
-  height: Math.max(1, Math.abs(endY - startY)),
-});
-
-const rectsIntersect = (
-  a: Pick<TableMarqueeRect, "left" | "top" | "width" | "height">,
-  b: Pick<TableMarqueeRect, "left" | "top" | "width" | "height">
-): boolean =>
-  a.left < b.left + b.width &&
-  a.left + a.width > b.left &&
-  a.top < b.top + b.height &&
-  a.top + a.height > b.top;
-
-const rectRelativeTo = (
-  rect: TableMarqueeRect,
-  container: DOMRect
-): TableMarqueeRect => ({
-  left: rect.left - container.left,
-  top: rect.top - container.top,
-  width: rect.width,
-  height: rect.height,
-});
 
 const rowDragPointFromEvent = (
   event:
@@ -699,13 +676,13 @@ export const TableView = (props: { superstate: Superstate }) => {
   const [tableRedoStack, setTableRedoStack] = useState<TableUndoEntry[]>([]);
   const tableUndoStackRef = useRef<TableUndoEntry[]>([]);
   const tableRedoStackRef = useRef<TableUndoEntry[]>([]);
-  // Notidian-oxjk: serialize undo/redo. A held Cmd+Z autorepeats ~30x/sec; each
-  // press fired a full async apply (file writes + reload), stacking dozens of
-  // overlapping operations that hung the table AND raced the journal (two presses
-  // popping the same entry). This guard drops presses while one op is in flight,
-  // so a held key applies operations one at a time at the rate the table can keep
-  // up. Awaited sequential calls (tests, single presses) are never blocked.
+  // Serialize undo/redo. A held Cmd+Z autorepeats ~30x/sec; overlapping writes
+  // race the journal and hang the table. Earlier de-storming dropped presses
+  // while an op was in flight, which kept writes safe but made undo feel ignored.
+  // Keep one in-flight writer and queue later commands so rapid keypresses drain
+  // deterministically at the rate table writes can apply.
   const undoRedoInFlightRef = useRef(false);
+  const undoRedoQueueRef = useRef<TableUndoRedoCommand[]>([]);
   const selectedRowsRef = useRef<string[]>([]);
   const rowMarqueeRef = useRef<TableRowMarqueeState>(null);
   const activeDragTypeRef = useRef<"column" | "row" | null>(null);
@@ -1225,6 +1202,75 @@ export const TableView = (props: { superstate: Superstate }) => {
     await newRow(plan.name, undefined, plan.values);
   };
 
+  const clearWholeRowSelection = () => {
+    selectedRowsRef.current = [];
+    selectRows(null, []);
+    setLastSelectedIndex(null);
+    setSelectedColumn(null);
+    setCurrentEdit(null);
+    setCellSelection(null);
+  };
+
+  const selectedWholeRowIdsForDelete = () => {
+    if (currentEdit || cellSelection || selectedColumn) return [];
+    const rowCount = tableData?.rows?.length ?? 0;
+    return Array.from(new Set(selectedRowsRef.current)).filter((rowId) => {
+      const index = Number(rowId);
+      return Number.isInteger(index) && index >= 0 && index < rowCount;
+    });
+  };
+
+  const requestDeleteSelectedWholeRows = (win: Window): boolean => {
+    const rowIds = selectedWholeRowIdsForDelete();
+    if (rowIds.length == 0 || !dbSchema?.id) return false;
+
+    if (dbSchema?.primary == "true") {
+      const paths = Array.from(
+        new Set(
+          rowIds
+            .map((rowId) =>
+              String(tableData?.rows?.[Number(rowId)]?.[PathPropertyName] ?? "")
+            )
+            .filter((path) => path.length > 0)
+        )
+      );
+      if (paths.length == 0) return false;
+      props.superstate.ui.openModal(
+        i18n.labels.deleteFiles,
+        <ConfirmationModal
+          confirmAction={() => {
+            paths.forEach((path) => {
+              void deletePath(props.superstate, path);
+            });
+            clearWholeRowSelection();
+          }}
+          confirmLabel={i18n.buttons.delete}
+          message={i18n.descriptions.deleteFiles.replace(
+            "${1}",
+            paths.length.toString()
+          )}
+        />,
+        win
+      );
+      return true;
+    }
+
+    const contextPath = spaceCache?.path ?? spaceInfo?.path;
+    const targetSpace =
+      (contextPath &&
+        props.superstate.spaceManager?.spaceInfoForPath?.(contextPath)) ??
+      spaceInfo;
+    if (!props.superstate.spaceManager || !targetSpace) return false;
+
+    void deleteRowsInTable(
+      props.superstate.spaceManager,
+      targetSpace,
+      dbSchema.id,
+      rowIds.map((rowId) => Number(rowId))
+    ).then(() => clearWholeRowSelection());
+    return true;
+  };
+
   const selectItem = (modifier: PointerModifiers, index: string) => {
     if (modifier.metaKey) {
       props.superstate.ui.openPath(
@@ -1375,81 +1421,83 @@ export const TableView = (props: { superstate: Superstate }) => {
         pushTableUndo(filterTableUndoEntryForResult(clearUndoEntry, result));
       }
     };
-    const undoLastTableOperation = async () => {
-      // Drop overlapping presses while an op is applying (Notidian-oxjk).
-      if (undoRedoInFlightRef.current) return;
+    const applyTableUndoRedoCommand = async (
+      command: TableUndoRedoCommand
+    ): Promise<boolean> => {
       const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
-      const undoEntry = currentJournal.undo[currentJournal.undo.length - 1];
-      if (!undoEntry) return;
-      undoRedoInFlightRef.current = true;
-      try {
+      const isUndo = command == "undo";
+      const entry = isUndo
+        ? currentJournal.undo[currentJournal.undo.length - 1]
+        : currentJournal.redo[currentJournal.redo.length - 1];
+      if (!entry) return false;
+
+      if (isUndo) {
         const nextUndoStack = currentJournal.undo.slice(0, -1);
         replaceTableUndoJournal(nextUndoStack, currentJournal.redo);
-
-        const operationId = beginCellFeedbackOperation(undoEntry.writes);
-        const result = await applyTableEdits(undoEntry.writes);
-        finishCellFeedbackOperation(operationId, result);
-        if (
-          result.ok &&
-          result.failed.length == 0 &&
-          result.skipped.length == 0
-        ) {
-          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-          const nextRedoStack = pushTableUndoEntry(
-            latestJournal.redo,
-            undoEntry
-          );
-          replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
-          props.superstate.ui.notify(`Undid ${undoEntry.label}.`);
-        } else {
-          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-          const restoredUndoStack = pushTableUndoEntry(
-            latestJournal.undo,
-            undoEntry
-          );
-          replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);
-        }
-      } finally {
-        undoRedoInFlightRef.current = false;
-      }
-    };
-    const redoLastTableOperation = async () => {
-      // Drop overlapping presses while an op is applying (Notidian-oxjk).
-      if (undoRedoInFlightRef.current) return;
-      const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
-      const redoEntry = currentJournal.redo[currentJournal.redo.length - 1];
-      if (!redoEntry) return;
-      undoRedoInFlightRef.current = true;
-      try {
+      } else {
         const nextRedoStack = currentJournal.redo.slice(0, -1);
         replaceTableUndoJournal(currentJournal.undo, nextRedoStack);
+      }
 
-        const operationId = beginCellFeedbackOperation(redoEntry.redoWrites);
-        const result = await applyTableEdits(redoEntry.redoWrites);
-        finishCellFeedbackOperation(operationId, result);
-        if (
-          result.ok &&
-          result.failed.length == 0 &&
-          result.skipped.length == 0
-        ) {
-          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+      const writes = isUndo ? entry.writes : entry.redoWrites;
+      const operationId = beginCellFeedbackOperation(writes);
+      const result = await applyTableEdits(writes);
+      finishCellFeedbackOperation(operationId, result);
+      const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+      if (result.ok && result.failed.length == 0 && result.skipped.length == 0) {
+        if (isUndo) {
+          const nextRedoStack = pushTableUndoEntry(latestJournal.redo, entry);
+          replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
+          props.superstate.ui.notify(`Undid ${entry.label}.`);
+        } else {
           const nextUndoStack = pushTableUndoEntry(
             latestJournal.undo,
-            redoEntry
+            entry
           );
           replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
-          props.superstate.ui.notify(`Redid ${redoEntry.label}.`);
-        } else {
-          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-          const restoredRedoStack = pushTableUndoEntry(
-            latestJournal.redo,
-            redoEntry
-          );
-          replaceTableUndoJournal(latestJournal.undo, restoredRedoStack);
+          props.superstate.ui.notify(`Redid ${entry.label}.`);
         }
-      } finally {
-        undoRedoInFlightRef.current = false;
+      } else if (isUndo) {
+        const restoredUndoStack = pushTableUndoEntry(latestJournal.undo, entry);
+        replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);
+      } else {
+        const restoredRedoStack = pushTableUndoEntry(
+          latestJournal.redo,
+          entry
+        );
+        replaceTableUndoJournal(latestJournal.undo, restoredRedoStack);
       }
+      return true;
+    };
+
+    const requestTableUndoRedoCommand = (
+      command: TableUndoRedoCommand
+    ): boolean => {
+      const currentJournal = tableUndoJournalForKey(tableUndoJournalKey);
+      const hasAvailableEntry =
+        command == "undo"
+          ? currentJournal.undo.length > 0
+          : currentJournal.redo.length > 0;
+      if (!hasAvailableEntry && !undoRedoInFlightRef.current) return false;
+
+      if (undoRedoInFlightRef.current) {
+        undoRedoQueueRef.current.push(command);
+        return true;
+      }
+
+      undoRedoInFlightRef.current = true;
+      void (async () => {
+        let nextCommand: TableUndoRedoCommand | undefined = command;
+        try {
+          while (nextCommand) {
+            await applyTableUndoRedoCommand(nextCommand);
+            nextCommand = undoRedoQueueRef.current.shift();
+          }
+        } finally {
+          undoRedoInFlightRef.current = false;
+        }
+      })();
+      return true;
     };
     const nextRow = () => {
       const newIndex = selectNextIndex(
@@ -1509,8 +1557,7 @@ export const TableView = (props: { superstate: Superstate }) => {
         e.key.toLowerCase() == "y") &&
       (e.metaKey || e.ctrlKey)
     ) {
-      if (tableUndoJournalForKey(tableUndoJournalKey).redo.length > 0) {
-        redoLastTableOperation();
+      if (requestTableUndoRedoCommand("redo")) {
         e.preventDefault();
       }
       return;
@@ -1520,8 +1567,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       (e.metaKey || e.ctrlKey) &&
       !e.shiftKey
     ) {
-      if (tableUndoJournalForKey(tableUndoJournalKey).undo.length > 0) {
-        undoLastTableOperation();
+      if (requestTableUndoRedoCommand("undo")) {
         e.preventDefault();
       }
       return;
@@ -1533,6 +1579,13 @@ export const TableView = (props: { superstate: Superstate }) => {
       setCellSelection(null);
     }
     if (e.key == "Backspace" || e.key == "Delete") {
+      const win = windowFromDocument(
+        (e.currentTarget as HTMLElement).ownerDocument
+      );
+      if (requestDeleteSelectedWholeRows(win)) {
+        e.preventDefault();
+        return;
+      }
       clearCell();
       e.preventDefault();
     }
@@ -2501,7 +2554,13 @@ export const TableView = (props: { superstate: Superstate }) => {
         event.clientX,
         event.clientY
       );
-      setRowMarqueeRect(rectRelativeTo(viewportRect, marquee.tableRect));
+      const tableEl = ref.current as HTMLElement | null;
+      setRowMarqueeRect(
+        rectRelativeToScrolledContainer(viewportRect, marquee.tableRect, {
+          left: tableEl?.scrollLeft ?? marquee.scrollLeft,
+          top: tableEl?.scrollTop ?? marquee.scrollTop,
+        })
+      );
 
       const selected = marquee.rowRects
         .filter((row) => rectsIntersect(viewportRect, row.rect))
@@ -2611,6 +2670,10 @@ export const TableView = (props: { superstate: Superstate }) => {
     tableEl?.focus();
     const tableRect = tableEl?.getBoundingClientRect();
     if (!tableRect) return;
+    const marqueeScroll = {
+      left: tableEl.scrollLeft,
+      top: tableEl.scrollTop,
+    };
 
     if (e.shiftKey && lastSelectedIndex) {
       const rowIds = rowIdsForSelectionDrag(lastSelectedIndex, rowId);
@@ -2621,13 +2684,17 @@ export const TableView = (props: { superstate: Superstate }) => {
         anchorRowId: lastSelectedIndex,
         rowRects: rowMarqueeItems(),
         tableRect,
+        scrollLeft: marqueeScroll.left,
+        scrollTop: marqueeScroll.top,
       };
-      setRowMarqueeRect({
-        left: e.clientX - tableRect.left,
-        top: e.clientY - tableRect.top,
-        width: 0,
-        height: 0,
-      });
+      setRowMarqueeRect(
+        pointRelativeToScrolledContainer(
+          e.clientX,
+          e.clientY,
+          tableRect,
+          marqueeScroll
+        )
+      );
       selectWholeRows(rowId, rowIds);
       return;
     }
@@ -2649,13 +2716,17 @@ export const TableView = (props: { superstate: Superstate }) => {
       anchorRowId: rowId,
       rowRects: rowMarqueeItems(),
       tableRect,
+      scrollLeft: marqueeScroll.left,
+      scrollTop: marqueeScroll.top,
     };
-    setRowMarqueeRect({
-      left: e.clientX - tableRect.left,
-      top: e.clientY - tableRect.top,
-      width: 0,
-      height: 0,
-    });
+    setRowMarqueeRect(
+      pointRelativeToScrolledContainer(
+        e.clientX,
+        e.clientY,
+        tableRect,
+        marqueeScroll
+      )
+    );
     selectWholeRows(rowId, [rowId]);
   };
 
@@ -3151,6 +3222,15 @@ export const TableView = (props: { superstate: Superstate }) => {
                       console.warn("Invalid row index:", rowOriginalIndex);
                       return;
                     }
+                    const selectedRowIndicesForContextMenu =
+                      !cellSelection &&
+                      !selectedColumn &&
+                      selectedRows.length > 1 &&
+                      selectedRows.includes(rowOriginalIndex)
+                        ? selectedRows
+                            .map((rowId) => Number(rowId))
+                            .filter((rowId) => Number.isInteger(rowId))
+                        : undefined;
                     showRowContextMenu(
                       e,
                       props.superstate,
@@ -3182,7 +3262,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                             removeFromSurface:
                               dbSchema?.primary == "true"
                                 ? undefined
-                                : async (path: string): Promise<void> => {
+                              : async (path: string): Promise<void> => {
                                     await removePathInContexts(
                                       props.superstate.spaceManager,
                                       path,
@@ -3190,7 +3270,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                                     );
                                   },
                           }
-                        : undefined
+                        : undefined,
+                      selectedRowIndicesForContextMenu
                     );
                   }}
                 >

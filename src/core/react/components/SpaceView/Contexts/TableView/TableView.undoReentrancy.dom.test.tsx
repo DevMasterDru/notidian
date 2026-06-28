@@ -1,15 +1,16 @@
 /**
  * @jest-environment jsdom
  */
-// Offline (jsdom) regression net for the undo/redo re-entrancy guard
-// (Notidian-oxjk). A held Cmd+Z autorepeats ~30x/sec; before the guard each press
-// fired a full async apply (file writes + reload), stacking dozens of overlapping
-// operations that hung the table AND raced the journal (two presses popping the
-// same entry). The guard (undoRedoInFlightRef) must:
+// Offline (jsdom) regression net for the undo/redo serialization queue. A held
+// Cmd+Z autorepeats ~30x/sec; before Notidian-oxjk each press fired a full async
+// apply (file writes + reload), stacking overlapping operations that hung the
+// table AND raced the journal. The first de-storm guard fixed overlap by
+// DROPPING presses while one op was in flight, which made undo feel ignored.
+// The queue must:
 //
-//   (1) DROP a second undo press while the first's applyTableEdits is still
-//       pending — exactly ONE operation applies per in-flight window.
-//   (2) RELEASE once the in-flight op settles, so the NEXT press proceeds.
+//   (1) keep exactly ONE operation in flight at a time,
+//   (2) QUEUE overlapping undo/redo commands instead of dropping them,
+//   (3) read the latest journal before each queued command drains.
 //
 // Mirrors the harness in TableView.groupHeader.dom.test.tsx (fresh real contexts +
 // sentinel leaf mocks) so the REAL TableView onKeyDown -> undoLastTableOperation
@@ -119,14 +120,24 @@ const basePredicate = {
 const SOURCE = "Test/Space";
 const JOURNAL_KEY = `${SOURCE}::files`;
 
-const makeEntry = (label: string, value: string): TableUndoEntry =>
+const makeEntry = (
+  label: string,
+  value: string,
+  redoValue = `redo-${value}`
+): TableUndoEntry =>
   ({
     label,
     writes: [
       { rowId: "0", columnName: "Status", table: "", columnId: "Status", value },
     ],
     redoWrites: [
-      { rowId: "0", columnName: "Status", table: "", columnId: "Status", value },
+      {
+        rowId: "0",
+        columnName: "Status",
+        table: "",
+        columnId: "Status",
+        value: redoValue,
+      },
     ],
   } as any);
 
@@ -219,6 +230,21 @@ const fireUndo = async () => {
   });
 };
 
+const fireRedo = async () => {
+  const el = container.querySelector(".mk-table") as HTMLElement;
+  await act(async () => {
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+      })
+    );
+    await Promise.resolve();
+  });
+};
+
 // Resolve the oldest in-flight applyTableEdits and let its handler finish
 // (including the `finally` that releases the guard).
 const settleOldest = async () => {
@@ -246,8 +272,8 @@ afterEach(() => {
   __resetTableUndoJournalForTest();
 });
 
-describe("undo/redo re-entrancy guard (Notidian-oxjk)", () => {
-  it("drops an overlapping undo press while one is in flight, then releases", async () => {
+describe("undo/redo serialization queue", () => {
+  it("queues an overlapping undo press while one is in flight, then drains it", async () => {
     // Two stacked undo entries; B (last) is undone first, then A.
     __seedTableUndoJournalForTest(JOURNAL_KEY, {
       undo: [makeEntry("edit A", "a"), makeEntry("edit B", "b")],
@@ -259,25 +285,23 @@ describe("undo/redo re-entrancy guard (Notidian-oxjk)", () => {
     // First press starts an operation (B) that is now pending.
     await fireUndo();
     expect(applyTableEdits).toHaveBeenCalledTimes(1);
+    expect(applyTableEdits.mock.calls[0][0][0].value).toBe("b");
 
-    // Second press WHILE the first is still in flight is dropped by the guard —
-    // no second operation stacks up.
+    // Second press WHILE the first is still in flight is queued: no concurrent
+    // operation starts yet, but the command is not dropped.
     await fireUndo();
     expect(applyTableEdits).toHaveBeenCalledTimes(1);
 
-    // The in-flight op settles; the guard releases.
+    // The in-flight op settles; the queued undo drains immediately and applies A.
     await settleOldest();
-
-    // A subsequent press now proceeds (applies A), proving the guard reset.
-    await fireUndo();
     expect(applyTableEdits).toHaveBeenCalledTimes(2);
+    expect(applyTableEdits.mock.calls[1][0][0].value).toBe("a");
 
-    // Sanity: no operation was left stuck pending beyond the ones we drove.
     await settleOldest();
     expect(applyTableEdits).toHaveBeenCalledTimes(2);
   });
 
-  it("never stacks more than one in-flight op across a rapid burst of presses", async () => {
+  it("serializes a rapid burst without stacking concurrent writes or dropping available undo entries", async () => {
     __seedTableUndoJournalForTest(JOURNAL_KEY, {
       undo: [
         makeEntry("edit A", "a"),
@@ -294,8 +318,46 @@ describe("undo/redo re-entrancy guard (Notidian-oxjk)", () => {
       await fireUndo();
     }
 
-    // Only the first press's operation is in flight; the other four are dropped.
+    // Only the first press's operation is in flight; the other available entries
+    // are queued behind it rather than started concurrently.
     expect(applyTableEdits).toHaveBeenCalledTimes(1);
     expect(pendingResolvers.length).toBe(1);
+
+    await settleOldest();
+    expect(applyTableEdits).toHaveBeenCalledTimes(2);
+    expect(pendingResolvers.length).toBe(1);
+
+    await settleOldest();
+    expect(applyTableEdits).toHaveBeenCalledTimes(3);
+    expect(pendingResolvers.length).toBe(1);
+
+    await settleOldest();
+    expect(applyTableEdits).toHaveBeenCalledTimes(3);
+    expect(pendingResolvers.length).toBe(0);
+    expect(applyTableEdits.mock.calls.map((call) => call[0][0].value)).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
+  });
+
+  it("can queue redo while an undo is still applying", async () => {
+    __seedTableUndoJournalForTest(JOURNAL_KEY, {
+      undo: [makeEntry("edit A", "undo-a", "redo-a")],
+      redo: [],
+    });
+
+    await render();
+
+    await fireUndo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(1);
+    expect(applyTableEdits.mock.calls[0][0][0].value).toBe("undo-a");
+
+    await fireRedo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(1);
+
+    await settleOldest();
+    expect(applyTableEdits).toHaveBeenCalledTimes(2);
+    expect(applyTableEdits.mock.calls[1][0][0].value).toBe("redo-a");
   });
 });

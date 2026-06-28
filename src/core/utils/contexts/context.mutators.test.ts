@@ -46,6 +46,7 @@ import {
   addPathInContexts,
   addRowInTable,
   deleteRowInTable,
+  deleteRowsInTable,
   removeLinkInContexts,
   removePathInContexts,
   removePathsInContext,
@@ -259,6 +260,45 @@ describe("deleteRowInTable", () => {
   it("SAVE-SKIP: an out-of-range index removes nothing and does not save", async () => {
     const { manager, saveTable } = makeManager({ Items: tbl() });
     await deleteRowInTable(manager, SPACE, "files", 99);
+    expect(saveTable).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteRowsInTable", () => {
+  const tbl = (): SpaceTable => ({
+    schema: SCHEMA,
+    cols: [{ name: PathPropertyName, type: "file" }],
+    rows: [
+      { [PathPropertyName]: "A.md" },
+      { [PathPropertyName]: "B.md" },
+      { [PathPropertyName]: "C.md" },
+      { [PathPropertyName]: "D.md" },
+    ],
+  });
+
+  it("removes scattered row indices in one save without index-shift drift", async () => {
+    const { manager, saveTable } = makeManager({ Items: tbl() });
+    await deleteRowsInTable(manager, SPACE, "files", [0, 2]);
+    expect(saveTable).toHaveBeenCalledTimes(1);
+    expect(paths(saveTable.mock.calls[0][1] as SpaceTable)).toEqual([
+      "B.md",
+      "D.md",
+    ]);
+  });
+
+  it("deduplicates and ignores invalid indices", async () => {
+    const { manager, saveTable } = makeManager({ Items: tbl() });
+    await deleteRowsInTable(manager, SPACE, "files", [-1, 1, 1, 99, 3]);
+    expect(saveTable).toHaveBeenCalledTimes(1);
+    expect(paths(saveTable.mock.calls[0][1] as SpaceTable)).toEqual([
+      "A.md",
+      "C.md",
+    ]);
+  });
+
+  it("SAVE-SKIP: no present indices removes nothing and does not save", async () => {
+    const { manager, saveTable } = makeManager({ Items: tbl() });
+    await deleteRowsInTable(manager, SPACE, "files", [-1, 99]);
     expect(saveTable).not.toHaveBeenCalled();
   });
 });

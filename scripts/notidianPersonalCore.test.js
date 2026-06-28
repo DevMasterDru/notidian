@@ -70,7 +70,7 @@ describe("Notidian personal core", () => {
     );
 
     expect(tableView).toContain("tableRedoStack");
-    expect(tableView).toContain("redoLastTableOperation");
+    expect(tableView).toContain('requestTableUndoRedoCommand("redo")');
     expect(tableView).toContain('e.key.toLowerCase() == "y"');
     expect(tableView).toContain("redoWrites");
   });

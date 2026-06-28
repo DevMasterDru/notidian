@@ -38,6 +38,7 @@ import { createRoot, Root } from "react-dom/client";
 jest.mock("makemd-core", () => ({}));
 jest.mock("core/utils/contexts/context", () => ({
   deleteRowInTable: jest.fn(),
+  deleteRowsInTable: jest.fn(),
 }));
 jest.mock("../navigator/pathContextMenu", () => ({
   showPathContextMenu: jest.fn(),
@@ -399,7 +400,10 @@ describe("showRowContextMenu Add sub-item (ADR 0024 B1 + primary-schema gate Not
 // option lands in the menu, and threads a real subItemsDelete config.
 // ---------------------------------------------------------------------------
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { deleteRowInTable } = require("core/utils/contexts/context");
+const {
+  deleteRowInTable,
+  deleteRowsInTable,
+} = require("core/utils/contexts/context");
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { deletePath } = require("core/superstate/utils/path");
 
@@ -436,6 +440,7 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
 
   beforeEach(() => {
     deleteRowInTable.mockReset();
+    deleteRowsInTable.mockReset();
     deletePath.mockReset();
     removeFromSurface = jest.fn();
     openedMenus = [];
@@ -475,7 +480,7 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     container.remove();
   });
 
-  const deleteOption = async (index: number) => {
+  const deleteOption = async (index: number, selectedRowIndices?: number[]) => {
     await showRowContextMenu(
       fakeEvent(),
       superstate,
@@ -491,7 +496,8 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
         treeNodes: VISIBLE_TREE,
         isPrimarySurface: false,
         removeFromSurface,
-      }
+      },
+      selectedRowIndices
     );
     await Promise.resolve();
     const options = openedMenus[openedMenus.length - 1]?.options ?? [];
@@ -514,6 +520,19 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     await Promise.resolve();
     expect(openedModals).toHaveLength(0); // never prompts a childless row
     expect(deleteRowInTable).toHaveBeenCalledTimes(1);
+    expect(deletePath).not.toHaveBeenCalled();
+  });
+
+  it("multi-selected row delete removes the selected index set in one table call", async () => {
+    const option = await deleteOption(1, [0, 1]);
+    expect(option).toBeTruthy();
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    expect(openedModals).toHaveLength(0);
+    expect(deleteRowsInTable).toHaveBeenCalledTimes(1);
+    expect(deleteRowsInTable.mock.calls[0][2]).toBe("table");
+    expect(deleteRowsInTable.mock.calls[0][3]).toEqual([0, 1]);
+    expect(deleteRowInTable).not.toHaveBeenCalled();
     expect(deletePath).not.toHaveBeenCalled();
   });
 
