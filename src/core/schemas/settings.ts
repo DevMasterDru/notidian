@@ -1,4 +1,5 @@
 import i18n from "shared/i18n";
+import { isLegacyStorageRoot, pluginStorageRoot } from "shared/pluginIdentity";
 
 import { BasicDefaultSettings } from "../../basics/schemas/settings";
 import { MakeMDSettings } from "../../shared/types/settings";
@@ -15,7 +16,12 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   imageThumbnails: false,
   noteThumbnails: false,
   spacesMDBInHidden: true,
-  cacheIndex: true,
+  // Disabled after Notidian-3gx2: the warm superstate.mdc startup cache is only
+  // a performance optimization, and the owner's vault reproduced a native
+  // Obsidian renderer crash only when saved cacheIndex=true was used during
+  // cold startup. Notidian can rebuild from canonical files/frontmatter and
+  // context MDBs without this cache.
+  cacheIndex: false,
   spacesRightSplit: false,
   contextEnabled: true,
   spaceViewEnabled: true,
@@ -162,4 +168,30 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   contextCreateUseModal: false,
   homepagePath: '',
   mobileMakeHeader: false,
+};
+
+export const sanitizeNotidianSettings = (data: unknown): MakeMDSettings => {
+  const settings = Object.assign(
+    {},
+    DEFAULT_SETTINGS,
+    data && typeof data === "object" ? data : {}
+  ) as Record<string, unknown>;
+
+  const retiredSyncSettingKeys = [
+    ["saveAllContext", "ToFrontmatter"].join(""),
+    ["syncFormula", "ToFrontmatter"].join(""),
+  ];
+  for (const key of retiredSyncSettingKeys) {
+    delete settings[key];
+  }
+
+  if (isLegacyStorageRoot(settings.spaceSubFolder)) {
+    settings.spaceSubFolder = pluginStorageRoot;
+  }
+
+  // Notidian-3gx2: force existing saved values out of the crash path too. A
+  // default change alone would not help vaults that already persisted true.
+  settings.cacheIndex = false;
+
+  return settings as unknown as MakeMDSettings;
 };

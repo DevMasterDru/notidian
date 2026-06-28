@@ -92,6 +92,7 @@ export const PerformanceSettings = ({ superstate }: SettingsProps) => {
             <input
               type="checkbox"
               checked={superstate.settings.cacheIndex}
+              disabled
               onChange={(e) => {
                 superstate.settings.cacheIndex = e.target.checked;
                 immediateSave();

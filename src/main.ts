@@ -1,6 +1,6 @@
 
 import { SPACE_VIEW_TYPE, SpaceViewContainer } from "adapters/obsidian/SpaceViewContainer";
-import { DEFAULT_SETTINGS } from "core/schemas/settings";
+import { DEFAULT_SETTINGS, sanitizeNotidianSettings } from "core/schemas/settings";
 import {
   App, MarkdownView,
   Platform,
@@ -39,7 +39,6 @@ import { ContextExplorerLeafView, FILE_CONTEXT_VIEW_TYPE } from "adapters/obsidi
 
 import i18n, { i18nLoader } from "shared/i18n";
 import {
-  isLegacyStorageRoot,
   pluginDataPath,
   pluginDisplayName,
   pluginRepositoryUrl,
@@ -163,17 +162,7 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
   }
 
   private sanitizedSettings(data: unknown): typeof DEFAULT_SETTINGS {
-    const settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      data && typeof data === "object" ? data : {}
-    ) as Record<string, unknown>;
-    delete settings.saveAllContextToFrontmatter;
-    delete settings.syncFormulaToFrontmatter;
-    if (isLegacyStorageRoot(settings.spaceSubFolder)) {
-      settings.spaceSubFolder = pluginStorageRoot;
-    }
-    return settings as unknown as typeof DEFAULT_SETTINGS;
+    return sanitizeNotidianSettings(data);
   }
   
   

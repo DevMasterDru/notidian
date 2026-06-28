@@ -1147,7 +1147,7 @@ export const en = {
     },
     "cacheIndex": {
       "name": "Cache Search Index",
-      "desc": "Cache the index for faster search results"
+      "desc": "Disabled while Notidian rebuilds the startup cache path for stability."
     },
     "layoutVertical": "Vertical",
     "layoutHorizontal": "Horizontal",
