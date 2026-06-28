@@ -480,7 +480,11 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     container.remove();
   });
 
-  const deleteOption = async (index: number, selectedRowIndices?: number[]) => {
+  const deleteOption = async (
+    index: number,
+    selectedRowIndices?: number[],
+    selectedRowsDeleteAction?: () => void | Promise<void>
+  ) => {
     await showRowContextMenu(
       fakeEvent(),
       superstate,
@@ -497,7 +501,8 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
         isPrimarySurface: false,
         removeFromSurface,
       },
-      selectedRowIndices
+      selectedRowIndices,
+      selectedRowsDeleteAction
     );
     await Promise.resolve();
     const options = openedMenus[openedMenus.length - 1]?.options ?? [];
@@ -532,6 +537,18 @@ describe("showRowContextMenu non-destructive delete (Notidian-5ond.8)", () => {
     expect(deleteRowsInTable).toHaveBeenCalledTimes(1);
     expect(deleteRowsInTable.mock.calls[0][2]).toBe("table");
     expect(deleteRowsInTable.mock.calls[0][3]).toEqual([0, 1]);
+    expect(deleteRowInTable).not.toHaveBeenCalled();
+    expect(deletePath).not.toHaveBeenCalled();
+  });
+
+  it("multi-selected row delete delegates to a threaded TableView action when supplied", async () => {
+    const selectedRowsDeleteAction = jest.fn(async () => {});
+    const option = await deleteOption(1, [0, 1], selectedRowsDeleteAction);
+    expect(option).toBeTruthy();
+    await option.onClick(fakeEvent());
+    await Promise.resolve();
+    expect(selectedRowsDeleteAction).toHaveBeenCalledTimes(1);
+    expect(deleteRowsInTable).not.toHaveBeenCalled();
     expect(deleteRowInTable).not.toHaveBeenCalled();
     expect(deletePath).not.toHaveBeenCalled();
   });

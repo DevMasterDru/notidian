@@ -50,6 +50,7 @@ import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import {
   deleteRowsInTable,
   removePathInContexts,
+  restoreRowsInTable,
 } from "core/utils/contexts/context";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { serializeOptionValue } from "core/utils/serializer";
@@ -108,6 +109,7 @@ import {
   TablePasteMode,
 } from "core/utils/contexts/tablePastePlan";
 import {
+  createTableRowDeleteUndoEntry,
   createTableUndoEntry,
   filterTableUndoEntryForResult,
   pushTableUndoEntry,
@@ -1113,7 +1115,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     mode == "bulk-rename" ? "Rename files" : "Paste cells";
 
   const pushTableUndo = (entry: TableUndoEntry) => {
-    if (entry.writes.length == 0) return;
+    if (entry.writes.length == 0 && !entry.rowDelete?.rows.length) return;
     const nextUndoStack = pushTableUndoEntry(
       tableUndoStackRef.current,
       entry
@@ -1220,6 +1222,15 @@ export const TableView = (props: { superstate: Superstate }) => {
     });
   };
 
+  const tableTargetSpace = () => {
+    const contextPath = spaceCache?.path ?? spaceInfo?.path;
+    return (
+      (contextPath &&
+        props.superstate.spaceManager?.spaceInfoForPath?.(contextPath)) ??
+      spaceInfo
+    );
+  };
+
   const requestDeleteSelectedWholeRows = (win: Window): boolean => {
     const rowIds = selectedWholeRowIdsForDelete();
     if (rowIds.length == 0 || !dbSchema?.id) return false;
@@ -1255,19 +1266,23 @@ export const TableView = (props: { superstate: Superstate }) => {
       return true;
     }
 
-    const contextPath = spaceCache?.path ?? spaceInfo?.path;
-    const targetSpace =
-      (contextPath &&
-        props.superstate.spaceManager?.spaceInfoForPath?.(contextPath)) ??
-      spaceInfo;
+    const targetSpace = tableTargetSpace();
     if (!props.superstate.spaceManager || !targetSpace) return false;
 
+    const undoEntry = createTableRowDeleteUndoEntry({
+      label: rowIds.length == 1 ? "Delete row" : "Delete rows",
+      rows: tableData?.rows ?? [],
+      rowIds,
+    });
     void deleteRowsInTable(
       props.superstate.spaceManager,
       targetSpace,
       dbSchema.id,
       rowIds.map((rowId) => Number(rowId))
-    ).then(() => clearWholeRowSelection());
+    ).then(() => {
+      pushTableUndo(undoEntry);
+      clearWholeRowSelection();
+    });
     return true;
   };
 
@@ -1437,6 +1452,54 @@ export const TableView = (props: { superstate: Superstate }) => {
       } else {
         const nextRedoStack = currentJournal.redo.slice(0, -1);
         replaceTableUndoJournal(currentJournal.undo, nextRedoStack);
+      }
+
+      if (entry.rowDelete) {
+        const targetSpace = tableTargetSpace();
+        if (!props.superstate.spaceManager || !targetSpace || !dbSchema?.id) {
+          if (isUndo) {
+            const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+            replaceTableUndoJournal(
+              pushTableUndoEntry(latestJournal.undo, entry),
+              latestJournal.redo
+            );
+          } else {
+            const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+            replaceTableUndoJournal(
+              latestJournal.undo,
+              pushTableUndoEntry(latestJournal.redo, entry)
+            );
+          }
+          return false;
+        }
+
+        if (isUndo) {
+          await restoreRowsInTable(
+            props.superstate.spaceManager,
+            targetSpace,
+            dbSchema.id,
+            entry.rowDelete.rows
+          );
+        } else {
+          await deleteRowsInTable(
+            props.superstate.spaceManager,
+            targetSpace,
+            dbSchema.id,
+            entry.rowDelete.redoIndices
+          );
+        }
+
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        if (isUndo) {
+          const nextRedoStack = pushTableUndoEntry(latestJournal.redo, entry);
+          replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
+          props.superstate.ui.notify(`Undid ${entry.label}.`);
+        } else {
+          const nextUndoStack = pushTableUndoEntry(latestJournal.undo, entry);
+          replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
+          props.superstate.ui.notify(`Redid ${entry.label}.`);
+        }
+        return true;
       }
 
       const writes = isUndo ? entry.writes : entry.redoWrites;
@@ -3271,7 +3334,16 @@ export const TableView = (props: { superstate: Superstate }) => {
                                   },
                           }
                         : undefined,
+                      selectedRowIndicesForContextMenu,
                       selectedRowIndicesForContextMenu
+                        ? () => {
+                            requestDeleteSelectedWholeRows(
+                              windowFromDocument(
+                                (ref.current as HTMLElement).ownerDocument
+                              )
+                            );
+                          }
+                        : undefined
                     );
                   }}
                 >

@@ -47,7 +47,10 @@ export const showRowContextMenu = async (
   subItemsDelete?: SubItemsDeleteConfig,
   // Whole-row multi-selection from TableView. When the clicked row belongs to a
   // selected set, Delete targets that set instead of only the clicked row.
-  selectedRowIndices?: number[]
+  selectedRowIndices?: number[],
+  // Optional TableView-owned selected-row delete path. When present, this owns
+  // undo journaling and authority-specific behavior for the selected row set.
+  selectedRowsDeleteAction?: () => void | Promise<void>
 ) => {
   e.preventDefault();
 
@@ -213,6 +216,10 @@ export const showRowContextMenu = async (
       // Use spaceInfoForPath instead of spacesIndex lookup to properly handle folder notes
       const spaceInfo = superstate.spaceManager.spaceInfoForPath(contextPath);
       if (shouldDeleteSelectedRows) {
+        if (selectedRowsDeleteAction) {
+          await selectedRowsDeleteAction();
+          return;
+        }
         await deleteRowsInTable(
           superstate.spaceManager,
           spaceInfo,

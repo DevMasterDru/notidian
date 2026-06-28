@@ -30,6 +30,7 @@ jest.mock("makemd-core", () => ({
 }));
 jest.mock("core/utils/contexts/context", () => ({
   deleteRowsInTable: jest.fn(async () => {}),
+  restoreRowsInTable: jest.fn(async () => {}),
   removePathInContexts: jest.fn(),
 }));
 jest.mock("core/superstate/utils/path", () => ({
@@ -61,9 +62,15 @@ const {
   ContextEditorContext,
 } = require("core/react/context/ContextEditorContext");
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { deleteRowsInTable } = require("core/utils/contexts/context");
+const {
+  deleteRowsInTable,
+  restoreRowsInTable,
+} = require("core/utils/contexts/context");
 
-import { TableView } from "./TableView";
+import {
+  TableView,
+  __resetTableUndoJournalForTest,
+} from "./TableView";
 
 const cols = [
   {
@@ -185,7 +192,9 @@ const render = async () => {
 };
 
 beforeEach(() => {
+  __resetTableUndoJournalForTest();
   deleteRowsInTable.mockClear();
+  restoreRowsInTable.mockClear();
   applyTableEdits.mockClear();
   selectRows.mockClear();
   spaceInfoForPath.mockClear();
@@ -197,6 +206,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  __resetTableUndoJournalForTest();
 });
 
 describe("TableView whole-row Delete key", () => {
@@ -220,5 +230,63 @@ describe("TableView whole-row Delete key", () => {
     expect(deleteRowsInTable.mock.calls[0][3]).toEqual([0, 2]);
     expect(applyTableEdits).not.toHaveBeenCalled();
     expect(selectRows).toHaveBeenCalledWith(null, []);
+  });
+
+  it("undo restores deleted selected rows and redo deletes them again", async () => {
+    await render();
+    const table = container.querySelector(".mk-table") as HTMLElement;
+
+    await act(async () => {
+      table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Delete",
+        })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(deleteRowsInTable).toHaveBeenCalledTimes(1);
+    expect(restoreRowsInTable).not.toHaveBeenCalled();
+
+    await act(async () => {
+      table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "z",
+          metaKey: true,
+        })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(restoreRowsInTable).toHaveBeenCalledTimes(1);
+    expect(restoreRowsInTable.mock.calls[0][2]).toBe("table");
+    expect(restoreRowsInTable.mock.calls[0][3]).toEqual([
+      { index: 0, row: rows[0] },
+      { index: 2, row: rows[2] },
+    ]);
+
+    await act(async () => {
+      table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "z",
+          metaKey: true,
+          shiftKey: true,
+        })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(deleteRowsInTable).toHaveBeenCalledTimes(2);
+    expect(deleteRowsInTable.mock.calls[1][3]).toEqual([0, 2]);
+    expect(applyTableEdits).not.toHaveBeenCalled();
   });
 });

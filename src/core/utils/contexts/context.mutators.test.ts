@@ -55,6 +55,7 @@ import {
   renamePathInContexts,
   renameTagInContexts,
   reorderPathsInContext,
+  restoreRowsInTable,
   updateContextWithProperties,
   updateTableRow,
   updateValueInContext,
@@ -299,6 +300,38 @@ describe("deleteRowsInTable", () => {
   it("SAVE-SKIP: no present indices removes nothing and does not save", async () => {
     const { manager, saveTable } = makeManager({ Items: tbl() });
     await deleteRowsInTable(manager, SPACE, "files", [-1, 99]);
+    expect(saveTable).not.toHaveBeenCalled();
+  });
+});
+
+describe("restoreRowsInTable", () => {
+  const tbl = (): SpaceTable => ({
+    schema: SCHEMA,
+    cols: [{ name: PathPropertyName, type: "file" }],
+    rows: [
+      { [PathPropertyName]: "B.md" },
+      { [PathPropertyName]: "D.md" },
+    ],
+  });
+
+  it("restores deleted row snapshots to their original scattered indices in one save", async () => {
+    const { manager, saveTable } = makeManager({ Items: tbl() });
+    await restoreRowsInTable(manager, SPACE, "files", [
+      { index: 0, row: { [PathPropertyName]: "A.md", status: "open" } },
+      { index: 2, row: { [PathPropertyName]: "C.md", status: "done" } },
+    ]);
+    expect(saveTable).toHaveBeenCalledTimes(1);
+    expect(saveTable.mock.calls[0][1].rows).toEqual([
+      { [PathPropertyName]: "A.md", status: "open" },
+      { [PathPropertyName]: "B.md" },
+      { [PathPropertyName]: "C.md", status: "done" },
+      { [PathPropertyName]: "D.md" },
+    ]);
+  });
+
+  it("SAVE-SKIP: no snapshots restores nothing and does not save", async () => {
+    const { manager, saveTable } = makeManager({ Items: tbl() });
+    await restoreRowsInTable(manager, SPACE, "files", []);
     expect(saveTable).not.toHaveBeenCalled();
   });
 });

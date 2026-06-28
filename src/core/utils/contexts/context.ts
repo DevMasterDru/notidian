@@ -542,6 +542,41 @@ export const deleteRowsInTable = async (
     return newDB;
   });
 };
+
+export type TableRowRestoreSnapshot = {
+  index: number;
+  row: DBRow;
+};
+
+export const restoreRowsInTable = async (
+  manager: SpaceManager,
+  context: SpaceInfo,
+  table: string,
+  rows: TableRowRestoreSnapshot[]
+): Promise<void> => {
+  const restoreRows = rows
+    .filter((snapshot) => Number.isInteger(snapshot.index) && snapshot.index >= 0)
+    .sort((a, b) => a.index - b.index);
+  if (restoreRows.length == 0) return;
+
+  return processTable(manager, context, table, async (mdb, space) => {
+    const restoredRows = restoreRows.reduce<DBRow[]>((currentRows, snapshot) => {
+      const index = Math.min(snapshot.index, currentRows.length);
+      return insertMulti(currentRows, index, [{ ...snapshot.row }]);
+    }, mdb.rows);
+    const newDB = {
+      ...mdb,
+      rows: restoredRows,
+    };
+    if (!_.isEqual(mdb, newDB)) {
+      if (manager.superstate.settings.enhancedLogs) {
+        // Restore Rows in Table
+      }
+      await saveContext(manager, space, newDB);
+    }
+    return newDB;
+  });
+};
     
 
 export const addPathInContexts = async (manager: SpaceManager,

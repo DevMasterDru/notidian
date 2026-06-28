@@ -11,6 +11,17 @@ export type TableUndoEntry = {
   label: string;
   writes: TablePasteWrite[];
   redoWrites: TablePasteWrite[];
+  rowDelete?: TableRowDeleteUndo;
+};
+
+export type TableRowDeleteSnapshot = {
+  index: number;
+  row: DBRow;
+};
+
+export type TableRowDeleteUndo = {
+  rows: TableRowDeleteSnapshot[];
+  redoIndices: number[];
 };
 
 export type CreateTableUndoEntryParams = {
@@ -18,6 +29,12 @@ export type CreateTableUndoEntryParams = {
   rows: DBRow[];
   writes: TablePasteWrite[];
   columns?: DirectEditColumn[];
+};
+
+export type CreateTableRowDeleteUndoEntryParams = {
+  label: string;
+  rows: DBRow[];
+  rowIds: string[];
 };
 
 export type DirectEditColumn = Pick<
@@ -208,6 +225,32 @@ export const createTableUndoEntry = ({
     label,
     writes: inverseWrites,
     redoWrites,
+  };
+};
+
+export const createTableRowDeleteUndoEntry = ({
+  label,
+  rows,
+  rowIds,
+}: CreateTableRowDeleteUndoEntryParams): TableUndoEntry => {
+  const snapshots = Array.from(new Set(rowIds))
+    .map((rowId) => {
+      const index = Number(rowId);
+      if (!Number.isInteger(index) || index < 0) return null;
+      const row = rows.find((candidate) => candidate._index == rowId) ?? rows[index];
+      return row ? { index, row: { ...row } } : null;
+    })
+    .filter((snapshot): snapshot is TableRowDeleteSnapshot => !!snapshot)
+    .sort((a, b) => a.index - b.index);
+
+  return {
+    label,
+    writes: [],
+    redoWrites: [],
+    rowDelete: {
+      rows: snapshots,
+      redoIndices: snapshots.map((snapshot) => snapshot.index),
+    },
   };
 };
 
