@@ -12,6 +12,7 @@ export type TableUndoEntry = {
   writes: TablePasteWrite[];
   redoWrites: TablePasteWrite[];
   rowDelete?: TableRowDeleteUndo;
+  pathDelete?: TablePathDeleteUndo;
 };
 
 export type TableRowDeleteSnapshot = {
@@ -22,6 +23,15 @@ export type TableRowDeleteSnapshot = {
 export type TableRowDeleteUndo = {
   rows: TableRowDeleteSnapshot[];
   redoIndices: number[];
+};
+
+export type TablePathDeleteSnapshot = {
+  path: string;
+  content: string;
+};
+
+export type TablePathDeleteUndo = {
+  paths: TablePathDeleteSnapshot[];
 };
 
 export type CreateTableUndoEntryParams = {
@@ -35,6 +45,11 @@ export type CreateTableRowDeleteUndoEntryParams = {
   label: string;
   rows: DBRow[];
   rowIds: string[];
+};
+
+export type CreateTablePathDeleteUndoEntryParams = {
+  label: string;
+  paths: TablePathDeleteSnapshot[];
 };
 
 export type DirectEditColumn = Pick<
@@ -250,6 +265,27 @@ export const createTableRowDeleteUndoEntry = ({
     rowDelete: {
       rows: snapshots,
       redoIndices: snapshots.map((snapshot) => snapshot.index),
+    },
+  };
+};
+
+export const createTablePathDeleteUndoEntry = ({
+  label,
+  paths,
+}: CreateTablePathDeleteUndoEntryParams): TableUndoEntry => {
+  const snapshots = paths.filter(
+    (snapshot) =>
+      typeof snapshot.path == "string" &&
+      snapshot.path.length > 0 &&
+      typeof snapshot.content == "string"
+  );
+
+  return {
+    label,
+    writes: [],
+    redoWrites: [],
+    pathDelete: {
+      paths: snapshots,
     },
   };
 };

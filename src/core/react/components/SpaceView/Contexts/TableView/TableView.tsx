@@ -60,7 +60,6 @@ import {
   textGroupOrderFromAttrs,
 } from "core/utils/contexts/groupedIslandOrder";
 import { planGroupedRowCreate } from "core/utils/contexts/groupedRowCreate";
-import { deletePath } from "core/superstate/utils/path";
 
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { CollapseToggleSmall } from "core/react/components/UI/Toggles/CollapseToggleSmall";
@@ -109,11 +108,13 @@ import {
   TablePasteMode,
 } from "core/utils/contexts/tablePastePlan";
 import {
+  createTablePathDeleteUndoEntry,
   createTableRowDeleteUndoEntry,
   createTableUndoEntry,
   filterTableUndoEntryForResult,
   pushTableUndoEntry,
   tableUndoWriteForDirectEdit,
+  TablePathDeleteSnapshot,
   TableUndoEntry,
 } from "core/utils/contexts/tableUndoJournal";
 import {
@@ -1115,7 +1116,12 @@ export const TableView = (props: { superstate: Superstate }) => {
     mode == "bulk-rename" ? "Rename files" : "Paste cells";
 
   const pushTableUndo = (entry: TableUndoEntry) => {
-    if (entry.writes.length == 0 && !entry.rowDelete?.rows.length) return;
+    if (
+      entry.writes.length == 0 &&
+      !entry.rowDelete?.rows.length &&
+      !entry.pathDelete?.paths.length
+    )
+      return;
     const nextUndoStack = pushTableUndoEntry(
       tableUndoStackRef.current,
       entry
@@ -1231,6 +1237,47 @@ export const TableView = (props: { superstate: Superstate }) => {
     );
   };
 
+  const deleteFileBackedPath = async (path: string) => {
+    await props.superstate.spaceManager.deletePath(path);
+    props.superstate.onPathDeleted(path);
+  };
+
+  const snapshotFileBackedRows = async (
+    paths: string[]
+  ): Promise<TablePathDeleteSnapshot[]> => {
+    const snapshots: TablePathDeleteSnapshot[] = [];
+    for (const path of paths) {
+      try {
+        const content = await props.superstate.spaceManager.readPath(path);
+        if (typeof content == "string") {
+          snapshots.push({ path, content });
+        }
+      } catch (error) {
+        props.superstate.ui.notify(`Could not prepare ${path} for undo.`);
+      }
+    }
+    return snapshots;
+  };
+
+  const deletePrimarySelectedRows = async (paths: string[]) => {
+    if (!props.superstate.spaceManager || paths.length == 0) return;
+    const snapshots = await snapshotFileBackedRows(paths);
+    try {
+      for (const path of paths) {
+        await deleteFileBackedPath(path);
+      }
+      pushTableUndo(
+        createTablePathDeleteUndoEntry({
+          label: paths.length == 1 ? "Delete row" : "Delete rows",
+          paths: snapshots,
+        })
+      );
+      clearWholeRowSelection();
+    } catch (error) {
+      props.superstate.ui.notify("Could not delete the selected rows.");
+    }
+  };
+
   const requestDeleteSelectedWholeRows = (win: Window): boolean => {
     const rowIds = selectedWholeRowIdsForDelete();
     if (rowIds.length == 0 || !dbSchema?.id) return false;
@@ -1250,10 +1297,7 @@ export const TableView = (props: { superstate: Superstate }) => {
         i18n.labels.deleteFiles,
         <ConfirmationModal
           confirmAction={() => {
-            paths.forEach((path) => {
-              void deletePath(props.superstate, path);
-            });
-            clearWholeRowSelection();
+            void deletePrimarySelectedRows(paths);
           }}
           confirmLabel={i18n.buttons.delete}
           message={i18n.descriptions.deleteFiles.replace(
@@ -1499,6 +1543,101 @@ export const TableView = (props: { superstate: Superstate }) => {
           replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
           props.superstate.ui.notify(`Redid ${entry.label}.`);
         }
+        return true;
+      }
+
+      if (entry.pathDelete) {
+        if (!props.superstate.spaceManager) {
+          if (isUndo) {
+            const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+            replaceTableUndoJournal(
+              pushTableUndoEntry(latestJournal.undo, entry),
+              latestJournal.redo
+            );
+          } else {
+            const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+            replaceTableUndoJournal(
+              latestJournal.undo,
+              pushTableUndoEntry(latestJournal.redo, entry)
+            );
+          }
+          return false;
+        }
+
+        if (isUndo) {
+          const restoredSnapshots: TablePathDeleteSnapshot[] = [];
+          let skippedExisting = 0;
+          for (const snapshot of entry.pathDelete.paths) {
+            let exists = true;
+            try {
+              exists = await props.superstate.spaceManager.pathExists(
+                snapshot.path
+              );
+            } catch (error) {
+              props.superstate.ui.notify(
+                `Could not check whether ${snapshot.path} exists.`
+              );
+              continue;
+            }
+            if (exists) {
+              skippedExisting++;
+              continue;
+            }
+            try {
+              await props.superstate.spaceManager.writeToPath(
+                snapshot.path,
+                snapshot.content,
+                false
+              );
+              await props.superstate.onPathCreated(snapshot.path);
+              restoredSnapshots.push(snapshot);
+            } catch (error) {
+              props.superstate.ui.notify(`Could not restore ${snapshot.path}.`);
+            }
+          }
+
+          if (skippedExisting > 0) {
+            props.superstate.ui.notify(
+              `${skippedExisting} deleted row${
+                skippedExisting == 1 ? " was" : "s were"
+              } not restored because the file path already exists.`
+            );
+          }
+
+          const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+          if (restoredSnapshots.length > 0) {
+            const replayEntry =
+              restoredSnapshots.length == entry.pathDelete.paths.length
+                ? entry
+                : {
+                    ...entry,
+                    pathDelete: { paths: restoredSnapshots },
+                  };
+            const nextRedoStack = pushTableUndoEntry(
+              latestJournal.redo,
+              replayEntry
+            );
+            replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
+            props.superstate.ui.notify(`Undid ${entry.label}.`);
+            return true;
+          }
+          replaceTableUndoJournal(latestJournal.undo, latestJournal.redo);
+          return false;
+        }
+
+        try {
+          for (const snapshot of entry.pathDelete.paths) {
+            await deleteFileBackedPath(snapshot.path);
+          }
+        } catch (error) {
+          props.superstate.ui.notify("Could not redo deleted rows.");
+          return false;
+        }
+
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        const nextUndoStack = pushTableUndoEntry(latestJournal.undo, entry);
+        replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
+        props.superstate.ui.notify(`Redid ${entry.label}.`);
         return true;
       }
 
