@@ -101,6 +101,7 @@ describe("notidian vault installer", () => {
       expect(result).toEqual({
         targetDir: path.join(vaultPath, ".obsidian/plugins/notidian"),
         copied: ["manifest.json", "main.js", "styles.css"],
+        symlinkWarnings: [],
       });
       await expect(
         fs.readFile(

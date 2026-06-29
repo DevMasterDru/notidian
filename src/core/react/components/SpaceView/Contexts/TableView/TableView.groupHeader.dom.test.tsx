@@ -284,7 +284,7 @@ describe("grouped view group header (Notidian-brlx)", () => {
     for (const header of headers) {
       expect(header.querySelector(".mk-group-header")).not.toBeNull();
       expect(
-        header.querySelector(".mk-group-header-caret-button")
+        header.querySelector(".mk-group-header-caret")
       ).not.toBeNull();
       expect(
         header.querySelector(".mk-group-header-label-button")
@@ -335,13 +335,13 @@ describe("grouped view group header (Notidian-brlx)", () => {
     await render(groupedData, { ...basePredicate, groupBy: ["Status"] });
 
     const firstHeader = groupHeaderRows()[0];
-    const caretButton = firstHeader.querySelector<HTMLButtonElement>(
-      ".mk-group-header-caret-button"
+    const collapseToggle = firstHeader.querySelector<HTMLElement>(
+      ".mk-group-header"
     );
-    expect(caretButton).not.toBeNull();
+    expect(collapseToggle).not.toBeNull();
 
     await act(async () => {
-      caretButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      collapseToggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
