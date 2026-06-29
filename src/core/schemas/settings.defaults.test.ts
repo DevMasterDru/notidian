@@ -171,6 +171,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "subItemsSetup", // Notidian-xqxc
   "subItemAddRow", // Notidian-gr8t
   "collapsibleNoteBody", // Notidian-8sl
+  "filenameTemplateEnforcement", // Notidian-pay5 / ADR 0054
 ];
 
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {

@@ -639,8 +639,16 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     
     // Filename template auto-enforcer (Notidian-pay5 / ADR 0054).
     // Lazy-import to avoid eager load cost; instantiation is cheap.
+    // The enforcer hooks into the superstate `pathStateUpdated` event
+    // so it reads pathsIndex AFTER the indexer has written fresh metadata.
     import("core/utils/contexts/filenameEnforcer").then(({ FilenameEnforcer }) => {
       this.filenameEnforcer = new FilenameEnforcer(this.superstate);
+      this.superstate.eventsDispatcher.addListener(
+        "pathStateUpdated",
+        (payload: { path: string }) => {
+          this.filenameEnforcer?.onMetadataChange(payload.path);
+        }
+      );
     });
 
     this.loadSuperState();
@@ -679,9 +687,9 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   metadataChange = (file: TFile) => {
 
     this.markdownAdapter.metadataChange(file);
-    // Filename template enforcement: check after the adapter updates the
-    // metadata cache, so the enforcer reads fresh frontmatter.
-    this.filenameEnforcer?.onMetadataChange(file.path);
+    // Filename template enforcement now runs via the `pathStateUpdated` event
+    // listener (registered in onload), so the enforcer reads pathsIndex AFTER
+    // the indexer has written fresh metadata — not the stale pre-change state.
   };
   
 
