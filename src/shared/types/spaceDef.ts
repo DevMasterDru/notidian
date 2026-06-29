@@ -46,4 +46,9 @@ export type SpaceDefinition = {
   // a number => fixed height with the body scrolling on overflow. Same authority
   // class as noteBodyCollapsed (view state, not row data).
   noteBodyHeight?: number;
+  // Per-database filename template (Notidian-pay5 / ADR 0054): a template string
+  // like `{board_id:02d}-ch{address:02d}-{device|slug}` that determines the
+  // canonical basename of every row-file. Same authority class as `template`
+  // (view/config stored in SpaceDefinition, not row data).
+  filenameTemplate?: string;
 };

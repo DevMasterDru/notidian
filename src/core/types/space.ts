@@ -9,7 +9,7 @@ import { MakeMDSettings } from "../../shared/types/settings"
 
 
 export const FMMetadataKeys = (settings: MakeMDSettings) => [settings.fmKeyBanner, settings.fmKeySticker, settings.fmKeyColor, settings.fmKeyBanner, settings.fmKeyBannerOffset,
-  spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemplateKey, spaceTemplateNameKey
+  spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemplateKey, spaceTemplateNameKey, spaceFilenameTemplateKey
 ]
   export const createVaultSpace  = (manager: SpaceManager) : SpaceState => ({
     name: "Vault",
@@ -69,6 +69,7 @@ export const spaceJoinsKey = "_joins";
 export const spaceLinksKey = "_links";
 export const spaceSortKey = "_sort";
 export const spaceRecursiveKey = "_subfolders";
+export const spaceFilenameTemplateKey = "_filenameTemplate";
 
 /**
  * Serialize a SpaceDefinition into the canonical definition-frontmatter object
@@ -96,5 +97,6 @@ export const spaceDefinitionFrontmatter = (
   fullWidth: metadata.fullWidth,
   noteBodyCollapsed: metadata.noteBodyCollapsed,
   noteBodyHeight: metadata.noteBodyHeight,
+  [spaceFilenameTemplateKey]: metadata.filenameTemplate,
 });
 

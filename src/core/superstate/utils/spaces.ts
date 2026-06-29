@@ -1,4 +1,4 @@
-import { spaceContextsKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemplateKey, spaceTemplateNameKey } from "core/types/space";
+import { spaceContextsKey, spaceFilenameTemplateKey, spaceJoinsKey, spaceLinksKey, spaceSortKey, spaceTemplateKey, spaceTemplateNameKey } from "core/types/space";
 import { reorderPathsInContext } from "core/utils/contexts/context";
 import { applyNewRowTypeProfileDefaults } from "core/utils/contexts/typeProfileDefaults";
 import { runFormulaWithContext } from "core/utils/formula/parser";
@@ -75,6 +75,7 @@ export const parseSpaceMetadata = (metadata: Record<string, any>, settings: Make
       fullWidth: ensureBoolean(metadata.fullWidth),
       noteBodyCollapsed: ensureBoolean(metadata.noteBodyCollapsed),
       noteBodyHeight: ensureNumber(metadata.noteBodyHeight),
+      filenameTemplate: ensureString(metadata[spaceFilenameTemplateKey]),
     }
 }
 

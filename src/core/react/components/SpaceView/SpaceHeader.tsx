@@ -7,6 +7,7 @@ import { Superstate } from "makemd-core";
 import { SpaceItemProperty } from "../SpaceEditor/SpaceItemProperty";
 import { SpaceJoins } from "../SpaceEditor/SpaceJoins";
 import { SpaceListProperty } from "../SpaceEditor/SpaceListProperty";
+import { SpaceFilenameTemplateProperty } from "../SpaceEditor/SpaceFilenameTemplateProperty";
 import { SpaceTemplateProperty } from "../SpaceEditor/SpaceTemplateProperty";
 import { HeaderPropertiesView } from "./Contexts/SpaceEditor/HeaderPropertiesView";
 import { SpaceHeaderBar } from "./SpaceHeaderBar";
@@ -115,6 +116,10 @@ export const SpaceHeader = (props: { superstate: Superstate }) => {
               superstate={props.superstate}
               templates={templates}
             ></SpaceTemplateProperty>
+          ) : expandedSection == 4 ? (
+            <SpaceFilenameTemplateProperty
+              superstate={props.superstate}
+            />
           ) : null}
 
         </div>

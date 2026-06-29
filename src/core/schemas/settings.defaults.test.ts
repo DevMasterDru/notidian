@@ -123,6 +123,7 @@ const REQUIRED_SETTING_KEYS = {
   rowVirtualization: true,
   subItemsSetup: true,
   subItemAddRow: true,
+  filenameTemplateEnforcement: true,
   viewSettingsInlineBar: true,
   basicsSettings: true,
   firstLaunch: true,

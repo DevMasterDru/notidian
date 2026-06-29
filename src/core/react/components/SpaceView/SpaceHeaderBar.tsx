@@ -226,6 +226,14 @@ export const SpaceHeaderBar = (props: {
             setExpandedSection(expandedSection == 3 ? null : 3);
           },
         });
+        menuOptions.push({
+          name: "Filename Template",
+          description: "Auto-name files from frontmatter",
+          icon: "ui//file-text",
+          onClick: (e) => {
+            setExpandedSection(expandedSection == 4 ? null : 4);
+          },
+        });
       } else {
         menuOptions.push(
           {
@@ -355,6 +363,22 @@ export const SpaceHeaderBar = (props: {
                 ></div>
               </button>
             )}
+            <button
+              aria-label="Filename Template"
+              className={`mk-toolbar-button ${
+                expandedSection == 4 ? "mk-active" : ""
+              }`}
+              onClick={() =>
+                setExpandedSection(expandedSection == 4 ? null : 4)
+              }
+            >
+              <div
+                className="mk-icon-xsmall"
+                dangerouslySetInnerHTML={{
+                  __html: props.superstate.ui.getSticker("ui//file-text"),
+                }}
+              ></div>
+            </button>
           </div>
         </>
       )}

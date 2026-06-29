@@ -155,8 +155,8 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
   superstate: Superstate;
   ui: ObsidianUI;
 
-  
-  
+  private filenameEnforcer: import("core/utils/contexts/filenameEnforcer").FilenameEnforcer | null = null;
+
   private pluginDataFilePath(fileName: string) {
     return normalizePath(pluginDataPath(this.app.vault.configDir, fileName));
   }
@@ -637,6 +637,12 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     );
     // Don't initialize here as it will be called during superstate.initialize()
     
+    // Filename template auto-enforcer (Notidian-pay5 / ADR 0054).
+    // Lazy-import to avoid eager load cost; instantiation is cheap.
+    import("core/utils/contexts/filenameEnforcer").then(({ FilenameEnforcer }) => {
+      this.filenameEnforcer = new FilenameEnforcer(this.superstate);
+    });
+
     this.loadSuperState();
     this.addSettingTab(new NotidianPluginSettingsTab(this.app, this));
     await this.loadSpaces();
@@ -673,6 +679,9 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   metadataChange = (file: TFile) => {
 
     this.markdownAdapter.metadataChange(file);
+    // Filename template enforcement: check after the adapter updates the
+    // metadata cache, so the enforcer reads fresh frontmatter.
+    this.filenameEnforcer?.onMetadataChange(file.path);
   };
   
 

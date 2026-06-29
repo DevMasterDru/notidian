@@ -163,6 +163,11 @@ export interface MakeMDSettings {
   // its last visible child (table + list views) that creates a child of that
   // parent. Set false to render the prior tree with no add-rows.
   subItemAddRow: boolean;
+  // Filename template auto-enforcement (Notidian-pay5 / ADR 0054). When true,
+  // files in databases with a configured _filenameTemplate are auto-renamed on
+  // frontmatter change to match the template. DEFAULT-ON (owner-requested);
+  // KILL-SWITCH: set false to disable all template-driven renaming.
+  filenameTemplateEnforcement: boolean;
   // View-settings inline bar IA (Notidian-vrmf). DEFAULT-ON / KILL-SWITCH.
   // When true, the FilterBar wraps the Filter/Sort/Group-By trio in a
   // .mk-view-settings-bar with per-control active indicators (mk-active +

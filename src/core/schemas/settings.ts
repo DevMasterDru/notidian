@@ -140,6 +140,10 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // visible child (owner verifies by USE). KILL-SWITCH: false renders the tree
   // with no add-rows (and restores row virtualization on those views).
   subItemAddRow: true,
+  // Default-ON filename template auto-enforcement (Notidian-pay5 / ADR 0054) —
+  // an owner-requested feature; the owner verifies by USE. KILL-SWITCH: set
+  // false to disable all template-driven auto-renaming.
+  filenameTemplateEnforcement: true,
   // Default-ON view-settings inline bar IA (bd Notidian-vrmf) — an
   // owner-requested (2026-06-21) FilterBar render-path UX standardization, so it
   // ships ON and the owner verifies it by USE. Two halves, both on this flag:
