@@ -1,6 +1,6 @@
 
 import { formulas } from "core/utils/formula/formulas";
-import * as math from "mathjs";
+import type * as math from "mathjs";
 import { stringifyJob } from "core/utils/superstate/serializer";
 import { Superstate } from "makemd-core";
 import { WorkerJobType } from "shared/types/PathState";
@@ -20,19 +20,20 @@ type FileCallback = (p: any) => void;
 let _runContext: math.MathJsInstance | null = null;
 function getRunContext(): math.MathJsInstance {
   if (!_runContext) {
+    const m: typeof math = require("mathjs");
     const all = {
-      ...math.all,
-      createAdd: math.factory("add", [], () => function add(a: any, b: any) {
+      ...m.all,
+      createAdd: m.factory("add", [], () => function add(a: any, b: any) {
         return a + b;
       }),
-      createEqual: math.factory("equal", [], () => function equal(a: any, b: any) {
+      createEqual: m.factory("equal", [], () => function equal(a: any, b: any) {
         return a == b;
       }),
-      createUnequal: math.factory("unequal", [], () => function unequal(a: any, b: any) {
+      createUnequal: m.factory("unequal", [], () => function unequal(a: any, b: any) {
         return a != b;
       }),
     };
-    _runContext = math.create(all, { matrix: "Array" });
+    _runContext = m.create(all, { matrix: "Array" });
     _runContext.import(formulas, { override: true });
   }
   return _runContext;

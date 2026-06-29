@@ -5,8 +5,7 @@ import {
 } from "core/utils/contexts/linkContextRow";
 import { formulas } from "core/utils/formula/formulas";
 import { Superstate } from "makemd-core";
-import * as math from "mathjs";
-import { all } from "mathjs";
+import type * as math from "mathjs";
 import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { IAPI } from "shared/types/api";
 import { PathCache } from "shared/types/caches";
@@ -152,10 +151,11 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
     if (superstate?.formulaContext) {
       return superstate.formulaContext;
     }
+    const m: typeof math = require("mathjs");
     const config: math.ConfigOptions = {
       matrix: "Array",
     };
-    const runContext = math.create(all, config);
+    const runContext = m.create(m.all, config);
     runContext.import(formulas, { override: true });
     return runContext;
   }, [superstate]);

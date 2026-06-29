@@ -131,10 +131,28 @@ const installPluginToVault = async (config) => {
     );
   }
 
+  const symlinkWarnings = await checkVaultSymlinks(config.vaultPath);
   return {
     targetDir: plan.targetDir,
     copied: plan.artifacts,
+    symlinkWarnings,
   };
+};
+
+const checkVaultSymlinks = async (vaultPath) => {
+  const warnings = [];
+  try {
+    const entries = await fs.readdir(vaultPath, { withFileTypes: true, recursive: true });
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        const full = path.join(entry.parentPath ?? entry.path, entry.name);
+        const rel = path.relative(vaultPath, full);
+        const target = await fs.readlink(full);
+        warnings.push(`${rel} -> ${target}`);
+      }
+    }
+  } catch { /* readdir recursive may not be available */ }
+  return warnings;
 };
 
 const usage = () => [
@@ -163,6 +181,11 @@ const main = async (argv = process.argv.slice(2), env = process.env) => {
     console.log(
       `Installed ${result.copied.join(", ")} to ${result.targetDir}.`
     );
+    if (result.symlinkWarnings?.length > 0) {
+      console.warn(`\n\x1b[33m[deploy:vault] WARNING: ${result.symlinkWarnings.length} symlink(s) in vault (can cause Obsidian OOM):\x1b[0m`);
+      result.symlinkWarnings.forEach(w => console.warn(`  ${w}`));
+      console.warn(`Remove directory symlinks — use stub .md files instead.\n`);
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

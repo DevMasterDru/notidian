@@ -15,7 +15,7 @@ import { spacePathFromName, tagSpacePathFromTag } from "core/utils/strings";
 import { parsePathState } from "core/utils/superstate/parser";
 import { serializePathState } from "core/utils/superstate/serializer";
 import _, { debounce } from "lodash";
-import * as math from 'mathjs';
+import type * as math from 'mathjs';
 import { rootToFrame } from "schemas/frames";
 import { visualizationNode } from "schemas/kits";
 import { dataNode } from "schemas/kits/base";
@@ -69,7 +69,31 @@ export class Superstate implements ISuperstate {
     public static create( indexVersion: string, onChange: () => void, spaceManager: SpaceManager, uiManager: UIManager, commandsManager: CLIManager): Superstate {
         return new Superstate(indexVersion, onChange, spaceManager, uiManager, commandsManager);
     }
-    public formulaContext: math.MathJsInstance;
+    private _formulaContext: math.MathJsInstance | null = null;
+    public get formulaContext(): math.MathJsInstance {
+        if (!this._formulaContext) {
+            const m: typeof math = require('mathjs');
+            const all = {
+                ...m.all,
+                createAdd: m.factory('add', [], () => function add (a: number, b: number) {
+                    return a + b
+                }),
+                createEqual: m.factory('equal', [], () => function equal (a: unknown, b: unknown) {
+                    // eslint-disable-next-line eqeqeq
+                    return a == b
+                }),
+                createUnequal: m.factory('unequal', [], () => function unequal (a: unknown, b: unknown) {
+                    // eslint-disable-next-line eqeqeq
+                    return a != b
+                })
+            };
+            const config: math.ConfigOptions = { matrix: "Array" };
+            const runContext = m.create(all, config);
+            runContext.import(formulas, { override: true });
+            this._formulaContext = runContext;
+        }
+        return this._formulaContext;
+    }
     public initialized: boolean;
     public eventsDispatcher: EventDispatcher<SuperstateEvent>;
 public spaceManager: SpaceManager
@@ -164,28 +188,6 @@ public api: API;
     }
     private constructor(public indexVersion: string, public onChange: () => void, spaceManager: SpaceManager, uiManager: UIManager, commandsManager: CLIManager) {
         this.eventsDispatcher= new EventDispatcher<SuperstateEvent>();
-
-        const all = {
-            ...math.all,
-            createAdd: math.factory('add', [], () => function add (a: number, b: number) {
-                return a + b
-              }),
-            createEqual: math.factory('equal', [], () => function equal (a: unknown, b: unknown) {
-                // eslint-disable-next-line eqeqeq
-                return a == b
-              }),
-              createUnequal: math.factory('unequal', [], () => function unequal (a: unknown, b: unknown) {
-                // eslint-disable-next-line eqeqeq
-                return a != b
-              })
-            
-        }
-        const config :math.ConfigOptions = {
-            matrix: "Array"
-        }
-        const runContext = math.create(all, config)
-        runContext.import(formulas, { override: true })
-        this.formulaContext = runContext;
         //Initialize
         this.initialized = false;
         this.spaceManager = spaceManager;

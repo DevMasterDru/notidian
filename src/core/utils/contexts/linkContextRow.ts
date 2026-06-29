@@ -1,6 +1,6 @@
 import { parseFieldValue, parseFlexValue } from "core/schemas/parseFieldValue";
 import { resolvePath } from "core/superstate/utils/path";
-import { ConstantNode, FunctionNode, parse } from "mathjs";
+import type { ConstantNode, FunctionNode } from "mathjs";
 import { PathPropertyName } from "shared/types/context";
 import { IndexMap } from "shared/types/indexMap";
 import { DBRow, DBRows, SpaceProperty } from "shared/types/mdb";
@@ -35,6 +35,7 @@ export const propertyDependencies = (fields: SpaceProperty[]) => {
     const { value } = parseFieldValue(f.value, f.type);
     const localDependencies = []
   try {
+    const { parse } = require("mathjs") as typeof import("mathjs");
     const deps = parse(value).filter((f) => f.type == 'FunctionNode').filter(f => (f as FunctionNode).fn.name == 'prop' && (f as FunctionNode).args[0].type == 'ConstantNode').map(f => ((f as FunctionNode).args[0] as ConstantNode)?.value as unknown as string)
     localDependencies.push(...deps)
   }

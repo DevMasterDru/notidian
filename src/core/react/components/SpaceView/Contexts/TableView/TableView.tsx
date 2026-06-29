@@ -46,6 +46,7 @@ import classNames from "classnames";
 import { showRowContextMenu } from "core/react/components/UI/Menus/contexts/rowContextMenu";
 import { showGroupedIslandMenu } from "core/react/components/UI/Menus/contexts/groupedIslandMenu";
 import { ConfirmationModal } from "core/react/components/UI/Modals/ConfirmationModal";
+import { openInputModal } from "core/react/components/UI/Modals/InputModal";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import {
   deleteRowsInTable,
@@ -570,6 +571,47 @@ const TableRowDragOverlay = (props: {
           +{props.rows.length - rows.length} more
         </div>
       ) : null}
+    </div>
+  );
+};
+
+const GroupDeleteModal = (props: {
+  hide?: () => void;
+  groupValue: string;
+  rowCount: number;
+  rowLabel: string;
+  onClearValues: () => void;
+  onDeleteRows: () => void;
+}) => {
+  return (
+    <div className="mk-modal-contents">
+      <div className="mk-modal-message">
+        {`Delete group "${props.groupValue}" (${props.rowCount} ${props.rowLabel})`}
+      </div>
+      <div className="mk-button-group mk-button-group-vertical">
+        <button
+          onClick={() => {
+            props.onClearValues();
+            props.hide?.();
+          }}
+          tabIndex={0}
+        >
+          {`Clear values — move ${props.rowLabel} to ungrouped`}
+        </button>
+        <button
+          onClick={() => {
+            props.onDeleteRows();
+            props.hide?.();
+          }}
+          tabIndex={0}
+          className="mod-warning"
+        >
+          {`Delete ${props.rowCount} ${props.rowLabel}`}
+        </button>
+        <button onClick={() => props.hide?.()} tabIndex={0}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 };
@@ -2413,6 +2455,240 @@ export const TableView = (props: { superstate: Superstate }) => {
       savePredicate,
     ]
   );
+  const deleteGroup = useCallback(
+    (columnId: string, groupValue: string) => {
+      const column = cols.find((c) => c.name + c.table == columnId);
+      if (!column) return;
+      const matchingRows = data.filter(
+        (row) => String(row?.[columnId] ?? "") == groupValue
+      );
+      if (matchingRows.length == 0) {
+        const isOptionGroup = column.type?.startsWith("option");
+        if (isOptionGroup) {
+          const parsed = parseFieldValue(column.value, column.type);
+          const nextOptions = ((parsed?.options ?? []) as any[]).filter(
+            (o: any) => String(o.value ?? "") != groupValue
+          );
+          saveColumn(
+            { ...column, value: serializeOptionValue(nextOptions, parsed!) },
+            column
+          );
+        }
+        return;
+      }
+
+      const removeOptionFromColumn = () => {
+        const isOptionGroup = column.type?.startsWith("option");
+        if (isOptionGroup) {
+          const parsed = parseFieldValue(column.value, column.type);
+          const nextOptions = ((parsed?.options ?? []) as any[]).filter(
+            (o: any) => String(o.value ?? "") != groupValue
+          );
+          saveColumn(
+            { ...column, value: serializeOptionValue(nextOptions, parsed!) },
+            column
+          );
+        }
+      };
+
+      const clearWrites = matchingRows.flatMap((row) => {
+        const write = tableUndoWriteForDirectEdit({
+          rowId: String(row._index),
+          column,
+          value: "",
+          path: String(row?.[PathPropertyName] ?? ""),
+        });
+        return write ? [write] : [];
+      });
+      const undoEntry = createTableUndoEntry({
+        label: "Delete group",
+        rows: data,
+        columns: cols,
+        writes: clearWrites,
+      });
+
+      const doClearValues = async () => {
+        removeOptionFromColumn();
+        const result = await applyValueEdits(clearWrites, {
+          allOrNothing: true,
+        });
+        if (!result.ok) {
+          props.superstate.ui.notify(
+            "Group delete was not applied because one or more values changed."
+          );
+          return;
+        }
+        if (result.applied > 0) {
+          pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
+        }
+      };
+
+      const doDeleteRows = async () => {
+        const isPrimary = dbSchema?.primary == "true";
+        if (isPrimary) {
+          const paths = Array.from(
+            new Set(
+              matchingRows
+                .map((row) => String(row?.[PathPropertyName] ?? ""))
+                .filter((path) => path.length > 0)
+            )
+          );
+          if (paths.length > 0) {
+            await deletePrimarySelectedRows(paths);
+          }
+        } else {
+          const targetSpace = tableTargetSpace();
+          if (props.superstate.spaceManager && targetSpace && dbSchema?.id) {
+            const rowIds = matchingRows
+              .map((row) => String(row._index))
+              .filter((id) => id.length > 0);
+            const rowUndoEntry = createTableRowDeleteUndoEntry({
+              label: "Delete group rows",
+              rows: tableData?.rows ?? [],
+              rowIds,
+            });
+            await deleteRowsInTable(
+              props.superstate.spaceManager,
+              targetSpace,
+              dbSchema.id,
+              rowIds.map((id) => Number(id))
+            );
+            pushTableUndo(rowUndoEntry);
+          }
+        }
+        removeOptionFromColumn();
+      };
+
+      const rowCount = matchingRows.length;
+      const rowLabel = rowCount == 1 ? "row" : "rows";
+
+      props.superstate.ui.openModal(
+        "Delete group",
+        <GroupDeleteModal
+          groupValue={groupValue}
+          rowCount={rowCount}
+          rowLabel={rowLabel}
+          onClearValues={() => void doClearValues()}
+          onDeleteRows={() => void doDeleteRows()}
+        />,
+        windowFromDocument(document)
+      );
+    },
+    [
+      applyValueEdits,
+      cols,
+      data,
+      dbSchema,
+      props.superstate,
+      saveColumn,
+      tableData,
+    ]
+  );
+
+  const renameGroupFromHeader = useCallback(
+    (columnId: string, groupValue: string, win: Window) => {
+      const column = cols.find((c) => c.name + c.table == columnId);
+      if (!column) return;
+      const isTextGroup = column.type == "text";
+      const isOptionGroup = column.type?.startsWith("option");
+      if (!isTextGroup && !isOptionGroup) return;
+      if (isOptionGroup) {
+        const parsed = parseFieldValue(column.value, column.type);
+        if (parsed?.source) return;
+      }
+      openInputModal(
+        props.superstate,
+        "Rename group",
+        groupValue,
+        (nextValue) => {
+          const trimmed = nextValue.trim();
+          if (trimmed.length == 0 || trimmed == groupValue) return;
+          const matchingRows = data.filter(
+            (row) => String(row?.[columnId] ?? "") == groupValue
+          );
+          if (matchingRows.length == 0) return;
+          const parsed = isOptionGroup
+            ? parseFieldValue(column.value, column.type)
+            : null;
+          const nextOptions = isOptionGroup
+            ? ((parsed?.options ?? []) as any[]).map((o: any) =>
+                String(o.value ?? "") == groupValue
+                  ? { ...o, name: trimmed, value: trimmed }
+                  : o
+              )
+            : null;
+          const fieldValue =
+            isOptionGroup && nextOptions
+              ? serializeOptionValue(nextOptions, parsed!)
+              : undefined;
+          const globalTextOrder = isTextGroup
+            ? effectiveTextGroupOrder({
+                observed: data
+                  .map((row) => String(row?.[columnId] ?? ""))
+                  .filter((v) => v.trim().length > 0),
+                global: textGroupOrderFromAttrs(column.attrs),
+              })
+            : [];
+          const fieldAttrs = isTextGroup
+            ? attrsWithTextGroupOrder(
+                column.attrs,
+                stagedGroupOrderForRename(globalTextOrder, groupValue, trimmed)
+              ) ?? null
+            : undefined;
+          const viewOrder = predicate?.groupOrder?.[columnId];
+          const stagedViewOrder = viewOrder
+            ? stagedGroupOrderForRename(viewOrder, groupValue, trimmed)
+            : undefined;
+          if (stagedViewOrder) {
+            savePredicate({
+              groupOrder: {
+                ...(predicate?.groupOrder ?? {}),
+                [columnId]: stagedViewOrder,
+              },
+            });
+          }
+          const renameWrites = matchingRows.flatMap((row) => {
+            const write = tableUndoWriteForDirectEdit({
+              rowId: String(row._index),
+              column,
+              value: trimmed,
+              path: String(row?.[PathPropertyName] ?? ""),
+              ...(fieldValue ? { fieldValue } : {}),
+              ...(fieldAttrs !== undefined ? { fieldAttrs } : {}),
+            });
+            return write ? [write] : [];
+          });
+          const undoEntry = createTableUndoEntry({
+            label: "Rename group",
+            rows: data,
+            columns: cols,
+            writes: renameWrites,
+          });
+          void applyValueEdits(renameWrites, { allOrNothing: true }).then(
+            (result) => {
+              if (!result.ok && stagedViewOrder) {
+                savePredicate({
+                  groupOrder: {
+                    ...(predicate?.groupOrder ?? {}),
+                    [columnId]: viewOrder,
+                  },
+                });
+              }
+              if (result.ok && result.applied > 0) {
+                pushTableUndo(
+                  filterTableUndoEntryForResult(undoEntry, result)
+                );
+              }
+            }
+          );
+        },
+        "Rename",
+        win
+      );
+    },
+    [applyValueEdits, cols, data, predicate?.groupOrder, props.superstate, saveColumn, savePredicate]
+  );
+
   // Kill-switch chokepoint: virtualization runs only when the flag is ON and the
   // table is the flat, uniform-height case (grouping interleaves group-header and
   // nested sub-rows the uniform-row window kernel does not model, so a grouped
@@ -3524,23 +3800,21 @@ export const TableView = (props: { superstate: Superstate }) => {
                             "mk-group-header",
                             !row.getIsExpanded() && "mk-group-header-collapsed"
                           )}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={
+                            row.getIsExpanded()
+                              ? "Collapse group"
+                              : "Expand group"
+                          }
+                          aria-expanded={row.getIsExpanded()}
+                          onClick={() =>
+                            toggleGroupExpansion(
+                              cell.column.id,
+                              row.getGroupingValue(cell.column.id)
+                            )
+                          }
                         >
-                          <button
-                            type="button"
-                            className="mk-group-header-caret-button"
-                            aria-label={
-                              row.getIsExpanded()
-                                ? "Collapse group"
-                                : "Expand group"
-                            }
-                            aria-expanded={row.getIsExpanded()}
-                            onClick={() =>
-                              toggleGroupExpansion(
-                                cell.column.id,
-                                row.getGroupingValue(cell.column.id)
-                              )
-                            }
-                          >
                           <span
                             className={classNames(
                               "mk-group-header-caret",
@@ -3549,13 +3823,13 @@ export const TableView = (props: { superstate: Superstate }) => {
                             )}
                             aria-hidden="true"
                           ></span>
-                          </button>
                           <button
                             type="button"
                             className="mk-group-header-label-button"
-                            onClick={(event) =>
-                              showGroupedIslandManager(event, cell.column.id)
-                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              showGroupedIslandManager(event, cell.column.id);
+                            }}
                           >
                           <span className="mk-group-header-label">
                             {row.getGroupingValue(cell.column.id) ===
@@ -3578,6 +3852,47 @@ export const TableView = (props: { superstate: Superstate }) => {
                           <span className="mk-group-header-count">
                             {row.subRows.length}
                           </span>
+                          {!readMode &&
+                            row.getGroupingValue(cell.column.id) !==
+                              GROUP_NO_VALUE ? (
+                            <>
+                              <button
+                                type="button"
+                                className="mk-group-header-hover-button"
+                                aria-label="Rename group"
+                                title="Rename"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  renameGroupFromHeader(
+                                    cell.column.id,
+                                    String(row.getGroupingValue(cell.column.id)),
+                                    windowFromDocument(
+                                      event.currentTarget.ownerDocument
+                                    )
+                                  );
+                                }}
+                              >
+                                ✎
+                              </button>
+                              <button
+                                type="button"
+                                className="mk-group-header-hover-button mk-group-header-hover-button-danger"
+                                aria-label="Delete group"
+                                title="Delete group"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  deleteGroup(
+                                    cell.column.id,
+                                    String(row.getGroupingValue(cell.column.id))
+                                  );
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </>
+                          ) : null}
                           {!readMode ? (
                             <button
                               type="button"

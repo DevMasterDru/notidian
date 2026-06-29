@@ -118,7 +118,7 @@
     "inline-style-parser": "^0.2.4",
     "jszip": "^3.10.1",
     "lodash": "^4.17.21",
-    "mathjs": "^12.4.1",
+    "mathjs": "^12.4.3",
     "mdast-util-from-markdown": "^2.0.2",
     "mdast-util-frontmatter": "^2.0.1",
     "mdast-util-gfm": "^3.1.0",

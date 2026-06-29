@@ -1,5 +1,5 @@
 import { format as formatDate } from "date-fns";
-import { MathNode, SymbolNode } from "mathjs";
+import type { MathNode, SymbolNode } from "mathjs";
 import { PathState } from "shared/types/PathState";
 import { uniq } from "shared/utils/array";
 import { parseMultiString } from "utils/parsers";

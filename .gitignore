@@ -5,6 +5,7 @@ undefined
 .vscode
 .worktrees/
 coverage/
+dist/
 
 # Beads / Dolt files (added by bd init)
 .dolt/

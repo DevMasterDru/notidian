@@ -15,10 +15,9 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Rect } from "shared/types/Pos";
 import { reorderGroupedIslandOptions } from "core/utils/contexts/groupedIslandOrder";
-import { openInputModal } from "core/react/components/UI/Modals/InputModal";
 
 export type GroupedIslandOption = {
   name: string;
@@ -84,6 +83,23 @@ const GroupedIslandOptionRow = (props: {
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.option.value });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(props.option.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const commitRename = () => {
+    setEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed.length > 0 && trimmed != props.option.value) {
+      props.renameOption?.(props.option.value, trimmed);
+    }
+    setDraft(props.option.name);
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -104,25 +120,38 @@ const GroupedIslandOptionRow = (props: {
       >
         ⠿
       </button>
-      <span className="mk-grouped-island-option-name">{props.option.name}</span>
-      {props.renameOption ? (
-        <button
-          type="button"
-          aria-label={`Rename ${props.option.name}`}
-          onClick={() => {
-            openInputModal(
-              props.superstate,
-              "Rename group",
-              props.option.value,
-              (nextValue) => props.renameOption?.(props.option.value, nextValue),
-              "Rename",
-              props.menuWindow
-            );
+      {editing ? (
+        <input
+          ref={inputRef}
+          className="mk-grouped-island-option-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key == "Enter") commitRename();
+            if (e.key == "Escape") {
+              setEditing(false);
+              setDraft(props.option.name);
+            }
           }}
+        />
+      ) : (
+        <span
+          className="mk-grouped-island-option-name"
+          onClick={
+            props.renameOption
+              ? (e) => {
+                  e.stopPropagation();
+                  setDraft(props.option.name);
+                  setEditing(true);
+                }
+              : undefined
+          }
+          style={props.renameOption ? { cursor: "text" } : undefined}
         >
-          Rename
-        </button>
-      ) : null}
+          {props.option.name}
+        </span>
+      )}
     </div>
   );
 };
@@ -276,7 +305,14 @@ const GroupedIslandMenuComponent = (
                       superstate={props.superstate}
                       menuWindow={props.menuWindow}
                       option={option}
-                      renameOption={props.renameOption}
+                      renameOption={
+                        props.renameOption
+                          ? (oldValue, nextValue) => {
+                              props.renameOption!(oldValue, nextValue);
+                              props.hide?.();
+                            }
+                          : undefined
+                      }
                     />
                   ) : null;
                 })}

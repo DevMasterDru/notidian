@@ -257,48 +257,32 @@ body.mk-property-header-tooltip-visible > .tooltip {
   min-height: 28px;
 }
 
-/* Group header = a distinct Notion-like island band, NOT a plain row line
-   (Notidian-brlx). It is visually lifted off the data rows: a tinted band,
-   extra vertical breathing room, a strong divider above, and a collapse caret +
-   count badge. The group-header row carries no row-number gutter (the gutter
-   cell is suppressed in TableView; here we make sure it reads as part of the
-   band rather than a bordered data-row cell). */
 .mk-td-group {
-  background-color: var(--background-secondary, var(--mk-ui-background));
-  padding: 0;
-  border-top: 1px solid var(--background-modifier-border, var(--mk-ui-divider)) !important;
-  border-bottom: 1px solid
-    var(--background-modifier-border, var(--mk-ui-divider)) !important;
+  background: transparent;
+  padding: 4px 6px;
+  border-top: none !important;
+  border-bottom: none !important;
   font-size: 13px;
   font-weight: var(--bold-weight);
 }
-/* The gutter cell of a group-header row joins the island band: no row-number
-   value (suppressed in markup), no data-row divider, same tinted background. */
 .mk-row-group-header .mk-row-gutter-group {
-  background-color: var(--background-secondary, var(--mk-ui-background)) !important;
+  background: transparent !important;
   border-right: none !important;
-  border-top: 1px solid var(--background-modifier-border, var(--mk-ui-divider)) !important;
-  border-bottom: 1px solid
-    var(--background-modifier-border, var(--mk-ui-divider)) !important;
+  border-top: none !important;
+  border-bottom: none !important;
 }
 .mk-table-rtl .mk-row-group-header .mk-row-gutter-group {
   border-left: none !important;
 }
-/* The clickable band itself: caret + group value + count, comfortably spaced. */
 .mk-group-header {
   display: flex;
   align-items: center;
-  /* The header is a <button>, and Chromium's UA stylesheet centers a button's
-     flex content (justify-content: center). With width:100% spanning the full
-     horizontal scroll width, that pushed the group value to the centre of the
-     table — appearing far to the right of the viewport in LTR/English mode.
-     Pin the content to the inline-start edge (left in LTR, right in RTL) so the
-     group value sits where Notion shows it. (Notidian-grpby-align) */
   justify-content: flex-start;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 8px 12px;
-  background: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background-color: var(--background-secondary, var(--mk-ui-background));
   border: none;
   box-shadow: none;
   cursor: pointer;
@@ -307,17 +291,15 @@ body.mk-property-header-tooltip-visible > .tooltip {
   font-size: 13px;
   font-weight: var(--bold-weight);
   letter-spacing: 0.01em;
+  transition: background-color 120ms ease;
 }
 .mk-group-header:hover {
   background-color: var(--background-modifier-hover);
 }
 .mk-group-header-collapsed {
-  /* A muted collapsed island remains easy to find without competing with
-     expanded group bands or ordinary data rows (ADR 0052). */
   background-color: var(--background-modifier-hover);
   color: var(--text-muted);
 }
-.mk-group-header-caret-button,
 .mk-group-header-label-button {
   display: inline-flex;
   align-items: center;
@@ -330,16 +312,17 @@ body.mk-property-header-tooltip-visible > .tooltip {
   font: inherit;
   justify-content: flex-start;
 }
-.mk-group-header-caret-button {
-  cursor: pointer;
-}
-.mk-group-header-label-button {
-  flex: 1;
+  flex: 0 1 auto;
   cursor: pointer;
   text-align: start;
+  overflow: hidden;
 }
 .mk-group-header-label-button:hover {
   text-decoration: underline;
+}
+.mk-group-header-empty {
+  color: var(--text-faint);
+  font-style: italic;
 }
 .mk-grouped-island-order-scope,
 .mk-grouped-island-option {
@@ -406,8 +389,22 @@ body.mk-property-header-tooltip-visible > .tooltip {
 .mk-grouped-island-drag-handle:active {
   cursor: grabbing;
 }
+.mk-grouped-island-option-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font: inherit;
+  outline: none;
+}
+.mk-grouped-island-option-input:focus {
+  border-color: var(--interactive-accent);
+}
 .mk-group-header-caret {
-  display: inline-flex;
+  display: inline-block;
   width: 0;
   height: 0;
   flex: 0 0 auto;
@@ -415,7 +412,7 @@ body.mk-property-header-tooltip-visible > .tooltip {
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   color: var(--text-muted);
-  transition: transform 80ms ease-in-out;
+  transition: transform 120ms ease, color 120ms ease;
 }
 .mk-group-header-caret-open {
   transform: rotate(90deg);
@@ -431,6 +428,9 @@ body.mk-property-header-tooltip-visible > .tooltip {
   display: inline-flex;
   align-items: center;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mk-group-header-count {
   display: inline-flex;
@@ -438,12 +438,43 @@ body.mk-property-header-tooltip-visible > .tooltip {
   justify-content: center;
   min-width: 18px;
   height: 18px;
-  padding: 0 6px;
+  padding: 0 5px;
   border-radius: 9px;
   background-color: var(--background-modifier-border);
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.mk-group-header-hover-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: var(--font-normal, 400);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 100ms ease, background-color 100ms ease;
+}
+.mk-group-header:hover .mk-group-header-hover-button {
+  opacity: 1;
+}
+.mk-group-header-hover-button:hover {
+  border-color: var(--background-modifier-border);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.mk-group-header-hover-button-danger:hover {
+  color: var(--text-error);
 }
 .mk-group-header-add-button {
   display: inline-flex;
@@ -461,6 +492,11 @@ body.mk-property-header-tooltip-visible > .tooltip {
   cursor: pointer;
   font: inherit;
   line-height: 1;
+  opacity: 0;
+  transition: opacity 100ms ease, background-color 100ms ease;
+}
+.mk-group-header:hover .mk-group-header-add-button {
+  opacity: 1;
 }
 .mk-group-header-add-button:hover {
   border-color: var(--background-modifier-border);

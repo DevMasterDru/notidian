@@ -1,5 +1,11 @@
-import * as math from "mathjs"
+import type * as math from "mathjs"
 import { IndexMap } from "shared/types/indexMap"
+
+let _mathjs: typeof math | null = null;
+function getMathJs(): typeof math {
+	if (!_mathjs) _mathjs = require("mathjs") as typeof math;
+	return _mathjs;
+}
 import { DBRow, SpaceProperty } from "shared/types/mdb"
 import { PathState } from "shared/types/PathState"
 import { parseProperty } from "utils/parsers"
@@ -84,7 +90,7 @@ export function parseFormula(
 	propMap: SpaceProperty[]
 ): FormulaParserResult {
 	try {
-		const mathNode = math.parse(oldFormula)
+		const mathNode = getMathJs().parse(oldFormula)
 		const formulaNode = nodeToFormula(mathNode, propMap, [])
 		return formulaNode
 			? {
@@ -236,24 +242,25 @@ function nodeToFormula(
 	return
 }
 export const runFormulaNode = (node: FormulaNode, propMap: DBRow): string => {
+	const m = getMathJs();
 	const all = {
-		...math.all,
-		createAdd: math.factory('add', [], () => function add (a: any, b: any) {
+		...m.all,
+		createAdd: m.factory('add', [], () => function add (a: any, b: any) {
 			return a + b
 		  }),
-		  createEqual: math.factory('equal', [], () => function equal (a: any, b: any) {
+		  createEqual: m.factory('equal', [], () => function equal (a: any, b: any) {
 			return a == b
 		  }),
-		  createUnequal: math.factory('unequal', [], () => function unequal (a: any, b: any) {
+		  createUnequal: m.factory('unequal', [], () => function unequal (a: any, b: any) {
 			return a != b
 		  })
-		  
-		
+
+
 	}
 	const config :math.ConfigOptions = {
 		matrix: "Array"
 	}
-	const runContext = math.create(all, config)
+	const runContext = m.create(all, config)
 	runContext.import(formulas, { override: true })
 	if (node.type === "literal") {
 		return node.value

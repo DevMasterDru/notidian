@@ -70,22 +70,21 @@ describe("GroupedIslandMenu drag ordering", () => {
     expect(mounted.anchor).toBe("bottom");
   });
 
-  it("opens Notidian's input modal for rename instead of calling unsupported window.prompt", () => {
+  it("shows an inline edit input when clicking on an option name", () => {
     const mounted = mountMenu();
     ({ root, container } = mounted);
-    const rename = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Rename Open"]'
+    const optionName = container.querySelector<HTMLSpanElement>(
+      ".mk-grouped-island-option-name"
     );
+    expect(optionName).toBeTruthy();
 
-    act(() => rename!.click());
+    act(() => optionName!.click());
 
-    expect(mounted.openModal).toHaveBeenCalledWith(
-      "Rename group",
-      expect.objectContaining({
-        props: expect.objectContaining({ value: "Open", saveLabel: "Rename" }),
-      }),
-      window
+    const input = container.querySelector<HTMLInputElement>(
+      ".mk-grouped-island-option-input"
     );
+    expect(input).toBeTruthy();
+    expect(input!.value).toBe("Open");
   });
 
   it("initially sizes to the longest label and caps the result to the safe menu width", () => {

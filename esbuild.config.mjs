@@ -116,6 +116,37 @@ async function buildWorker(workerPath, extraConfig) {
 
 
 
+const OBSIDIAN_SAFE_EXTERNALS = new Set([
+    'obsidian', 'electron',
+    '@codemirror/autocomplete', '@codemirror/collab', '@codemirror/commands',
+    '@codemirror/language', '@codemirror/lint', '@codemirror/search',
+    '@codemirror/state', '@codemirror/view',
+    ...builtins,
+]);
+
+let requireAuditPlugin = {
+    name: 'require-audit',
+    setup(build) {
+        build.onEnd((result) => {
+            if (result.errors.length > 0) return;
+            const { outfile } = build.initialOptions;
+            if (!fs.existsSync(outfile)) return;
+            const output = fs.readFileSync(outfile, 'utf8');
+            const matches = [...output.matchAll(/require\("([a-zA-Z@][a-zA-Z0-9.\/_-]*)"\)/g)].map(m => m[1]);
+            const unsafe = [...new Set(matches.filter(m =>
+                !OBSIDIAN_SAFE_EXTERNALS.has(m) && !m.startsWith('node:')
+            ))];
+            if (unsafe.length > 0) {
+                console.error(`\n\x1b[31mBUILD ERROR: Unsafe external require() calls detected:\x1b[0m`);
+                unsafe.forEach(m => console.error(`  require("${m}")`));
+                console.error(`Obsidian's renderer cannot resolve npm packages at runtime.`);
+                console.error(`Remove these from the 'external' array in esbuild config.\n`);
+                process.exit(1);
+            }
+        });
+    },
+};
+
 let renamePlugin = {
     name: 'rename-styles',
     setup(build) {
@@ -177,7 +208,7 @@ const buildOptions = {
   minify: true,
 	outfile: outputDir+'/main.js',
   define: { 'process.env.NODE_ENV': prod ? '"production"' : '"development"' },
-	plugins: [renamePlugin, 
+	plugins: [requireAuditPlugin, renamePlugin,
 		// preactCompatPlugin,
 		inlineWorkerPlugin(),
 		watPlugin(),

@@ -77,6 +77,12 @@ npm run build                  # clean
   A fresh session: `bd ready` → claim the top stream issue → read its body + the
   packet → execute within scope → verify → `bd close` with evidence → commit.
 
+- **Filename template mirror** (sessionized 2026-06-30) — epic `Notidian-pay5.1`,
+  packet [docs/streams/filename-template-mirror.md](docs/streams/filename-template-mirror.md):
+  three dependency-chained sessions (`Notidian-pay5.1.1` template engine + ADR;
+  `Notidian-pay5.1.2` auto-rename watcher; `Notidian-pay5.1.3` config UI + first-time
+  adoption), all `runner:opus`. Unblocks `Notidian-mx0k` (key-match FK relations).
+
 Status is never copied here — `bd ready`/`bd show <id>` is the live source.
 
 ## Current Architecture
