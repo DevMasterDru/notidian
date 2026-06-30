@@ -203,29 +203,6 @@ const validateSubItems = (
   return out;
 };
 
-// Group island config (Notidian-mx0k.2). Validates the optional groupIsland
-// predicate field. Must have a non-empty relation string and a non-empty array
-// of non-empty field strings. Returns undefined for any invalid state so legacy
-// predicates round-trip byte-identically.
-const validateGroupIsland = (
-  raw: unknown
-): import("shared/types/predicate").GroupIslandConfig | undefined => {
-  if (
-    !raw ||
-    typeof raw !== "object" ||
-    typeof (raw as any).relation !== "string" ||
-    (raw as any).relation.length === 0
-  )
-    return undefined;
-  const value = raw as any;
-  if (!Array.isArray(value.fields)) return undefined;
-  const fields = value.fields.filter(
-    (f: unknown) => typeof f === "string" && f.length > 0
-  );
-  if (fields.length === 0) return undefined;
-  return { relation: value.relation, fields };
-};
-
 export const validatePredicate = (
   prevPredicate: Predicate,
   defaultPredicate: Predicate,
@@ -333,7 +310,6 @@ export const validatePredicate = (
         ? prevPredicate.chart
         : undefined,
     subItems: validateSubItems(prevPredicate.subItems, schemaId),
-    groupIsland: validateGroupIsland(prevPredicate.groupIsland),
   };
 };
 

@@ -125,7 +125,6 @@ const REQUIRED_SETTING_KEYS = {
   subItemAddRow: true,
   filenameTemplateEnforcement: true,
   viewSettingsInlineBar: true,
-  groupingIslandHeader: true,
   basicsSettings: true,
   firstLaunch: true,
   notesPreview: true,
@@ -173,7 +172,6 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "subItemAddRow", // Notidian-gr8t
   "collapsibleNoteBody", // Notidian-8sl
   "filenameTemplateEnforcement", // Notidian-pay5 / ADR 0054
-  "groupingIslandHeader", // Notidian-mx0k.2
 ];
 
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {
