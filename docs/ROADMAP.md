@@ -12,8 +12,10 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 **Accepted** and they are scheduled as window-sized session issues. See epic
 **`Notidian-f0pj`** and packet `docs/streams/notion-parity-ux.md`.
 
-- **Sub-items + back-relations creation UX** (ADR 0024 → bd `Notidian-f0pj.1`).
-- **Frontmatter-link relations + rollups UX polish** (ADR 0029 → bd `Notidian-f0pj.2`).
+- **Sub-items + back-relations creation UX** (ADR 0024 → bd `Notidian-f0pj.1`). ✓ Shipped.
+- **Frontmatter-link relations + rollups UX polish** (ADR 0029 → bd `Notidian-f0pj.2`). ✓ Shipped.
+- **Filename template mirror** (ADR 0054 → bd `Notidian-pay5.1`). ✓ Shipped.
+- **Key-match FK relations + grouping island** (ADR 0029 → bd `Notidian-mx0k`). Owner-authorized 2026-06-30. Sessionized: `mx0k.1` (key-match relation type) + `mx0k.2` (grouping island header).
 
 ## Parked — build when the owner asks
 
@@ -28,4 +30,4 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 - **Promote more overflow settings into the inline view-settings bar** — the inline `.mk-view-settings-bar` (Notidian-vrmf) currently exposes exactly the Filter/Sort/Group-By trio with at-a-glance active indicators; a future step could promote additional high-frequency overflow settings (e.g. Limit, Display Property) inline with their own active indicators while keeping single-home (drop them from the 3-knobs menu when promoted). The control-home manifest `VIEW_SETTINGS_CONTROL_HOME` and the pure active-derivation already model this — promoting a control = flip its home to `inline` + add a derived active flag + a render site. Speculative IA direction; only pull if the owner wants more inline. — (`src/core/utils/contexts/viewSettings.ts`, render in `FilterBar.tsx` `.mk-view-settings-bar`; grounding bead `Notidian-vrmf`)
 - **Owner one-time live-verify: view-customization durability** — confirm hidden props / column widths / column order survive a frame save + AI/api write + plugin reload across 2+ sibling views post-Notidian-2y21; owner-action-gated (eyes-on in a running vault, no further offline code change). Run when next in the vault. — (deploy-and-live-verify contract [ADR 0051](adr/0051-deploy-and-live-verify-contract.md); fix bead `Notidian-2y21`; checklist bead `Notidian-peh7`)
 - **parseGradient strict-mode for paste/import** — recognize `circle`/`ellipse` radial shape keywords as direction and reject malformed percent tokens like `red x%`; the live colorPickerMenu editor authors well-formed strings, so this is paste/import-only. — (`src/core/utils/color/gradient.ts`; current behavior pinned as characterization in `gradient.parser.test.ts`; bead `Notidian-j1n1`)
-- **Key-match foreign key relations + grouping island** — resolve plain-string FK fields across database folders at render time and display related-record properties in group-by island headers; extends the existing wikilink relation/rollup engine. — (ADR 0029, `src/core/utils/contexts/tableRollup.ts`; blocked by `Notidian-pay5`; bead `Notidian-mx0k`)
+- ~~**Key-match foreign key relations + grouping island**~~ — pulled into build 2026-06-30 (see above).
