@@ -1,3 +1,4 @@
+import { isKeyMatchConfig } from "core/utils/contexts/keyMatchResolver";
 import { computeRowRollupDetailed } from "core/utils/contexts/tableRollupRuntime";
 import React, { useMemo } from "react";
 import { PathPropertyName } from "shared/types/context";
@@ -8,6 +9,9 @@ import { TableCellMultiProp } from "../TableView/TableView";
 // Read-only rollup cell (Notidian-8pl): aggregates a target property across the
 // rows the configured relation column links to, computed from frontmatter at
 // render time. Config (stored as JSON in the column value): {ref, field, fn}.
+// Notidian-mx0k.1: when config.keyMatch is present and valid, uses key-match
+// resolution instead of wikilink parsing. The rollup engine itself receives
+// paths and aggregates unchanged.
 export const RollupCell = (
   props: TableCellMultiProp & {
     row: DBRow;
@@ -18,22 +22,33 @@ export const RollupCell = (
 ) => {
   const rollup = useMemo(() => {
     const config = safelyParseJSON(props.propertyValue) ?? {};
-    if (!config.ref) return null;
+    const useKeyMatch = isKeyMatchConfig(config);
+    // Key-match: ref is the sourceField from keyMatch config; wikilink: ref is the
+    // relation column name. For key-match, ref is still required for the rollup
+    // engine's config identity, but the actual source field is keyMatch.sourceField.
+    if (!useKeyMatch && !config.ref) return null;
     if (config.fn != "count" && !config.field) return null;
-    const relationValue = props.row?.[config.ref];
     const sourcePath = props.row?.[PathPropertyName] ?? props.contextPath;
     const fn = config.fn ?? "count";
+
+    // For key-match, the relation value is the source row's sourceField value.
+    // For wikilink, it's the relation column's value.
+    const relationValue = useKeyMatch
+      ? props.row?.[config.keyMatch.sourceField]
+      : props.row?.[config.ref];
+
     return {
       fn,
       ...computeRowRollupDetailed(
         props.superstate,
         relationValue,
         {
-          relationProperty: config.ref,
+          relationProperty: useKeyMatch ? config.keyMatch.sourceField : config.ref,
           targetProperty: config.field,
           fn,
         },
-        sourcePath
+        sourcePath,
+        useKeyMatch ? config.keyMatch : undefined
       ),
     };
   }, [props.propertyValue, props.row]);

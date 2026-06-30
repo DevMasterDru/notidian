@@ -354,13 +354,140 @@ export const PropertyValueComponent = (props: {
 
   // Rollup config (Notidian-8pl): pick a relation column (ref), a target
   // property on the linked rows (field), and an aggregate (fn).
+  // Notidian-mx0k.1: also supports key-match FK relations as an alternative
+  // to wikilink-based relation columns.
+  const isKeyMatchMode = !!parsedValue.keyMatch;
+
+  const selectRollupRelationType = (e: React.MouseEvent) => {
+    const options: SelectOption[] = [
+      { name: "Wikilink column", value: "wikilink" },
+      { name: "Key match (FK)", value: "key-match" },
+    ];
+    showOptions(
+      e,
+      isKeyMatchMode ? "key-match" : "wikilink",
+      options,
+      "_relationType",
+      (value: string) => {
+        if (value === "key-match") {
+          // Switch to key-match mode: initialize keyMatch config, clear ref.
+          props.saveValue(
+            JSON.stringify({
+              ...parsedValue,
+              ref: undefined,
+              keyMatch: {
+                type: "key-match",
+                sourceField: "",
+                targetFolder: "",
+                targetField: "",
+              },
+            })
+          );
+        } else {
+          // Switch to wikilink mode: clear keyMatch config.
+          const { keyMatch: _removed, ...rest } = parsedValue;
+          props.saveValue(JSON.stringify(rest));
+        }
+      }
+    );
+  };
+
   const selectRollupRelation = (e: React.MouseEvent) => {
     const options: SelectOption[] = (props.fields ?? [])
       .filter((f) => f.type?.startsWith("context") || f.type?.startsWith("link"))
       .map((f) => ({ name: f.name, value: f.name }));
     showOptions(e, parsedValue.ref, options, "ref");
   };
+
+  // Key-match source field: pick from current DB's fields.
+  const selectKeyMatchSourceField = (e: React.MouseEvent) => {
+    const options: SelectOption[] = (props.fields ?? [])
+      .filter((f) => !f.type?.startsWith("rollup") && !f.type?.startsWith("backlink"))
+      .map((f) => ({ name: f.name, value: f.name }));
+    showOptions(
+      e,
+      parsedValue.keyMatch?.sourceField,
+      options,
+      "_kmSource",
+      (value: string) => {
+        props.saveValue(
+          JSON.stringify({
+            ...parsedValue,
+            keyMatch: { ...parsedValue.keyMatch, sourceField: value },
+          })
+        );
+      }
+    );
+  };
+
+  // Key-match target folder: pick from all spaces.
+  const selectKeyMatchTargetFolder = (e: React.MouseEvent) => {
+    showOptions(
+      e,
+      parsedValue.keyMatch?.targetFolder,
+      props.superstate
+        .allSpaces()
+        .filter((f) => f.type != "default")
+        .map((m) => ({ name: m.name, value: m.path, description: m.path })),
+      "_kmTarget",
+      (value: string) => {
+        props.saveValue(
+          JSON.stringify({
+            ...parsedValue,
+            keyMatch: { ...parsedValue.keyMatch, targetFolder: value },
+          })
+        );
+      },
+      null,
+      true
+    );
+  };
+
+  // Key-match target field: pick from the target folder's fields.
+  const selectKeyMatchTargetField = (e: React.MouseEvent) => {
+    const targetFolder = parsedValue.keyMatch?.targetFolder;
+    const targetCols =
+      targetFolder
+        ? props.superstate.contextsIndex
+            .get(targetFolder)
+            ?.contextTable?.cols?.map((m) => ({
+              name: m.name,
+              value: m.name,
+            })) ?? []
+        : [];
+    showOptions(
+      e,
+      parsedValue.keyMatch?.targetField,
+      targetCols,
+      "_kmField",
+      (value: string) => {
+        props.saveValue(
+          JSON.stringify({
+            ...parsedValue,
+            keyMatch: { ...parsedValue.keyMatch, targetField: value },
+          })
+        );
+      },
+      null,
+      true
+    );
+  };
+
   const selectRollupProperty = (e: React.MouseEvent) => {
+    // When in key-match mode, show the target folder's properties.
+    if (isKeyMatchMode && parsedValue.keyMatch?.targetFolder) {
+      const targetCols =
+        props.superstate.contextsIndex
+          .get(parsedValue.keyMatch.targetFolder)
+          ?.contextTable?.cols?.map((m) => ({
+            name: m.name,
+            value: m.name,
+          })) ?? [];
+      if (targetCols.length > 0) {
+        showOptions(e, parsedValue.field, targetCols, "field");
+        return;
+      }
+    }
     props.superstate.ui.openModal(
       "Rollup property",
       <InputModal
@@ -727,22 +854,60 @@ export const PropertyValueComponent = (props: {
     </>
   ) : props.fieldType?.startsWith("rollup") ? (
     <>
-      <div className="mk-menu-option" onClick={(e) => selectRollupRelation(e)}>
-        <span>{"Relation"}</span>
-        <span>{parsedValue.ref ?? i18n.labels.select}</span>
+      <div className="mk-menu-option" onClick={(e) => selectRollupRelationType(e)}>
+        <span>{"Relation type"}</span>
+        <span>{isKeyMatchMode ? "Key match" : "Wikilink"}</span>
       </div>
-      {parsedValue.ref?.length > 0 && (
+      {isKeyMatchMode ? (
+        <>
+          <div className="mk-menu-option" onClick={(e) => selectKeyMatchSourceField(e)}>
+            <span>{"Source field"}</span>
+            <span>{parsedValue.keyMatch?.sourceField || i18n.labels.select}</span>
+          </div>
+          <div className="mk-menu-option" onClick={(e) => selectKeyMatchTargetFolder(e)}>
+            <span>{"Target folder"}</span>
+            <span>
+              {parsedValue.keyMatch?.targetFolder
+                ? spaceNameFromSpacePath(parsedValue.keyMatch.targetFolder, props.superstate) ??
+                  parsedValue.keyMatch.targetFolder
+                : i18n.labels.select}
+            </span>
+          </div>
+          {parsedValue.keyMatch?.targetFolder?.length > 0 && (
+            <div className="mk-menu-option" onClick={(e) => selectKeyMatchTargetField(e)}>
+              <span>{"Target key field"}</span>
+              <span>{parsedValue.keyMatch?.targetField || i18n.labels.select}</span>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="mk-menu-option" onClick={(e) => selectRollupRelation(e)}>
+          <span>{"Relation"}</span>
+          <span>{parsedValue.ref ?? i18n.labels.select}</span>
+        </div>
+      )}
+      {(isKeyMatchMode
+        ? parsedValue.keyMatch?.sourceField?.length > 0 &&
+          parsedValue.keyMatch?.targetFolder?.length > 0 &&
+          parsedValue.keyMatch?.targetField?.length > 0
+        : parsedValue.ref?.length > 0) && (
         <div className="mk-menu-option" onClick={(e) => selectRollupFn(e)}>
           <span>{"Calculate"}</span>
           <span>{parsedValue.fn ?? "count"}</span>
         </div>
       )}
-      {parsedValue.ref?.length > 0 && parsedValue.fn && parsedValue.fn != "count" && (
-        <div className="mk-menu-option" onClick={(e) => selectRollupProperty(e)}>
-          <span>{"Property"}</span>
-          <span>{parsedValue.field ?? i18n.labels.select}</span>
-        </div>
-      )}
+      {(isKeyMatchMode
+        ? parsedValue.keyMatch?.sourceField?.length > 0 &&
+          parsedValue.keyMatch?.targetFolder?.length > 0 &&
+          parsedValue.keyMatch?.targetField?.length > 0
+        : parsedValue.ref?.length > 0) &&
+        parsedValue.fn &&
+        parsedValue.fn != "count" && (
+          <div className="mk-menu-option" onClick={(e) => selectRollupProperty(e)}>
+            <span>{"Property"}</span>
+            <span>{parsedValue.field ?? i18n.labels.select}</span>
+          </div>
+        )}
     </>
   ) : props.fieldType == "fileprop" ? (
     <>

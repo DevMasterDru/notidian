@@ -175,11 +175,12 @@ export const fieldTypes: FieldType[] = [
   },
   {
     // Notidian-8pl: read-only rollup over a relation's linked rows' frontmatter.
+    // Notidian-mx0k.1: keyMatch added for key-match FK relations.
     type: "rollup",
     label: "Rollup",
     icon: 'ui//aggregate',
     multi: false,
-    configKeys: ['ref', 'field', 'fn'],
+    configKeys: ['ref', 'field', 'fn', 'keyMatch'],
     flex: true,
     description: "Aggregate a property across the rows a relation links to"
   },
