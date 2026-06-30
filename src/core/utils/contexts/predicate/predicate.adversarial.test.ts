@@ -29,7 +29,7 @@ import { cleanPredicateType, validatePredicate } from "./predicate";
 import { filterFnTypes } from "./filterFns/filterFnTypes";
 import { filterReturnForCol } from "./filter";
 import { sortFnTypes, sortReturnForCol } from "./sort";
-import { Filter, Predicate, Sort } from "shared/types/predicate";
+import { Filter, GroupIslandConfig, Predicate, Sort } from "shared/types/predicate";
 
 // Silence the validate-loud console.warn (ADR 0034) for the whole file; the
 // cleanPredicateType warning content is already pinned in predicate.test.ts, and
@@ -310,6 +310,7 @@ describe("validatePredicate adversarial passthrough coverage (Notidian-gmzn)", (
           tableDirection: "sideways" as any,
           frozenColumnCount: -3 as any,
           limit: -1 as any,
+          groupIsland: [1, 2] as any,
         } as any,
         defaultPredicate
       );
@@ -331,6 +332,7 @@ describe("validatePredicate adversarial passthrough coverage (Notidian-gmzn)", (
     expect(result.tableDirection).toBe("ltr");
     expect(result.frozenColumnCount).toBe(0);
     expect(result.limit).toBe(0);
+    expect(result.groupIsland).toBeUndefined();
   });
 
   it("returns the default predicate verbatim for a null/undefined input (no throw)", () => {
@@ -557,6 +559,7 @@ describe("validatePredicate fixed-point / idempotence property (Notidian-gmzn)",
         limit: 50,
         chart: { visible: true, groupKey: "Status", aggregate: "count" },
         subItems: { field: "Parent" },
+        groupIsland: { relation: "StatusRelation", fields: ["Name", "Date"] },
       },
     },
     {
@@ -605,6 +608,50 @@ describe("validatePredicate fixed-point / idempotence property (Notidian-gmzn)",
         tableDirection: 7,
         frozenColumnCount: "x",
         limit: {},
+      },
+    },
+    // Notidian-3mko: groupIsland-specific fixed-point corpus entries
+    {
+      label: "a valid predicate with groupIsland config",
+      predicate: {
+        ...defaultPredicate,
+        groupIsland: { relation: "StatusRelation", fields: ["Name", "Date", "Priority"] },
+      },
+    },
+    {
+      label: "a corrupt groupIsland (empty relation, non-string fields) with valid other fields",
+      predicate: {
+        ...defaultPredicate,
+        groupIsland: { relation: "", fields: [42, null, true] },
+        filters: [goodFilter],
+        sort: [goodSort],
+        colsSize: { "Title.": 200 },
+      },
+    },
+    {
+      label: "a corrupt groupIsland (non-object) with valid other fields",
+      predicate: {
+        ...defaultPredicate,
+        groupIsland: "not-an-object",
+        filters: [goodFilter],
+        colsOrder: ["Title.", "Status."],
+      },
+    },
+    {
+      label: "a groupIsland with mixed valid/invalid fields elements",
+      predicate: {
+        ...defaultPredicate,
+        groupIsland: {
+          relation: "Rel",
+          fields: ["Valid", 42, null, "Also Valid", undefined, "", { x: 1 }],
+        },
+      },
+    },
+    {
+      label: "a groupIsland with Unicode relation and fields",
+      predicate: {
+        ...defaultPredicate,
+        groupIsland: { relation: "你好Relation", fields: ["éàü", "😀🚀", "العربية"] },
       },
     },
   ];
@@ -661,7 +708,563 @@ describe("validatePredicate fixed-point / idempotence property (Notidian-gmzn)",
     expect(result.limit).toBe(50);
     expect(result.chart).toEqual(valid.chart);
     expect(result.subItems).toEqual(valid.subItems);
+    expect(result.groupIsland).toEqual(valid.groupIsland);
     // And it is a fixed point.
     expect(validatePredicate(result, defaultPredicate)).toEqual(result);
+  });
+});
+
+// ===========================================================================
+// groupIsland adversarial coverage (Notidian-3mko)
+//
+// Targeted adversarial tests for the validateGroupIsland persistence boundary.
+// The groupIsland field was added in Notidian-mx0k.2 but had no adversarial
+// coverage in this file. These tests pin:
+//   - NON_RECORD_VALUES sweep: every non-object shape -> undefined
+//   - Malformed object shapes: missing/invalid relation, missing/invalid fields
+//   - Non-string field element stripping
+//   - Large field arrays (10000+ entries): validation is total and bounded
+//   - Prototype pollution safety
+//   - Cross-contamination isolation: corrupt groupIsland never affects other fields
+//   - P2 fixed-point convergence with random groupIsland configs
+// ===========================================================================
+describe("validatePredicate groupIsland adversarial coverage (Notidian-3mko)", () => {
+  // ---------------------------------------------------------------------------
+  // Sweep the standard NON_RECORD_VALUES corpus through groupIsland. Every
+  // non-object entry must coerce to undefined (the inert state) without throwing.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland non-object sweep (NON_RECORD_VALUES corpus)", () => {
+    it.each(NON_RECORD_VALUES)(
+      "coerces a non-object groupIsland ($label) to undefined without throwing",
+      ({ value }) => {
+        let result!: Predicate;
+        expect(() => {
+          result = validatePredicate(
+            { ...defaultPredicate, groupIsland: value as any },
+            defaultPredicate
+          );
+        }).not.toThrow();
+        expect(result.groupIsland).toBeUndefined();
+      }
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Malformed object shapes: objects that have SOME structure but are not valid
+  // GroupIslandConfig. Each must coerce to undefined without throwing.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland malformed object shapes", () => {
+    const MALFORMED_GROUPISLAND: Array<{ label: string; value: unknown }> = [
+      { label: "empty object", value: {} },
+      { label: "relation only (no fields key)", value: { relation: "Status" } },
+      { label: "fields only (no relation key)", value: { fields: ["Name", "Date"] } },
+      { label: "empty relation string", value: { relation: "", fields: ["Name"] } },
+      { label: "non-string relation (number)", value: { relation: 42, fields: ["Name"] } },
+      { label: "non-string relation (boolean)", value: { relation: true, fields: ["Name"] } },
+      { label: "non-string relation (null)", value: { relation: null, fields: ["Name"] } },
+      { label: "non-string relation (array)", value: { relation: ["Status"], fields: ["Name"] } },
+      { label: "non-string relation (object)", value: { relation: { id: "Status" }, fields: ["Name"] } },
+      { label: "fields is a string", value: { relation: "Status", fields: "Name" } },
+      { label: "fields is a number", value: { relation: "Status", fields: 42 } },
+      { label: "fields is an object", value: { relation: "Status", fields: { Name: true } } },
+      { label: "fields is null", value: { relation: "Status", fields: null } },
+      { label: "fields is boolean", value: { relation: "Status", fields: true } },
+      { label: "fields is empty array", value: { relation: "Status", fields: [] } },
+      { label: "fields contains only empty strings", value: { relation: "Status", fields: ["", "", ""] } },
+      { label: "fields contains only numbers", value: { relation: "Status", fields: [1, 2, 3] } },
+      { label: "fields contains only nulls", value: { relation: "Status", fields: [null, null] } },
+      { label: "fields contains only objects", value: { relation: "Status", fields: [{ name: "A" }, { name: "B" }] } },
+      { label: "fields contains only booleans", value: { relation: "Status", fields: [true, false] } },
+      { label: "fields contains only nested arrays", value: { relation: "Status", fields: [["Name"], ["Date"]] } },
+      { label: "fields contains only undefined", value: { relation: "Status", fields: [undefined, undefined] } },
+      { label: "array-like object (no relation/fields)", value: Object.assign(Object.create(null), { 0: "Status", 1: ["Name"] }) },
+    ];
+
+    it.each(MALFORMED_GROUPISLAND)(
+      "coerces malformed groupIsland ($label) to undefined without throwing",
+      ({ value }) => {
+        let result!: Predicate;
+        expect(() => {
+          result = validatePredicate(
+            { ...defaultPredicate, groupIsland: value as any },
+            defaultPredicate
+          );
+        }).not.toThrow();
+        expect(result.groupIsland).toBeUndefined();
+      }
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Valid groupIsland configs: must pass through validation unchanged.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland valid config preservation", () => {
+    it("preserves a minimal valid groupIsland config", () => {
+      const groupIsland: GroupIslandConfig = { relation: "StatusRel", fields: ["Name"] };
+      const result = validatePredicate(
+        { ...defaultPredicate, groupIsland } as Predicate,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toEqual(groupIsland);
+    });
+
+    it("preserves a multi-field groupIsland config", () => {
+      const groupIsland: GroupIslandConfig = {
+        relation: "StatusRelation",
+        fields: ["Name", "Date", "Priority", "Tags"],
+      };
+      const result = validatePredicate(
+        { ...defaultPredicate, groupIsland } as Predicate,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toEqual(groupIsland);
+    });
+
+    it("preserves a groupIsland with Unicode relation and fields", () => {
+      const groupIsland: GroupIslandConfig = {
+        relation: "你好Relation",
+        fields: ["éàü", "😀🚀", "العربية"],
+      };
+      const result = validatePredicate(
+        { ...defaultPredicate, groupIsland } as Predicate,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toEqual(groupIsland);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Non-string field element stripping: mixed arrays with valid and invalid
+  // elements — only non-empty strings survive, order is preserved.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland non-string field element stripping", () => {
+    it("strips non-string elements but keeps valid strings in order", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: {
+            relation: "StatusRelation",
+            fields: [
+              "Name",
+              42 as any,
+              null as any,
+              "Date",
+              undefined as any,
+              { x: 1 } as any,
+              ["nested"] as any,
+              true as any,
+              "",
+              "Priority",
+            ],
+          },
+        } as any,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeDefined();
+      expect(result.groupIsland!.relation).toBe("StatusRelation");
+      // Only non-empty strings survive; empty string "" is stripped.
+      expect(result.groupIsland!.fields).toEqual(["Name", "Date", "Priority"]);
+    });
+
+    it("returns undefined when all field elements are non-string", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: {
+            relation: "ValidRelation",
+            fields: [42, null, undefined, true, { x: 1 }, [1, 2]],
+          },
+        } as any,
+        defaultPredicate
+      );
+      // All entries stripped -> empty fields -> undefined
+      expect(result.groupIsland).toBeUndefined();
+    });
+
+    it("returns undefined when all field elements are empty strings", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: { relation: "ValidRelation", fields: ["", "", ""] },
+        } as any,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeUndefined();
+    });
+
+    it("keeps a single surviving string when mixed with many non-strings", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: {
+            relation: "Rel",
+            fields: [null, 0, false, "Survivor", undefined, {}, []],
+          },
+        } as any,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeDefined();
+      expect(result.groupIsland!.fields).toEqual(["Survivor"]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Large field arrays (10000+ entries): validation is total and bounded.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland large field arrays", () => {
+    it("handles 10500 entries (mixed string/non-string) without throwing and in bounded time", () => {
+      const fields: unknown[] = [];
+      for (let i = 0; i < 10500; i++) {
+        // Every 3rd entry is a valid string, the rest are numbers
+        fields.push(i % 3 === 0 ? `field-${i}` : i);
+      }
+      let result!: Predicate;
+      const start = Date.now();
+      expect(() => {
+        result = validatePredicate(
+          {
+            ...defaultPredicate,
+            groupIsland: { relation: "BigRelation", fields },
+          } as any,
+          defaultPredicate
+        );
+      }).not.toThrow();
+      const elapsed = Date.now() - start;
+      // Validation must be bounded — sub-second for 10k entries
+      expect(elapsed).toBeLessThan(5000);
+      expect(result.groupIsland).toBeDefined();
+      // Only indices divisible by 3 produced a string: 0, 3, 6, ..., 10497 = 3500 entries
+      expect(result.groupIsland!.fields.length).toBe(3500);
+      expect(result.groupIsland!.fields[0]).toBe("field-0");
+      expect(result.groupIsland!.fields[1]).toBe("field-3");
+      expect(result.groupIsland!.fields[3499]).toBe("field-10497");
+    });
+
+    it("handles 10000 entries all valid strings", () => {
+      const fields: string[] = [];
+      for (let i = 0; i < 10000; i++) {
+        fields.push(`col-${i}`);
+      }
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: { relation: "MassiveRelation", fields },
+        } as any,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeDefined();
+      expect(result.groupIsland!.fields.length).toBe(10000);
+      expect(result.groupIsland!.fields[0]).toBe("col-0");
+      expect(result.groupIsland!.fields[9999]).toBe("col-9999");
+    });
+
+    it("handles 10000 entries all invalid (returns undefined)", () => {
+      const fields: unknown[] = [];
+      for (let i = 0; i < 10000; i++) {
+        fields.push(i); // all numbers
+      }
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: { relation: "Rel", fields },
+        } as any,
+        defaultPredicate
+      );
+      // All stripped -> empty -> undefined
+      expect(result.groupIsland).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Prototype pollution safety: groupIsland objects with __proto__, constructor,
+  // toString, hasOwnProperty keys must not corrupt the validated result.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland prototype pollution safety", () => {
+    it("extra properties including __proto__ are stripped from the validated result", () => {
+      // JSON.parse creates __proto__ as an OWN property, not as prototype mutation
+      const polluted = JSON.parse(
+        '{"relation":"Status","fields":["Name"],"__proto__":{"polluted":true},"constructor":"evil"}'
+      );
+      const result = validatePredicate(
+        { ...defaultPredicate, groupIsland: polluted } as any,
+        defaultPredicate
+      );
+      // The groupIsland is VALID (has relation + fields), so it persists
+      expect(result.groupIsland).toBeDefined();
+      expect(result.groupIsland!.relation).toBe("Status");
+      expect(result.groupIsland!.fields).toEqual(["Name"]);
+      // The result has ONLY relation and fields — no pollution keys
+      expect(Object.keys(result.groupIsland!)).toEqual(["relation", "fields"]);
+      // Prototype is still Object.prototype (no corruption)
+      expect(Object.getPrototypeOf(result.groupIsland!)).toBe(Object.prototype);
+    });
+
+    it("groupIsland with prototype-polluting key names in fields strips them correctly", () => {
+      // Prototype-polluting STRINGS in the fields array are valid strings and should SURVIVE
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: {
+            relation: "Rel",
+            fields: ["__proto__", "constructor", "toString", "hasOwnProperty"],
+          },
+        } as any,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeDefined();
+      // All four are non-empty strings, so they survive as field names
+      expect(result.groupIsland!.fields).toEqual([
+        "__proto__",
+        "constructor",
+        "toString",
+        "hasOwnProperty",
+      ]);
+    });
+
+    it("a groupIsland with extra nested properties does not leak them", () => {
+      const withExtra = {
+        relation: "Rel",
+        fields: ["Name"],
+        extra: { deep: { value: 1 } },
+        randomProp: [1, 2, 3],
+      };
+      const result = validatePredicate(
+        { ...defaultPredicate, groupIsland: withExtra } as any,
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeDefined();
+      expect(Object.keys(result.groupIsland!)).toEqual(["relation", "fields"]);
+      expect((result.groupIsland as any).extra).toBeUndefined();
+      expect((result.groupIsland as any).randomProp).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cross-contamination isolation: a corrupt groupIsland must NOT affect
+  // filters, sort, colsOrder, colsSize, chart, subItems, or any other field.
+  // ---------------------------------------------------------------------------
+  describe("groupIsland cross-contamination isolation", () => {
+    const goodFilter: Filter = { fn: "is", fType: "literal", field: "Title", value: "x" };
+    const goodSort: Sort = { fn: "alphabetical", field: "Title" };
+
+    it("a corrupt string groupIsland does not affect filters, sort, or column state", () => {
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          filters: [goodFilter],
+          sort: [goodSort],
+          groupBy: ["Status."],
+          colsOrder: ["Title.", "Status."],
+          colsHidden: ["Tags."],
+          colsSize: { "Title.": 240 },
+          colsCalc: { "Amount.": "sum" },
+          frozenColumnCount: 2,
+          limit: 50,
+          groupIsland: "totally-corrupt" as any,
+        },
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeUndefined();
+      expect(result.filters).toEqual([goodFilter]);
+      expect(result.sort).toEqual([goodSort]);
+      expect(result.groupBy).toEqual(["Status."]);
+      expect(result.colsOrder).toEqual(["Title.", "Status."]);
+      expect(result.colsHidden).toEqual(["Tags."]);
+      expect(result.colsSize).toEqual({ "Title.": 240 });
+      expect(result.colsCalc).toEqual({ "Amount.": "sum" });
+      expect(result.frozenColumnCount).toBe(2);
+      expect(result.limit).toBe(50);
+    });
+
+    it("a corrupt groupIsland with valid chart and subItems preserves those", () => {
+      const chart = { visible: true, groupKey: "Status", aggregate: "count" as const };
+      const subItems = { field: "Parent" };
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          groupIsland: { relation: 42, fields: "not-an-array" } as any,
+          chart,
+          subItems,
+        },
+        defaultPredicate
+      );
+      expect(result.groupIsland).toBeUndefined();
+      expect(result.chart).toEqual(chart);
+      expect(result.subItems).toEqual(subItems);
+    });
+
+    it("each of several corrupt groupIsland shapes leaves filters intact", () => {
+      const CORRUPT_VALUES: unknown[] = [
+        null,
+        undefined,
+        42,
+        true,
+        "str",
+        [1, 2],
+        { relation: 5, fields: "bad" },
+        { relation: "", fields: [] },
+        { relation: "ok", fields: [null, 42] },
+        { relation: "ok", fields: [] },
+        { relation: "ok" },
+        { fields: ["Name"] },
+      ];
+      for (const corrupt of CORRUPT_VALUES) {
+        const result = validatePredicate(
+          {
+            ...defaultPredicate,
+            filters: [goodFilter],
+            sort: [goodSort],
+            colsSize: { "Col.": 100 },
+            groupIsland: corrupt as any,
+          },
+          defaultPredicate
+        );
+        expect(result.groupIsland).toBeUndefined();
+        expect(result.filters).toHaveLength(1);
+        expect(result.filters[0].fn).toBe("is");
+        expect(result.sort).toHaveLength(1);
+        expect(result.sort[0].fn).toBe("alphabetical");
+        expect(result.colsSize).toEqual({ "Col.": 100 });
+      }
+    });
+
+    it("a valid groupIsland does not affect other predicate fields", () => {
+      const validIsland: GroupIslandConfig = {
+        relation: "StatusRelation",
+        fields: ["Name", "Date"],
+      };
+      const result = validatePredicate(
+        {
+          ...defaultPredicate,
+          filters: [goodFilter],
+          sort: [goodSort],
+          colsSize: { "Title.": 240 },
+          groupIsland: validIsland,
+        },
+        defaultPredicate
+      );
+      expect(result.groupIsland).toEqual(validIsland);
+      expect(result.filters).toEqual([goodFilter]);
+      expect(result.sort).toEqual([goodSort]);
+      expect(result.colsSize).toEqual({ "Title.": 240 });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // P2 fixed-point convergence with groupIsland configs. Double-validation must
+  // be idempotent for every shape: validatePredicate(validatePredicate(p)) === validatePredicate(p).
+  // ---------------------------------------------------------------------------
+  describe("groupIsland P2 fixed-point convergence", () => {
+    const GROUPISLAND_CORPUS: Array<{ label: string; predicate: any }> = [
+      {
+        label: "valid minimal groupIsland",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: { relation: "Rel", fields: ["Name"] },
+        },
+      },
+      {
+        label: "valid multi-field groupIsland",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: { relation: "StatusRel", fields: ["Name", "Date", "Priority"] },
+        },
+      },
+      {
+        label: "valid groupIsland with Unicode",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: { relation: "你好", fields: ["éàü", "😀"] },
+        },
+      },
+      {
+        label: "corrupt groupIsland (null)",
+        predicate: { ...defaultPredicate, groupIsland: null },
+      },
+      {
+        label: "corrupt groupIsland (number)",
+        predicate: { ...defaultPredicate, groupIsland: 42 },
+      },
+      {
+        label: "corrupt groupIsland (string)",
+        predicate: { ...defaultPredicate, groupIsland: "bad" },
+      },
+      {
+        label: "corrupt groupIsland (array)",
+        predicate: { ...defaultPredicate, groupIsland: [1, 2] },
+      },
+      {
+        label: "corrupt groupIsland (empty relation)",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: { relation: "", fields: ["Name"] },
+        },
+      },
+      {
+        label: "corrupt groupIsland (empty fields array)",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: { relation: "Rel", fields: [] },
+        },
+      },
+      {
+        label: "corrupt groupIsland (fields all non-string)",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: { relation: "Rel", fields: [42, null, true] },
+        },
+      },
+      {
+        label: "groupIsland with mixed valid/invalid fields",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: {
+            relation: "Rel",
+            fields: ["Valid", 42, null, "Also", undefined, ""],
+          },
+        },
+      },
+      {
+        label: "groupIsland with prototype-polluting keys",
+        predicate: {
+          ...defaultPredicate,
+          groupIsland: {
+            relation: "Rel",
+            fields: ["__proto__", "constructor"],
+          },
+        },
+      },
+      {
+        label: "groupIsland alongside all other optional fields",
+        predicate: {
+          ...defaultTablePredicate,
+          groupIsland: { relation: "StatusRel", fields: ["Name"] },
+          chart: { visible: true, groupKey: "Status", aggregate: "count" },
+          subItems: { field: "Parent" },
+          groupOrder: { Status: ["Open", "Closed"] },
+          collapsedGroups: { Status: ["Closed"] },
+          colsWrap: { Name: "wrap" },
+        },
+      },
+    ];
+
+    it.each(GROUPISLAND_CORPUS)(
+      "reaches a fixed point on $label",
+      ({ predicate }) => {
+        const once = validatePredicate(predicate as Predicate, defaultPredicate);
+        const twice = validatePredicate(once, defaultPredicate);
+        expect(twice).toEqual(once);
+        // Third pass: true convergence, not a 2-cycle.
+        expect(validatePredicate(twice, defaultPredicate)).toEqual(once);
+      }
+    );
+
+    it("groupIsland fixed-point is BYTE-stable (no silent drift on re-save)", () => {
+      for (const { predicate } of GROUPISLAND_CORPUS) {
+        const once = validatePredicate(predicate as Predicate, defaultPredicate);
+        const twice = validatePredicate(once, defaultPredicate);
+        expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+      }
+    });
   });
 });
