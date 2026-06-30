@@ -51,6 +51,11 @@ export type Filter = {
     // parent-link property. When set, the table orders rows depth-first and
     // indents children; unset leaves the table a flat list (inert).
     subItems?: SubItemsPredicate;
+    // Notidian-mx0k.2: optional grouping island header config. When groupBy is
+    // active and this is set, the group header resolves the group key through the
+    // referenced relation column and displays the configured fields from the
+    // target record. Absent == no island (plain group headers).
+    groupIsland?: GroupIslandConfig;
   };
 
   export type ChartPredicate = {
@@ -91,6 +96,19 @@ export type Filter = {
     // Resolved row PATHS (PathPropertyName values) of collapsed parents — keyed
     // by path (not column id) so a parent-column rename never strands them.
     collapsed?: string[];
+  };
+
+  // Notidian-mx0k.2: grouping island header config. When the grouped field has
+  // an associated relation (key-match or wikilink), the group header displays
+  // configured properties from the resolved target record alongside the raw
+  // group value. Ships behind the `groupingIslandHeader` kill-switch.
+  export type GroupIslandConfig = {
+    // Column name+table reference of the relation column whose value JSON
+    // contains the key-match (or wikilink) config used for resolution.
+    relation: string;
+    // Frontmatter property names to fetch from the resolved target record and
+    // display in the group header bar.
+    fields: string[];
   };
 
   export type Sort = {

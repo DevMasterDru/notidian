@@ -87,6 +87,47 @@ row+cell.
   bar is ever re-activated, its reveal must scroll the window to the target row
   before `scrollIntoView`. vgy remains parked in [ROADMAP](ROADMAP.md).
 
+### Notidian-mx0k.2 — Grouping island header with related data (key-match relation display in group headers)
+
+**Owner-requested (2026-06-30); default-ON; owner's ongoing USE is the standing validation.**
+
+When a table view is grouped and the predicate has a `groupIsland` config
+referencing a key-match relation column, the group header displays resolved
+target-record properties alongside the raw group value. Example: Device Registry
+grouped by `board_id` shows "2 — Fill, Tap & Other Sols · 23IOB16 · SSR" in
+each group's header bar. Text content only (no innerHTML — ADR 0017). Resolution
+is bounded per group (not per row).
+
+- **Setting:** `groupingIslandHeader` (default `true`) — `src/shared/types/settings.ts`,
+  defaulted in `src/core/schemas/settings.ts`.
+- **Why gated:** the group header is a core render path; the live resolution +
+  display of related-record fields cannot be proven by tsc/jest/build alone (only
+  the pure resolution function and the rendering hooks are offline-provable).
+  Shipped ON because the owner explicitly requested the feature; the flag is a
+  true **kill-switch**.
+- **What it does when ON:** when groupBy is active and `predicate.groupIsland` is
+  configured, the TableView collects unique group values, resolves each once
+  through `resolveGroupIslandFields` (via the key-match resolver from S1), and
+  renders the configured target-record fields in a `.mk-group-header-island` span
+  between the group label and the count badge. When no `groupIsland` is stored in
+  the predicate, the feature is fully inert (byte-for-byte legacy headers).
+- **Kill-switch (revert):** set `groupingIslandHeader: false` in the plugin's
+  `data.json` → byte-for-byte legacy group headers (raw value + count badge only,
+  no island metadata, no `.mk-group-header-island` element).
+- **What to live-verify in the vault (the part gates cannot cover):**
+  - Configure a grouped table with a key-match relation column and set
+    `groupIsland` in the predicate → group headers display related-record fields.
+  - Non-island grouped views render unchanged (no island span).
+  - Ungrouped views are unaffected.
+  - Toggle the flag OFF → legacy headers return unchanged.
+- **Offline evidence in place:** `src/core/utils/contexts/groupIslandResolver.test.ts`
+  (16 unit tests: correct field resolution, one-resolution-per-group deduplication,
+  edge cases, totality, immutability, extractKeyMatchFromColumn) and
+  `src/core/react/components/SpaceView/Contexts/TableView/TableView.groupIsland.dom.test.tsx`
+  (7 jsdom tests: island rendering with config, text-only ADR 0017, format check,
+  kill-switch OFF, non-island regression, ungrouped regression, empty-group
+  handling). Full suite (8467 tests) + tsc + build green.
+
 ---
 
 ## Verified — flag-gated changes (live-verified 2026-06-20)

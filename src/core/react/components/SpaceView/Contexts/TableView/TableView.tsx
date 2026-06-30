@@ -201,7 +201,12 @@ import {
   ColumnWrapMode,
   Filter,
 } from "shared/types/predicate";
+import { GroupIslandConfig } from "shared/types/predicate";
 import { windowFromDocument } from "shared/utils/dom";
+import {
+  extractKeyMatchFromColumn,
+  resolveGroupIslandFields,
+} from "core/utils/contexts/groupIslandResolver";
 import { DataTypeView, DataTypeViewProps } from "../DataTypeView/DataTypeView";
 
 declare module "@tanstack/table-core" {
@@ -2173,6 +2178,54 @@ export const TableView = (props: { superstate: Superstate }) => {
   );
   const groupOrderByColumnRef = useRef(groupOrderByColumn);
   groupOrderByColumnRef.current = groupOrderByColumn;
+
+  // ---------------------------------------------------------------------------
+  // Grouping island header resolution (Notidian-mx0k.2).
+  //
+  // When the `groupingIslandHeader` kill-switch is ON and the predicate has a
+  // `groupIsland` config, resolve each unique group value through the referenced
+  // key-match relation column to fetch display fields from the related target
+  // record. One resolution per unique group value, NOT per row.
+  //
+  // The result is a Map<string, string[]> from group value to an array of
+  // resolved field strings. When no island is configured (or the flag is OFF),
+  // the map is empty and the header renders byte-for-byte as before.
+  // ---------------------------------------------------------------------------
+  const islandEnabled =
+    props.superstate.settings.groupingIslandHeader !== false;
+
+  const groupIslandMap = useMemo((): Map<string, string[]> => {
+    if (!islandEnabled) return new Map();
+    const islandConfig: GroupIslandConfig | undefined = predicate?.groupIsland;
+    if (!islandConfig || !islandConfig.relation || !islandConfig.fields?.length)
+      return new Map();
+    if (groupBy.length === 0) return new Map();
+
+    // Look up the relation column by name+table reference.
+    const relationCol = cols.find(
+      (c) => c.name + c.table === islandConfig.relation
+    );
+    const keyMatchConfig = extractKeyMatchFromColumn(relationCol);
+    if (!keyMatchConfig) return new Map();
+
+    // Collect unique group values from the data.
+    const columnId = groupBy[0];
+    const uniqueValues = Array.from(
+      new Set(
+        data
+          .map((row) => String(row?.[columnId] ?? ""))
+          .filter((v) => v.length > 0)
+      )
+    );
+
+    return resolveGroupIslandFields(
+      props.superstate,
+      uniqueValues,
+      keyMatchConfig,
+      islandConfig.fields
+    );
+  }, [islandEnabled, predicate?.groupIsland, groupBy, cols, data, props.superstate]);
+
   // TanStack identifies a top-level group row as `${columnId}:${groupValue}`.
   // Supply every current group explicitly so absent predicate state means fully
   // expanded, while a persisted collapsed value hides only that group's rows.
@@ -3849,6 +3902,22 @@ export const TableView = (props: { superstate: Superstate }) => {
                             )}
                           </span>
                           </button>
+                          {/* Notidian-mx0k.2: grouping island header — display
+                              resolved target-record fields after the group
+                              label. Text content only (ADR 0017). */}
+                          {(() => {
+                            const gv = row.getGroupingValue(cell.column.id);
+                            const islandFields =
+                              gv !== GROUP_NO_VALUE
+                                ? groupIslandMap.get(String(gv))
+                                : undefined;
+                            return islandFields && islandFields.length > 0 ? (
+                              <span className="mk-group-header-island">
+                                {" — " +
+                                  islandFields.join(" · ")}
+                              </span>
+                            ) : null;
+                          })()}
                           <span className="mk-group-header-count">
                             {row.subRows.length}
                           </span>

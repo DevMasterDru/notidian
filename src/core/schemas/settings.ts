@@ -163,6 +163,10 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // (viewSettings.test.ts); the render + de-dup + OFF-revert wiring is
   // jsdom-tested (FilterBar.viewSettings.dom.test.tsx).
   viewSettingsInlineBar: true,
+  // Default-ON grouping island header (Notidian-mx0k.2) — an owner-requested
+  // feature; the owner verifies by USE. KILL-SWITCH: set false to disable all
+  // island metadata in group headers (restore byte-for-byte legacy headers).
+  groupingIslandHeader: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,
   notesPreview: false,

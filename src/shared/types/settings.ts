@@ -179,6 +179,16 @@ export interface MakeMDSettings {
   // underline) with their prior inline active expressions, and the 3-knobs
   // menu re-lists Filter/Sort (the prior duplication).
   viewSettingsInlineBar: boolean;
+  // Grouping island header (Notidian-mx0k.2). DEFAULT-ON / KILL-SWITCH.
+  // When true, a grouped table whose predicate has a `groupIsland` config
+  // resolves the group key through the referenced relation column and displays
+  // the configured target-record fields in the group header bar (text content
+  // only — ADR 0017). Example: "2 — Fill, Tap & Other Sols · 23IOB16 · SSR".
+  // Set false to restore byte-for-byte legacy group headers (raw value +
+  // count badge only, no island metadata). The resolution is bounded per group
+  // (not per row). The feature is fully inert when no `groupIsland` is stored
+  // in the predicate, even with the flag ON.
+  groupingIslandHeader: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

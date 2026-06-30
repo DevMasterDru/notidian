@@ -358,7 +358,7 @@ describe("Notidian-5bqg: property tests for predicate persistence round-trip int
       "colsOrder", "colsHidden", "colsSize", "colsCalc",
       "colsHeaderDisplay", "colsDataAnchor", "colsWrap",
       "tableDirection", "frozenColumnCount", "limit",
-      "chart", "subItems",
+      "chart", "subItems", "groupIsland",
     ];
 
     // Required keys that must always appear on the validated output

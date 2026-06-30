@@ -432,6 +432,19 @@ body.mk-property-header-tooltip-visible > .tooltip {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Notidian-mx0k.2: muted island metadata after the group label. */
+.mk-group-header-island {
+  display: inline;
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
 .mk-group-header-count {
   display: inline-flex;
   align-items: center;
