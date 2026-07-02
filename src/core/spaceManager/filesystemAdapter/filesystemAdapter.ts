@@ -961,23 +961,73 @@ const defaultSpaceTemplate = this.defaultFrame(path);
       return;
     }
 
-    public renameSpace (oldPath: string, newPath: string) {
-      
+    public async renameSpace (oldPath: string, newPath: string) {
+
       const spaceInfo = this.spaceInfoForPath(oldPath);
       const newSpaceInfo = this.spaceInfoForPath(newPath);
-      return this.fileSystem.renameFile(spaceInfo.folderPath, newSpaceInfo.folderPath).then(f =>
-      {
-        if (this.spaceManager.superstate.settings.enableFolderNote) {
-          // Inside mode: the folder rename already moved the note, so its
-          // current path is the old note name inside the new folder.
-          // Adjacent mode: the note still sits beside the old folder path.
-          const currentNotePath = this.spaceManager.superstate.settings.folderNoteInsideFolder === false
-            ? spaceInfo.notePath
-            : movePath(spaceInfo.notePath, newSpaceInfo.path);
-          this.fileSystem.renameFile(currentNotePath, newSpaceInfo.notePath)
+      const superstate = this.spaceManager.superstate;
+      const adjacentMode =
+        superstate.settings.folderNoteInsideFolder === false;
+
+      // Pre-check the destination so a name collision fails atomically and
+      // loudly instead of silently relocating the hub note onto an unrelated
+      // folder (Notidian-0gm1). fileSystem.renameFile resolves null (never
+      // throws) on failure, so without this the folder rename could no-op while
+      // the sibling note rename still ran, desyncing folder and hub note. A
+      // case-only rename (Projects -> projects) is allowed through to
+      // renameFile, mirroring pageTitleRename's isCaseOnlyRename allowance.
+      const isCaseOnlyRename =
+        newSpaceInfo.folderPath.toLowerCase() ==
+        spaceInfo.folderPath.toLowerCase();
+      if (!isCaseOnlyRename) {
+        const destFolderExists = await this.fileSystem.fileExists(
+          newSpaceInfo.folderPath
+        );
+        const destNoteExists =
+          superstate.settings.enableFolderNote && adjacentMode
+            ? await this.fileSystem.fileExists(newSpaceInfo.notePath)
+            : false;
+        if (destFolderExists || destNoteExists) {
+          superstate.ui.notify(i18n.notice.duplicateSpaceName);
+          return null;
         }
-        return f
-      });
+      }
+
+      const f = await this.fileSystem.renameFile(
+        spaceInfo.folderPath,
+        newSpaceInfo.folderPath
+      );
+      // Guard the note rename on the folder-rename result: if the folder rename
+      // failed (null), do NOT touch the folder note, or the hub note is renamed
+      // away from a folder that never moved (Notidian-0gm1).
+      if (!f) {
+        superstate.ui.notify(i18n.notice.duplicateSpaceName);
+        return f;
+      }
+
+      if (superstate.settings.enableFolderNote) {
+        // Inside mode: the folder rename already moved the note, so its
+        // current path is the old note name inside the new folder.
+        // Adjacent mode: the note still sits beside the old folder path.
+        const currentNotePath = adjacentMode
+          ? spaceInfo.notePath
+          : movePath(spaceInfo.notePath, newSpaceInfo.path);
+        if (
+          currentNotePath != newSpaceInfo.notePath &&
+          (await this.fileSystem.fileExists(currentNotePath))
+        ) {
+          // Await and surface the note-rename result — it used to be
+          // fire-and-forget, swallowing partial failures silently.
+          const noteResult = await this.fileSystem.renameFile(
+            currentNotePath,
+            newSpaceInfo.notePath
+          );
+          if (!noteResult) {
+            superstate.ui.notify(i18n.notice.duplicateSpaceName);
+          }
+        }
+      }
+      return f;
     }
     public deleteSpace (path: string) {
 
