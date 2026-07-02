@@ -49,10 +49,13 @@ import { ConfirmationModal } from "core/react/components/UI/Modals/ConfirmationM
 import { openInputModal } from "core/react/components/UI/Modals/InputModal";
 import { createSubItemRow } from "core/utils/contexts/subItemCreate";
 import {
+  addRowInTable,
   deleteRowsInTable,
   removePathInContexts,
   restoreRowsInTable,
 } from "core/utils/contexts/context";
+import { partitionNewRowValuesByAuthority } from "core/utils/contexts/newRowValueWrites";
+import { runGuardedRowDelete } from "core/utils/contexts/tableRowDeleteGuard";
 import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { serializeOptionValue } from "core/utils/serializer";
 import {
@@ -73,7 +76,6 @@ import { newRowPathInSpace } from "core/superstate/utils/spaces";
 import { saveFrontmatterProperties } from "core/utils/properties/frontmatterWrite";
 import { PointerModifiers } from "core/types/ui";
 import { createNewRow } from "core/utils/contexts/optionValuesForColumn";
-import { propertyAuthorityForColumn } from "core/utils/properties/propertyAuthority";
 import {
   lifecycleValuesFromColumnValue,
   stepLifecycleValue,
@@ -1186,24 +1188,6 @@ export const TableView = (props: { superstate: Superstate }) => {
     pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
   };
 
-  const frontmatterValuesForNewRow = (rowData?: DBRow): Record<string, string> => {
-    if (!rowData) return {};
-    return Object.entries(rowData).reduce<Record<string, string>>(
-      (properties, [name, value]) => {
-        if (name == PathPropertyName) return properties;
-        const column = cols.find(
-          (item) => item.name == name && (item.table ?? "") == ""
-        );
-        if (!column || propertyAuthorityForColumn(column) != "frontmatter") {
-          return properties;
-        }
-        properties[name] = String(value ?? "");
-        return properties;
-      },
-      {}
-    );
-  };
-
   const newRow = async (name: string, index?: number, data?: DBRow) => {
     if (dbSchema?.id == defaultContextSchemaID) {
       try {
@@ -1214,12 +1198,36 @@ export const TableView = (props: { superstate: Superstate }) => {
           true
         );
         if (typeof path == "string" && path.length > 0) {
+          // Partition seed values by authority so a grouped-header add-row keeps
+          // BOTH frontmatter-owned defaults (YAML) and Notidian-owned
+          // (source:"notidian") group/inherited values (the folder's context
+          // MDB), instead of dropping the latter. Mirrors api.context.insert's
+          // create-path split. bd Notidian-i7jl.
+          const { frontmatter, context } = partitionNewRowValuesByAuthority(
+            data,
+            cols
+          );
           await saveFrontmatterProperties({
             superstate: props.superstate,
             path,
-            properties: frontmatterValuesForNewRow(data),
+            properties: frontmatter,
             failureMessage: "Could not apply group defaults to the new row.",
           });
+          if (Object.keys(context).length > 0) {
+            const targetSpace = tableTargetSpace();
+            if (targetSpace) {
+              // INSERT the new path's row (not update): the context MDB has not
+              // learned of the just-created file yet. addRowInTable carries the
+              // path identity so the later reload reconciliation merges the
+              // frontmatter onto this row instead of appending a duplicate.
+              await addRowInTable(
+                props.superstate.spaceManager,
+                { [PathPropertyName]: path, ...context },
+                targetSpace,
+                defaultContextSchemaID
+              );
+            }
+          }
         }
       } catch (error) {
         props.superstate.ui.notify("Could not create a new row.");
@@ -1360,14 +1368,26 @@ export const TableView = (props: { superstate: Superstate }) => {
       rows: tableData?.rows ?? [],
       rowIds,
     });
-    void deleteRowsInTable(
-      props.superstate.spaceManager,
-      targetSpace,
-      dbSchema.id,
-      rowIds.map((rowId) => Number(rowId))
-    ).then(() => {
-      pushTableUndo(undoEntry);
-      clearWholeRowSelection();
+    const schemaId = dbSchema.id;
+    // Await + catch the delete write: on rejection the rows silently persisted
+    // (and reappeared on reload) with no Notice and only an unhandled promise
+    // rejection in devtools. Guard it so the undo entry and selection clear
+    // commit only on success, and surface failures. bd Notidian-1lkz.
+    void runGuardedRowDelete({
+      deleteRows: () =>
+        deleteRowsInTable(
+          props.superstate.spaceManager,
+          targetSpace,
+          schemaId,
+          rowIds.map((rowId) => Number(rowId))
+        ),
+      onDeleted: () => {
+        pushTableUndo(undoEntry);
+        clearWholeRowSelection();
+      },
+      onError: () => {
+        props.superstate.ui.notify("Could not delete the selected rows.");
+      },
     });
     return true;
   };
