@@ -20,9 +20,11 @@ export const uniq = (a: any[]) => [...new Set(a)];
 // Case-insensitive dedup keeping the FIRST-seen casing (ADR 0025, Notidian-9v6).
 // `new Map(pairs)` preserves first-insertion POSITION but OVERWRITES the value on
 // a duplicate key, so it would keep the LAST-seen casing. We instead skip
-// lowercased keys already seen, mirroring `uniq`'s first-seen semantics. This is
-// display-only (frontmatter-key column labels in PropertiesView /
-// RemoteMarkdownHeaderView) — no casing is persisted as authority.
+// lowercased keys already seen, mirroring `uniq`'s first-seen semantics. Used
+// for frontmatter-key column labels (PropertiesView / RemoteMarkdownHeaderView)
+// AND for replaceDB's liveCols (Notidian-1q8y): SQLite folds identifier case,
+// so case-variant column names must collapse to one column or CREATE TABLE
+// throws `duplicate column name`. First-seen casing is what persists.
 export const uniqCaseInsensitive = (a: string[]) => {
   const seen = new Set<string>();
   return a.filter((s) => {

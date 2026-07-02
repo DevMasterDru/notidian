@@ -1039,7 +1039,8 @@ export const en = {
     "palette": "Palette",
     "noPropertiesFound": "No Properties Found",
     "somethingWentWrong": "Something Went Wrong",
-    "noExistingValues": "No Existing Values"
+    "noExistingValues": "No Existing Values",
+    "tableSaveFailed": "Failed to save table changes for "
   },
   "settings": {
     "importUrls": "Import Urls",

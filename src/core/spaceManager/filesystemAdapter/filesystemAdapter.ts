@@ -15,6 +15,7 @@ import { executeCode } from "core/utils/frames/runner";
 import { stripFrontmatterBackedRowValues } from "core/utils/properties/allProperties";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { defaultContextTable, defaultFolderMDBTable, defaultFramesTable, defaultTablesForContext } from "schemas/mdb";
+import i18n from "shared/i18n";
 import { builtinSpacePathPrefix } from "shared/schemas/builtin";
 import { defaultContextDBSchema, defaultContextSchemaID } from "shared/schemas/context";
 import { defaultFieldsForContext, fieldSchema } from "shared/schemas/fields";
@@ -540,9 +541,19 @@ const defaultSpaceTemplate = this.defaultFrame(path);
        }
     }
 
-    return this.fileSystem.saveFileFragment(mdbFile, 'mdbTable', table.schema.id, () =>
+    const result = await this.fileSystem.saveFileFragment(mdbFile, 'mdbTable', table.schema.id, () =>
       stripFrontmatterBackedRowValues(table)
     )
+    // Notidian-1q8y: a failed table write (replaceDB/saveDBToPath returning
+    // false) used to vanish silently — the context looked saved but the .mdb
+    // was never written. Surface every real write failure as a notice. The
+    // routine "no db file and not forced" early-return above stays silent.
+    if (!result) {
+      this.spaceManager.superstate.ui.notify(
+        `${i18n.notice.tableSaveFailed}${path}`
+      );
+    }
+    return result;
   }
   public async deleteTable (path: string, name: string) {
     const mdbFile = await this.fileSystem.getFile(this.spaceInfoForPath(path).dbPath)

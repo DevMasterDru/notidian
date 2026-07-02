@@ -116,6 +116,53 @@ describe("discoverFrontmatterPropertiesFromPathStates", () => {
     expect(result).toEqual([]);
   });
 
+  it("collapses case-variant frontmatter keys to ONE column, first-observed casing wins (Notidian-1q8y)", () => {
+    // SQLite treats column identifiers case-insensitively: discovering BOTH
+    // "Status" and "status" as columns makes the emitted CREATE TABLE throw
+    // `duplicate column name`, after which every save of the folder's context
+    // silently fails. Discovery must dedupe case-insensitively.
+    const pathsIndex = new Map<string, any>([
+      ["a.md", pathState({ Status: "Open" })],
+      ["b.md", pathState({ status: "Done" })],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["a.md", "b.md"],
+      settings,
+      [],
+      defaultContextSchemaID
+    );
+
+    expect(result).toEqual([
+      {
+        name: "Status",
+        type: "text",
+        value: "",
+        schemaId: "files",
+        source: frontmatterPropertySource,
+      },
+    ]);
+  });
+
+  it("treats an existing column as covering case-variant frontmatter keys (Notidian-1q8y)", () => {
+    // A persisted "Status" column already owns the SQLite identifier — a file
+    // carrying "status" must NOT re-discover it as a second column.
+    const pathsIndex = new Map<string, any>([
+      ["b.md", pathState({ status: "Done" })],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["b.md"],
+      settings,
+      [{ name: "Status", type: "text" } as any],
+      defaultContextSchemaID
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("discovers title as a first-class suggestion with its inferred type", () => {
     const pathsIndex = new Map<string, any>([
       [

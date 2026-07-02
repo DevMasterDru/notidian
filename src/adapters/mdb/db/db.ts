@@ -3,7 +3,7 @@ import { getParentPathFromString } from "utils/path";
 import { MDBFileTypeAdapter } from "adapters/mdb/mdbAdapter";
 import JSZip from "jszip";
 import { DBRows, DBTable, DBTables, SpaceTables } from "shared/types/mdb";
-import { uniq } from "shared/utils/array";
+import { uniqCaseInsensitive } from "shared/utils/array";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database, QueryExecResult, SqlJsStatic } from "sql.js";
@@ -449,7 +449,10 @@ export const replaceDB = (db: Database, tables: DBTables) => {
       // column list and use it for BOTH the CREATE field definition AND the
       // REPLACE rows, so the emitted statement is correct by construction —
       // count- AND position-matched for any cols (dup, empty, or reordered).
-      const liveCols = uniq(tableFields).filter((f) => f);
+      // Notidian-1q8y: the dedup is case-INSENSITIVE (first-seen casing wins)
+      // because SQLite folds identifier case — "Status" and "status" in one
+      // CREATE TABLE throw `duplicate column name` and fail the whole save.
+      const liveCols = uniqCaseInsensitive(tableFields.filter((f) => f));
       const fieldQuery = serializeSQLFieldNames(liveCols.map((f) => `${quoteIdent(f)} char`));
       // Explicit column list removes the positional coupling between the created
       // column order and the VALUES order: REPLACE INTO "t" ("a","b") VALUES (...).

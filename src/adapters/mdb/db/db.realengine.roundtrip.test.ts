@@ -678,3 +678,44 @@ describe("Notidian-k778 / ADR 0045: explicit-column REPLACE is correct by constr
     }
   });
 });
+
+// =========================================================================
+// (8) Notidian-1q8y — context MDB integrity against the REAL engine.
+// SQLite folds identifier case, so cols carrying "Status" AND "status" used
+// to make CREATE TABLE throw `duplicate column name`, replaceDB return false,
+// and EVERY save of that folder silently fail. liveCols now dedupes
+// case-insensitively (first-seen casing wins) and the save SUCCEEDS.
+// =========================================================================
+describe("Notidian-1q8y: replaceDB integrity, REAL-engine ground truth", () => {
+  it("Notidian-1q8y: case-variant column names save CLEANLY as one column, first-seen casing wins", () => {
+    const db = freshDB();
+    try {
+      const ok = replaceDB(db, {
+        t: {
+          uniques: [],
+          cols: ["File", "Status", "status"],
+          rows: [
+            { File: "a.md", Status: "Open" },
+            { File: "b.md", status: "Done" },
+          ],
+        },
+      });
+      // The OLD behavior: CREATE TABLE ("Status" char,"status" char) threw
+      // `duplicate column name: status` and the whole save returned false.
+      expect(ok).toBe(true);
+      const cols =
+        db.exec(`SELECT name FROM pragma_table_info('t') ORDER BY cid;`)[0]
+          ?.values.map((r) => r[0] as string) ?? [];
+      expect(cols).toEqual(["File", "Status"]);
+      // Rows persist mapped over the deduped list (row b's "status"-cased cell
+      // has no exact-key match, so its cell is empty — frontmatter-backed
+      // values are re-derived from the files on read, never from this table).
+      expect(selectDB(db, "t")!.rows).toEqual([
+        { File: "a.md", Status: "Open" },
+        { File: "b.md", Status: "" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+});

@@ -413,6 +413,30 @@ describe("column/row alignment + statement batching", () => {
     expect(db.statements[db.statements.length - 1]).toBe(`COMMIT;`);
   });
 
+  it("replaceDB dedupes column names case-INSENSITIVELY, first-seen casing wins (Notidian-1q8y)", () => {
+    const db = makeDB();
+    const tables: DBTables = {
+      // SQLite folds identifier case, so "Status"/"status" in one CREATE TABLE
+      // throws `duplicate column name`. liveCols collapses them to the
+      // first-seen casing and BOTH the CREATE and the REPLACE use that list.
+      t: {
+        uniques: [],
+        cols: ["Status", "status", "b"],
+        rows: [{ Status: "Open", b: "2" }],
+      },
+    };
+    const ok = replaceDB(db, tables);
+    expect(ok).toBe(true);
+    const create = db.statements.find((s) => s.startsWith("CREATE TABLE"));
+    expect(create).toBe(
+      `CREATE TABLE IF NOT EXISTS "t" ("Status" char,"b" char); `
+    );
+    const replaceStmt = db.statements.find((s) => s.startsWith("REPLACE INTO"));
+    expect(replaceStmt).toBe(
+      `REPLACE INTO "t" ("Status","b") VALUES ('Open', '2');`
+    );
+  });
+
   it("CHARACTERIZE replaceDB: a table whose fieldQuery is empty emits ONLY the drop preamble (no CREATE/rows)", () => {
     const db = makeDB();
     const tables: DBTables = {

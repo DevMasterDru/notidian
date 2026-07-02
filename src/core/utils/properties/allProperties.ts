@@ -157,11 +157,21 @@ const discoverFrontmatterPropertiesFromObserved = (
   existingCols: Pick<SpaceProperty, "name">[] = [],
   schemaId = defaultContextSchemaID
 ): SpaceProperty[] => {
-  const seen = new Set(existingCols.map((col) => col.name));
+  // Notidian-1q8y: SQLite treats column identifiers case-INSENSITIVELY, so two
+  // keys differing only by case ("Status"/"status") would produce a
+  // `CREATE TABLE ... ("Status" char,"status" char)` that throws
+  // `duplicate column name` — and every save of that folder's context then
+  // silently fails. Dedupe the seen-set with toLowerCase() (existing columns
+  // AND newly observed keys) so case-variant frontmatter keys map to ONE
+  // column; the first-observed casing stays canonical.
+  const seen = new Set(
+    existingCols.map((col) => (col.name ?? "").toLowerCase())
+  );
   const discovered: SpaceProperty[] = [];
 
   for (const key of observed.propertyNames) {
-    if (seen.has(key)) continue;
+    const normalizedKey = key.toLowerCase();
+    if (seen.has(normalizedKey)) continue;
     discovered.push({
       name: key,
       type: observed.propertyTypes.get(key) ?? "text",
@@ -169,7 +179,7 @@ const discoverFrontmatterPropertiesFromObserved = (
       schemaId,
       source: frontmatterPropertySource,
     });
-    seen.add(key);
+    seen.add(normalizedKey);
   }
 
   return discovered;
