@@ -132,7 +132,13 @@ export const parseMDBStringValue = (type: string, value: string, frontmatter?: b
     return JSON.parse(value);
   }
   if (type == "number") {
-    return parseFloat(value);
+    const parsed = parseFloat(value);
+    // A frontmatter write must never persist NaN (parseFloat of non-numeric
+    // paste): Obsidian's YAML serializer emits `.nan`, silently discarding the
+    // user's value. Fall back to the original string (as the date branch does
+    // for invalid input) so the value is preserved, not corrupted (Notidian-cccp).
+    if (frontmatter && Number.isNaN(parsed)) return value;
+    return parsed;
   } else if (type == "boolean") {
     return value == "true";
   } else if (type == "date" || type == "datetime" || type == "date-end") {

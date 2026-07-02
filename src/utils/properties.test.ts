@@ -62,12 +62,27 @@ describe("parseMDBStringValue", () => {
       expect(parseMDBStringValue("number", "5px")).toBe(5);
       expect(parseMDBStringValue("number", " 5 ")).toBe(5); // leading ws tolerated
     });
-    it("CHARACTERIZE: non-numeric input yields NaN — a NUMBER, not null/'' (LOCKED)", () => {
+    it("CHARACTERIZE: non-numeric input yields NaN on the in-memory (frontmatter=false) path — a NUMBER, not null/'' (LOCKED)", () => {
       const v = parseMDBStringValue("number", "abc");
       expect(typeof v).toBe("number");
       expect(Number.isNaN(v)).toBe(true);
       const e = parseMDBStringValue("number", "");
       expect(Number.isNaN(e)).toBe(true);
+    });
+    // Notidian-cccp: on the frontmatter WRITE path, NaN must never be persisted
+    // (Obsidian serializes it as `.nan`, silently discarding the pasted text).
+    it("frontmatter write path never returns NaN — non-numeric paste falls back to the original string", () => {
+      const v = parseMDBStringValue("number", "N/A", true);
+      expect(typeof v).toBe("string");
+      expect(Number.isNaN(v as unknown as number)).toBe(false);
+      expect(v).toBe("N/A");
+      // 'abc' and '' both parseFloat to NaN → preserved, never written as NaN.
+      expect(parseMDBStringValue("number", "abc", true)).toBe("abc");
+      expect(parseMDBStringValue("number", "", true)).toBe("");
+    });
+    it("frontmatter write path still coerces genuinely numeric strings to numbers", () => {
+      expect(parseMDBStringValue("number", "12.5", true)).toBe(12.5);
+      expect(parseMDBStringValue("number", "-3", true)).toBe(-3);
     });
   });
 
