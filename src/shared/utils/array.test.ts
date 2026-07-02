@@ -7,6 +7,7 @@ import {
   orderStringArrayByArray,
   uniq,
   uniqCaseInsensitive,
+  uniqueCopyName,
   uniqueNameFromString,
 } from "./array";
 
@@ -312,6 +313,51 @@ describe("uniqueNameFromString", () => {
       expect(cols).not.toContain(result);
       expect(typeof result).toBe("string");
     }
+  });
+});
+
+// =========================================================================
+// uniqueCopyName  (templated-copy collision naming — Notidian-ksrb)
+// =========================================================================
+describe("uniqueCopyName", () => {
+  it("keeps the requested base when it does not collide, re-appending the ext", () => {
+    expect(uniqueCopyName("Meeting Notes", ["Task Template"], "md")).toBe(
+      "Meeting Notes.md"
+    );
+  });
+
+  // The core Notidian-ksrb regression: a templated row-create where the user's
+  // title ("Meeting Notes") already exists must dedup from the USER TITLE, never
+  // from the template basename ("Task Template") that copyFile once used.
+  it("dedups from the requested title, NOT the template, on collision", () => {
+    const result = uniqueCopyName(
+      "Meeting Notes",
+      ["Meeting Notes", "Task Template"],
+      "md"
+    );
+    expect(result).toBe("Meeting Notes1.md");
+    expect(result).not.toContain("Task Template");
+  });
+
+  it("walks the collision chain from the requested title", () => {
+    expect(
+      uniqueCopyName(
+        "Meeting Notes",
+        ["Meeting Notes", "Meeting Notes1", "Meeting Notes2"],
+        "md"
+      )
+    ).toBe("Meeting Notes3.md");
+  });
+
+  it("omits the extension separator when there is no extension (folder-ish)", () => {
+    expect(uniqueCopyName("Draft", ["Draft"], "")).toBe("Draft1");
+    expect(uniqueCopyName("Draft", ["Draft"], undefined)).toBe("Draft1");
+  });
+
+  it("does not mutate the existingBases array", () => {
+    const bases = ["Meeting Notes", "Task Template"];
+    uniqueCopyName("Meeting Notes", bases, "md");
+    expect(bases).toEqual(["Meeting Notes", "Task Template"]);
   });
 });
 

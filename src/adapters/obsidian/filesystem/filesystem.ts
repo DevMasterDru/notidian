@@ -13,7 +13,7 @@ import { defaultFocusFile } from "core/spaceManager/filesystemAdapter/filesystem
 import { parsePathState } from "core/utils/superstate/parser";
 import { DBRows } from "shared/types/mdb";
 import { pluginDataPath, pluginDisplayName } from "shared/pluginIdentity";
-import { uniqueNameFromString } from "shared/utils/array";
+import { uniqueCopyName, uniqueNameFromString } from "shared/utils/array";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { parseURI } from "shared/utils/uri";
 import { excludePathPredicate } from "utils/hide";
@@ -359,8 +359,12 @@ const oldCache = this.cache.get(oldPath);
                 try {
                     if (await this.fileExists(newPath)) {
                         const files = await this.plugin.app.vault.adapter.list(folder).then(g => g.files)
-                        const newName = uniqueNameFromString(file.name, files.map(f => pathToString(f)))
-                        newPath = folder + "/" + newName + "." + file.extension;
+                        // Dedup from the caller-supplied name (the user's title),
+                        // NOT file.name (the template basename). The former `const`
+                        // shadowed the outer newName and discarded the typed title,
+                        // naming templated rows after the template (Notidian-ksrb).
+                        newName = uniqueCopyName(pathToString(newName), files.map(f => pathToString(f)), file.extension)
+                        newPath = folder + "/" + newName;
                     }
                     await this.plugin.app.vault.adapter.copy((file.path), newPath)
                 } catch(e) {

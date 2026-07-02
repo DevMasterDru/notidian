@@ -43,6 +43,25 @@ export const uniqueNameFromString = (name: string, cols: string[]) => {
   }
   return newName;
 };
+
+// Build a collision-free file name for a COPY from the CALLER-REQUESTED base
+// name (e.g. the user's typed row title) rather than the SOURCE file's name.
+// copyFile's collision branch used to dedup from the template's basename, so a
+// templated row-create with a name clash was silently renamed after the
+// template ("Task Template") instead of the typed title (Notidian-ksrb). This
+// centralizes the correct base so a colliding create yields "<requested>1",
+// never "<template>". `requestedBase` and `existingBases` are extension-less
+// display names; the extension (if any) is re-appended to the result.
+export const uniqueCopyName = (
+  requestedBase: string,
+  existingBases: string[],
+  extension?: string
+) => {
+  const uniqueBase = uniqueNameFromString(requestedBase, existingBases);
+  return extension && extension.length > 0
+    ? `${uniqueBase}.${extension}`
+    : uniqueBase;
+};
 export const onlyUniqueProp =
   (prop: string) => (value: any, index: number, self: any[]) => {
     return self.findIndex((v) => value[prop] == v[prop]) === index;
