@@ -1041,7 +1041,9 @@ export const en = {
     "somethingWentWrong": "Something Went Wrong",
     "noExistingValues": "No Existing Values",
     "tableSaveFailed": "Failed to save table changes for ",
-    "missingTableSkipped": "Skipped loading tables whose data is missing from the database file: "
+    "missingTableSkipped": "Skipped loading tables whose data is missing from the database file: ",
+    "undoRestoreRowsFailed": "Could not restore the deleted rows. The change was kept so you can try again.",
+    "redoDeleteRowsFailed": "Could not re-delete the rows. The change was kept so you can try again."
   },
   "settings": {
     "importUrls": "Import Urls",

@@ -1560,19 +1560,45 @@ export const TableView = (props: { superstate: Superstate }) => {
         }
 
         if (isUndo) {
-          await restoreRowsInTable(
-            props.superstate.spaceManager,
-            targetSpace,
-            dbSchema.id,
-            entry.rowDelete.rows
-          );
+          try {
+            await restoreRowsInTable(
+              props.superstate.spaceManager,
+              targetSpace,
+              dbSchema.id,
+              entry.rowDelete.rows
+            );
+          } catch (error) {
+            // The MDB restore write rejected (locked file / concurrent save /
+            // I/O). Keep the entry on the undo stack so the user can retry, and
+            // surface the failure — never lose the entry silently. Mirrors the
+            // pathDelete and value-write recovery branches. bd Notidian-w9lw.
+            const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+            replaceTableUndoJournal(
+              pushTableUndoEntry(latestJournal.undo, entry),
+              latestJournal.redo
+            );
+            props.superstate.ui.notify(i18n.notice.undoRestoreRowsFailed);
+            return false;
+          }
         } else {
-          await deleteRowsInTable(
-            props.superstate.spaceManager,
-            targetSpace,
-            dbSchema.id,
-            entry.rowDelete.redoIndices
-          );
+          try {
+            await deleteRowsInTable(
+              props.superstate.spaceManager,
+              targetSpace,
+              dbSchema.id,
+              entry.rowDelete.redoIndices
+            );
+          } catch (error) {
+            // The MDB delete write rejected; keep the entry on the redo stack so
+            // the user can retry, and surface the failure. bd Notidian-w9lw.
+            const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+            replaceTableUndoJournal(
+              latestJournal.undo,
+              pushTableUndoEntry(latestJournal.redo, entry)
+            );
+            props.superstate.ui.notify(i18n.notice.redoDeleteRowsFailed);
+            return false;
+          }
         }
 
         const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);

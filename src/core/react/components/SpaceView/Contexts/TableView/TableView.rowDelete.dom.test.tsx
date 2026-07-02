@@ -71,6 +71,7 @@ import {
   TableView,
   __resetTableUndoJournalForTest,
 } from "./TableView";
+import i18n from "shared/i18n";
 
 const cols = [
   {
@@ -323,6 +324,59 @@ describe("TableView whole-row Delete key", () => {
     expect(deleteRowsInTable).toHaveBeenCalledTimes(2);
     expect(deleteRowsInTable.mock.calls[1][3]).toEqual([0, 2]);
     expect(applyTableEdits).not.toHaveBeenCalled();
+  });
+
+  it("keeps the undo entry and notifies when the row restore write rejects (Notidian-w9lw)", async () => {
+    await render();
+    const table = container.querySelector(".mk-table") as HTMLElement;
+
+    await act(async () => {
+      table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Delete",
+        })
+      );
+      await flushPromises();
+    });
+    expect(deleteRowsInTable).toHaveBeenCalledTimes(1);
+
+    // The MDB restore write rejects on the first undo attempt.
+    restoreRowsInTable.mockRejectedValueOnce(new Error("locked"));
+
+    await act(async () => {
+      table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "z",
+          metaKey: true,
+        })
+      );
+      await flushPromises();
+    });
+
+    expect(restoreRowsInTable).toHaveBeenCalledTimes(1);
+    expect(superstate.ui.notify).toHaveBeenCalledWith(
+      i18n.notice.undoRestoreRowsFailed
+    );
+
+    // The entry stayed on the undo stack: a second undo retries the restore,
+    // which now succeeds — the failed undo was never lost.
+    await act(async () => {
+      table.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "z",
+          metaKey: true,
+        })
+      );
+      await flushPromises();
+    });
+
+    expect(restoreRowsInTable).toHaveBeenCalledTimes(2);
   });
 
   it("undo restores primary file-backed selected rows and redo deletes them again", async () => {
