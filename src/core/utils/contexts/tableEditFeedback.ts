@@ -59,6 +59,9 @@ const reasonTextForTableEditIssue = (reason: string): string => {
   if (reason == "frontmatter-conflict") {
     return "Frontmatter changed outside Notidian. Reload before editing.";
   }
+  if (reason == "schema-changed") {
+    return "This property was removed, so the change could not be applied.";
+  }
   return reason;
 };
 

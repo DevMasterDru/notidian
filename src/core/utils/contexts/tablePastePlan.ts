@@ -25,6 +25,9 @@ export type TablePasteWrite = {
   clear?: true;
   // Set only on undo/redo replay writes (see TableCellWrite.expectedCurrentValue).
   expectedCurrentValue?: string;
+  // Set only on undo/redo replay writes that restore a field/option configuration
+  // (see TableCellWrite.expectedFieldValue).
+  expectedFieldValue?: string;
 };
 
 export type TablePasteRejectionReason =

@@ -203,6 +203,13 @@ export const createTableUndoEntry = ({
     // non-file value writes, which flow through executeTableValueWrites).
     const isFile = net.authority == "file";
 
+    // Pre-edit column configuration (option list / attrs) captured at entry-build
+    // time. Undefined for writes that carry no field-config change. bd
+    // Notidian-o8op.
+    const columnForNet = columnForWrite(columns, net);
+    const preEditFieldValue =
+      net.fieldValue !== undefined ? columnForNet?.value ?? "" : undefined;
+
     // Undo restores the pre-edit value; valid only if canonical still equals the
     // net value the forward edit produced.
     inverseWrites.push(
@@ -211,27 +218,38 @@ export const createTableUndoEntry = ({
         path: bakedPath,
         value: currentValue,
         expectedCurrentValue: isFile ? undefined : net.value,
-        fieldValue:
-          net.fieldValue !== undefined
-            ? columnForWrite(columns, net)?.value ?? ""
-            : undefined,
+        fieldValue: preEditFieldValue,
         fieldAttrs:
-          net.fieldAttrs !== undefined
-            ? columnForWrite(columns, net)?.attrs ?? null
-            : undefined,
+          net.fieldAttrs !== undefined ? columnForNet?.attrs ?? null : undefined,
+        // Undo restores the pre-edit option list only if the column still holds
+        // the list the forward edit produced (net.fieldValue); otherwise the
+        // whole snapshot is left alone so options added since are preserved. bd
+        // Notidian-o8op.
+        expectedFieldValue:
+          net.fieldValue !== undefined ? net.fieldValue : undefined,
       })
     );
 
     // Redo re-applies the net forward value; valid only if canonical still equals
     // the value undo restored (currentValue). File writes flow through the rename
-    // path, not executeTableValueWrites, so they keep their original shape.
+    // path, not executeTableValueWrites.
     redoWrites.push(
       isFile
-        ? sanitizeHistoryWrite(net)
+        ? sanitizeHistoryWrite({
+            ...net,
+            // Redo resolves the target by baked pre-edit file path (identity),
+            // never the stale row index a reload/reorder would reassign. Paste
+            // writes already carry net.path; the inline rename omits it, so fall
+            // back to the row's pre-edit path. bd Notidian-5op7.
+            path: net.path ?? (row?.[PathPropertyName] as string | undefined),
+          })
         : sanitizeHistoryWrite({
             ...net,
             path: bakedPath,
             expectedCurrentValue: currentValue,
+            // Redo re-applies the post-edit option list only if the column still
+            // holds the list undo restored (the pre-edit list). bd Notidian-o8op.
+            expectedFieldValue: preEditFieldValue,
           })
     );
   }

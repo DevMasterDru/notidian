@@ -1,3 +1,4 @@
+import { PropertyAuthority } from "core/utils/properties/propertyAuthority";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
 import {
@@ -23,6 +24,16 @@ export type TableCellWrite = {
   // instead of the current row value for stale-conflict detection so a replay
   // cannot silently overwrite a newer external change. See bd Notidian-29g.
   expectedCurrentValue?: string;
+  // Only set on undo/redo replay writes that restore a field/option
+  // configuration: the column `value` this replay expects the column to still
+  // hold. If the option list changed since the edit was journaled, the whole
+  // snapshot is NOT re-applied (it would clobber the newer options). See bd
+  // Notidian-o8op.
+  expectedFieldValue?: string;
+  // Carried by replay (undo/redo) writes so a write whose column was deleted can
+  // be routed by its original authority instead of falling through to the MDB
+  // write path. Ordinary forward edits leave this undefined. See bd Notidian-8xzy.
+  authority?: Exclude<PropertyAuthority, "computed">;
 };
 
 export type TableEditSkipReason =
@@ -30,7 +41,8 @@ export type TableEditSkipReason =
   | "missing-path"
   | "missing-context-table"
   | "missing-context-row"
-  | "frontmatter-conflict";
+  | "frontmatter-conflict"
+  | "schema-changed";
 
 export type TableEditFailureReason =
   | "missing-path"
@@ -178,6 +190,17 @@ const applyColumnFieldValues = (
         (write.fieldValue !== undefined || write.fieldAttrs !== undefined)
     );
     if (!fieldWrite) return col;
+    // A replay (undo/redo) field-config write carries the option-list snapshot it
+    // expects the column to still hold. If the column's configuration changed
+    // since the edit was journaled (e.g. another option added through the column
+    // config menu), re-applying the whole snapshot would silently clobber that
+    // change, so leave the column's configuration untouched. bd Notidian-o8op.
+    if (
+      fieldWrite.expectedFieldValue !== undefined &&
+      String(col.value ?? "") != fieldWrite.expectedFieldValue
+    ) {
+      return col;
+    }
     return {
       ...col,
       ...(fieldWrite.fieldValue !== undefined
@@ -290,6 +313,22 @@ export const executeTableValueWrites = async ({
       contextKeyForTable,
       write
     );
+
+    // A replay write for a frontmatter/file-canonical value whose column has
+    // since been deleted must NOT fall through to the context-MDB write path:
+    // that would make the hidden MDB the durable owner of a frontmatter-backed
+    // value (ADR 0001/0017 authority violation). Skip it as schema-changed with
+    // feedback instead. Only replay writes carry an authority marker; ordinary
+    // forward edits (authority undefined) keep their existing behaviour. bd
+    // Notidian-8xzy.
+    if (
+      !column &&
+      (write.authority == "frontmatter" || write.authority == "file")
+    ) {
+      skipped.push({ write, reason: "schema-changed" });
+      continue;
+    }
+
     const targetPath = resolveTableEditPath(
       write.path,
       row[PathPropertyName]

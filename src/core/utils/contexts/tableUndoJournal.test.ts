@@ -166,12 +166,15 @@ describe("tableUndoJournal", () => {
       })
     ).toEqual({
       label: "Rename files",
+      // Redo now bakes the pre-edit file path so it renames the original file by
+      // identity (not the stale row index). bd Notidian-5op7.
       redoWrites: [
         {
           rowId: "0",
           columnId: PathPropertyName,
           columnName: PathPropertyName,
           table: "",
+          path: "Relays & Devices/Relay A.md",
           value: "Renamed Relay A",
           authority: "file",
         },
@@ -188,6 +191,57 @@ describe("tableUndoJournal", () => {
         },
       ],
     });
+  });
+
+  it("bakes the pre-edit file path onto a rename redo write so redo targets by identity (Notidian-5op7)", () => {
+    const entry = createTableUndoEntry({
+      label: "Rename file",
+      rows,
+      writes: [
+        {
+          rowId: "0",
+          columnId: PathPropertyName,
+          columnName: PathPropertyName,
+          table: "",
+          value: "Renamed Relay A",
+          authority: "file",
+        },
+      ],
+    });
+
+    // The inline rename omits an explicit path; redo falls back to the row's
+    // pre-edit path so it renames the original file, never whichever file the
+    // stale row index now points at after a reload/reorder.
+    expect(entry.redoWrites[0]).toMatchObject({
+      path: "Relays & Devices/Relay A.md",
+      value: "Renamed Relay A",
+      authority: "file",
+    });
+    // Undo still resolves the post-rename file by its new path.
+    expect(entry.writes[0]).toMatchObject({
+      path: "Relays & Devices/Renamed Relay A.md",
+      value: "Relay A",
+    });
+  });
+
+  it("preserves an explicit baked path on a rename redo write (paste rename) (Notidian-5op7)", () => {
+    const entry = createTableUndoEntry({
+      label: "Rename files",
+      rows,
+      writes: [
+        {
+          rowId: "0",
+          columnId: PathPropertyName,
+          columnName: PathPropertyName,
+          table: "",
+          value: "Renamed Relay A",
+          authority: "file",
+          path: "Relays & Devices/Relay A.md",
+        } as any,
+      ],
+    });
+
+    expect(entry.redoWrites[0].path).toBe("Relays & Devices/Relay A.md");
   });
 
   it("deduplicates repeated target cells and skips unchanged writes", () => {
@@ -337,6 +391,9 @@ describe("tableUndoJournal", () => {
       })
     ).toEqual({
       label: "Edit cell",
+      // expectedFieldValue snapshots the option list each direction expects the
+      // column to still hold, so a later unrelated option addition is not
+      // clobbered on replay. bd Notidian-o8op.
       redoWrites: [
         {
           rowId: "0",
@@ -348,6 +405,7 @@ describe("tableUndoJournal", () => {
           expectedCurrentValue: "old",
           authority: "frontmatter",
           fieldValue: nextFieldValue,
+          expectedFieldValue: previousFieldValue,
         },
       ],
       writes: [
@@ -361,6 +419,7 @@ describe("tableUndoJournal", () => {
           expectedCurrentValue: "active",
           authority: "frontmatter",
           fieldValue: previousFieldValue,
+          expectedFieldValue: nextFieldValue,
         },
       ],
     });

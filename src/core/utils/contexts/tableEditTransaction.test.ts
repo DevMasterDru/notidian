@@ -660,4 +660,109 @@ describe("executeTableValueWrites", () => {
     });
     expect(savedTables[0].rows[1]).toMatchObject({ status: "old" });
   });
+
+  it("does not clobber a field option added after a journaled edit when replaying an undo (Notidian-o8op)", async () => {
+    const table = rootTable();
+    table.cols = table.cols.map((col) =>
+      col.name == "local" ? { ...col, value: "manual,auto,extra" } : col
+    );
+
+    const { savedTables } = await execute({
+      table,
+      writes: [
+        {
+          rowId: "0",
+          columnName: "local",
+          table: "",
+          value: "manual",
+          path: "Relays & Devices/A.md",
+          // Restore the pre-edit list, expecting the list the edit produced.
+          fieldValue: "manual",
+          expectedFieldValue: "manual,auto",
+          authority: "notidian",
+        } as TableCellWrite,
+      ],
+    });
+
+    expect(savedTables).toHaveLength(1);
+    // "extra" was added through the column config after the journaled edit; it
+    // must survive the undo of that earlier edit.
+    expect(savedTables[0].cols.find((col) => col.name == "local")).toMatchObject({
+      value: "manual,auto,extra",
+    });
+    // The cell value is still restored.
+    expect(savedTables[0].rows[0]).toMatchObject({ local: "manual" });
+  });
+
+  it("restores a field option list on undo when the column configuration is unchanged (Notidian-o8op)", async () => {
+    const table = rootTable();
+    table.cols = table.cols.map((col) =>
+      col.name == "local" ? { ...col, value: "manual,auto" } : col
+    );
+
+    const { savedTables } = await execute({
+      table,
+      writes: [
+        {
+          rowId: "0",
+          columnName: "local",
+          table: "",
+          value: "manual",
+          path: "Relays & Devices/A.md",
+          fieldValue: "manual",
+          expectedFieldValue: "manual,auto",
+          authority: "notidian",
+        } as TableCellWrite,
+      ],
+    });
+
+    // The column list is unchanged since the edit, so the snapshot restore applies.
+    expect(savedTables[0].cols.find((col) => col.name == "local")).toMatchObject({
+      value: "manual",
+    });
+  });
+
+  it("skips a frontmatter-authority replay write whose column was deleted instead of writing to the MDB (Notidian-8xzy)", async () => {
+    const { result, savedTables, savedFrontmatter } = await execute({
+      writes: [
+        {
+          rowId: "0",
+          columnName: "priority", // column since deleted — not in cols
+          table: "",
+          value: "x",
+          path: "Relays & Devices/A.md",
+          expectedCurrentValue: "y",
+          authority: "frontmatter",
+        } as TableCellWrite,
+      ],
+    });
+
+    expect(result.applied).toBe(0);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ reason: "schema-changed" }),
+    ]);
+    // Never demoted to a root MDB write (the authority violation this guards).
+    expect(savedTables).toEqual([]);
+    expect(savedFrontmatter).toEqual([]);
+  });
+
+  it("still routes a notidian replay write with a missing column to the MDB (Notidian-8xzy scope boundary)", async () => {
+    const { result, savedTables } = await execute({
+      writes: [
+        {
+          rowId: "0",
+          columnName: "priority", // no column, but authority is notidian
+          table: "",
+          value: "x",
+          path: "Relays & Devices/A.md",
+          authority: "notidian",
+        } as TableCellWrite,
+      ],
+    });
+
+    // notidian values are MDB-owned by design, so the fix does not skip them.
+    expect(result.applied).toBe(1);
+    expect(savedTables).toHaveLength(1);
+    expect(savedTables[0].rows[0]).toMatchObject({ priority: "x" });
+  });
 });
