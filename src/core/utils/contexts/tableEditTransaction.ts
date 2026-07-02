@@ -357,7 +357,24 @@ export const executeTableValueWrites = async ({
         row,
         write,
       });
-      const baseValue = write.expectedCurrentValue ?? rowValueForWrite(row, write);
+      // For a context write whose column exists ONLY in the linked context (it
+      // is not also a root column), the value the user saw — and therefore the
+      // stale-conflict base — lives in the linked-context row, not the root row.
+      // Reading it from the root row (which lacks the column) yields "" and
+      // false-skips the edit as a frontmatter-conflict. Resolve baseValue from
+      // the matching contextTable row by path in that case; keep root-row
+      // resolution otherwise. bd Notidian-jwfr.
+      const rootColumn = tableData.cols.find(
+        (col) => col.name == write.columnName
+      );
+      const baseValueRow =
+        write.table != "" && !rootColumn
+          ? contextTable[contextKeyForTable(write.table)]?.rows.find(
+              (contextRow) => contextRow[PathPropertyName] == targetPath
+            ) ?? row
+          : row;
+      const baseValue =
+        write.expectedCurrentValue ?? rowValueForWrite(baseValueRow, write);
       const editKey = frontmatterEditKey(resolvedPath, write.columnName);
       const selfEditedThisSession = sessionEditedKeys?.has(editKey) ?? false;
       if (
@@ -400,7 +417,6 @@ export const executeTableValueWrites = async ({
     return { ok: false, applied: 0, skipped, failed };
   }
 
-  const rootWrites = acceptedWrites.filter((write) => write.table == "");
   const rootFieldConfigWrites = fieldConfigWrites.filter(
     (write) => write.table == ""
   );
@@ -434,23 +450,33 @@ export const executeTableValueWrites = async ({
     await saveDB(rootTableWithPreSavedFieldConfig);
   }
 
+  // Commit frontmatter one path at a time. A mid-batch failure must NOT discard
+  // the paths already written to disk, nor abandon the paths not yet attempted.
+  // The previous early-return reported applied:0 — so the caller pushed no undo
+  // entry for the files it HAD already committed (Ctrl+Z could not revert them)
+  // — and silently dropped every path after the first failure (neither applied
+  // nor failed). Instead attempt every path and mark only the failed path's
+  // writes as failed: they are then excluded from the root/context snapshot
+  // updates and the applied count, while the caller keeps an undo entry for the
+  // writes that actually committed and surfaces a Notice for the failures. bd
+  // Notidian-9oxo.
+  const failedFrontmatterWrites = new Set<TableCellWrite>();
   for (const [path, group] of frontmatterChangesByPath.entries()) {
     const writeResult = await saveFrontmatterProperties({
       path,
       properties: group.properties,
     });
     if (!writeResult.ok) {
-      return {
-        ok: false,
-        applied: 0,
-        skipped,
-        failed: group.writes.map((write) => ({
-          write,
-          reason: "frontmatter-write-failed",
-        })),
-      };
+      for (const write of group.writes) {
+        failedFrontmatterWrites.add(write);
+        failed.push({ write, reason: "frontmatter-write-failed" });
+      }
     }
   }
+
+  const rootWrites = acceptedWrites.filter(
+    (write) => write.table == "" && !failedFrontmatterWrites.has(write)
+  );
 
   const hasUnpreSavedRootFieldConfigWrites = rootFieldConfigWrites.some(
     (write) => !preSavedRootFieldConfigWriteSet.has(write)
@@ -478,7 +504,9 @@ export const executeTableValueWrites = async ({
   for (const table of contextTables) {
     const contextKey = contextKeyForTable(table);
     const sourceTable = contextTable[contextKey];
-    const tableWrites = acceptedWrites.filter((write) => write.table == table);
+    const tableWrites = acceptedWrites.filter(
+      (write) => write.table == table && !failedFrontmatterWrites.has(write)
+    );
     if (!sourceTable) {
       skipped.push(
         ...tableWrites.map((write) => ({
@@ -532,9 +560,12 @@ export const executeTableValueWrites = async ({
   }
 
   return {
-    ok: true,
+    // A mid-batch frontmatter failure leaves applied>0 (the committed paths) but
+    // ok:false so the caller surfaces the failure while still keeping an undo
+    // entry for the writes that landed. bd Notidian-9oxo.
+    ok: failed.length == 0,
     applied: rootWrites.length + appliedContextWrites,
     skipped,
-    failed: [],
+    failed,
   };
 };

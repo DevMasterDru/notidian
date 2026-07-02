@@ -42,6 +42,7 @@ const execute = async ({
   table = rootTable(),
   contexts = {},
   frontmatterOk = true,
+  frontmatterFailPaths,
   currentFrontmatterValues = {},
   sessionEditedKeys,
   allOrNothing = false,
@@ -50,6 +51,9 @@ const execute = async ({
   table?: SpaceTable;
   contexts?: SpaceTables;
   frontmatterOk?: boolean;
+  // Resolved paths whose frontmatter write should fail; overrides frontmatterOk
+  // per path so a mid-batch multi-file failure can be exercised.
+  frontmatterFailPaths?: string[];
   currentFrontmatterValues?: Record<string, Record<string, string>>;
   sessionEditedKeys?: Set<string>;
   allOrNothing?: boolean;
@@ -76,7 +80,10 @@ const execute = async ({
     saveFrontmatterProperties: async ({ path, properties }) => {
       operations.push("frontmatter");
       savedFrontmatter.push({ path, properties });
-      return frontmatterOk ? { ok: true } : { ok: false };
+      const ok = frontmatterFailPaths
+        ? !frontmatterFailPaths.includes(path)
+        : frontmatterOk;
+      return ok ? { ok: true } : { ok: false };
     },
     saveDB: async (nextTable) => {
       operations.push("saveDB");
@@ -296,6 +303,133 @@ describe("executeTableValueWrites", () => {
     expect(result.failed).toHaveLength(1);
     expect(savedTables).toEqual([]);
     expect(savedContexts).toEqual([]);
+  });
+
+  it("keeps files committed before a mid-batch frontmatter failure applied and reports the rest failed (Notidian-9oxo)", async () => {
+    // A 2-file paste: file A commits, file B's frontmatter write rejects. The
+    // pre-fix code returned applied:0 with only B in failed, so the caller
+    // pushed NO undo entry for the already-committed A. The fix must keep A
+    // applied (undo-able) and report only B failed.
+    const { result, savedFrontmatter, savedTables, savedContexts } =
+      await execute({
+        writes: [
+          {
+            rowId: "0",
+            columnId: "status",
+            columnName: "status",
+            table: "",
+            value: "x",
+          },
+          {
+            rowId: "1",
+            columnId: "status",
+            columnName: "status",
+            table: "",
+            value: "y",
+          },
+        ],
+        frontmatterFailPaths: ["Relays & Devices/Relays & Devices/B.md"],
+      });
+
+    // Every path is attempted (A committed, B attempted-and-failed) — nothing
+    // silently dropped.
+    expect(savedFrontmatter).toEqual([
+      {
+        path: "Relays & Devices/Relays & Devices/A.md",
+        properties: { status: "x" },
+      },
+      {
+        path: "Relays & Devices/Relays & Devices/B.md",
+        properties: { status: "y" },
+      },
+    ]);
+    // A stays applied so the caller keeps an undo entry for it; B is failed.
+    expect(result.applied).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.failed).toEqual([
+      {
+        reason: "frontmatter-write-failed",
+        write: expect.objectContaining({ rowId: "1", value: "y" }),
+      },
+    ]);
+    // The root snapshot reflects A's committed value but NOT B's failed one.
+    expect(savedTables).toHaveLength(1);
+    expect(savedTables[0].rows[0]).toMatchObject({ status: "x" });
+    expect(savedTables[0].rows[1]).toMatchObject({ status: "old" });
+    expect(savedContexts).toEqual([]);
+  });
+
+  it("resolves baseValue from the linked-context row for a frontmatter column that lives only there (Notidian-jwfr)", async () => {
+    // "budget" is a frontmatter-backed column declared ONLY by the linked
+    // #client context, not by the root table. Its displayed value lives in the
+    // context row. Reading baseValue from the root row (which lacks the column)
+    // yielded "" and false-skipped the edit as a frontmatter-conflict.
+    const contexts: SpaceTables = {
+      "contexts/client": {
+        schema: { id: "client", name: "Client", type: "context" },
+        cols: [
+          { name: PathPropertyName, type: "file" },
+          { name: "budget", type: "number", source: "frontmatter" },
+        ],
+        rows: [{ [PathPropertyName]: "Relays & Devices/A.md", budget: "5000" }],
+      },
+    };
+
+    const { result, savedFrontmatter } = await execute({
+      contexts,
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": { budget: "5000" },
+      },
+      writes: [
+        {
+          rowId: "0",
+          columnId: "budgetclient",
+          columnName: "budget",
+          table: "client",
+          value: "6000",
+        },
+      ],
+    });
+
+    // baseValue now equals the context row's 5000, matching canonical 5000 — no
+    // false conflict, so the edit is written.
+    expect(result).toMatchObject({ ok: true, applied: 1, skipped: [] });
+    expect(savedFrontmatter).toEqual([
+      {
+        path: "Relays & Devices/Relays & Devices/A.md",
+        properties: { budget: 6000 },
+      },
+    ]);
+  });
+
+  it("still false-negative-guards: a root column's baseValue is unaffected by the linked-context resolution (Notidian-jwfr scope boundary)", async () => {
+    // A root frontmatter column keeps root-row baseValue resolution: an external
+    // change is still detected as a conflict.
+    const { result } = await execute({
+      currentFrontmatterValues: {
+        "Relays & Devices/Relays & Devices/A.md": { status: "external" },
+      },
+      writes: [
+        {
+          rowId: "0",
+          columnId: "status",
+          columnName: "status",
+          table: "",
+          value: "active",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      applied: 0,
+      skipped: [
+        expect.objectContaining({
+          reason: "frontmatter-conflict",
+          baseValue: "old",
+        }),
+      ],
+    });
   });
 
   it("skips stale frontmatter writes when the canonical value changed externally", async () => {
