@@ -1,4 +1,4 @@
-import { SpaceTable } from "shared/types/mdb";
+import { SpaceTable, SpaceTables } from "shared/types/mdb";
 import {
   emptyTableEditTransactionResult,
   TableEditTransactionResult,
@@ -26,12 +26,18 @@ type DeferredTxn = {
   invocations: number;
   // The tableData the serializer passed in on the (latest) invocation.
   lastTableData(): SpaceTable;
+  // The linked-context tables the serializer passed in on the (latest)
+  // invocation (bd Notidian-0jvd).
+  lastContextTables(): SpaceTables;
   // The session-edited-keys set the serializer passed in on the (latest)
   // invocation (the stale-conflict lag tracker, bd Notidian-2kf7).
   lastSessionEditedKeys(): Set<string>;
   // Synchronously fire onRootTableSaved with a given table (simulating the
   // transaction having persisted a new root table) before settling.
   saveRootTable(table: SpaceTable): void;
+  // Synchronously fire onContextTableSaved for a linked-context key (bd
+  // Notidian-0jvd).
+  saveContextTable(contextKey: string, table: SpaceTable): void;
   resolve(result?: TableEditTransactionResult): void;
   reject(error: unknown): void;
 };
@@ -52,18 +58,26 @@ const makeDeferredTxn = (): DeferredTxn => {
   );
 
   let capturedTableData: SpaceTable | null = null;
+  let capturedContextTables: SpaceTables | null = null;
   let capturedOnRootTableSaved: ((table: SpaceTable) => void) | null = null;
+  let capturedOnContextTableSaved:
+    | ((contextKey: string, table: SpaceTable) => void)
+    | null = null;
   let capturedSessionEditedKeys: Set<string> | null = null;
   let invocations = 0;
 
   const run: SerializedEditRun = ({
     tableData,
+    contextTables,
     onRootTableSaved,
+    onContextTableSaved,
     sessionEditedKeys,
   }) => {
     invocations += 1;
     capturedTableData = tableData;
+    capturedContextTables = contextTables;
     capturedOnRootTableSaved = onRootTableSaved;
+    capturedOnContextTableSaved = onContextTableSaved;
     capturedSessionEditedKeys = sessionEditedKeys;
     invokedResolve();
     return settlePromise;
@@ -81,6 +95,12 @@ const makeDeferredTxn = (): DeferredTxn => {
       }
       return capturedTableData;
     },
+    lastContextTables() {
+      if (!capturedContextTables) {
+        throw new Error("run has not been invoked yet");
+      }
+      return capturedContextTables;
+    },
     lastSessionEditedKeys() {
       if (!capturedSessionEditedKeys) {
         throw new Error("run has not been invoked yet");
@@ -92,6 +112,12 @@ const makeDeferredTxn = (): DeferredTxn => {
         throw new Error("run has not been invoked yet");
       }
       capturedOnRootTableSaved(table);
+    },
+    saveContextTable(contextKey: string, table: SpaceTable) {
+      if (!capturedOnContextTableSaved) {
+        throw new Error("run has not been invoked yet");
+      }
+      capturedOnContextTableSaved(contextKey, table);
     },
     resolve(result = emptyTableEditTransactionResult()) {
       settle(result);
@@ -191,6 +217,126 @@ describe("contextEditSerializer", () => {
     // snapshot. This is the anti-last-write-wins guarantee.
     expect(txnB.lastTableData()).toBe(savedByA);
     expect(txnB.lastTableData()).not.toBe(rendered);
+
+    txnB.resolve();
+    await Promise.all([pA, pB]);
+  });
+
+  it("threads the first edit's saved linked-context table into the next edit sharing the same rendered reference (no last-write-wins on Notidian-owned columns) — Notidian-0jvd", async () => {
+    const state = createContextEditSerializerState();
+    const rendered = makeTable("rendered-root");
+    // Both edits target the SAME linked-context table from the SAME render
+    // closure (no re-render between two rapid edits — the lg1 scenario, now for
+    // a linked context whose column has no frontmatter copy to self-heal from).
+    const renderedContexts: SpaceTables = {
+      "contexts/client": makeTable("ctx-v0"),
+    };
+
+    const txnA = makeDeferredTxn();
+    const txnB = makeDeferredTxn();
+
+    const pA = runSerializedContextEdit(
+      state,
+      rendered,
+      txnA.run,
+      renderedContexts
+    );
+    const pB = runSerializedContextEdit(
+      state,
+      rendered,
+      txnB.run,
+      renderedContexts
+    );
+
+    await txnA.invoked;
+    // The first edit starts from the rendered contexts.
+    expect(txnA.lastContextTables()).toBe(renderedContexts);
+
+    // The first transaction persists a NEW client-context fragment (its result).
+    const savedCtxByA = makeTable("ctx-after-A");
+    txnA.saveContextTable("contexts/client", savedCtxByA);
+    txnA.resolve();
+
+    await txnB.invoked;
+    // The second edit must build on A's saved context fragment, NOT the stale
+    // rendered snapshot — the anti-last-write-wins guarantee for linked contexts.
+    expect(txnB.lastContextTables()["contexts/client"]).toBe(savedCtxByA);
+    expect(txnB.lastContextTables()["contexts/client"]).not.toBe(
+      renderedContexts["contexts/client"]
+    );
+
+    txnB.resolve();
+    await Promise.all([pA, pB]);
+  });
+
+  it("resets threaded contexts on a rendered-contexts reference change (reload) so an in-flight context save does not shadow the reloaded fragment — Notidian-0jvd", async () => {
+    const state = createContextEditSerializerState();
+    const rendered = makeTable("rendered-root");
+    const contextsV1: SpaceTables = { "contexts/client": makeTable("ctx-v1") };
+    const contextsV2: SpaceTables = { "contexts/client": makeTable("ctx-v2") };
+
+    const txnA = makeDeferredTxn();
+    const txnB = makeDeferredTxn();
+
+    // A enqueues against v1; B against v2 (a reload produced a NEW contexts ref).
+    const pA = runSerializedContextEdit(state, rendered, txnA.run, contextsV1);
+    const pB = runSerializedContextEdit(state, rendered, txnB.run, contextsV2);
+
+    await txnA.invoked;
+    expect(txnA.lastContextTables()).toBe(contextsV1);
+
+    const staleCtxByA = makeTable("ctx-after-A-stale");
+    txnA.saveContextTable("contexts/client", staleCtxByA);
+    txnA.resolve();
+
+    await txnB.invoked;
+    // The contexts reference changed (v1 -> v2), so A's stale context save is
+    // discarded and B reads the freshly reloaded v2 fragment.
+    expect(txnB.lastContextTables()).toBe(contextsV2);
+    expect(txnB.lastContextTables()["contexts/client"]).toBe(
+      contextsV2["contexts/client"]
+    );
+    expect(txnB.lastContextTables()["contexts/client"]).not.toBe(staleCtxByA);
+
+    txnB.resolve();
+    await Promise.all([pA, pB]);
+  });
+
+  it("threads only the saved context key forward, leaving sibling contexts intact — Notidian-0jvd", async () => {
+    const state = createContextEditSerializerState();
+    const rendered = makeTable("rendered-root");
+    const clientV0 = makeTable("client-v0");
+    const vendorV0 = makeTable("vendor-v0");
+    const renderedContexts: SpaceTables = {
+      "contexts/client": clientV0,
+      "contexts/vendor": vendorV0,
+    };
+
+    const txnA = makeDeferredTxn();
+    const txnB = makeDeferredTxn();
+
+    const pA = runSerializedContextEdit(
+      state,
+      rendered,
+      txnA.run,
+      renderedContexts
+    );
+    const pB = runSerializedContextEdit(
+      state,
+      rendered,
+      txnB.run,
+      renderedContexts
+    );
+
+    await txnA.invoked;
+    const clientAfterA = makeTable("client-after-A");
+    txnA.saveContextTable("contexts/client", clientAfterA);
+    txnA.resolve();
+
+    await txnB.invoked;
+    // The edited key advances; the untouched sibling keeps its original snapshot.
+    expect(txnB.lastContextTables()["contexts/client"]).toBe(clientAfterA);
+    expect(txnB.lastContextTables()["contexts/vendor"]).toBe(vendorV0);
 
     txnB.resolve();
     await Promise.all([pA, pB]);

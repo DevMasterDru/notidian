@@ -1152,12 +1152,22 @@ export const ContextEditorProvider: React.FC<
     return runSerializedContextEdit(
       editSerializerRef.current,
       tableData,
-      ({ tableData: latestTable, onRootTableSaved, sessionEditedKeys }) =>
+      ({
+        tableData: latestTable,
+        contextTables: latestContexts,
+        onRootTableSaved,
+        onContextTableSaved,
+        sessionEditedKeys,
+      }) =>
         executeTableValueWrites({
           writes,
           tableData: latestTable,
           sessionEditedKeys,
-          contextTable,
+          // Read linked-context source tables from the threaded snapshot, not the
+          // render closure, so a chained edit sees the prior edit's saved context
+          // fragment (no last-write-wins on Notidian-owned columns). bd
+          // Notidian-0jvd.
+          contextTable: latestContexts,
           dbSchemaId: dbSchema?.id,
           contextPath,
           resolvePath: (path, source) =>
@@ -1185,10 +1195,16 @@ export const ContextEditorProvider: React.FC<
             onRootTableSaved(nextTable);
             await saveDB(nextTable);
           },
-          saveContextDB,
+          saveContextDB: async (nextTable, contextKey) => {
+            // Thread the saved context fragment forward so the next chained edit
+            // rebuilds from it. bd Notidian-0jvd.
+            onContextTableSaved(contextKey, nextTable);
+            await saveContextDB(nextTable, contextKey);
+          },
           contextKeyForTable: tagSpacePathFromTag,
           allOrNothing: options.allOrNothing,
-        })
+        }),
+      contextTable
     );
   };
 
