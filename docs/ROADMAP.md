@@ -18,6 +18,20 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 - **Key-match FK relations** (ADR 0029 → bd `Notidian-mx0k.1`). Owner-authorized 2026-06-30. Key-match resolver shipped; island header (mx0k.2) reverted in favor of template sync (ADR 0055).
 - **Template sync — computed properties** (ADR 0055). Owner-authorized 2026-06-30. Replaces the reverted grouping island with a general-purpose template interpolation + cross-DB lookup + reactive sync layer. Awaiting sessionized build.
 
+## Data Integrity Program (owner ratified 2026-07-02)
+
+Six features across five delivery waves, ratified via
+[docs/superpowers/specs/2026-07-02-data-integrity-program-design.md](superpowers/specs/2026-07-02-data-integrity-program-design.md).
+Wave 0 (bd epic `Notidian-vonm`, correctness-audit fixes) is in flight and
+gates everything below it. Waves 1a/1b and the cross-cutting derived-field
+authority decision have ratified ADRs; none are sessionized into bd session
+issues yet.
+
+- **Wave 1a — Type Profile v3 schema registry** (ADR 0056). Enum-as-law, required/unique/pattern/title-binding, empty-encoding policy, declared references, derived-field declarations, per-database invariants, schema adoption command. Awaiting sessionized build.
+- **Wave 1b — Pure validation core + read-only reconciler & health surfaces** (ADR 0057). `validateRowPatch`, incremental/full-sweep revalidation, row badges, health chip, Database Health panel, broken-row rendering, repair-tier taxonomy. Read-only this wave — no write-path change. Awaiting sessionized build.
+- **Derived-field authority class** (ADR 0058, cross-cutting). Formula-is-authority for `materialize: frontmatter` fields; a declared, narrow exception to ADR 0009; generalizes ADR 0055's template sync to `template`/`lookup`/`rollup` kinds. Ratified now so Wave 1a/1b schema authors share one settled rule; full build-out governs Wave 4 (bd epic `Notidian-v341`) when pulled.
+- **Waves 2 (guarded writes/F2), 3 (AI channel + write firewall/F6), 4 (F4 derived build-out), 5 (journal/transactions/headless validation core)** — grounded in the spec but not yet individually ADR'd; draft each wave's ADR when the owner pulls it.
+
 ## Parked — build when the owner asks
 
 - **Select-to-comment + AI-review channel** — anchor a vault comment to a selection (block-id `^block`) and store AI-directed comments as a frontmatter `review.comments` list; cross-repo contract with Atlasidian. — ([ADR 0019](adr/0019-select-to-comment-anchoring-and-ai-review-channel.md))
