@@ -198,7 +198,7 @@ loadSuperState() {
     this.registerEvent(this.app.vault.on("delete", this.onDelete));
     this.registerEvent(this.app.vault.on("rename", this.onRename));
 
-    this.app.metadataCache.on("changed", this.metadataChange);
+    this.registerEvent(this.app.metadataCache.on("changed", this.metadataChange));
 
     if (releaseNotesVersion > this.superstate.settings.releaseNotesPrompt) {
       this.releaseTheNotes();
