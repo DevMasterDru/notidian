@@ -139,6 +139,12 @@ export const parseMDBStringValue = (type: string, value: string, frontmatter?: b
     // Parse date strings to Date objects for proper temporal scaling
     if (!value || value === '') return null;
     const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    // A date-only column must persist the canonical YYYY-MM-DD string to
+    // frontmatter — never a local-midnight Date, whose UTC serialization shifts
+    // the stored calendar day back for users east of UTC (Notidian-uskc).
+    // Non-frontmatter callers (visualization, formulas) still get the Date for
+    // temporal scaling, and datetime/date-end keep their timestamped behavior.
+    if (frontmatter && type == "date" && dateOnly) return value;
     const date = dateOnly
       ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
       : new Date(value);

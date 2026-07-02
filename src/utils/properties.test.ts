@@ -91,7 +91,7 @@ describe("parseMDBStringValue", () => {
       expect(parseMDBStringValue("datetime", "")).toBeNull();
       expect(parseMDBStringValue("date-end", "")).toBeNull();
     });
-    it("parses date-only strings as local midnight, not UTC midnight", () => {
+    it("in-memory path (frontmatter=false) parses date-only strings as local midnight, not UTC midnight", () => {
       const priorTZ = process.env.TZ;
       process.env.TZ = "America/Los_Angeles";
       try {
@@ -123,6 +123,43 @@ describe("parseMDBStringValue", () => {
       expect(parseMDBStringValue("date", "not-a-date")).toBe("not-a-date");
       const orig = "definitely not a date";
       expect(parseMDBStringValue("datetime", orig)).toBe(orig);
+    });
+    // Notidian-uskc: on the frontmatter WRITE path a date-only column must
+    // persist the plain YYYY-MM-DD string, never a local-midnight Date whose
+    // UTC serialization shifts the calendar day back for users east of UTC.
+    // NOTE: we model the UTC+3 offset with an explicit-offset ISO instant rather
+    // than mutating process.env.TZ — V8 inside Jest does not honor a mid-test TZ
+    // change (verified), so an explicit offset is the deterministic, CI-safe proof.
+    it("frontmatter write path stores a date-only column as a plain YYYY-MM-DD string with NO day shift under a UTC+3 offset (round-trip stable)", () => {
+      const written = parseMDBStringValue("date", "2024-01-01", true);
+      // Not a Date → Obsidian's YAML serializer emits the string verbatim, so
+      // there is no toISOString() UTC conversion and thus no day shift.
+      expect(written).not.toBeInstanceOf(Date);
+      expect(typeof written).toBe("string");
+      expect(written).toBe("2024-01-01");
+      // Re-parsing what we wrote (a re-edit / re-read) is a fixed point: the
+      // stored calendar day never drifts across round-trips.
+      expect(parseMDBStringValue("date", written as string, true)).toBe(
+        "2024-01-01"
+      );
+      // Prove the regression this guards against: at UTC+3, the OLD behavior
+      // (writing a local-midnight Date) serializes to the PREVIOUS calendar day.
+      const utcPlus3LocalMidnight = new Date("2024-01-01T00:00:00+03:00");
+      expect(utcPlus3LocalMidnight.toISOString()).toBe(
+        "2023-12-31T21:00:00.000Z"
+      );
+      expect(utcPlus3LocalMidnight.toISOString().slice(0, 10)).toBe(
+        "2023-12-31"
+      );
+      // The string the fix writes carries no such shift.
+      expect((written as string).slice(0, 10)).toBe("2024-01-01");
+    });
+    it("frontmatter write path keeps datetime/date-end as timestamped Date objects (datetime behavior preserved)", () => {
+      const dt = parseMDBStringValue("datetime", "2024-03-05T10:00:00Z", true);
+      expect(dt).toBeInstanceOf(Date);
+      expect((dt as Date).toISOString()).toBe("2024-03-05T10:00:00.000Z");
+      const de = parseMDBStringValue("date-end", "2024-03-05", true);
+      expect(de).toBeInstanceOf(Date);
     });
   });
 
