@@ -680,13 +680,32 @@ describe("Notidian-k778 / ADR 0045: explicit-column REPLACE is correct by constr
 });
 
 // =========================================================================
-// (8) Notidian-1q8y — context MDB integrity against the REAL engine.
-// SQLite folds identifier case, so cols carrying "Status" AND "status" used
-// to make CREATE TABLE throw `duplicate column name`, replaceDB return false,
-// and EVERY save of that folder silently fail. liveCols now dedupes
-// case-insensitively (first-seen casing wins) and the save SUCCEEDS.
+// (8) Notidian-1q8y / Notidian-jn8p — context MDB integrity against the REAL
+// engine.
+//   - 1q8y: SQLite folds identifier case, so cols carrying "Status" AND
+//     "status" used to make CREATE TABLE throw `duplicate column name`,
+//     replaceDB return false, and EVERY save of that folder silently fail.
+//     liveCols now dedupes case-insensitively (first-seen casing wins) and the
+//     save SUCCEEDS.
+//   - jn8p: an empty liveCols used to emit the DROP with no CREATE to follow —
+//     silently destroying the table's rows while m_schema kept referencing the
+//     dropped table (which then poisoned every later getMDB parse of the whole
+//     file). replaceDB now refuses the write when rows are present and no-ops
+//     when nothing would be lost; a mid-sequence failure rolls back.
 // =========================================================================
-describe("Notidian-1q8y: replaceDB integrity, REAL-engine ground truth", () => {
+describe("Notidian-1q8y / Notidian-jn8p: replaceDB integrity, REAL-engine ground truth", () => {
+  const seedTable = (db: Database) => {
+    expect(
+      replaceDB(db, {
+        t: {
+          uniques: [],
+          cols: ["File", "x"],
+          rows: [{ File: "a.md", x: "v" }],
+        },
+      })
+    ).toBe(true);
+  };
+
   it("Notidian-1q8y: case-variant column names save CLEANLY as one column, first-seen casing wins", () => {
     const db = freshDB();
     try {
@@ -714,6 +733,64 @@ describe("Notidian-1q8y: replaceDB integrity, REAL-engine ground truth", () => {
         { File: "a.md", Status: "Open" },
         { File: "b.md", Status: "" },
       ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("Notidian-jn8p: empty cols + rows present -> REFUSED (false) and the existing table is untouched", () => {
+    const db = freshDB();
+    try {
+      seedTable(db);
+      const ok = replaceDB(db, {
+        t: { uniques: [], cols: [], rows: [{ File: "a.md", x: "v" }] },
+      });
+      expect(ok).toBe(false);
+      // The old code DROPped the table, created nothing, and returned true.
+      expect(liveTables(db)).toContain("t");
+      expect(selectDB(db, "t")!.rows).toEqual([{ File: "a.md", x: "v" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("Notidian-jn8p: empty cols + no rows -> NO-OP (true) and the existing table is untouched", () => {
+    const db = freshDB();
+    try {
+      seedTable(db);
+      const ok = replaceDB(db, {
+        t: { uniques: [], cols: ["", ""], rows: [] },
+      });
+      expect(ok).toBe(true);
+      expect(liveTables(db)).toContain("t");
+      expect(selectDB(db, "t")!.rows).toEqual([{ File: "a.md", x: "v" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("Notidian-jn8p: a mid-sequence failure ROLLS BACK — the dropped table is restored, never left half-written", () => {
+    const db = freshDB();
+    try {
+      seedTable(db);
+      // Force a failure AFTER the DROP has executed: 2001 distinct columns
+      // exceed SQLITE_MAX_COLUMN (2000), so the CREATE throws `too many
+      // columns on t`. (A unique index over a missing column does NOT throw —
+      // the engine's double-quoted-string misfeature reads it as a string
+      // literal, verified live against sql.js 1.8.0.) Because the whole
+      // DROP/CREATE/rows sequence rides inside one transaction, the catch
+      // rolls back and the ORIGINAL table (and its row) survives in the DB
+      // image.
+      const ok = replaceDB(db, {
+        t: {
+          uniques: [],
+          cols: Array.from({ length: 2001 }, (_, i) => `c${i}`),
+          rows: [{ c0: "1" }],
+        },
+      });
+      expect(ok).toBe(false);
+      expect(liveTables(db)).toContain("t");
+      expect(selectDB(db, "t")!.rows).toEqual([{ File: "a.md", x: "v" }]);
     } finally {
       db.close();
     }

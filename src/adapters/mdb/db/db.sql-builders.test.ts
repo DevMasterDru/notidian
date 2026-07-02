@@ -398,17 +398,19 @@ describe("column/row alignment + statement batching", () => {
     expect(replaceStmt).toBe(`REPLACE INTO "t" ("a","b") VALUES ('1', '2');`);
   });
 
-  it("replaceDB: emits BEGIN/COMMIT around the REPLACE rows and a DROP TABLE/INDEX preamble", () => {
+  it("replaceDB: the whole DROP/CREATE/rows sequence rides inside ONE transaction (Notidian-jn8p)", () => {
     const db = makeDB();
     const tables: DBTables = {
       t: { uniques: [], cols: ["a"], rows: [{ a: "1" }] },
     };
     replaceDB(db, tables);
     // Each statement is exec()'d separately; assert the ordered skeleton.
-    expect(db.statements[0]).toBe(
+    // Notidian-jn8p: BEGIN comes FIRST so a mid-sequence failure can never
+    // leave the table dropped but not recreated — the catch rolls back.
+    expect(db.statements[0]).toBe(`BEGIN TRANSACTION;`);
+    expect(db.statements[1]).toBe(
       `DROP INDEX IF EXISTS "idx_t__id"; DROP TABLE IF EXISTS "t";`
     );
-    expect(db.statements).toContain(`BEGIN TRANSACTION;`);
     expect(db.statements).toContain(`COMMIT;`);
     expect(db.statements[db.statements.length - 1]).toBe(`COMMIT;`);
   });
@@ -437,18 +439,31 @@ describe("column/row alignment + statement batching", () => {
     );
   });
 
-  it("CHARACTERIZE replaceDB: a table whose fieldQuery is empty emits ONLY the drop preamble (no CREATE/rows)", () => {
+  it("replaceDB REFUSES an empty-column write that carries rows: returns false, emits NOTHING (Notidian-jn8p — retires the DROP-only wipe)", () => {
     const db = makeDB();
     const tables: DBTables = {
-      // All cols falsy -> fieldQuery === "" -> the `fieldQuery.length > 0` gate
-      // skips CREATE/index/BEGIN/rows/COMMIT; only the DROP preamble is emitted.
+      // All cols falsy -> liveCols is empty -> there is no CREATE to pair with
+      // a DROP. The old behavior emitted ONLY the DROP preamble and returned
+      // true — silently destroying the on-disk table AND leaving m_schema
+      // referencing a missing table (poisoning every later getMDB parse).
+      // With rows present the write is now REFUSED outright.
       t: { uniques: [], cols: ["", ""], rows: [{ "": "x" }] },
     };
     const ok = replaceDB(db, tables);
+    expect(ok).toBe(false);
+    expect(db.statements).toEqual([]);
+  });
+
+  it("replaceDB skips an empty-column, empty-row table as a NO-OP: returns true, emits NOTHING (Notidian-jn8p)", () => {
+    const db = makeDB();
+    const tables: DBTables = {
+      // No storable columns and no rows to lose: skipping the table entirely
+      // (instead of DROPping it) preserves whatever exists on disk.
+      t: { uniques: [], cols: ["", ""], rows: [] },
+    };
+    const ok = replaceDB(db, tables);
     expect(ok).toBe(true);
-    expect(db.statements).toEqual([
-      `DROP INDEX IF EXISTS "idx_t__id"; DROP TABLE IF EXISTS "t";`,
-    ]);
+    expect(db.statements).toEqual([]);
   });
 
   it("replaceDB returns true on success and false if exec throws (mid-batch abort)", () => {

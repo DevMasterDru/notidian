@@ -10,6 +10,7 @@ import {
 import { FilesystemSpaceInfo } from "shared/types/spaceInfo";
 
 import { vaultSchema } from "adapters/obsidian/filesystem/schemas/vaultSchema";
+import i18n from "shared/i18n";
 import { defaultContextDBSchema, defaultContextSchemaID } from "shared/schemas/context";
 import { defaultFieldsForContext } from "shared/schemas/fields";
 import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
@@ -78,18 +79,24 @@ export const getMDB = async (
     db.close();
     return null;
   }
-  let dbTable
-  try {
-   dbTable = schemas.filter(f => f.type == 'db').map(f => ({[f.id]: dbResultsToDBTables(
-    db.exec(
-      `SELECT * FROM ${quoteIdent(f.id)}`
-    )
-  )[0]})).reduce((p,c) => ({...p, ...c}), {});
-  
+  // Notidian-jn8p: build each schema's backing table INDIVIDUALLY. An orphaned
+  // m_schema row (schema present, physical table missing — e.g. a degenerate
+  // save DROPped the table without recreating it) used to throw out of a single
+  // try/catch that returned null for the WHOLE file, so every intact table in
+  // the .mdb became unloadable on the next parse. Skip only the broken schema,
+  // keep the rest, and surface the corruption to the user instead of hiding it.
+  const dbTable: { [key: string]: DBTable } = {};
+  const orphanedSchemas: string[] = [];
+  for (const schema of schemas.filter((f) => f.type == "db")) {
+    try {
+      dbTable[schema.id] = dbResultsToDBTables(
+        db.exec(`SELECT * FROM ${quoteIdent(schema.id)}`)
+      )[0];
     } catch (e) {
-      db.close();
-      return null
+      orphanedSchemas.push(schema.id);
     }
+  }
+  notifyOrphanedSchemas(plugin, path, orphanedSchemas);
 
   db.close();
   return {
@@ -97,6 +104,23 @@ export const getMDB = async (
     fields,
     tables: dbTable
   }
+};
+
+// Notify once per file+schema-set per session so a permanently orphaned schema
+// surfaces to the user without turning every re-parse into a toast storm.
+const notifiedOrphanedSchemas = new Set<string>();
+const notifyOrphanedSchemas = (
+  plugin: MDBFileTypeAdapter,
+  path: string,
+  orphanedSchemas: string[]
+) => {
+  if (orphanedSchemas.length === 0) return;
+  const key = `${path}//${orphanedSchemas.join(",")}`;
+  if (notifiedOrphanedSchemas.has(key)) return;
+  notifiedOrphanedSchemas.add(key);
+  plugin.plugin?.superstate?.ui?.notify?.(
+    `${i18n.notice.missingTableSkipped}${orphanedSchemas.join(", ")} (${path})`
+  );
 };
 
 

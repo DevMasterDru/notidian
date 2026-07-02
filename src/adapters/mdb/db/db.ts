@@ -442,8 +442,7 @@ export const dropTable = (db: Database, table: string) => {
 export const replaceDB = (db: Database, tables: DBTables) => {
   //rewrite the entire table, useful for storing ranks and col order, not good for performance
   const sqlStatements : string[] = [];
-  Object.keys(tables)
-    .forEach((t) => {
+  for (const t of Object.keys(tables)) {
       const tableFields = tables[t].cols;
       // ADR 0045 (Option A) / Notidian-k778: derive ONE de-duped, falsy-filtered
       // column list and use it for BOTH the CREATE field definition AND the
@@ -453,6 +452,16 @@ export const replaceDB = (db: Database, tables: DBTables) => {
       // because SQLite folds identifier case — "Status" and "status" in one
       // CREATE TABLE throw `duplicate column name` and fail the whole save.
       const liveCols = uniqCaseInsensitive(tableFields.filter((f) => f));
+      if (liveCols.length === 0) {
+        // Notidian-jn8p: SQLite has no zero-column tables, so there is no
+        // CREATE to pair with the DROP below. Never DROP without recreating:
+        // with rows present the write would silently destroy them AND leave
+        // m_schema referencing a missing table (which used to make the whole
+        // .mdb unloadable via getMDB), so REFUSE the entire write; with no
+        // rows the table is skipped as a no-op.
+        if ((tables[t].rows ?? []).length > 0) return false;
+        continue;
+      }
       const fieldQuery = serializeSQLFieldNames(liveCols.map((f) => `${quoteIdent(f)} char`));
       // Explicit column list removes the positional coupling between the created
       // column order and the VALUES order: REPLACE INTO "t" ("a","b") VALUES (...).
@@ -472,22 +481,32 @@ export const replaceDB = (db: Database, tables: DBTables) => {
           .map((c) => `'${sanitizeSQLStatement(curr?.[c] ?? "")}'`))});`;
       });
       const commitQuery = `COMMIT;`;
+      // Notidian-jn8p: the DROP..CREATE..rows sequence rides INSIDE one
+      // transaction so a mid-sequence exec failure can never leave the
+      // in-memory DB with the table dropped but not recreated — the catch
+      // below rolls the open transaction back before reporting failure.
+      sqlStatements.push(beginTransaction);
       sqlStatements.push(`DROP INDEX IF EXISTS ${quoteIdent(`idx_${t}__id`)}; DROP TABLE IF EXISTS ${quoteIdent(t)};`)
-      if (fieldQuery.length > 0) {
-        sqlStatements.push(createQuery);
-        sqlStatements.push(idxQuery);
-        sqlStatements.push(beginTransaction);
-        sqlStatements.push(...rowsQuery);
-        sqlStatements.push(commitQuery);
-      }
-
-    });
+      sqlStatements.push(createQuery);
+      sqlStatements.push(idxQuery);
+      sqlStatements.push(...rowsQuery);
+      sqlStatements.push(commitQuery);
+  }
   // Run the query without returning anything
   try {
     for (const s of sqlStatements) {
       db.exec(s)
     }
   } catch (e) {
+    // Roll back the open per-table transaction so a caller that exports the
+    // DB image regardless of the result (saveZippedDBToPath) can never
+    // persist a half-replaced table. Best-effort: throws when no transaction
+    // is open, which is fine.
+    try {
+      db.exec(`ROLLBACK;`)
+    } catch (rollbackError) {
+      // no open transaction to roll back
+    }
     return false
   }
   return true;

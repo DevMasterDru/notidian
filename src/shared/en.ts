@@ -1040,7 +1040,8 @@ export const en = {
     "noPropertiesFound": "No Properties Found",
     "somethingWentWrong": "Something Went Wrong",
     "noExistingValues": "No Existing Values",
-    "tableSaveFailed": "Failed to save table changes for "
+    "tableSaveFailed": "Failed to save table changes for ",
+    "missingTableSkipped": "Skipped loading tables whose data is missing from the database file: "
   },
   "settings": {
     "importUrls": "Import Urls",
