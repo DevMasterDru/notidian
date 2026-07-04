@@ -75,6 +75,52 @@ export type DeleteFrontmatterPropertyMode =
   | "hide-from-view"
   | "delete-frontmatter";
 
+// ADR-0056 D10: renaming an `enum: {strict: true}` value is a bulk data
+// migration — every row currently holding the old value must move to the new
+// one or become invalid. This planner extension classifies live rows before
+// any write, the same preview-before-apply discipline as the property
+// rename above. Preview-only this session (no apply path yet).
+export type EnumValueRenameIssue =
+  | { reason: "empty-value"; which: "old" | "new" }
+  | { reason: "same-value"; value: string }
+  | { reason: "missing-field"; field: string };
+
+// A row's classification relative to the {oldValue, newValue} pair. Unlike a
+// KEY rename (two candidate storage locations that can each hold a
+// value, compared for equality) a VALUE rename has one storage location
+// (the field) holding either a scalar or, for a list-valued/multi-select
+// field, a set of values — so "old-only"/"new-only"/"neither" carry over
+// directly, but there is no "both-same" analogue (there is no second value to
+// compare for equality against — presence is a boolean, and oldValue !=
+// newValue is already guaranteed by the "same-value" issue above). A
+// multi-select row that already holds BOTH values is "both-conflict": after
+// the rename it would hold a duplicate, so it is flagged for review rather
+// than silently deduped.
+export type EnumValueRenameRowState =
+  | "old-only"
+  | "new-only"
+  | "both-conflict"
+  | "neither";
+
+export type EnumValueRenameFilePlan = {
+  path: string;
+  state: EnumValueRenameRowState;
+  currentValue: unknown;
+};
+
+export type EnumValueRenameCascadePlan = {
+  canApplyAutomatically: boolean;
+  requiresResolution: boolean;
+  issues: EnumValueRenameIssue[];
+  // Whether the field's column is list-valued (multi_select/option-multi) —
+  // only a list-valued field can ever land in "both-conflict".
+  isListValued: boolean;
+  fileStates: EnumValueRenameFilePlan[];
+  // Paths a write would need to touch: old-only (rename in place) plus
+  // both-conflict (dedupe old out, keep new) — new-only and neither are no-ops.
+  affectedPaths: string[];
+};
+
 export type DeleteFrontmatterPropertyPlan = {
   canApplyAutomatically: boolean;
   destructive: boolean;
@@ -473,5 +519,100 @@ export const planDeleteFrontmatterProperty = ({
     tablePreview,
     affectedFiles,
     frontmatterWrites,
+  };
+};
+
+// A list-valued (multi_select/option-multi) frontmatter value can be a native
+// YAML array already, or (less commonly) a comma/JSON-string form the same
+// way other multi-value cells are authored. Reuses no new parsing rule —
+// falls back to a bare array pass-through, matching how `option-multi`
+// values are already stored in frontmatter (a YAML list) the overwhelming
+// common case; a raw string is treated as a single-element list rather than
+// pulled through display-string escaping rules that belong to the MDB layer,
+// not frontmatter YAML.
+const toValueList = (raw: unknown): string[] => {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map((v) => String(v));
+  return [String(raw)];
+};
+
+const isListValuedColumn = (table: SpaceTable, field: string): boolean => {
+  const column = columnForKey(table, field);
+  return column ? column.type.startsWith("option-multi") : false;
+};
+
+// ADR-0056 D10: preview an enum value rename's row-level cascade before any
+// write. Pure and read-only — classifies every row by whether it currently
+// holds `oldValue`, `newValue`, both (list-valued fields only), or neither.
+// No apply path in this session (S1); a future session wires the write.
+export const planEnumValueRenameCascade = ({
+  table,
+  field,
+  oldValue,
+  newValue,
+  paths,
+  frontmatterByPath,
+}: {
+  table: SpaceTable;
+  field: string;
+  oldValue: string;
+  newValue: string;
+  paths: string[];
+  frontmatterByPath: FrontmatterSnapshotsByPath;
+}): EnumValueRenameCascadePlan => {
+  const normalizedField = trimmedKey(field);
+  const issues: EnumValueRenameIssue[] = [];
+
+  if (!oldValue) issues.push({ reason: "empty-value", which: "old" });
+  if (!newValue) issues.push({ reason: "empty-value", which: "new" });
+  if (oldValue && newValue && oldValue == newValue) {
+    issues.push({ reason: "same-value", value: oldValue });
+  }
+  if (normalizedField && !columnForKey(table, normalizedField)) {
+    issues.push({ reason: "missing-field", field: normalizedField });
+  }
+
+  const isListValued = normalizedField
+    ? isListValuedColumn(table, normalizedField)
+    : false;
+
+  const fileStates: EnumValueRenameFilePlan[] = [];
+  if (issues.length == 0) {
+    for (const path of paths) {
+      const frontmatter = frontmatterForPath(frontmatterByPath, path);
+      const currentValue = frontmatter[normalizedField];
+      const values = isListValued
+        ? toValueList(currentValue)
+        : currentValue != null
+        ? [String(currentValue)]
+        : [];
+      const hasOld = values.includes(oldValue);
+      const hasNew = values.includes(newValue);
+      const state: EnumValueRenameRowState =
+        hasOld && hasNew
+          ? "both-conflict"
+          : hasOld
+          ? "old-only"
+          : hasNew
+          ? "new-only"
+          : "neither";
+      fileStates.push({ path, state, currentValue });
+    }
+  }
+
+  const affectedPaths = fileStates
+    .filter((f) => f.state == "old-only" || f.state == "both-conflict")
+    .map((f) => f.path);
+  const requiresResolution = fileStates.some(
+    (f) => f.state == "both-conflict"
+  );
+
+  return {
+    canApplyAutomatically: issues.length == 0 && !requiresResolution,
+    requiresResolution,
+    issues,
+    isListValued,
+    fileStates,
+    affectedPaths,
   };
 };

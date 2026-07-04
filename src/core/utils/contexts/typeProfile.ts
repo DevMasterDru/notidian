@@ -1,5 +1,7 @@
 import { frontmatterPropertySource } from "core/utils/properties/allProperties";
+import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
 import { defaultContextSchemaID } from "shared/schemas/context";
+import { Filter } from "shared/types/predicate";
 import { SpaceProperty, SpaceTable } from "shared/types/mdb";
 import { safelyParseJSON } from "shared/utils/json";
 
@@ -11,6 +13,24 @@ import { safelyParseJSON } from "shared/utils/json";
 
 export const typeProfileSchemaType = "notidian_type_profile";
 
+// v3 (ADR-0056, Notidian-loan.1): six new optional per-field declarations.
+// None of these enforce anything by themselves in this build — enforcement is
+// ADR-0057's validateRowPatch (Wave 1b) and a future Wave 2 write gate. This
+// module only parses, plans (apply/mirror), and round-trips them.
+export type TypeProfileEnum = { values: string[]; strict: boolean };
+export type TypeProfileUnique = { scope: "database"; where?: Filter[] };
+export type TypeProfileReference = {
+  targetFolder: string;
+  targetKey: string;
+  onBrokenWrite: "block" | "warn";
+  onReferencedChange: "warn" | "cascade-preview";
+};
+export type TypeProfileDerived = {
+  kind: "template" | "lookup" | "rollup";
+  spec: Record<string, unknown>;
+  materialize: "none" | "frontmatter";
+};
+
 export type TypeProfileField = {
   name: string;
   kind: string;
@@ -18,12 +38,50 @@ export type TypeProfileField = {
   options?: string[];
   required?: boolean;
   value?: string;
+  enum?: TypeProfileEnum;
+  unique?: TypeProfileUnique;
+  pattern?: string;
+  title_binding?: boolean;
+  empty?: "absent" | "empty-string";
+  reference?: TypeProfileReference;
+  derived?: TypeProfileDerived;
+  // Forward-compat (ADR-0056): any raw field-def attribute this build does not
+  // recognize is preserved verbatim so parse -> serialize never silently drops
+  // schema authored by a newer build (or a typo the owner should see, not lose).
+  // A KNOWN v3 attribute that is present but malformed is NOT carried here —
+  // it degrades like `unknown-kind` does: a diagnostic issue, the attribute
+  // dropped, same as today's kind-degrades-to-text precedent.
+  extra?: Record<string, unknown>;
+};
+
+// Per-database invariant (ADR-0056 D8): row-local predicate rule expressed in
+// the EXISTING Filter/predicate DSL (src/shared/types/predicate.ts) — no new
+// rule language. `when` is an optional guard (absent/empty == applies to every
+// row); `require` must all hold for the row to be valid.
+export type Invariant = {
+  when?: Filter[];
+  require: Filter[];
+  severity: "error" | "warn";
+  message: string;
+  autofix?: string;
 };
 
 export type TypeProfileIssue =
   | { reason: "missing-fields" }
   | { reason: "invalid-field"; field: string }
-  | { reason: "unknown-kind"; field: string; kind: string };
+  | { reason: "unknown-kind"; field: string; kind: string }
+  | { reason: "invalid-enum"; field: string }
+  | { reason: "invalid-unique"; field: string }
+  | { reason: "invalid-pattern"; field: string }
+  | { reason: "invalid-title-binding"; field: string }
+  | { reason: "invalid-empty-policy"; field: string }
+  | { reason: "invalid-reference"; field: string }
+  | { reason: "invalid-derived"; field: string }
+  | { reason: "cyclic-derived"; field: string; cycle: string[] }
+  | { reason: "invalid-filter"; path: string }
+  | { reason: "unknown-filter-fn"; path: string; fn: string }
+  | { reason: "invalid-invariant"; index: number }
+  | { reason: "invalid-invariants-block" };
 
 export type NotidianTypeProfile = {
   database?: string;
@@ -33,6 +91,10 @@ export type NotidianTypeProfile = {
   // preserves which fields belong to which kind for future per-kind use
   // (templates, validation).
   kindFields: Record<string, TypeProfileField[]>;
+  // v3 (ADR-0056 D8): the hub's declared per-database invariants, already
+  // parsed into Filter-DSL structures. Only successfully-parsed invariants
+  // appear here; malformed entries surface as `issues`, never silently.
+  invariants: Invariant[];
   issues: TypeProfileIssue[];
 };
 
@@ -77,6 +139,250 @@ const normalizeRawFields = (
   return parsed as Record<string, unknown>;
 };
 
+// Same JSON-string tolerance as normalizeRawFields, for a top-level list
+// (`invariants:`) instead of a map.
+const normalizeRawList = (rawList: unknown): unknown[] | null => {
+  const parsed =
+    typeof rawList == "string" ? safelyParseJSON(rawList) : rawList;
+  return Array.isArray(parsed) ? parsed : null;
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value == "object" && !Array.isArray(value);
+
+// ---------------------------------------------------------------------------
+// Filter DSL reuse (ADR-0056 D8): `unique.where` and every invariant's
+// `when`/`require` are the EXISTING `{field, fn, value, fType}` Filter shape
+// (src/shared/types/predicate.ts), validated against the SAME `fn` registry
+// every view's filter bar uses (filterFnTypes) — no new rule language, and an
+// unrecognized `fn` is a loud parse diagnostic, never a silent no-op.
+// ---------------------------------------------------------------------------
+
+const knownFilterFns = new Set(Object.keys(filterFnTypes));
+
+const parseFilter = (
+  raw: unknown,
+  path: string,
+  issues: TypeProfileIssue[]
+): Filter | null => {
+  if (!isPlainObject(raw)) {
+    issues.push({ reason: "invalid-filter", path });
+    return null;
+  }
+  const { field, fn, value, fType } = raw;
+  if (
+    typeof field != "string" ||
+    field.length == 0 ||
+    typeof fn != "string" ||
+    fn.length == 0 ||
+    typeof value != "string" ||
+    typeof fType != "string"
+  ) {
+    issues.push({ reason: "invalid-filter", path });
+    return null;
+  }
+  if (!knownFilterFns.has(fn)) {
+    issues.push({ reason: "unknown-filter-fn", path, fn });
+    return null;
+  }
+  return { field, fn, value, fType };
+};
+
+// Parses a `Filter[]`. `ok` is false when ANY entry is malformed or references
+// an unknown `fn` — the caller rejects the WHOLE list rather than silently
+// running a subtly-weakened rule with the bad entry dropped (each bad entry
+// still gets its own diagnostic above, in addition to the caller's own
+// reject-the-parent issue).
+const parseFilterList = (
+  raw: unknown,
+  path: string,
+  issues: TypeProfileIssue[]
+): { filters: Filter[]; ok: boolean } => {
+  if (raw == null) return { filters: [], ok: true };
+  if (!Array.isArray(raw)) {
+    issues.push({ reason: "invalid-filter", path });
+    return { filters: [], ok: false };
+  }
+  let ok = true;
+  const filters: Filter[] = [];
+  raw.forEach((entry, i) => {
+    const parsed = parseFilter(entry, `${path}[${i}]`, issues);
+    if (parsed) filters.push(parsed);
+    else ok = false;
+  });
+  return { filters, ok };
+};
+
+// ---------------------------------------------------------------------------
+// v3 per-field attribute parsers (ADR-0056 D1–D7). Each is independently
+// optional and degrades to `undefined` + a diagnostic issue on a malformed
+// shape — never throws, never silently accepts a garbage shape as valid.
+// ---------------------------------------------------------------------------
+
+const parseEnumAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): TypeProfileEnum | undefined => {
+  if (raw == null) return undefined;
+  if (
+    !isPlainObject(raw) ||
+    !Array.isArray(raw.values) ||
+    raw.values.length == 0 ||
+    !raw.values.every((v: unknown) => typeof v == "string") ||
+    typeof raw.strict != "boolean"
+  ) {
+    issues.push({ reason: "invalid-enum", field: fieldPath });
+    return undefined;
+  }
+  return { values: raw.values as string[], strict: raw.strict as boolean };
+};
+
+const parseUniqueAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): TypeProfileUnique | undefined => {
+  if (raw == null) return undefined;
+  if (!isPlainObject(raw) || raw.scope != "database") {
+    issues.push({ reason: "invalid-unique", field: fieldPath });
+    return undefined;
+  }
+  if (raw.where == null) return { scope: "database" };
+  const { filters, ok } = parseFilterList(
+    raw.where,
+    `${fieldPath}.unique.where`,
+    issues
+  );
+  if (!ok) {
+    issues.push({ reason: "invalid-unique", field: fieldPath });
+    return undefined;
+  }
+  return { scope: "database", where: filters };
+};
+
+const parsePatternAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): string | undefined => {
+  if (raw == null) return undefined;
+  if (typeof raw != "string" || raw.length == 0) {
+    issues.push({ reason: "invalid-pattern", field: fieldPath });
+    return undefined;
+  }
+  try {
+    // eslint-disable-next-line no-new
+    new RegExp(raw);
+  } catch {
+    issues.push({ reason: "invalid-pattern", field: fieldPath });
+    return undefined;
+  }
+  return raw;
+};
+
+const parseTitleBindingAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): boolean | undefined => {
+  if (raw == null) return undefined;
+  if (typeof raw != "boolean") {
+    issues.push({ reason: "invalid-title-binding", field: fieldPath });
+    return undefined;
+  }
+  return raw;
+};
+
+const validEmptyPolicies = new Set(["absent", "empty-string"]);
+
+const parseEmptyAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): "absent" | "empty-string" | undefined => {
+  if (raw == null) return undefined;
+  if (typeof raw != "string" || !validEmptyPolicies.has(raw)) {
+    issues.push({ reason: "invalid-empty-policy", field: fieldPath });
+    return undefined;
+  }
+  return raw as "absent" | "empty-string";
+};
+
+const validOnBrokenWrite = new Set(["block", "warn"]);
+const validOnReferencedChange = new Set(["warn", "cascade-preview"]);
+
+const parseReferenceAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): TypeProfileReference | undefined => {
+  if (raw == null) return undefined;
+  if (
+    !isPlainObject(raw) ||
+    typeof raw.targetFolder != "string" ||
+    raw.targetFolder.length == 0 ||
+    typeof raw.targetKey != "string" ||
+    raw.targetKey.length == 0 ||
+    typeof raw.onBrokenWrite != "string" ||
+    !validOnBrokenWrite.has(raw.onBrokenWrite) ||
+    typeof raw.onReferencedChange != "string" ||
+    !validOnReferencedChange.has(raw.onReferencedChange)
+  ) {
+    issues.push({ reason: "invalid-reference", field: fieldPath });
+    return undefined;
+  }
+  return {
+    targetFolder: raw.targetFolder,
+    targetKey: raw.targetKey,
+    onBrokenWrite: raw.onBrokenWrite as "block" | "warn",
+    onReferencedChange: raw.onReferencedChange as "warn" | "cascade-preview",
+  };
+};
+
+const validDerivedKinds = new Set(["template", "lookup", "rollup"]);
+const validMaterialize = new Set(["none", "frontmatter"]);
+
+const parseDerivedAttr = (
+  raw: unknown,
+  fieldPath: string,
+  issues: TypeProfileIssue[]
+): TypeProfileDerived | undefined => {
+  if (raw == null) return undefined;
+  if (
+    !isPlainObject(raw) ||
+    typeof raw.kind != "string" ||
+    !validDerivedKinds.has(raw.kind) ||
+    !isPlainObject(raw.spec) ||
+    typeof raw.materialize != "string" ||
+    !validMaterialize.has(raw.materialize)
+  ) {
+    issues.push({ reason: "invalid-derived", field: fieldPath });
+    return undefined;
+  }
+  return {
+    kind: raw.kind as "template" | "lookup" | "rollup",
+    spec: raw.spec,
+    materialize: raw.materialize as "none" | "frontmatter",
+  };
+};
+
+// Every raw field-def key this parser understands. Anything else on the def
+// is forward-compat data, preserved verbatim on `.extra` (see TypeProfileField).
+const knownFieldDefKeys = new Set([
+  "kind",
+  "options",
+  "required",
+  "value",
+  "enum",
+  "unique",
+  "pattern",
+  "title_binding",
+  "empty",
+  "reference",
+  "derived",
+]);
+
 // Parse one `name -> field-def` map into typed fields, recording issues for
 // invalid defs and unknown kinds (which degrade to text, never throw).
 const parseFieldsMap = (
@@ -104,6 +410,10 @@ const parseFieldsMap = (
       issues.push({ reason: "unknown-kind", field: issuePrefix + name, kind });
       type = "text";
     }
+    const fieldPath = issuePrefix + name;
+    const extraEntries = Object.entries(fieldDef).filter(
+      ([key]) => !knownFieldDefKeys.has(key)
+    );
     fields.push({
       name,
       kind,
@@ -113,9 +423,168 @@ const parseFieldsMap = (
         : undefined,
       required: fieldDef.required === true,
       value: fieldDef.value != null ? String(fieldDef.value) : undefined,
+      enum: parseEnumAttr(fieldDef.enum, fieldPath, issues),
+      unique: parseUniqueAttr(fieldDef.unique, fieldPath, issues),
+      pattern: parsePatternAttr(fieldDef.pattern, fieldPath, issues),
+      title_binding: parseTitleBindingAttr(
+        fieldDef.title_binding,
+        fieldPath,
+        issues
+      ),
+      empty: parseEmptyAttr(fieldDef.empty, fieldPath, issues),
+      reference: parseReferenceAttr(fieldDef.reference, fieldPath, issues),
+      derived: parseDerivedAttr(fieldDef.derived, fieldPath, issues),
+      ...(extraEntries.length > 0
+        ? { extra: Object.fromEntries(extraEntries) }
+        : {}),
     });
   }
   return fields;
+};
+
+// ---------------------------------------------------------------------------
+// Invariants (ADR-0056 D8): a per-database `invariants:` list, parsed into
+// the Filter-DSL shape. Malformed entries are rejected WHOLE (never a
+// silently-weakened partial rule) with a diagnostic; well-formed siblings in
+// the same list still parse.
+// ---------------------------------------------------------------------------
+
+const validSeverities = new Set(["error", "warn"]);
+
+const parseInvariant = (
+  raw: unknown,
+  index: number,
+  issues: TypeProfileIssue[]
+): Invariant | null => {
+  if (!isPlainObject(raw)) {
+    issues.push({ reason: "invalid-invariant", index });
+    return null;
+  }
+  const path = `invariants[${index}]`;
+  let ok = true;
+
+  let when: Filter[] | undefined;
+  if (raw.when != null) {
+    const parsedWhen = parseFilterList(raw.when, `${path}.when`, issues);
+    if (!parsedWhen.ok) ok = false;
+    when = parsedWhen.filters;
+  }
+
+  const parsedRequire = parseFilterList(raw.require, `${path}.require`, issues);
+  if (!parsedRequire.ok || parsedRequire.filters.length == 0) ok = false;
+
+  if (typeof raw.severity != "string" || !validSeverities.has(raw.severity))
+    ok = false;
+  if (typeof raw.message != "string" || raw.message.length == 0) ok = false;
+
+  let autofix: string | undefined;
+  if (raw.autofix != null) {
+    if (typeof raw.autofix == "string" && raw.autofix.length > 0)
+      autofix = raw.autofix;
+    else ok = false;
+  }
+
+  if (!ok) {
+    issues.push({ reason: "invalid-invariant", index });
+    return null;
+  }
+
+  return {
+    ...(when && when.length > 0 ? { when } : {}),
+    require: parsedRequire.filters,
+    severity: raw.severity as "error" | "warn",
+    message: raw.message as string,
+    ...(autofix ? { autofix } : {}),
+  };
+};
+
+export const parseInvariants = (
+  rawInvariants: unknown,
+  issues: TypeProfileIssue[]
+): Invariant[] => {
+  if (rawInvariants == null) return [];
+  const list = normalizeRawList(rawInvariants);
+  if (!list) {
+    issues.push({ reason: "invalid-invariants-block" });
+    return [];
+  }
+  const invariants: Invariant[] = [];
+  list.forEach((entry, i) => {
+    const parsed = parseInvariant(entry, i, issues);
+    if (parsed) invariants.push(parsed);
+  });
+  return invariants;
+};
+
+// ---------------------------------------------------------------------------
+// Derived-field cycle detection (ADR-0056 D7, ADR-0055 D5): a `derived, kind:
+// "template"` field's spec.template may reference OTHER fields on the same
+// row via `{fieldName}` (ADR-0055 D1's local-interpolation syntax); the
+// cross-DB `{fk->Folder.key:field}` form is NOT tracked here — resolving it
+// needs another database's profile, which is out of this pure module's reach
+// (a future consumer's job, not this parser's). This pass only rejects a
+// SAME-PROFILE cycle among template-kind derived fields — a DAG, per ADR-0055
+// D5 — never a cross-profile one (that needs the Wave-4 dependency index,
+// ADR-0058 D4).
+// ---------------------------------------------------------------------------
+
+const localTemplateRefs = (
+  template: string,
+  knownNames: Set<string>
+): string[] => {
+  const refs = new Set<string>();
+  const re = /\{([^{}]+)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(template))) {
+    const token = match[1];
+    if (token.includes("->")) continue; // cross-DB lookup syntax, not local.
+    if (knownNames.has(token)) refs.add(token);
+  }
+  return [...refs];
+};
+
+const detectDerivedCycles = (
+  fields: TypeProfileField[],
+  issues: TypeProfileIssue[]
+): void => {
+  const knownNames = new Set(fields.map((f) => f.name));
+  const graph = new Map<string, string[]>();
+  for (const field of fields) {
+    if (
+      field.derived?.kind == "template" &&
+      typeof field.derived.spec.template == "string"
+    ) {
+      graph.set(
+        field.name,
+        localTemplateRefs(field.derived.spec.template, knownNames)
+      );
+    }
+  }
+
+  const state = new Map<string, "visiting" | "done">();
+  const stack: string[] = [];
+  const reported = new Set<string>();
+
+  const visit = (name: string): void => {
+    if (state.get(name) == "done") return;
+    if (state.get(name) == "visiting") {
+      const cycleStart = stack.indexOf(name);
+      const cycle = [...stack.slice(cycleStart), name];
+      for (const member of cycle) {
+        if (reported.has(member)) continue;
+        reported.add(member);
+        issues.push({ reason: "cyclic-derived", field: member, cycle });
+      }
+      return;
+    }
+    state.set(name, "visiting");
+    stack.push(name);
+    for (const dep of graph.get(name) ?? []) visit(dep);
+    stack.pop();
+    state.set(name, "done");
+  };
+
+  for (const name of graph.keys()) visit(name);
 };
 
 export const parseTypeProfile = (
@@ -177,11 +646,17 @@ export const parseTypeProfile = (
   addUnique(common);
   for (const list of Object.values(kindFields)) addUnique(list);
 
+  // v3 (ADR-0056 D8/D7): parse the per-database invariants block and detect
+  // same-profile derived-template cycles. Both only ever push diagnostics —
+  // never throw, never block the rest of the profile from parsing.
+  detectDerivedCycles(fields, issues);
+  const invariants = parseInvariants(frontmatter["invariants"], issues);
+
   if (fields.length == 0) {
     issues.push({ reason: "missing-fields" });
-    return { database, fields: [], kindFields, issues };
+    return { database, fields: [], kindFields, invariants, issues };
   }
-  return { database, fields, kindFields, issues };
+  return { database, fields, kindFields, invariants, issues };
 };
 
 type OptionEntry = { name: string; value: string; color?: string };
@@ -318,6 +793,33 @@ export const newRowFrontmatterFromProfile = (
   }
   return defaults;
 };
+
+// Reconstructs the raw per-field def object a TypeProfileField was parsed
+// from (ADR-0056: "unknown attrs must round-trip untouched"). Pure inverse of
+// parseFieldsMap's per-field branch — used to prove byte-stable round-trip
+// for every v3 attribute, and available to a future serializer that writes a
+// hub note's `fields`/`kind_fields` map. `required` is only emitted when
+// true (parseFieldsMap always normalizes an absent/false declaration to
+// `false`, so there is no way to distinguish "declared false" from "absent"
+// once parsed — emitting only on `true` matches the common authoring case and
+// keeps a v1/v2 profile's untouched fields serializing back to their
+// original shorter form).
+export const serializeTypeProfileField = (
+  field: TypeProfileField
+): Record<string, unknown> => ({
+  kind: field.kind,
+  ...(field.options ? { options: field.options } : {}),
+  ...(field.required ? { required: true } : {}),
+  ...(field.value != null ? { value: field.value } : {}),
+  ...(field.enum ? { enum: field.enum } : {}),
+  ...(field.unique ? { unique: field.unique } : {}),
+  ...(field.pattern ? { pattern: field.pattern } : {}),
+  ...(field.title_binding ? { title_binding: field.title_binding } : {}),
+  ...(field.empty ? { empty: field.empty } : {}),
+  ...(field.reference ? { reference: field.reference } : {}),
+  ...(field.derived ? { derived: field.derived } : {}),
+  ...(field.extra ?? {}),
+});
 
 export type TypeProfileSchemaChange =
   | { kind: "add-column"; name: string; type: string }
