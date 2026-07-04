@@ -1749,15 +1749,43 @@ export const TableView = (props: { superstate: Superstate }) => {
           props.superstate.ui.notify(`Redid ${entry.label}.`);
         }
       } else if (isOnlySchemaChangedSkip(result)) {
-        // Every write in this entry targets a column that was permanently
-        // removed from the schema — retrying can never succeed. Re-pushing
-        // it back onto the stack (like the transient frontmatter-conflict
-        // skip below) would make it stick there forever, re-skipping on
-        // every subsequent undo/redo press with no progress. Drop it
-        // instead: the entry was already popped off its stack above, so
-        // doing nothing here lets undo/redo advance past it. The per-cell
-        // feedback from finishCellFeedbackOperation above already told the
-        // user why. bd Notidian-0ykh.
+        // Every OUTSTANDING issue in this entry is a permanent
+        // schema-changed skip (the write's column was deleted from the
+        // schema) and nothing failed outright — but a single entry commonly
+        // bundles writes for several columns of one row (e.g. a multi-column
+        // paste), so `result.applied` can still be > 0 for the sibling
+        // writes whose columns still exist. Narrow the entry down to just
+        // those accepted writes (the same filterTableUndoEntryForResult used
+        // by every forward-edit push site) and keep tracking that reduced
+        // entry on the opposite stack — dropping the whole entry here would
+        // silently untrack a write that just landed on the canonical
+        // frontmatter store. Only when NOTHING in the entry survives the
+        // filter (the entry maps entirely onto schema-changed writes) do we
+        // drop it outright, same as before: re-pushing it would make it
+        // stick there forever, re-skipping on every subsequent undo/redo
+        // press with no progress. The per-cell feedback from
+        // finishCellFeedbackOperation above already told the user why. bd
+        // Notidian-0ykh.
+        const filteredEntry = filterTableUndoEntryForResult(entry, result);
+        const hasSurvivingWrites =
+          filteredEntry.writes.length > 0 || filteredEntry.redoWrites.length > 0;
+        if (hasSurvivingWrites) {
+          if (isUndo) {
+            const nextRedoStack = pushTableUndoEntry(
+              latestJournal.redo,
+              filteredEntry
+            );
+            replaceTableUndoJournal(latestJournal.undo, nextRedoStack);
+            props.superstate.ui.notify(`Undid ${entry.label}.`);
+          } else {
+            const nextUndoStack = pushTableUndoEntry(
+              latestJournal.undo,
+              filteredEntry
+            );
+            replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
+            props.superstate.ui.notify(`Redid ${entry.label}.`);
+          }
+        }
       } else if (isUndo) {
         const restoredUndoStack = pushTableUndoEntry(latestJournal.undo, entry);
         replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);

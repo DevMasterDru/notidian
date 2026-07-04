@@ -163,6 +163,77 @@ const schemaChangedResult = (
     ],
   } as any);
 
+// A two-column entry (e.g. one net effect from a multi-column paste): one
+// write targets a column that still exists (Status), the other targets a
+// column that has since been deleted from the schema (Priority).
+const makeMixedEntry = (
+  label: string,
+  statusValue: string,
+  priorityValue: string,
+  statusRedoValue = `redo-${statusValue}`,
+  priorityRedoValue = `redo-${priorityValue}`
+): TableUndoEntry =>
+  ({
+    label,
+    writes: [
+      {
+        rowId: "0",
+        columnName: "Status",
+        table: "",
+        columnId: "Status",
+        value: statusValue,
+      },
+      {
+        rowId: "0",
+        columnName: "Priority",
+        table: "",
+        columnId: "Priority",
+        value: priorityValue,
+      },
+    ],
+    redoWrites: [
+      {
+        rowId: "0",
+        columnName: "Status",
+        table: "",
+        columnId: "Status",
+        value: statusRedoValue,
+      },
+      {
+        rowId: "0",
+        columnName: "Priority",
+        table: "",
+        columnId: "Priority",
+        value: priorityRedoValue,
+      },
+    ],
+  } as any);
+
+// Mixed transaction result: the Status write applied normally, the Priority
+// write was permanently skipped because its column was deleted from the
+// schema. Nothing failed outright, so isOnlySchemaChangedSkip is still true
+// — the entry must be NARROWED (Status kept), not dropped outright.
+const mixedSchemaChangedResult = (
+  priorityValue: string
+): TableEditTransactionResult =>
+  ({
+    ok: true,
+    applied: 1,
+    failed: [],
+    skipped: [
+      {
+        write: {
+          rowId: "0",
+          columnName: "Priority",
+          table: "",
+          columnId: "Priority",
+          value: priorityValue,
+        },
+        reason: "schema-changed",
+      },
+    ],
+  } as any);
+
 const frontmatterConflictResult = (
   value: string
 ): TableEditTransactionResult =>
@@ -376,5 +447,62 @@ describe("undo/redo stack transitions on value-write skip", () => {
     await fireRedo();
     expect(applyTableEdits).toHaveBeenCalledTimes(2);
     expect(applyTableEdits.mock.calls[1][0][0].value).toBe("redo-a");
+  });
+
+  it("(d) keeps the surviving write trackable on the redo stack when only PART of a mixed entry is a permanent schema-changed skip (Notidian-0ykh)", async () => {
+    // One entry carries writes for two columns of the same row (e.g. one net
+    // effect from a multi-column paste): Status still exists, Priority was
+    // since deleted from the schema.
+    __seedTableUndoJournalForTest(JOURNAL_KEY, {
+      undo: [makeMixedEntry("edit AB", "status-a", "priority-a")],
+      redo: [],
+    });
+
+    await render();
+
+    await fireUndo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(1);
+    expect(applyTableEdits.mock.calls[0][0]).toHaveLength(2);
+    await settleOldest(mixedSchemaChangedResult("priority-a"));
+
+    // The undo stack is now empty (single entry was popped and not
+    // re-pushed), but the Status write DID land on disk — it must still be
+    // redo-able. If the whole entry had been dropped (the bug), this redo
+    // press would find an empty redo stack and never call applyTableEdits
+    // again.
+    await fireRedo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(2);
+    // Only the surviving (Status) write is replayed — Priority was filtered
+    // out of the narrowed entry, since retrying it can never succeed.
+    expect(applyTableEdits.mock.calls[1][0]).toHaveLength(1);
+    expect(applyTableEdits.mock.calls[1][0][0].columnName).toBe("Status");
+    expect(applyTableEdits.mock.calls[1][0][0].value).toBe("redo-status-a");
+
+    // And the redo stack is drained after that single replay — no leftover
+    // Priority-only entry lingering behind it.
+    await fireRedo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(2);
+  });
+
+  it("(e) keeps the surviving write trackable on the undo stack on the analogous redo-side mixed skip (Notidian-0ykh)", async () => {
+    __seedTableUndoJournalForTest(JOURNAL_KEY, {
+      undo: [],
+      redo: [makeMixedEntry("edit AB", "status-a", "priority-a")],
+    });
+
+    await render();
+
+    await fireRedo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(1);
+    expect(applyTableEdits.mock.calls[0][0]).toHaveLength(2);
+    await settleOldest(mixedSchemaChangedResult("redo-priority-a"));
+
+    // The Status write applied via the redo replay — it must still be
+    // undo-able, narrowed down to just that column.
+    await fireUndo();
+    expect(applyTableEdits).toHaveBeenCalledTimes(2);
+    expect(applyTableEdits.mock.calls[1][0]).toHaveLength(1);
+    expect(applyTableEdits.mock.calls[1][0][0].columnName).toBe("Status");
+    expect(applyTableEdits.mock.calls[1][0][0].value).toBe("status-a");
   });
 });
