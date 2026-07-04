@@ -531,13 +531,14 @@ export const saveZippedDBToPath = async (
     db.close()
     return false;
   }
-  replaceDB(db, tables);
-
-  await saveZippedDBFile(plugin, path, db.export().buffer as ArrayBuffer);
+  const result = replaceDB(db, tables);
+  if (result) {
+    await saveZippedDBFile(plugin, path, db.export().buffer as ArrayBuffer);
+  }
   db.close();
 
-    
-  return true;
+
+  return result;
   });
 };
 
