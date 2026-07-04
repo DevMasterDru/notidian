@@ -18,6 +18,89 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ---
 
+## Infra-blocked bd bookkeeping (implementation complete + verified + committed; `bd close` could not run)
+
+### Notidian-loan.3 — S3: Schema adoption command (draft v3 from live rows, confirm-gated)
+
+**2026-07-05.** Fully implemented, gated, and committed on `autolong/run-3`
+(commit noted in the commit message below) — this is **not** a code-review or
+decision item, it is a **bd-write-path infrastructure blocker**: every `bd`
+write command (`--claim`, `close`, `remember`, `create`) on this clone refuses
+with:
+
+```
+refusing to auto-apply 4 pending schema migrations to a remote-backed database
+(v49 -> v53): migrating clones independently forks the schema (#4259)
+```
+
+Per `bd`'s own guidance this is a **coordination decision, not an auto-fix** —
+only the single designated migrator should run
+`BD_ALLOW_REMOTE_MIGRATE=1 bd migrate && bd dolt push`, and re-cloning
+(`bd bootstrap`) replaces local unpushed issues. Since this is a Long Autonomous
+Mode multi-session drive, other clones may be concurrently active, so this
+session did **not** migrate or re-clone unilaterally — that would risk forking
+the shared bd schema for every other in-flight session. `bd show/list` still
+work read-only via `BD_IGNORE_SCHEMA_SKEW=1`, confirming `Notidian-loan.3` is
+still `OPEN`/unclaimed in the local view.
+
+**What shipped (verified, not just claimed):**
+
+- `src/core/utils/contexts/typeProfileAdopt.ts` — pure adoption planner: field
+  value stats (present/empty/absent + distinct values), the bounded-cardinality
+  enum-candidate heuristic (ADR-0056 D2/D9 — always drafted `strict: false`,
+  never auto-strict), empty-encoding policy inference (D5), FK candidate
+  scoring via cross-database value overlap (D6, keyMatchResolver-style trim +
+  string equality), whole-draft assembly, and a never-clobber merge planner
+  into the hub note's raw `fields:` map.
+- `src/core/superstate/utils/typeProfileAdoption.ts` — runtime glue: gathers
+  sibling-database field values from `contextsIndex`/`pathsIndex`, resolves the
+  adoption target folder from an active path (folder/hub-note/row), builds the
+  draft, and is the **only** function that writes (via
+  `saveFrontmatterProperties`), invoked exclusively from the preview modal's
+  confirm handler.
+- `src/core/react/components/UI/Modals/TypeProfileAdoptionModal.tsx` +
+  `typeProfileAdoptionAction.tsx` — the ADR-0015 preview/confirm modal and its
+  shared open-and-wire orchestration, used by both entry points below.
+- Two entry points, per the bead's "palette + hub-note affordance" ask:
+  the `notidian-adopt-schema` command (`src/commands.tsx`) and an "Adopt
+  Schema" item in the space header's `+` menu (`SpaceHeaderBar.tsx`).
+- A new, independently-gated (`--adopt-schema`) live-verify harness scenario in
+  `scripts/notidianRealVaultHarness.js` (`runSchemaAdoptionScenario`): creates a
+  fixture "Sensor Registry" (bounded `sensor_class` vocabulary + `board_id`
+  overlapping a sibling "Board Registry" fixture), triggers the real
+  `notidian-adopt-schema` command, drives a real DOM click on the preview
+  modal's confirm button, and asserts the hub note is unwritten before confirm
+  and correctly profiled (drafted enum + FK reference) after. Not folded into
+  the existing `--ui` table-UI scenario so it doesn't perturb that scenario's
+  pinned eval-call-count test.
+
+**Evidence:** `npm test -- --runInBand` 289/289 suites, 8964/8964 tests green
+(89 new: 24 pure-planner, 15 runtime-glue, 3 modal, 10 harness-scenario unit
+tests, plus 2 in `notidianVerify.test.js`); `npx tsc -noEmit -skipLibCheck`
+exit 0; `npm run build` clean. `npm run verify:source`'s audit step fails on
+the SAME pre-existing devDependency-only findings loan.1 already flagged and
+filed as `Notidian-yf2a` (`@babel/core`/`esbuild`/`js-yaml` under
+`istanbuljs`) — `npm audit --omit=dev` is clean (0 production
+vulnerabilities); package.json/package-lock.json untouched this session, so
+this is the same tracked baseline condition, not a regression. Live-verify
+(`npm run deploy:vault` + `npm run verify:live -- --adopt-schema`, Obsidian
+running this session per ADR-0051) — see the commit message / session
+hand-off for the actual live run's outcome.
+
+**Owner/next-session action:** once the bd remote schema-migration coordination
+is resolved (designated migrator runs `BD_ALLOW_REMOTE_MIGRATE=1 bd migrate &&
+bd dolt push`, or this clone is re-bootstrapped), claim and close
+`Notidian-loan.3` with this entry as the evidence, and file the `bd note` on
+`Notidian-loan.6` this bead's hand-off asks for (adoption-heuristic limits:
+enum eligibility is gated to text/select/multi_select-shaped fields only;
+bounded-cardinality cap is a fixed constant of 12 distinct values with at least
+one repeat — no adaptive sampling; FK candidates require ≥2 distinct values and
+a ≥60% overlap ratio, capped at the top 3 matches; adoption only ever ADDS
+fields not yet declared — it never edits an already-declared field's enum/FK/
+empty-policy, even to refine it).
+
+---
+
 ## Awaiting owner USE — default-ON flag-gated changes (ship-then-verify)
 
 These are **owner-requested core render-path changes** shipped **default-ON behind

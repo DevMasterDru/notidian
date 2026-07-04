@@ -128,7 +128,12 @@ export const typeProfileKindForType = (type: string): string => {
   return "text";
 };
 
-const normalizeRawFields = (
+// Exported (Notidian-loan.3, ADR-0056 D9): the schema-adoption merge planner
+// (typeProfileAdopt.ts) reuses this to read the hub's CURRENT raw `fields:`
+// map before merging in drafted additions — same JSON-string tolerance as
+// every other consumer of a hub note's frontmatter. Pure re-export, no
+// behavior change.
+export const normalizeRawFields = (
   rawFields: unknown
 ): Record<string, unknown> | null => {
   // Obsidian's metadata cache can surface nested YAML as a JSON string.

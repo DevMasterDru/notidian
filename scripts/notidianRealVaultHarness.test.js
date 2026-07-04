@@ -4,6 +4,7 @@ const {
   createFixturePaths,
   parseHarnessArgs,
   runRealVaultSmokeHarness,
+  runSchemaAdoptionScenario,
   validateHarnessConfig,
 } = require("./notidianRealVaultHarness");
 
@@ -47,6 +48,7 @@ describe("notidian real vault harness", () => {
       allowWrite: true,
       keepFixture: true,
       includeUi: false,
+      includeSchemaAdoption: false,
       pluginId: "notidian-dev",
       fixtureRoot: "Notidian Smoke Fixtures",
       timeoutMs: 2500,
@@ -725,5 +727,278 @@ describe("notidian real vault harness", () => {
     ).rejects.toThrow("timed out after 25ms");
 
     expect(Date.now() - started).toBeLessThan(300);
+  });
+
+  it("parses --adopt-schema", () => {
+    expect(
+      parseHarnessArgs(["vault=Atlas Vault", "--allow-write", "--adopt-schema"], {})
+    ).toMatchObject({
+      vault: "Atlas Vault",
+      allowWrite: true,
+      includeSchemaAdoption: true,
+    });
+    expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
+      .toMatchObject({ includeSchemaAdoption: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runSchemaAdoptionScenario (Notidian-loan.3, ADR-0056 D9): drafts a v3 Type
+// Profile from a fixture "Sensor Registry" database (bounded-cardinality
+// sensor_class + a board_id field overlapping a sibling "Board Registry"
+// fixture), confirms through the preview modal via a real DOM click (mocked
+// here), and asserts the write only lands after confirm.
+// ---------------------------------------------------------------------------
+describe("runSchemaAdoptionScenario", () => {
+  const SCHEMA_ADOPTION_ROOT =
+    "Notidian Integration Fixtures/run-1-SchemaAdoption";
+  const SCHEMA_ADOPTION_BOARD_FOLDER = `${SCHEMA_ADOPTION_ROOT}/Board Registry`;
+  const SCHEMA_ADOPTION_HUB_PATH = `${SCHEMA_ADOPTION_ROOT}/Sensor Registry.md`;
+  // Mirrors notidianRealVaultHarness.js's SCHEMA_ADOPTION_SENSOR_ROWS /
+  // SCHEMA_ADOPTION_BOARD_IDS (not exported — restated here, same convention
+  // as SCHEMA_ADOPTION_ROOT above) so the mock can answer each row's own
+  // waitForMetadataValue poll with its OWN value, not one fixed value for
+  // every row.
+  const SENSOR_ROWS = [
+    { id: "sn-001", sensorClass: "temperature" },
+    { id: "sn-002", sensorClass: "humidity" },
+    { id: "sn-003", sensorClass: "temperature" },
+    { id: "sn-004", sensorClass: "pressure" },
+    { id: "sn-005", sensorClass: "temperature" },
+  ];
+  const BOARD_IDS = ["board-1", "board-2"];
+
+  const defaultAfterFields = {
+    sensor_class: {
+      kind: "text",
+      enum: {
+        values: ["temperature", "humidity", "pressure"],
+        strict: false,
+      },
+    },
+    board_id: {
+      kind: "text",
+      reference: {
+        targetFolder: SCHEMA_ADOPTION_BOARD_FOLDER,
+        targetKey: "board_id",
+        onBrokenWrite: "warn",
+        onReferencedChange: "warn",
+      },
+    },
+  };
+
+  const buildSchemaAdoptionRunner = ({
+    modalResult = {
+      ok: true,
+      modalText:
+        "sensor_class ... Looks like a reference to Board Registry ...",
+      closed: true,
+    },
+    beforeSnapshot = {},
+    afterFields = defaultAfterFields,
+    deleteOk = true,
+  } = {}) => {
+    let frontmatterSnapshotCallCount = 0;
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command != "eval") return "";
+
+      const codeArg = args.find((arg) => arg.startsWith("code=")) ?? "";
+      if (codeArg.includes("notidianSchemaAdoptionSetup")) {
+        return JSON.stringify({
+          ok: true,
+          hubPath: SCHEMA_ADOPTION_HUB_PATH,
+          enableFolderNote: false,
+        });
+      }
+      if (codeArg.includes("notidianSchemaAdoptionModal")) {
+        return JSON.stringify(modalResult);
+      }
+      if (codeArg.includes("notidianDeleteFolder")) {
+        return JSON.stringify(
+          deleteOk ? { ok: true } : { ok: false, reason: "exception" }
+        );
+      }
+      if (codeArg.includes("JSON.stringify(cache?.frontmatter")) {
+        frontmatterSnapshotCallCount++;
+        return JSON.stringify(
+          frontmatterSnapshotCallCount == 1
+            ? beforeSnapshot
+            : { schema_type: "notidian_type_profile", fields: afterFields }
+        );
+      }
+      if (codeArg.includes('"sensor_class"')) {
+        const row = SENSOR_ROWS.find((r) => codeArg.includes(r.id));
+        return `=> ${row ? row.sensorClass : "temperature"}`;
+      }
+      if (codeArg.includes('"board_id"')) {
+        const boardId = BOARD_IDS.find((id) => codeArg.includes(id));
+        return `=> ${boardId ?? "board-1"}`;
+      }
+      if (codeArg.includes('"schema_type"')) return "=> notidian_type_profile";
+      return "";
+    });
+    return runner;
+  };
+
+  const scenarioConfig = (overrides = {}) => ({
+    ...baseConfig,
+    timeoutMs: 500,
+    pollIntervalMs: 0,
+    ...overrides,
+  });
+
+  it("drives folder/row fixture setup, the confirm-gated modal, and cleanup in order", async () => {
+    const runner = buildSchemaAdoptionRunner();
+
+    const result = await runSchemaAdoptionScenario({
+      config: scenarioConfig(),
+      runner,
+      runId: "run-1",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      folder: SCHEMA_ADOPTION_ROOT,
+      hubPath: SCHEMA_ADOPTION_HUB_PATH,
+    });
+
+    const commandSequence = runner.mock.calls.map(([args]) => args[1]);
+    expect(commandSequence).toEqual([
+      "eval",
+      "eval", // ensure Sensor Registry / Board Registry folders
+      "create",
+      "create",
+      "create",
+      "create",
+      "create", // 5 sensor rows
+      "create",
+      "create", // 2 board rows
+      "eval",
+      "eval",
+      "eval",
+      "eval",
+      "eval", // waitForMetadataValue(sensor_class) per sensor row (5)
+      "eval",
+      "eval", // waitForMetadataValue(board_id) per board row (2)
+      "eval", // context setup #1
+      "create", // hub note, no Type Profile yet
+      "eval", // context setup #2 (re-settle after hub note appears)
+      "eval", // before-confirm frontmatter snapshot
+      "open",
+      "command", // notidian-adopt-schema
+      "eval", // modal confirm click
+      "eval", // waitForMetadataValue(schema_type)
+      "eval", // after-confirm frontmatter snapshot
+      "eval", // fixture cleanup (delete folder)
+    ]);
+    expect(
+      runner.mock.calls.some(([args]) =>
+        args.join(" ").includes("id=notidian:notidian-adopt-schema")
+      )
+    ).toBe(true);
+  });
+
+  it("throws when the hub note already declares a Type Profile before confirm (fixture corruption guard)", async () => {
+    const runner = buildSchemaAdoptionRunner({
+      beforeSnapshot: { schema_type: "notidian_type_profile" },
+    });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("already declares schema_type");
+
+    // Cleanup still runs even though the scenario failed early.
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(true);
+  });
+
+  it("throws when the confirm-gated modal never appears or has no confirm button", async () => {
+    const runner = buildSchemaAdoptionRunner({
+      modalResult: { ok: false, reason: "missing-modal" },
+    });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Schema adoption modal interaction failed: missing-modal");
+  });
+
+  it("throws when the preview does not surface the drafted enum/FK candidates", async () => {
+    const runner = buildSchemaAdoptionRunner({
+      modalResult: { ok: true, modalText: "nothing useful here", closed: true },
+    });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("did not surface the drafted sensor_class field");
+  });
+
+  it("throws when the adopted enum is missing an expected value or is strict", async () => {
+    const runner = buildSchemaAdoptionRunner({
+      afterFields: {
+        sensor_class: {
+          kind: "text",
+          enum: { values: ["temperature"], strict: false },
+        },
+      },
+    });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Adopted sensor_class enum missing expected values");
+  });
+
+  it("throws when the adopted enum was written strict (must always be suggested-only)", async () => {
+    const runner = buildSchemaAdoptionRunner({
+      afterFields: {
+        sensor_class: {
+          kind: "text",
+          enum: {
+            values: ["temperature", "humidity", "pressure"],
+            strict: true,
+          },
+        },
+      },
+    });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("must be suggested-only");
+  });
+
+  it("throws when the adopted board_id reference does not target the Board Registry fixture", async () => {
+    const runner = buildSchemaAdoptionRunner({
+      afterFields: {
+        sensor_class: defaultAfterFields.sensor_class,
+        board_id: { kind: "text" },
+      },
+    });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("did not target the Board Registry fixture");
+  });
+
+  it("skips cleanup when --keep-fixture is set", async () => {
+    const runner = buildSchemaAdoptionRunner();
+
+    await runSchemaAdoptionScenario({
+      config: scenarioConfig({ keepFixture: true }),
+      runner,
+      runId: "run-1",
+    });
+
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(false);
+  });
+
+  it("surfaces a cleanup failure when the scenario itself succeeded", async () => {
+    const runner = buildSchemaAdoptionRunner({ deleteOk: false });
+
+    await expect(
+      runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Schema adoption fixture cleanup failed");
   });
 });

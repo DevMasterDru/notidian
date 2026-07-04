@@ -132,10 +132,15 @@ export type DeleteFrontmatterPropertyPlan = {
   frontmatterWrites: FrontmatterWritePlan[];
 };
 
-const hasOwn = (object: FrontmatterSnapshot, key: string): boolean =>
+// Exported (Notidian-loan.3, ADR-0056 D9): the schema-adoption planner
+// (typeProfileAdopt.ts) reuses these two primitives to walk the same
+// paths/frontmatterByPath shape this module already accepts, rather than
+// re-deriving its own frontmatter-lookup helper. Pure re-export of existing
+// behavior — no change to either function.
+export const hasOwn = (object: FrontmatterSnapshot, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(object, key);
 
-const frontmatterForPath = (
+export const frontmatterForPath = (
   frontmatterByPath: FrontmatterSnapshotsByPath,
   path: string
 ): FrontmatterSnapshot => {
@@ -531,7 +536,7 @@ export const planDeleteFrontmatterProperty = ({
 // common case; a raw string is treated as a single-element list rather than
 // pulled through display-string escaping rules that belong to the MDB layer,
 // not frontmatter YAML.
-const toValueList = (raw: unknown): string[] => {
+export const toValueList = (raw: unknown): string[] => {
   if (raw == null) return [];
   if (Array.isArray(raw)) return raw.map((v) => String(v));
   return [String(raw)];

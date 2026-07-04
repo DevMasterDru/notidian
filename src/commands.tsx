@@ -7,6 +7,7 @@ import {
   newSpaceModal,
 } from "core/react/components/UI/Menus/navigator/showSpaceAddMenu";
 import { HiddenPaths } from "core/react/components/UI/Modals/HiddenFiles";
+import { openTypeProfileAdoptionModalForActivePath } from "core/react/components/UI/Modals/typeProfileAdoptionAction";
 import { addPathToSpaceAtIndex } from "core/superstate/utils/spaces";
 import { eventTypes } from "core/types/types";
 import { isPhone } from "core/utils/ui/screen";
@@ -59,6 +60,19 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
       plugin.superstate.settings.enhancedLogs =
         !plugin.superstate.settings.enhancedLogs;
       plugin.saveSettings();
+    },
+  });
+  plugin.addCommand({
+    id: "notidian-adopt-schema",
+    name: "Adopt schema for this database",
+    callback: () => {
+      openTypeProfileAdoptionModalForActivePath(
+        plugin.superstate,
+        plugin.superstate.ui.activePath,
+        windowFromDocument(
+          plugin.app.workspace.getLeaf()?.containerEl.ownerDocument
+        )
+      );
     },
   });
   plugin.addCommand({

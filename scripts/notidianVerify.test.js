@@ -32,6 +32,11 @@ describe("notidian verification gate", () => {
     expect(parseVerifyArgs([], { NOTIDIAN_VERIFY_MODE: "live" }).mode).toBe(
       "live"
     );
+
+    expect(
+      parseVerifyArgs(["live", "--adopt-schema"], {})
+    ).toMatchObject({ mode: "live", adoptSchema: true });
+    expect(parseVerifyArgs(["live"], {}).adoptSchema).toBe(false);
   });
 
   it("plans the full source verification sequence", () => {
@@ -131,6 +136,18 @@ describe("notidian verification gate", () => {
         args: ["vault=Atlas Vault", "dev:errors"],
       },
     ]);
+  });
+
+  it("threads --adopt-schema into the real-vault smoke step", () => {
+    const steps = createLiveVerificationSteps({
+      vaultPath: "/vaults/Atlas Vault",
+      vault: "Atlas Vault",
+      pluginId: "notidian",
+      adoptSchema: true,
+      settleMs: 8000,
+    });
+    const smokeStep = steps.find((step) => step.label == "real-vault smoke");
+    expect(smokeStep.args).toContain("--adopt-schema");
   });
 
   it("stops the gate when a command exits non-zero", async () => {

@@ -24,6 +24,7 @@ const parseVerifyArgs = (argv = process.argv.slice(2), env = process.env) => {
     vault: env.NOTIDIAN_REAL_VAULT ?? "",
     pluginId: env.NOTIDIAN_PLUGIN_ID ?? DEFAULT_PLUGIN_ID,
     ui: false,
+    adoptSchema: false,
     requireClean: false,
     settleMs: DEFAULT_SETTLE_MS,
   };
@@ -35,6 +36,10 @@ const parseVerifyArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--ui") {
       config.ui = true;
+      continue;
+    }
+    if (arg == "--adopt-schema") {
+      config.adoptSchema = true;
       continue;
     }
     if (arg == "--require-clean") {
@@ -122,6 +127,7 @@ const createLiveVerificationSteps = ({
   vault = vaultNameFromPath(vaultPath),
   pluginId = DEFAULT_PLUGIN_ID,
   ui = false,
+  adoptSchema = false,
   settleMs = DEFAULT_SETTLE_MS,
 } = {}) => {
   const smokeArgs = [
@@ -133,6 +139,7 @@ const createLiveVerificationSteps = ({
     `--plugin-id=${pluginId}`,
   ];
   if (ui) smokeArgs.push("--ui");
+  if (adoptSchema) smokeArgs.push("--adopt-schema");
 
   return [
     {
@@ -240,6 +247,7 @@ const usage = () => [
   "Options:",
   "  --require-clean       Require empty git status before and after source checks.",
   "  --ui                  Include the optional live table DOM smoke.",
+  "  --adopt-schema        Include the optional schema-adoption preview/confirm smoke.",
   `  --vault-path=<path>    Defaults to ${DEFAULT_VAULT_PATH}.`,
   "  --vault=<name>        Defaults to the vault path basename.",
   `  --plugin-id=<id>      Defaults to ${DEFAULT_PLUGIN_ID}.`,

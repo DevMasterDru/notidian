@@ -24,6 +24,7 @@ import { showApplyItemsMenu } from "../UI/Menus/navigator/showApplyItemsMenu";
 import { showLinkMenu } from "../UI/Menus/properties/linkMenu";
 import ImageModal from "../UI/Modals/ImageModal";
 import { InputModal } from "../UI/Modals/InputModal";
+import { openTypeProfileAdoptionModalForFolder } from "../UI/Modals/typeProfileAdoptionAction";
 import {
   DefaultFolderNoteMDBTables,
   DefaultMDBTables,
@@ -262,6 +263,18 @@ export const SpaceHeaderBar = (props: {
               offset,
               props.superstate,
               spaceState,
+              win
+            );
+          },
+        },
+        {
+          name: "Adopt Schema",
+          description: "Draft a Type Profile from this database's rows",
+          icon: "ui//list",
+          onClick: () => {
+            openTypeProfileAdoptionModalForFolder(
+              props.superstate,
+              spaceState.path,
               win
             );
           },

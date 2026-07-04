@@ -46,6 +46,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     allowWrite: false,
     keepFixture: false,
     includeUi: false,
+    includeSchemaAdoption: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -66,6 +67,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--ui") {
       config.includeUi = true;
+      continue;
+    }
+    if (arg == "--adopt-schema") {
+      config.includeSchemaAdoption = true;
       continue;
     }
     const separator = arg.indexOf("=");
@@ -3240,6 +3245,447 @@ const runTableUiSmokeScenario = async ({ config, runner, paths }) => {
   };
 };
 
+// ---------------------------------------------------------------------------
+// Schema adoption scenario (Notidian-loan.3, ADR-0056 D9): a live, DOM-driven
+// smoke of "Adopt schema for this database" — draft a v3 Type Profile from a
+// fixture database's live rows (a bounded-cardinality `sensor_class` field and
+// a `board_id` field whose values overlap a sibling "Board Registry" fixture),
+// confirm through the preview modal, and assert the hub note is UNCHANGED
+// before confirm and correctly profiled (enum + FK reference) after. Gated
+// behind its own --adopt-schema flag (config.includeSchemaAdoption) rather
+// than folded into the existing --ui table smoke, so it does not perturb that
+// scenario's already-pinned eval-call sequence; it is otherwise the same
+// class of interaction (a real DOM click on a confirm-gated modal) as every
+// other --ui scenario in this file.
+// ---------------------------------------------------------------------------
+
+const SCHEMA_ADOPTION_SENSOR_ROWS = [
+  { id: "sn-001", sensorClass: "temperature", boardId: "board-1" },
+  { id: "sn-002", sensorClass: "humidity", boardId: "board-1" },
+  { id: "sn-003", sensorClass: "temperature", boardId: "board-2" },
+  { id: "sn-004", sensorClass: "pressure", boardId: "board-2" },
+  // Deliberately no board_id: exercises the FK candidate's partial-coverage
+  // path (2 of 2 distinct board_id values still match, out of 5 rows total).
+  { id: "sn-005", sensorClass: "temperature", boardId: null },
+];
+const SCHEMA_ADOPTION_BOARD_IDS = ["board-1", "board-2"];
+const SCHEMA_ADOPTION_ENUM_VALUES = ["temperature", "humidity", "pressure"];
+// Obsidian's `command` CLI verb (and app.commands.executeCommandById) needs
+// the plugin-namespaced form ("<pluginId>:<id>"), not the bare id passed to
+// plugin.addCommand — confirmed live via `obsidian commands filter=notidian`.
+const SCHEMA_ADOPTION_COMMAND_ID = "notidian-adopt-schema";
+
+const schemaAdoptionSensorContent = ({ id, sensorClass, boardId }) =>
+  [
+    "---",
+    `sensor_id: ${id}`,
+    `sensor_class: ${sensorClass}`,
+    ...(boardId ? [`board_id: ${boardId}`] : []),
+    "---",
+    `# ${id}`,
+    "",
+  ].join("\n");
+
+const schemaAdoptionBoardContent = (boardId) =>
+  ["---", `board_id: ${boardId}`, "---", `# ${boardId}`, ""].join("\n");
+
+// Reloads both fixture folders' live context (same reload pair
+// tableViewSetupEvalCode already uses) and reports back the sensor
+// registry's CURRENT hub-note path, resolved the same way
+// metadataPathForSpace does in-app (settings.enableFolderNote picks
+// notePath vs defPath) — resolved live from the running vault's actual
+// settings rather than assumed, since folder-note placement (inside vs.
+// adjacent) and naming are both configurable.
+//
+// Each row file's OWN "which space does this belong to" membership
+// (spacesMap, keyed off reloadPath) is a SEPARATE async pipeline from
+// Obsidian's native metadata cache (which waitForMetadataValue already
+// confirmed settled) — a folder's contextsIndex.paths is read straight off
+// spacesMap.getInverse(folder) (buildContextPayload,
+// core/superstate/workers/indexer/indexer.ts), so it can still be empty even
+// after metadata has settled. This forces each row's own reload (the same
+// call plugin.superstate.onPathCreated already makes) before reloading the
+// folder's space/context, and polls until BOTH folders report the expected
+// row count.
+//
+// NOTE: this function's returned template literal is whitespace-collapsed
+// (`.replace(/\s+/g, " ")`, matching every other *EvalCode helper in this
+// file) before being sent to Obsidian — a `//` line comment INSIDE that
+// template would swallow every line after it once collapsed to one line, so
+// all explanatory comments for the generated code live HERE, outside the
+// template, never inside it.
+const schemaAdoptionContextSetupEvalCode = ({
+  pluginId,
+  sensorFolder,
+  boardFolder,
+  rowPaths,
+  expectedSensorPaths,
+  expectedBoardPaths,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianSchemaAdoptionSetup";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.superstate?.spaceManager) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      const sensorFolder = ${JSON.stringify(sensorFolder)};
+      const boardFolder = ${JSON.stringify(boardFolder)};
+      const rowPaths = ${JSON.stringify(rowPaths)};
+      const expectedSensorPaths = ${Number(expectedSensorPaths)};
+      const expectedBoardPaths = ${Number(expectedBoardPaths)};
+      const start = Date.now();
+      let sensorCtx = null;
+      let boardCtx = null;
+      do {
+        for (const rowPath of rowPaths) {
+          await plugin.superstate.reloadPath(rowPath, true);
+        }
+        for (const folder of [sensorFolder, boardFolder]) {
+          await plugin.superstate.reloadSpace(
+            plugin.superstate.spaceManager.spaceInfoForPath(folder),
+            null,
+            true
+          );
+          await plugin.superstate.reloadContextByPath(folder, {
+            force: true,
+            calculate: true,
+          });
+        }
+        sensorCtx = plugin.superstate.contextsIndex.get(sensorFolder);
+        boardCtx = plugin.superstate.contextsIndex.get(boardFolder);
+        const sensorCount = new Set(sensorCtx?.paths ?? []).size;
+        const boardCount = new Set(boardCtx?.paths ?? []).size;
+        if (sensorCount >= expectedSensorPaths && boardCount >= expectedBoardPaths) {
+          break;
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+
+      const sensorSpace = plugin.superstate.spacesIndex.get(sensorFolder)?.space;
+      if (!sensorSpace) {
+        return finish({ ok: false, reason: "missing-sensor-space" });
+      }
+      const sensorPathCount = new Set(sensorCtx?.paths ?? []).size;
+      const boardPathCount = new Set(boardCtx?.paths ?? []).size;
+      if (sensorPathCount < expectedSensorPaths) {
+        return finish({
+          ok: false,
+          reason: "sensor-context-not-settled",
+          sensorPathCount,
+        });
+      }
+      if (boardPathCount < expectedBoardPaths) {
+        return finish({
+          ok: false,
+          reason: "board-context-not-settled",
+          boardPathCount,
+        });
+      }
+      const enableFolderNote = !!plugin.superstate.settings.enableFolderNote;
+      const hubPath = enableFolderNote ? sensorSpace.notePath : sensorSpace.defPath;
+      return finish({ ok: true, hubPath, enableFolderNote });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// The full parsed frontmatter object for a path (not just one property, per
+// metadataEvalCode) — needed to inspect the adopted profile's nested
+// `fields.<name>.enum`/`.reference` shape, not just a single scalar.
+const frontmatterSnapshotEvalCode = (path) =>
+  `(() => {
+    const file = app.vault.getAbstractFileByPath(${JSON.stringify(path)});
+    if (!file) return JSON.stringify({});
+    const cache = app.metadataCache.getFileCache(file);
+    return JSON.stringify(cache?.frontmatter ?? {});
+  })()`.replace(/\s+/g, " ");
+
+// Polls for the confirm-gated preview modal (TypeProfileAdoptionModal, mounted
+// under .mk-modal-wrapper per adapters/obsidian/ui/modal.tsx's portal), then
+// clicks its "Adopt N field(s)" button — the ONLY DOM action in this scenario
+// that can cause a write. Returns the modal's rendered text so the caller can
+// assert the drafted enum/FK candidates were actually shown before confirming.
+const schemaAdoptionModalConfirmEvalCode = ({ timeoutMs, pollIntervalMs }) =>
+  `(async () => {
+    const marker = "notidianSchemaAdoptionModal";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    const findModal = () =>
+      document.querySelector(".mk-modal-wrapper .mk-type-profile-adoption");
+    try {
+      const start = Date.now();
+      let modalEl = null;
+      do {
+        modalEl = findModal();
+        if (modalEl) break;
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      if (!modalEl) {
+        return finish({ ok: false, reason: "missing-modal" });
+      }
+      const modalText = (modalEl.innerText || modalEl.textContent || "").slice(
+        0,
+        2000
+      );
+      const confirmButton = Array.from(
+        modalEl.querySelectorAll("button")
+      ).find((button) => (button.textContent || "").includes("Adopt"));
+      if (!confirmButton) {
+        return finish({ ok: false, reason: "missing-confirm-button", modalText });
+      }
+      confirmButton.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+      const closeStart = Date.now();
+      let closed = false;
+      do {
+        if (!findModal()) {
+          closed = true;
+          break;
+        }
+        await sleep(pollIntervalMs);
+      } while (Date.now() - closeStart <= timeoutMs);
+      return finish({ ok: true, modalText, closed });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const deleteFolderEvalCode = ({ folder }) =>
+  `(async () => {
+    const marker = "notidianDeleteFolder";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const file = app.vault.getAbstractFileByPath(${JSON.stringify(folder)});
+      if (!file) return finish({ ok: true, reason: "already-absent" });
+      await app.vault.delete(file, true);
+      return finish({ ok: true });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const runSchemaAdoptionScenario = async ({ config, runner, runId }) => {
+  const root = joinVaultPath(config.fixtureRoot, `${runId}-SchemaAdoption`);
+  const sensorFolder = joinVaultPath(root, "Sensor Registry");
+  const boardFolder = joinVaultPath(root, "Board Registry");
+  const sensorRowPaths = SCHEMA_ADOPTION_SENSOR_ROWS.map(
+    (row) => `${sensorFolder}/${row.id}.md`
+  );
+  const boardRowPaths = SCHEMA_ADOPTION_BOARD_IDS.map(
+    (boardId) => `${boardFolder}/${boardId}.md`
+  );
+  let scenarioError = null;
+  let hubPath = null;
+
+  try {
+    await runObsidian(config, runner, "eval", {
+      code: ensureFixtureFolderEvalCode({ folder: sensorFolder }),
+    });
+    await runObsidian(config, runner, "eval", {
+      code: ensureFixtureFolderEvalCode({ folder: boardFolder }),
+    });
+
+    for (const row of SCHEMA_ADOPTION_SENSOR_ROWS) {
+      await runObsidian(config, runner, "create", {
+        path: `${sensorFolder}/${row.id}.md`,
+        content: schemaAdoptionSensorContent(row),
+        overwrite: true,
+      });
+    }
+    for (const boardId of SCHEMA_ADOPTION_BOARD_IDS) {
+      await runObsidian(config, runner, "create", {
+        path: `${boardFolder}/${boardId}.md`,
+        content: schemaAdoptionBoardContent(boardId),
+        overwrite: true,
+      });
+    }
+
+    // Wait for EVERY row's frontmatter to settle in the metadata cache, not
+    // just the first — the adoption draft reads all 5 rows via pathsIndex, so
+    // a partially-indexed fixture silently under-drafts the enum/FK
+    // candidates (fewer distinct values than the fixture actually has)
+    // instead of failing loudly.
+    for (const row of SCHEMA_ADOPTION_SENSOR_ROWS) {
+      await waitForMetadataValue({
+        config,
+        runner,
+        path: `${sensorFolder}/${row.id}.md`,
+        property: "sensor_class",
+        expected: row.sensorClass,
+      });
+    }
+    for (const boardId of SCHEMA_ADOPTION_BOARD_IDS) {
+      await waitForMetadataValue({
+        config,
+        runner,
+        path: `${boardFolder}/${boardId}.md`,
+        property: "board_id",
+        expected: boardId,
+      });
+    }
+
+    const contextSetupArgs = {
+      pluginId: config.pluginId,
+      sensorFolder,
+      boardFolder,
+      rowPaths: [...sensorRowPaths, ...boardRowPaths],
+      expectedSensorPaths: SCHEMA_ADOPTION_SENSOR_ROWS.length,
+      expectedBoardPaths: SCHEMA_ADOPTION_BOARD_IDS.length,
+      timeoutMs: config.timeoutMs,
+      pollIntervalMs: config.pollIntervalMs,
+    };
+
+    const setupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: schemaAdoptionContextSetupEvalCode(contextSetupArgs),
+      })
+    );
+    if (!setupResult?.ok) {
+      throw new Error(
+        `Schema adoption fixture context setup failed: ${
+          setupResult?.reason ?? "unknown"
+        }`
+      );
+    }
+    hubPath = setupResult.hubPath;
+
+    // Ensure the hub note exists with NO Type Profile declared yet — the
+    // onboarding-an-unprofiled-database case ADR-0056 D9 targets.
+    await runObsidian(config, runner, "create", {
+      path: hubPath,
+      overwrite: true,
+    });
+    // Re-settle context now that the hub note file exists.
+    await runObsidian(config, runner, "eval", {
+      code: schemaAdoptionContextSetupEvalCode(contextSetupArgs),
+    });
+
+    const beforeSnapshot = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: frontmatterSnapshotEvalCode(hubPath),
+      })
+    );
+    if (beforeSnapshot?.schema_type) {
+      throw new Error(
+        `Schema adoption fixture hub note unexpectedly already declares schema_type=${beforeSnapshot.schema_type} before confirm.`
+      );
+    }
+
+    await runObsidian(config, runner, "open", { path: hubPath });
+    await runObsidian(config, runner, "command", {
+      id: `${config.pluginId}:${SCHEMA_ADOPTION_COMMAND_ID}`,
+    });
+
+    const modalResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: schemaAdoptionModalConfirmEvalCode({
+          timeoutMs: config.timeoutMs,
+          pollIntervalMs: config.pollIntervalMs,
+        }),
+      })
+    );
+    if (!modalResult?.ok) {
+      throw new Error(
+        `Schema adoption modal interaction failed: ${
+          modalResult?.reason ?? "unknown"
+        }${modalResult?.modalText ? ` — modal text: ${modalResult.modalText}` : ""}`
+      );
+    }
+    if (!modalResult.modalText.includes("sensor_class")) {
+      throw new Error(
+        `Schema adoption preview did not surface the drafted sensor_class field. Modal text: ${modalResult.modalText}`
+      );
+    }
+    if (!modalResult.modalText.includes("Board Registry")) {
+      throw new Error(
+        `Schema adoption preview did not surface the drafted board_id FK candidate. Modal text: ${modalResult.modalText}`
+      );
+    }
+
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: hubPath,
+      property: "schema_type",
+      expected: "notidian_type_profile",
+    });
+
+    const afterSnapshot = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: frontmatterSnapshotEvalCode(hubPath),
+      })
+    );
+    const sensorClassEnum =
+      afterSnapshot?.fields?.sensor_class?.enum?.values ?? [];
+    if (
+      !SCHEMA_ADOPTION_ENUM_VALUES.every((value) =>
+        sensorClassEnum.includes(value)
+      )
+    ) {
+      throw new Error(
+        `Adopted sensor_class enum missing expected values. Got: ${JSON.stringify(
+          sensorClassEnum
+        )}`
+      );
+    }
+    if (afterSnapshot?.fields?.sensor_class?.enum?.strict !== false) {
+      throw new Error(
+        "Adopted sensor_class enum must be suggested-only (strict: false), never auto-strict (ADR-0056 D9)."
+      );
+    }
+    const boardReference = afterSnapshot?.fields?.board_id?.reference;
+    if (!boardReference || boardReference.targetFolder != boardFolder) {
+      throw new Error(
+        `Adopted board_id reference did not target the Board Registry fixture. Got: ${JSON.stringify(
+          boardReference
+        )}`
+      );
+    }
+  } catch (error) {
+    scenarioError = error;
+  }
+
+  if (!config.keepFixture) {
+    const cleanupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: deleteFolderEvalCode({ folder: root }),
+      })
+    );
+    if (!scenarioError && !cleanupResult?.ok) {
+      scenarioError = new Error(
+        `Schema adoption fixture cleanup failed: ${
+          cleanupResult?.reason ?? "unknown"
+        }`
+      );
+    }
+  }
+
+  if (scenarioError) throw scenarioError;
+  return { ok: true, folder: root, hubPath };
+};
+
 const runRealVaultSmokeHarness = async (config, runner) => {
   const errors = validateHarnessConfig(config);
   if (errors.length > 0) {
@@ -3325,6 +3771,14 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       primaryPath = uiPaths.primaryPath ?? primaryPath;
     }
 
+    if (config.includeSchemaAdoption) {
+      await runSchemaAdoptionScenario({
+        config,
+        runner: execute,
+        runId: paths.runId,
+      });
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -3392,6 +3846,7 @@ const usage = () => [
   "  --allow-write            Required before creating fixtures.",
   "  --keep-fixture           Leave fixtures in the vault for inspection.",
   "  --ui                     Also exercise the live Notidian table DOM.",
+  "  --adopt-schema           Also exercise the schema-adoption preview/confirm modal.",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,
@@ -3430,5 +3885,6 @@ module.exports = {
   createFixturePaths,
   parseHarnessArgs,
   runRealVaultSmokeHarness,
+  runSchemaAdoptionScenario,
   validateHarnessConfig,
 };
