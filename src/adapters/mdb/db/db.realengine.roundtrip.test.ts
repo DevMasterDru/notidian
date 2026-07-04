@@ -422,6 +422,97 @@ describe("real engine: UNIQUE-index round-trip + REPLACE conflict resolution", (
       db.close();
     }
   });
+
+  // Notidian-yu9c: a uniques entry can name a column that isn't in cols/
+  // liveCols (stale/hand-edited mdb schema). Verified live against the
+  // plugin's sql.js 1.8.0: CREATE UNIQUE INDEX ... ON t("no_such_column")
+  // does NOT throw -- SQLite's double-quoted-string (DQS) misfeature falls
+  // back to reading the bare, unresolvable identifier as a STRING LITERAL,
+  // so the index is built over a CONSTANT expression. Every row then shares
+  // that one constant key, and REPLACE INTO's conflict resolution silently
+  // collapses a multi-row table down to its last row. Cross-ref: the
+  // rollback test above (commit 6ca3bed) first flagged this misfeature.
+  it("Notidian-yu9c: a uniques entry naming a column absent from cols is skipped -- no constant-expression index, no row collapse", () => {
+    const db = freshDB();
+    try {
+      const ok = replaceDB(db, {
+        t: {
+          uniques: ["missing_col"],
+          cols: ["a", "b"],
+          rows: [
+            { a: "1", b: "x" },
+            { a: "2", b: "y" },
+            { a: "3", b: "z" },
+          ],
+        },
+      });
+      expect(ok).toBe(true);
+      // No index at all was created for this entry -- proves the fix does
+      // NOT fall through to building it over a constant expression.
+      expect(liveIndexes(db)).toEqual([]);
+      // All three rows survive: had the old code run, the constant-expression
+      // unique index would make every row collide, and REPLACE INTO would
+      // have collapsed the table down to just the last row ({a:"3",b:"z"}).
+      const sel = selectDB(db, "t");
+      expect(sel!.rows).toEqual([
+        { a: "1", b: "x" },
+        { a: "2", b: "y" },
+        { a: "3", b: "z" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("Notidian-yu9c: a composite uniques entry with one missing column is skipped in full (never partially applied)", () => {
+    const db = freshDB();
+    try {
+      const ok = replaceDB(db, {
+        t: {
+          // "a" exists, "missing_col" does not -- the whole composite entry
+          // must be dropped rather than silently narrowed to just "a"
+          // (which would change uniqueness semantics without warning).
+          uniques: ["a,missing_col"],
+          cols: ["a", "b"],
+          rows: [
+            { a: "1", b: "x" },
+            { a: "1", b: "y" }, // would collide on "a" alone if partially applied
+          ],
+        },
+      });
+      expect(ok).toBe(true);
+      expect(liveIndexes(db)).toEqual([]);
+      const sel = selectDB(db, "t");
+      expect(sel!.rows).toEqual([
+        { a: "1", b: "x" },
+        { a: "1", b: "y" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("Notidian-yu9c: a uniques entry matching a live column case-insensitively is NOT skipped (symmetric with the liveCols dedup fold)", () => {
+    const db = freshDB();
+    try {
+      const ok = replaceDB(db, {
+        t: {
+          uniques: ["STATUS"],
+          cols: ["Status", "b"],
+          rows: [
+            { Status: "1", b: "x" },
+            { Status: "1", b: "y" }, // collides on unique "STATUS"/"Status"
+          ],
+        },
+      });
+      expect(ok).toBe(true);
+      expect(liveIndexes(db)).toContain("idx_t_STATUS");
+      const sel = selectDB(db, "t");
+      expect(sel!.rows).toEqual([{ Status: "1", b: "y" }]);
+    } finally {
+      db.close();
+    }
+  });
 });
 
 // =========================================================================

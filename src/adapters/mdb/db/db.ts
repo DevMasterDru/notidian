@@ -442,6 +442,9 @@ export const dropTable = (db: Database, table: string) => {
 export const replaceDB = (db: Database, tables: DBTables) => {
   //rewrite the entire table, useful for storing ranks and col order, not good for performance
   const sqlStatements : string[] = [];
+  // Notidian-yu9c: warn at most once per replaceDB call (not once per skipped
+  // entry) so a stale schema doesn't spam the console across many tables.
+  let warnedMissingUniqueColumn = false;
   for (const t of Object.keys(tables)) {
       const tableFields = tables[t].cols;
       // ADR 0045 (Option A) / Notidian-k778: derive ONE de-duped, falsy-filtered
@@ -470,6 +473,43 @@ export const replaceDB = (db: Database, tables: DBTables) => {
       const createQuery = `CREATE TABLE IF NOT EXISTS ${quoteIdent(t)} (${fieldQuery}); `
       const idxQuery = tables[t].uniques
         .filter((f) => f)
+        .filter((c) => {
+          // Notidian-yu9c: sql.js/SQLite's double-quoted-string (DQS)
+          // misfeature means CREATE UNIQUE INDEX ... ON t("no_such_col")
+          // does NOT throw when the column is absent -- it silently falls
+          // back to treating the quoted identifier as a STRING LITERAL,
+          // building a unique index over a CONSTANT expression. Every row
+          // then shares that one constant key, so the REPLACE INTO below
+          // silently collapses a multi-row table down to its last row. A
+          // uniques entry can only drift out of sync with liveCols via a
+          // stale/hand-edited schema (today's normal path derives both from
+          // the same cols array), but when it does, skip the whole entry
+          // (composite indexes are all-or-nothing -- a partially-applied
+          // subset would silently change uniqueness semantics) rather than
+          // let DQS paper over a missing column. The match is
+          // case-insensitive, symmetric with the uniqCaseInsensitive fold
+          // already applied to liveCols above (SQLite itself resolves
+          // identifiers case-insensitively).
+          const missing = c
+            .split(",")
+            .map((col) => col.trim())
+            .filter(
+              (col) =>
+                !liveCols.some((lc) => lc.toLowerCase() === col.toLowerCase())
+            );
+          if (missing.length > 0) {
+            if (!warnedMissingUniqueColumn) {
+              console.warn(
+                `Notidian: skipping unique index "${c}" on table "${t}" -- column(s) ${missing
+                  .map((m) => `"${m}"`)
+                  .join(", ")} not found (would otherwise hit SQLite's DQS misfeature and build a constant-expression index)`
+              );
+              warnedMissingUniqueColumn = true;
+            }
+            return false;
+          }
+          return true;
+        })
         .reduce((p, c) => {
           const indexName = `idx_${t}_${c.replace(/,/g, "_")}`;
           const indexCols = c.split(",").map((f) => quoteIdent(f.trim())).join(",");
