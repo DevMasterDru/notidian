@@ -587,6 +587,71 @@ describe("executeTableValueWrites", () => {
     expect(savedFrontmatter).toEqual([]);
   });
 
+  it("rolls back the self-edited mark for a write whose frontmatter commit rejected, so a retry still catches an external change (Notidian-cytg)", async () => {
+    // sessionEditedKeys.add(editKey) fires in the pre-commit classification
+    // loop, before the per-path commit loop knows whether the write will
+    // actually land. Attempt #1 below is classified as a non-conflicting edit
+    // (canonical == base) but its frontmatter write REJECTS in the commit
+    // loop. If the speculative mark is left in place, a retry after an
+    // out-of-band external change would see selfEditedThisSession=true and
+    // skip the stale-conflict gate entirely, silently clobbering the external
+    // edit. The fix rolls the mark back on commit failure so the retry's
+    // conflict gate runs normally.
+    const sessionEditedKeys = new Set<string>();
+    const path = "Relays & Devices/Relays & Devices/A.md";
+
+    const first = await execute({
+      sessionEditedKeys,
+      currentFrontmatterValues: {
+        [path]: { status: "old" },
+      },
+      frontmatterFailPaths: [path],
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "active" },
+      ],
+    });
+
+    expect(first.result.ok).toBe(false);
+    expect(first.result.applied).toBe(0);
+    expect(first.result.failed).toEqual([
+      {
+        reason: "frontmatter-write-failed",
+        write: expect.objectContaining({ rowId: "0", value: "active" }),
+      },
+    ]);
+    // The failed write's speculative self-edited mark must be gone: nothing
+    // actually committed to disk for this (path, column).
+    expect(sessionEditedKeys.size).toBe(0);
+
+    // Between the failed attempt and the retry, another process changes the
+    // file's frontmatter out of band.
+    const retry = await execute({
+      sessionEditedKeys,
+      currentFrontmatterValues: {
+        [path]: { status: "external" },
+      },
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "active" },
+      ],
+    });
+
+    // The stale-conflict gate fires because this (path, column) is no longer
+    // marked self-edited — the external change is caught instead of being
+    // silently overwritten.
+    expect(retry.result).toMatchObject({
+      ok: true,
+      applied: 0,
+      skipped: [
+        expect.objectContaining({
+          reason: "frontmatter-conflict",
+          currentValue: "external",
+          baseValue: "old",
+        }),
+      ],
+    });
+    expect(retry.savedFrontmatter).toEqual([]);
+  });
+
   it("allows explicit forced frontmatter writes after conflict review", async () => {
     const { result, savedFrontmatter, savedTables } = await execute({
       currentFrontmatterValues: {

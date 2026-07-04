@@ -470,6 +470,13 @@ export const executeTableValueWrites = async ({
       for (const write of group.writes) {
         failedFrontmatterWrites.add(write);
         failed.push({ write, reason: "frontmatter-write-failed" });
+        // The pre-commit classification loop above speculatively marked this
+        // (path, column) as self-edited-this-session BEFORE knowing whether the
+        // frontmatter write would actually land. It didn't: roll the mark back
+        // so a retry sees this path/column as NOT self-edited and the
+        // stale-conflict gate runs normally instead of being relaxed for an
+        // edit that never made it to disk. bd Notidian-cytg.
+        sessionEditedKeys?.delete(frontmatterEditKey(path, write.columnName));
       }
     }
   }

@@ -72,6 +72,7 @@ const execute = async ({
   table = rootTable(),
   contexts = {},
   frontmatterOk = true,
+  frontmatterFailPaths,
   currentFrontmatterValues = {},
   sessionEditedKeys,
   allOrNothing = false,
@@ -80,6 +81,9 @@ const execute = async ({
   table?: SpaceTable;
   contexts?: SpaceTables;
   frontmatterOk?: boolean;
+  // Resolved paths whose frontmatter write should reject; overrides
+  // frontmatterOk per path so a mid-batch multi-file failure can be exercised.
+  frontmatterFailPaths?: string[];
   currentFrontmatterValues?: Record<string, Record<string, string>>;
   sessionEditedKeys?: Set<string>;
   allOrNothing?: boolean;
@@ -108,7 +112,10 @@ const execute = async ({
       saveFrontmatterCallCount++;
       operations.push("frontmatter");
       savedFrontmatter.push({ path, properties });
-      return frontmatterOk ? { ok: true } : { ok: false };
+      const ok = frontmatterFailPaths
+        ? !frontmatterFailPaths.includes(path)
+        : frontmatterOk;
+      return ok ? { ok: true } : { ok: false };
     },
     saveDB: async (nextTable) => {
       saveDBCallCount++;
@@ -938,6 +945,78 @@ describe("adversarial: sessionEditedKeys multi-cell", () => {
     expect(result.skipped).toHaveLength(1);
     expect(result.skipped[0].reason).toBe("frontmatter-conflict");
     expect(result.skipped[0].write.rowId).toBe("1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adversarial: sessionEditedKeys rollback on mid-batch frontmatter failure
+// (Notidian-cytg)
+// ---------------------------------------------------------------------------
+describe("adversarial: sessionEditedKeys rollback on frontmatter commit failure", () => {
+  it("only rolls back the failed path's key, leaving a sibling path's successful mark intact", async () => {
+    const sessionEditedKeys = new Set<string>();
+
+    // Same batch writes status to both A (succeeds) and B (frontmatter
+    // commit rejects). Only B's speculative self-edited mark must be rolled
+    // back; A's must survive since A's write actually landed.
+    const { result } = await execute({
+      sessionEditedKeys,
+      frontmatterFailPaths: ["Folder/Folder/B.md"],
+      writes: [
+        { rowId: "0", columnName: "status", table: "", value: "done" },
+        { rowId: "1", columnName: "status", table: "", value: "done" },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(1);
+    expect(result.failed).toEqual([
+      {
+        reason: "frontmatter-write-failed",
+        write: expect.objectContaining({ rowId: "1" }),
+      },
+    ]);
+    expect(sessionEditedKeys.has("Folder/Folder/A.md\0status")).toBe(true);
+    expect(sessionEditedKeys.has("Folder/Folder/B.md\0status")).toBe(false);
+  });
+
+  it("does not let a failed write's leftover self-edited mark bypass the conflict gate on retry", async () => {
+    const sessionEditedKeys = new Set<string>();
+
+    // Attempt #1: no conflict (canonical == base), but the frontmatter commit
+    // rejects.
+    const first = await execute({
+      sessionEditedKeys,
+      currentFrontmatterValues: {
+        "Folder/Folder/A.md": { status: "old" },
+      },
+      frontmatterFailPaths: ["Folder/Folder/A.md"],
+      writes: [{ rowId: "0", columnName: "status", table: "", value: "active" }],
+    });
+
+    expect(first.result.ok).toBe(false);
+    expect(sessionEditedKeys.size).toBe(0);
+
+    // Retry after an out-of-band external change: the conflict gate must
+    // fire since the row was never actually marked self-edited.
+    const retry = await execute({
+      sessionEditedKeys,
+      currentFrontmatterValues: {
+        "Folder/Folder/A.md": { status: "external" },
+      },
+      writes: [{ rowId: "0", columnName: "status", table: "", value: "active" }],
+    });
+
+    expect(retry.result.ok).toBe(true);
+    expect(retry.result.applied).toBe(0);
+    expect(retry.result.skipped).toEqual([
+      expect.objectContaining({
+        reason: "frontmatter-conflict",
+        currentValue: "external",
+        baseValue: "old",
+      }),
+    ]);
+    expect(retry.savedFrontmatter).toEqual([]);
   });
 });
 
