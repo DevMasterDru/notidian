@@ -72,6 +72,19 @@ export const emptyTableEditTransactionResult =
     failed: [],
   });
 
+// True when every outstanding issue on a transaction result is a permanent
+// schema-changed skip (the write's column was deleted from the schema) and
+// nothing failed outright. Used by undo/redo replay to tell "this entry can
+// never succeed, drop it" apart from a transient frontmatter-conflict skip,
+// where the column still exists and a later retry (after a reload) can still
+// land — that entry must stay on the stack. bd Notidian-0ykh.
+export const isOnlySchemaChangedSkip = (
+  result: TableEditTransactionResult
+): boolean =>
+  result.failed.length == 0 &&
+  result.skipped.length > 0 &&
+  result.skipped.every((issue) => issue.reason == "schema-changed");
+
 export const combineTableEditTransactionResults = (
   ...results: TableEditTransactionResult[]
 ): TableEditTransactionResult => ({

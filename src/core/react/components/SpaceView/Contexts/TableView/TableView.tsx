@@ -103,6 +103,7 @@ import {
   titleForTableEditFeedback,
 } from "core/utils/contexts/tableEditFeedback";
 import {
+  isOnlySchemaChangedSkip,
   TableCellWrite,
   TableEditTransactionResult,
 } from "core/utils/contexts/tableEditTransaction";
@@ -1747,6 +1748,16 @@ export const TableView = (props: { superstate: Superstate }) => {
           replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
           props.superstate.ui.notify(`Redid ${entry.label}.`);
         }
+      } else if (isOnlySchemaChangedSkip(result)) {
+        // Every write in this entry targets a column that was permanently
+        // removed from the schema — retrying can never succeed. Re-pushing
+        // it back onto the stack (like the transient frontmatter-conflict
+        // skip below) would make it stick there forever, re-skipping on
+        // every subsequent undo/redo press with no progress. Drop it
+        // instead: the entry was already popped off its stack above, so
+        // doing nothing here lets undo/redo advance past it. The per-cell
+        // feedback from finishCellFeedbackOperation above already told the
+        // user why. bd Notidian-0ykh.
       } else if (isUndo) {
         const restoredUndoStack = pushTableUndoEntry(latestJournal.undo, entry);
         replaceTableUndoJournal(restoredUndoStack, latestJournal.redo);

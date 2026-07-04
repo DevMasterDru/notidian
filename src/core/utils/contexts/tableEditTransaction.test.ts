@@ -6,7 +6,9 @@ import {
   combineTableEditTransactionResults,
   emptyTableEditTransactionResult,
   executeTableValueWrites,
+  isOnlySchemaChangedSkip,
   TableCellWrite,
+  TableEditTransactionResult,
 } from "./tableEditTransaction";
 
 const rootTable = (): SpaceTable => ({
@@ -1040,5 +1042,80 @@ describe("executeTableValueWrites", () => {
     expect(result.applied).toBe(1);
     expect(savedTables).toHaveLength(1);
     expect(savedTables[0].rows[0]).toMatchObject({ priority: "x" });
+  });
+});
+
+describe("isOnlySchemaChangedSkip", () => {
+  const write: TableCellWrite = {
+    rowId: "0",
+    columnName: "status",
+    table: "",
+    value: "x",
+  };
+
+  it("is true when every skip is schema-changed and nothing failed", () => {
+    const result: TableEditTransactionResult = {
+      ok: true,
+      applied: 0,
+      skipped: [{ write, reason: "schema-changed" }],
+      failed: [],
+    };
+    expect(isOnlySchemaChangedSkip(result)).toBe(true);
+  });
+
+  it("is true with multiple schema-changed skips and no failures", () => {
+    const result: TableEditTransactionResult = {
+      ok: true,
+      applied: 0,
+      skipped: [
+        { write, reason: "schema-changed" },
+        { write, reason: "schema-changed" },
+      ],
+      failed: [],
+    };
+    expect(isOnlySchemaChangedSkip(result)).toBe(true);
+  });
+
+  it("is false when a frontmatter-conflict skip is mixed in (transient, must not be treated as permanent)", () => {
+    const result: TableEditTransactionResult = {
+      ok: true,
+      applied: 0,
+      skipped: [
+        { write, reason: "schema-changed" },
+        { write, reason: "frontmatter-conflict" },
+      ],
+      failed: [],
+    };
+    expect(isOnlySchemaChangedSkip(result)).toBe(false);
+  });
+
+  it("is false when there is any failure, even alongside a schema-changed skip", () => {
+    const result: TableEditTransactionResult = {
+      ok: false,
+      applied: 0,
+      skipped: [{ write, reason: "schema-changed" }],
+      failed: [{ write, reason: "frontmatter-write-failed" }],
+    };
+    expect(isOnlySchemaChangedSkip(result)).toBe(false);
+  });
+
+  it("is false when nothing was skipped", () => {
+    const result: TableEditTransactionResult = {
+      ok: true,
+      applied: 1,
+      skipped: [],
+      failed: [],
+    };
+    expect(isOnlySchemaChangedSkip(result)).toBe(false);
+  });
+
+  it("is false for a purely transient frontmatter-conflict skip (regression guard)", () => {
+    const result: TableEditTransactionResult = {
+      ok: true,
+      applied: 0,
+      skipped: [{ write, reason: "frontmatter-conflict" }],
+      failed: [],
+    };
+    expect(isOnlySchemaChangedSkip(result)).toBe(false);
   });
 });
