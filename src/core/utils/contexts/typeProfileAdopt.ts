@@ -50,7 +50,8 @@ export type FieldValueStats = {
   key: string;
   totalRows: number;
   // Key present with a genuinely non-empty value (after trimming; an empty
-  // array or all-blank list still counts as empty, not present).
+  // array or all-blank list still counts as empty, not present). Counts ROWS,
+  // not values — a multi_select row with 3 tags still contributes 1 here.
   presentCount: number;
   // Key present but its value is empty ("" / null / an empty list).
   emptyStringCount: number;
@@ -59,6 +60,15 @@ export type FieldValueStats = {
   // Every distinct non-empty (trimmed) value observed, first-seen order.
   // List-valued (multi_select-shaped) frontmatter contributes each element.
   distinctValues: string[];
+  // Total non-empty VALUE occurrences across all rows, counting every
+  // element of a list-valued field separately (unlike presentCount, which
+  // counts rows). Equal to presentCount for scalar fields — a present row
+  // always contributes exactly one value — but strictly greater whenever a
+  // multi_select row carries more than one value. This is what tells "a
+  // bounded vocabulary whose values repeat" apart from "as many distinct
+  // values as observations" for list-valued fields, where presentCount alone
+  // cannot (deriveEnumCandidate's repeat gate).
+  totalValueCount: number;
 };
 
 export const computeFieldValueStats = (
@@ -69,6 +79,7 @@ export const computeFieldValueStats = (
   let presentCount = 0;
   let emptyStringCount = 0;
   let absentCount = 0;
+  let totalValueCount = 0;
   const distinctValues: string[] = [];
   const seen = new Set<string>();
 
@@ -86,6 +97,7 @@ export const computeFieldValueStats = (
       continue;
     }
     presentCount++;
+    totalValueCount += values.length;
     for (const value of values) {
       if (seen.has(value)) continue;
       seen.add(value);
@@ -100,6 +112,7 @@ export const computeFieldValueStats = (
     emptyStringCount,
     absentCount,
     distinctValues,
+    totalValueCount,
   };
 };
 
@@ -132,14 +145,20 @@ const ENUM_MAX_DISTINCT = 12;
 const ENUM_ELIGIBLE_KINDS = new Set(["text", "select", "multi_select"]);
 
 export const deriveEnumCandidate = (
-  stats: Pick<FieldValueStats, "distinctValues" | "presentCount">
+  stats: Pick<FieldValueStats, "distinctValues" | "presentCount" | "totalValueCount">
 ): EnumCandidate | undefined => {
   const distinctCount = stats.distinctValues.length;
   if (distinctCount < 2 || distinctCount > ENUM_MAX_DISTINCT) return undefined;
-  // Require at least one repeat (distinctCount < presentCount) — otherwise
-  // every observed value is unique and this is an id-shaped field, not a
-  // bounded vocabulary, regardless of how few rows exist.
-  if (distinctCount >= stats.presentCount) return undefined;
+  // Require at least one repeated VALUE occurrence: compare against
+  // totalValueCount (every list element counted separately), not
+  // presentCount (rows). For a scalar field the two are equal, so this is
+  // the same test as before. For a multi_select field, presentCount alone
+  // would be wrong: e.g. 4 rows each carrying 2 tags drawn from a 4-word
+  // bounded vocabulary gives distinctCount == presentCount == 4 (no repeat
+  // visible in rows), even though every value repeats twice across the 8
+  // total tag occurrences — totalValueCount (8) catches that repeat where
+  // presentCount (4) would not.
+  if (distinctCount >= stats.totalValueCount) return undefined;
   return {
     values: [...stats.distinctValues],
     presentCount: stats.presentCount,
@@ -345,6 +364,18 @@ export const draftTypeProfileAdoption = ({
 // computed before a concurrent edit, re-planning against the CURRENT raw
 // fields map (as every apply-path call site should) means an already-added
 // field is simply skipped a second time, not overwritten.
+//
+// A field name can also be declared inside `kind_fields.<kind>.<name>`
+// instead of the common `fields:` map (Notidian-egz v2 kind-scoped columns —
+// e.g. via the table's kind_fields mirror, planTypeProfileMirror in
+// typeProfile.ts, which applies the identical "or find owning kind" check
+// for its own add-column collision guard). The collision check below must
+// cover both maps: checking only `fields` would let a field concurrently
+// declared into `kind_fields` between preview-open and confirm-click get
+// silently ADDED a second time into `fields`, which `parseTypeProfile`'s
+// addUnique union then dedupes by first-occurrence (common wins), orphaning
+// the kind-scoped declaration with no diagnostic — exactly the "never
+// clobber" invariant this planner exists to guarantee.
 // ---------------------------------------------------------------------------
 
 export type TypeProfileAdoptionMergePlan = {
@@ -355,17 +386,30 @@ export type TypeProfileAdoptionMergePlan = {
 
 export const planTypeProfileAdoptionMerge = (
   existingRawFields: unknown,
-  draft: Pick<TypeProfileAdoptionDraft, "fields">
+  draft: Pick<TypeProfileAdoptionDraft, "fields">,
+  existingRawKindFields?: unknown
 ): TypeProfileAdoptionMergePlan => {
   const base = normalizeRawFields(existingRawFields) ?? {};
+  const kindFieldsMap = normalizeRawFields(existingRawKindFields) ?? {};
   const fields: Record<string, unknown> = { ...base };
   const addedFieldNames: string[] = [];
 
   const findKey = (name: string) =>
     Object.keys(fields).find((key) => key.toLowerCase() == name.toLowerCase());
 
+  const isDeclaredInAnyKind = (name: string) =>
+    Object.values(kindFieldsMap).some((kindDef) => {
+      const kindMap = normalizeRawFields(kindDef);
+      if (!kindMap) return false;
+      return Object.keys(kindMap).some(
+        (key) => key.toLowerCase() == name.toLowerCase()
+      );
+    });
+
   for (const { field } of draft.fields) {
-    if (findKey(field.name)) continue; // never clobber an existing declaration
+    // Never clobber an existing declaration, whether it lives in the common
+    // `fields` map or is owned by a specific kind in `kind_fields`.
+    if (findKey(field.name) || isDeclaredInAnyKind(field.name)) continue;
     fields[field.name] = serializeTypeProfileField(field);
     addedFieldNames.push(field.name);
   }

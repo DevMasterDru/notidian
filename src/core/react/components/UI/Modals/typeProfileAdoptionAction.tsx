@@ -37,7 +37,7 @@ export const openTypeProfileAdoptionModalForFolder = (
       onConfirm={() => {
         void applyTypeProfileAdoptionDraft(superstate, folder, draft).then(
           (result) => {
-            if (!result.ok) return; // applyTypeProfileAdoptionDraft's own write already notified the failure.
+            if (!result.ok) return; // applyTypeProfileAdoptionDraft already notified this failure (every ok:false reason notifies).
             superstate.ui.notify(
               result.addedFieldNames.length > 0
                 ? `Adopted ${result.addedFieldNames.length} field${

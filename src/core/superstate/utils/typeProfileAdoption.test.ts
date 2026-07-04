@@ -323,7 +323,7 @@ describe("applyTypeProfileAdoptionDraft", () => {
     });
   });
 
-  it("reports no-space when the folder has no live space entry", async () => {
+  it("reports no-space when the folder has no live space entry, and notifies the owner", async () => {
     const superstate = makeSuperstate();
     const result = await applyTypeProfileAdoptionDraft(superstate, "Ghost", {
       fields: [
@@ -339,5 +339,73 @@ describe("applyTypeProfileAdoptionDraft", () => {
       addedFieldNames: [],
       reason: "no-space",
     });
+    // The confirm modal closes synchronously on click, before this async
+    // write settles — an unnotified no-space failure would vanish silently.
+    expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports no-hub-path and notifies the owner when the folder's space cannot resolve a hub note path", async () => {
+    const superstate = makeSuperstate();
+    superstate.contextsIndex.set("Sensors", {
+      path: "Sensors",
+      paths: ["Sensors/A.md"],
+    });
+    superstate.pathsIndex.set("Sensors/A.md", {
+      metadata: { property: { status: "active" } },
+    });
+    // A space entry exists but resolves no note path (enableFolderNote:true
+    // means metadataPathForSpace reads space.notePath, which is absent here).
+    superstate.spacesIndex.set("Sensors", { space: {} });
+
+    const result = await applyTypeProfileAdoptionDraft(superstate, "Sensors", {
+      fields: [
+        {
+          field: { name: "x", kind: "text", type: "text" },
+          foreignKeyCandidates: [],
+          emptyEncoding: { absentCount: 0, emptyStringCount: 0, presentCount: 1 },
+        },
+      ],
+    });
+    expect(result).toEqual({
+      ok: false,
+      addedFieldNames: [],
+      reason: "no-hub-path",
+    });
+    expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("never clobbers a field declared only in the hub's kind_fields at write time (Notidian-egz v2 kind-scoped columns, ADR-0056 D9 'never clobber')", async () => {
+    const superstate = makeSuperstate();
+    registerFolder(
+      superstate,
+      "Sensors",
+      ["Sensors/A.md"],
+      { "Sensors/A.md": { status: "active" } },
+      { path: "Sensors/Sensors.md", frontmatter: {} }
+    );
+    const draft = buildTypeProfileAdoptionDraft(superstate, "Sensors")!;
+    expect(draft.fields.map((f) => f.field.name)).toContain("status");
+
+    // Simulate a concurrent edit via the table's kind_fields mirror
+    // (planTypeProfileMirror): "status" gets declared under a specific kind
+    // between preview-open and confirm-click, but never touches the flat
+    // `fields:` map the stale draft was computed against.
+    superstate.pathsIndex.get("Sensors/Sensors.md").metadata.property = {
+      kind_fields: {
+        task: { status: { kind: "select", options: ["active", "done"] } },
+      },
+    };
+
+    const result = await applyTypeProfileAdoptionDraft(
+      superstate,
+      "Sensors",
+      draft
+    );
+
+    // "status" is already declared (under kind_fields.task), so re-adding it
+    // to the common `fields` map would create a duplicate, conflicting
+    // declaration for the same name -> nothing to add, no write at all.
+    expect(result).toEqual({ ok: true, addedFieldNames: [] });
+    expect(superstate.spaceManager.saveProperties).not.toHaveBeenCalled();
   });
 });

@@ -172,6 +172,13 @@ export type ApplyTypeProfileAdoptionResult =
 // when the preview opened), so a field added elsewhere between preview and
 // confirm is simply skipped, never clobbered (ADR-0056 D9 / ADR-0015 "must
 // not silently write or delete frontmatter").
+//
+// Every failure reason notifies the owner here — the modal closes
+// synchronously on confirm (TypeProfileAdoptionModal's confirm() calls
+// onConfirm() then hide() before this async write settles), so an unnotified
+// failure would vanish with no feedback at all. Only "write-failed" is
+// notified downstream (inside saveFrontmatterProperties); "no-space" and
+// "no-hub-path" have no such downstream call, so they notify directly here.
 export const applyTypeProfileAdoptionDraft = async (
   superstate: Superstate,
   folder: string,
@@ -180,15 +187,25 @@ export const applyTypeProfileAdoptionDraft = async (
   if (draft.fields.length == 0) return { ok: true, addedFieldNames: [] };
 
   const space = superstate.spacesIndex.get(folder)?.space;
-  if (!space) return { ok: false, addedFieldNames: [], reason: "no-space" };
+  if (!space) {
+    superstate.ui.notify(
+      "Could not adopt the schema: this database's space could not be resolved."
+    );
+    return { ok: false, addedFieldNames: [], reason: "no-space" };
+  }
   const hubPath = metadataPathForSpace(superstate, space);
-  if (!hubPath)
+  if (!hubPath) {
+    superstate.ui.notify(
+      "Could not adopt the schema: this database has no hub note to write the schema to."
+    );
     return { ok: false, addedFieldNames: [], reason: "no-hub-path" };
+  }
 
   const hubFrontmatter = superstate.pathsIndex.get(hubPath)?.metadata?.property;
   const mergePlan = planTypeProfileAdoptionMerge(
     hubFrontmatter?.["fields"],
-    draft
+    draft,
+    hubFrontmatter?.["kind_fields"]
   );
   if (!mergePlan.changed) return { ok: true, addedFieldNames: [] };
 

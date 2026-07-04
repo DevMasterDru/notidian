@@ -7,6 +7,7 @@ import {
   findForeignKeyCandidates,
   planTypeProfileAdoptionMerge,
   SiblingDatabaseValues,
+  TypeProfileAdoptionDraft,
 } from "./typeProfileAdopt";
 
 // Fixture registry shape modeled on the Data Integrity Program's Gidi pilot
@@ -72,6 +73,7 @@ describe("computeFieldValueStats", () => {
       emptyStringCount: 0,
       absentCount: 0,
       distinctValues: ["temperature", "humidity", "pressure"],
+      totalValueCount: 5,
     });
   });
 
@@ -112,6 +114,9 @@ describe("computeFieldValueStats", () => {
     );
     expect(stats.presentCount).toBe(2);
     expect(stats.distinctValues).toEqual(["alpha", "beta", "gamma"]);
+    // totalValueCount counts every list element separately (2 + 2 = 4),
+    // unlike presentCount, which counts the 2 ROWS.
+    expect(stats.totalValueCount).toBe(4);
   });
 
   it("accepts a Map for frontmatterByPath (same shape notidianSchema.ts's planners accept)", () => {
@@ -130,6 +135,7 @@ describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", (
     const candidate = deriveEnumCandidate({
       distinctValues: ["temperature", "humidity", "pressure"],
       presentCount: 5,
+      totalValueCount: 5,
     });
     expect(candidate).toEqual({
       values: ["temperature", "humidity", "pressure"],
@@ -143,6 +149,7 @@ describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", (
     const candidate = deriveEnumCandidate({
       distinctValues: ["sn-001", "sn-002", "sn-003", "sn-004", "sn-005"],
       presentCount: 5,
+      totalValueCount: 5,
     });
     expect(candidate).toBeUndefined();
   });
@@ -151,6 +158,7 @@ describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", (
     const candidate = deriveEnumCandidate({
       distinctValues: ["active"],
       presentCount: 5,
+      totalValueCount: 5,
     });
     expect(candidate).toBeUndefined();
   });
@@ -159,9 +167,11 @@ describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", (
     const many = Array.from({ length: 13 }, (_, i) => `v${i}`);
     const candidate = deriveEnumCandidate({
       distinctValues: many,
-      // presentCount comfortably above distinctCount so the repeat gate alone
-      // would pass — only the absolute cap should reject this.
+      // presentCount/totalValueCount comfortably above distinctCount so the
+      // repeat gate alone would pass — only the absolute cap should reject
+      // this.
       presentCount: 40,
+      totalValueCount: 40,
     });
     expect(candidate).toBeUndefined();
   });
@@ -171,8 +181,51 @@ describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", (
     const candidate = deriveEnumCandidate({
       distinctValues: twelve,
       presentCount: 20,
+      totalValueCount: 20,
     });
     expect(candidate?.distinctCount).toBe(12);
+  });
+
+  it("suggests an enum for a multi_select field where every value repeats across rows, even when distinctCount == presentCount (rows, not values, repeat)", () => {
+    // 4 rows, each carrying 2 tags drawn from a 4-word bounded vocabulary;
+    // every one of the 4 distinct tags repeats exactly twice across the 4
+    // rows — a textbook bounded vocabulary. presentCount (rows) == 4 ==
+    // distinctCount, so a presentCount-based gate would wrongly reject this;
+    // totalValueCount (8 total tag occurrences) correctly reveals the repeat.
+    const stats = computeFieldValueStats(
+      ["A.md", "B.md", "C.md", "D.md"],
+      {
+        "A.md": { tags: ["urgent", "blocked"] },
+        "B.md": { tags: ["normal", "blocked"] },
+        "C.md": { tags: ["normal", "done"] },
+        "D.md": { tags: ["urgent", "done"] },
+      },
+      "tags"
+    );
+    expect(stats.presentCount).toBe(4);
+    expect(stats.distinctValues.length).toBe(4);
+    expect(stats.totalValueCount).toBe(8);
+
+    const candidate = deriveEnumCandidate(stats);
+    expect(candidate).toEqual({
+      values: ["urgent", "blocked", "normal", "done"],
+      presentCount: 4,
+      distinctCount: 4,
+    });
+  });
+
+  it("does not suggest an enum for a multi_select field where every value is genuinely unique (no repeat even counting by value)", () => {
+    const stats = computeFieldValueStats(
+      ["A.md", "B.md"],
+      {
+        "A.md": { tags: ["alpha", "beta"] },
+        "B.md": { tags: ["gamma", "delta"] },
+      },
+      "tags"
+    );
+    // 4 distinct values, 4 total occurrences: no repeat at all, by value.
+    expect(stats.totalValueCount).toBe(4);
+    expect(deriveEnumCandidate(stats)).toBeUndefined();
   });
 });
 
@@ -431,5 +484,73 @@ describe("planTypeProfileAdoptionMerge (never-clobber merge)", () => {
     expect(plan.changed).toBe(true);
     expect(plan.fields["existing"]).toEqual({ kind: "text" });
     expect(plan.fields["new_field"]).toEqual({ kind: "text" });
+  });
+
+  it("never clobbers a field declared only in kind_fields (Notidian-egz v2 kind-scoped columns), not the common fields map", () => {
+    // Reproduces the write-time race the "never clobber" invariant exists to
+    // close: "status" is not in the flat `fields:` map, so a check against
+    // `fields` alone would miss that it is already declared under
+    // `kind_fields.task.status` (e.g. via the table's kind_fields mirror,
+    // planTypeProfileMirror) and add a duplicate, conflicting declaration.
+    const draft: Pick<TypeProfileAdoptionDraft, "fields"> = {
+      fields: [
+        {
+          field: { name: "status", kind: "text", type: "text" },
+          foreignKeyCandidates: [],
+          emptyEncoding: { absentCount: 0, emptyStringCount: 0, presentCount: 1 },
+        },
+      ],
+    };
+    const existingRawKindFields = {
+      task: { status: { kind: "select", options: ["open", "done"] } },
+    };
+    const plan = planTypeProfileAdoptionMerge({}, draft, existingRawKindFields);
+    expect(plan.changed).toBe(false);
+    expect(plan.fields["status"]).toBeUndefined();
+    expect(plan.addedFieldNames).not.toContain("status");
+  });
+
+  it("matches a kind_fields declaration case-insensitively", () => {
+    const draft: Pick<TypeProfileAdoptionDraft, "fields"> = {
+      fields: [
+        {
+          field: { name: "Status", kind: "text", type: "text" },
+          foreignKeyCandidates: [],
+          emptyEncoding: { absentCount: 0, emptyStringCount: 0, presentCount: 1 },
+        },
+      ],
+    };
+    const existingRawKindFields = {
+      task: { status: { kind: "select" } },
+    };
+    const plan = planTypeProfileAdoptionMerge(
+      undefined,
+      draft,
+      existingRawKindFields
+    );
+    expect(plan.changed).toBe(false);
+    expect(plan.addedFieldNames).not.toContain("Status");
+  });
+
+  it("still adds a field declared in neither fields nor kind_fields, with kind_fields present", () => {
+    const draft: Pick<TypeProfileAdoptionDraft, "fields"> = {
+      fields: [
+        {
+          field: { name: "priority", kind: "text", type: "text" },
+          foreignKeyCandidates: [],
+          emptyEncoding: { absentCount: 0, emptyStringCount: 0, presentCount: 1 },
+        },
+      ],
+    };
+    const existingRawKindFields = {
+      task: { status: { kind: "select" } },
+    };
+    const plan = planTypeProfileAdoptionMerge(
+      undefined,
+      draft,
+      existingRawKindFields
+    );
+    expect(plan.changed).toBe(true);
+    expect(plan.fields["priority"]).toEqual({ kind: "text" });
   });
 });
