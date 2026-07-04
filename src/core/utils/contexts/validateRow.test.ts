@@ -144,6 +144,51 @@ describe("checkEnum", () => {
     expect(v[0].message).toContain("rinse");
     expect(v[0].message).not.toContain("wash,");
   });
+
+  it("splits a multi-value field's delimited-string encoding before enum-checking (no false positive)", () => {
+    // `checkType` (and `listEquals`/`listIncludes` in predicate/filter.ts) both
+    // treat the delimited-string form as a legal encoding of a multi field's
+    // value — `checkEnum` must split it the same way, or "wash, fill" reads as
+    // one composite string instead of its two legal constituent elements.
+    const multiEnum = schemaOf([
+      {
+        name: "scopes",
+        kind: "multi_select",
+        type: "option-multi",
+        enum: { values: ["wash", "fill", "drain"], strict: true },
+      },
+    ]);
+    expect(validateRow(multiEnum, { scopes: "wash, fill" })).toEqual([]);
+  });
+
+  it("flags only the illegal element of a delimited-string multi-value enum", () => {
+    const multiEnum = schemaOf([
+      {
+        name: "scopes",
+        kind: "multi_select",
+        type: "option-multi",
+        enum: { values: ["wash", "fill", "drain"], strict: true },
+      },
+    ]);
+    const v = validateRow(multiEnum, { scopes: "wash, rinse" });
+    expect(codesOf(v)).toEqual(["enum"]);
+    expect(v[0].message).toContain("rinse");
+    expect(v[0].message).not.toContain("wash,");
+  });
+
+  it("does NOT split a single-value (non-multi) field's string on a comma", () => {
+    const singleEnum = schemaOf([
+      {
+        name: "status",
+        kind: "select",
+        type: "option",
+        enum: { values: ["active, spare"], strict: true },
+      },
+    ]);
+    // A single-select field's whole comma-containing string is one value,
+    // never split like a multi field's delimited encoding.
+    expect(validateRow(singleEnum, { status: "active, spare" })).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -630,6 +675,44 @@ describe("invariants", () => {
 
     it("warn severity: fails OPEN (treated as satisfied, no violation)", () => {
       expect(validateRow(schemaWith("warn"), { status: "active" })).toEqual([]);
+    });
+  });
+
+  // A profile with zero declared `fields` but a non-empty `invariants` list
+  // is a reachable parser output (typeProfile.ts's `parseInvariants` runs
+  // independent of `parseFields`; a schema authored invariants-before-fields
+  // yields exactly this shape, flagged with a `missing-fields` issue but
+  // still carrying real invariants). `validateRowPatch` must still evaluate
+  // those invariants -- an empty `fields` list must never silently bypass
+  // the fail-closed contract above.
+  describe("invariants still evaluate when `fields` is empty", () => {
+    const emptyFieldsSchema = (severity: "error" | "warn"): NotidianTypeProfile => ({
+      fields: [],
+      kindFields: {},
+      issues: [{ reason: "missing-fields" }],
+      invariants: [
+        {
+          require: [
+            { field: "ghost_field", fn: "isNotEmpty", value: "", fType: "literal" },
+          ],
+          severity,
+          message: "ghost_field rule",
+        },
+      ],
+    });
+
+    it("error severity: still fails CLOSED even though `fields` is empty", () => {
+      const v = validateRowPatch(emptyFieldsSchema("error"), {}, {});
+      expect(codesOf(v)).toEqual(["invariant"]);
+      expect(v[0].severity).toBe("error");
+    });
+
+    it("warn severity: still fails OPEN (no violation) when `fields` is empty", () => {
+      expect(validateRowPatch(emptyFieldsSchema("warn"), {}, {})).toEqual([]);
+    });
+
+    it("a schema with truly no invariants AND no fields still raises nothing", () => {
+      expect(validateRowPatch(schemaOf([]), {}, {})).toEqual([]);
     });
   });
 

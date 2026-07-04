@@ -7,6 +7,7 @@ import {
 } from "core/utils/contexts/typeProfile";
 import { DBRow, SpaceProperty, SpaceTableColumn } from "shared/types/mdb";
 import { Filter } from "shared/types/predicate";
+import { parseMultiString } from "utils/parsers";
 
 // Pure validation core (ADR-0057 D1, Notidian-loan.2 / S2): the ONE function
 // family every future consumer calls to answer "did my edit break something?"
@@ -187,6 +188,19 @@ const guardPasses = (
 // check" instead of aborting the whole pass.
 // ---------------------------------------------------------------------------
 
+// A "multi" field's live value legally arrives in two shapes (see
+// `checkType`'s own acceptance below and `validateRow.test.ts`'s "accepts an
+// array or a delimited string for a multi field"): a real array, OR the
+// delimited-string representation `parseMultiString`/`listEquals`/
+// `listIncludes` (predicate/filter.ts) already split before comparing. Any
+// check that iterates a multi field's individual values (`checkEnum`) must
+// split the SAME way, or a schema-legal delimited string reads as one
+// composite "value" instead of its constituent elements.
+const isMultiValueFieldType = (fieldType: string): boolean =>
+  fieldType.startsWith("option-multi") ||
+  fieldType.startsWith("link-multi") ||
+  fieldType.startsWith("tags-multi");
+
 const typeMismatchReason = (fieldType: string, value: unknown): string | null => {
   if (fieldType == "number") {
     if (typeof value == "number") return Number.isFinite(value) ? null : "is not a finite number";
@@ -215,11 +229,7 @@ const typeMismatchReason = (fieldType: string, value: unknown): string | null =>
     const parsed = isNaN(Date.parse(raw)) ? new Date(parseInt(raw, 10)) : new Date(raw);
     return isNaN(parsed.valueOf()) ? `"${raw}" is not a valid date` : null;
   }
-  if (
-    fieldType.startsWith("option-multi") ||
-    fieldType.startsWith("link-multi") ||
-    fieldType.startsWith("tags-multi")
-  ) {
+  if (isMultiValueFieldType(fieldType)) {
     if (Array.isArray(value) || typeof value == "string") return null;
     return `expected a list, got ${typeof value}`;
   }
@@ -255,7 +265,16 @@ const checkEnum = (
   if (!field.enum?.strict) return null; // non-strict enum stays advisory-only.
   const value = row[field.name];
   if (isMissingValue(value)) return null;
-  const values = Array.isArray(value) ? value : [value];
+  // A multi-value field's live value may be a real array OR the delimited-
+  // string encoding `checkType` already accepts for this same field type
+  // (ADR-0056/0057; see `isMultiValueFieldType`'s comment) — split it the
+  // same way before enum-checking each element, so "wash, fill" isn't
+  // enum-checked as one composite string against single-value declarations.
+  const values = Array.isArray(value)
+    ? value
+    : isMultiValueFieldType(field.type) && typeof value == "string"
+    ? parseMultiString(value)
+    : [value];
   const legal = new Set(field.enum.values);
   const illegal = values.map((v) => String(v)).filter((v) => !legal.has(v));
   if (illegal.length == 0) return null;
@@ -523,8 +542,15 @@ export const validateRowPatch = (
     ];
   }
 
+  // NOTE: deliberately no `fields.length == 0` early return here. A profile
+  // can validly declare `invariants` with zero `fields` (S1's `parseTypeProfile`
+  // parses each independently — a `missing-fields` schema `issue` does not
+  // stop invariant parsing), and an unresolvable `severity: "error"` invariant
+  // must still fail CLOSED (see `evaluateInvariant`'s contract) rather than
+  // being silently skipped because the fields list happened to be empty. The
+  // per-field loop below is already a correct no-op over an empty `fields`
+  // array, so this early return bought nothing but a defeated invariant.
   const fields = Array.isArray(schema?.fields) ? schema!.fields : [];
-  if (fields.length == 0) return violations; // no declared schema -> nothing to check.
 
   const effectiveRow: Record<string, unknown> = { ...rowRecord, ...patchRecord };
   const fieldsByName = new Map(fields.map((field) => [field.name, field]));
