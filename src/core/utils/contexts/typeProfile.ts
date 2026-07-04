@@ -803,7 +803,10 @@ export const newRowFrontmatterFromProfile = (
 // `false`, so there is no way to distinguish "declared false" from "absent"
 // once parsed — emitting only on `true` matches the common authoring case and
 // keeps a v1/v2 profile's untouched fields serializing back to their
-// original shorter form).
+// original shorter form). `title_binding` is different: parseTitleBindingAttr
+// keeps `false` distinct from absent/undefined post-parse, so its gate must
+// be `!= null` (like `value`), not truthy — a truthy gate would silently
+// collapse an authored `title_binding: false` into "absent".
 export const serializeTypeProfileField = (
   field: TypeProfileField
 ): Record<string, unknown> => ({
@@ -814,7 +817,9 @@ export const serializeTypeProfileField = (
   ...(field.enum ? { enum: field.enum } : {}),
   ...(field.unique ? { unique: field.unique } : {}),
   ...(field.pattern ? { pattern: field.pattern } : {}),
-  ...(field.title_binding ? { title_binding: field.title_binding } : {}),
+  ...(field.title_binding != null
+    ? { title_binding: field.title_binding }
+    : {}),
   ...(field.empty ? { empty: field.empty } : {}),
   ...(field.reference ? { reference: field.reference } : {}),
   ...(field.derived ? { derived: field.derived } : {}),

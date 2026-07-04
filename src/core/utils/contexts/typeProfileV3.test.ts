@@ -102,7 +102,7 @@ describe("v3 field attributes — byte-stable round-trip", () => {
     expect(serializeTypeProfileField(field)).toEqual(def);
   });
 
-  it("title_binding", () => {
+  it("title_binding: true", () => {
     const def = { kind: "text", title_binding: true };
     const profile = parseTypeProfile({
       schema_type: "notidian_type_profile",
@@ -111,6 +111,18 @@ describe("v3 field attributes — byte-stable round-trip", () => {
     expect(profile.issues).toEqual([]);
     const field = fieldOf(profile, "name");
     expect(field.title_binding).toBe(true);
+    expect(serializeTypeProfileField(field)).toEqual(def);
+  });
+
+  it("title_binding: false — explicit false must round-trip, not vanish into 'absent'", () => {
+    const def = { kind: "text", title_binding: false };
+    const profile = parseTypeProfile({
+      schema_type: "notidian_type_profile",
+      fields: { name: def },
+    });
+    expect(profile.issues).toEqual([]);
+    const field = fieldOf(profile, "name");
+    expect(field.title_binding).toBe(false);
     expect(serializeTypeProfileField(field)).toEqual(def);
   });
 
@@ -850,6 +862,20 @@ describe("planEnumValueRenameCascade — row-cascade preview (ADR-0056 D10)", ()
     });
     expect(plan.issues).toContainEqual({ reason: "empty-value", which: "old" });
     expect(plan.issues).toContainEqual({ reason: "empty-value", which: "new" });
+  });
+
+  it("flags a blank/whitespace-only field instead of silently treating it as safe to apply", () => {
+    const plan = planEnumValueRenameCascade({
+      table: scalarTable(),
+      field: "   ",
+      oldValue: "todo",
+      newValue: "pending",
+      paths: ["a.md"],
+      frontmatterByPath: { "a.md": { status: "todo" } },
+    });
+    expect(plan.issues).toContainEqual({ reason: "empty-field", field: "   " });
+    expect(plan.fileStates).toEqual([]);
+    expect(plan.canApplyAutomatically).toBe(false);
   });
 
   it("never throws on a row missing the field entirely", () => {

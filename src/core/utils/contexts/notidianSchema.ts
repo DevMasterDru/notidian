@@ -83,6 +83,7 @@ export type DeleteFrontmatterPropertyMode =
 export type EnumValueRenameIssue =
   | { reason: "empty-value"; which: "old" | "new" }
   | { reason: "same-value"; value: string }
+  | { reason: "empty-field"; field: string }
   | { reason: "missing-field"; field: string };
 
 // A row's classification relative to the {oldValue, newValue} pair. Unlike a
@@ -568,7 +569,9 @@ export const planEnumValueRenameCascade = ({
   if (oldValue && newValue && oldValue == newValue) {
     issues.push({ reason: "same-value", value: oldValue });
   }
-  if (normalizedField && !columnForKey(table, normalizedField)) {
+  if (!normalizedField) {
+    issues.push({ reason: "empty-field", field });
+  } else if (!columnForKey(table, normalizedField)) {
     issues.push({ reason: "missing-field", field: normalizedField });
   }
 
