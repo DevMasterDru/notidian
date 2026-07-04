@@ -300,6 +300,20 @@ export const executeTableValueWrites = async ({
   const fieldConfigWrites: TableCellWrite[] = [];
   const frontmatterChangesByPath = new Map<string, FrontmatterGroup>();
 
+  // Snapshot of sessionEditedKeys membership as it stood BEFORE this call's
+  // classification loop runs. Any editKey already present here was earned by
+  // an earlier, separately-committed call and must never be rolled back by
+  // THIS call's failures — only marks this call itself speculatively
+  // introduces are ours to revoke. Without this distinction, a later,
+  // unrelated commit failure for the same (path, column) would delete a
+  // legitimate mark protecting an already-landed write, reintroducing the
+  // pathsIndex-lag false-conflict bug (Notidian-2kf7) sessionEditedKeys exists
+  // to prevent. bd Notidian-cytg.
+  const editKeysPresentBeforeThisCall = sessionEditedKeys
+    ? new Set(sessionEditedKeys)
+    : undefined;
+  const editKeysNewlyMarkedThisCall = new Set<string>();
+
   for (const write of writes) {
     const row = rowForWrite(tableData.rows, write);
     if (!row) {
@@ -394,6 +408,9 @@ export const executeTableValueWrites = async ({
       }
 
       sessionEditedKeys?.add(editKey);
+      if (sessionEditedKeys && !editKeysPresentBeforeThisCall?.has(editKey)) {
+        editKeysNewlyMarkedThisCall.add(editKey);
+      }
       frontmatterChangesByPath.set(resolvedPath, {
         properties: {
           ...(frontmatterChangesByPath.get(resolvedPath)?.properties ?? {}),
@@ -414,6 +431,17 @@ export const executeTableValueWrites = async ({
   }
 
   if (failed.length > 0 || (allOrNothing && skipped.length > 0)) {
+    // The whole batch is aborting here, BEFORE the per-path commit loop below
+    // ever runs a single saveFrontmatterProperties call — so nothing this
+    // call marked as self-edited actually committed to disk. Roll back every
+    // mark this call newly introduced (leaving any pre-existing mark from an
+    // earlier, already-committed call untouched); otherwise a later, unrelated
+    // edit to the same (path, column) would see selfEditedThisSession=true and
+    // skip the stale-conflict gate for a write that never landed. bd
+    // Notidian-cytg.
+    for (const editKey of editKeysNewlyMarkedThisCall) {
+      sessionEditedKeys?.delete(editKey);
+    }
     return { ok: false, applied: 0, skipped, failed };
   }
 
@@ -475,8 +503,17 @@ export const executeTableValueWrites = async ({
         // frontmatter write would actually land. It didn't: roll the mark back
         // so a retry sees this path/column as NOT self-edited and the
         // stale-conflict gate runs normally instead of being relaxed for an
-        // edit that never made it to disk. bd Notidian-cytg.
-        sessionEditedKeys?.delete(frontmatterEditKey(path, write.columnName));
+        // edit that never made it to disk. But only if THIS call is the one
+        // that speculatively added the mark — if it was already present before
+        // this call started (an earlier, separately-committed write to the
+        // same cell legitimately marked it), leave it alone: deleting it here
+        // would erase protection for that earlier, already-landed write and
+        // reintroduce the pathsIndex-lag false-conflict bug (Notidian-2kf7)
+        // sessionEditedKeys exists to prevent. bd Notidian-cytg.
+        const editKey = frontmatterEditKey(path, write.columnName);
+        if (editKeysNewlyMarkedThisCall.has(editKey)) {
+          sessionEditedKeys?.delete(editKey);
+        }
       }
     }
   }

@@ -652,6 +652,83 @@ describe("executeTableValueWrites", () => {
     expect(retry.savedFrontmatter).toEqual([]);
   });
 
+  it("does not roll back a mark earned by an earlier, separately-committed call when a LATER call's commit to the same cell fails", async () => {
+    // Regression for a second-order bug in the Notidian-cytg rollback fix
+    // itself: the rollback must only revoke a mark THIS call speculatively
+    // introduced, never one that predates it. Sequence:
+    //   1. Call #1 writes (path, status) with no conflict; its frontmatter
+    //      commit SUCCEEDS, legitimately marking the cell self-edited.
+    //   2. Call #2 makes a second write to the SAME cell. Because the mark
+    //      from call #1 is present, the stale-conflict gate tolerates
+    //      pathsIndex still lagging at call #1's pre-edit value and proceeds
+    //      to commit — but this time the frontmatter write REJECTS for an
+    //      unrelated reason (e.g. transient I/O). A naive unconditional
+    //      rollback would delete the mark here even though it protects call
+    //      #1's already-landed write, not call #2's failed one.
+    //   3. Call #3 makes a further legitimate edit to the same cell while
+    //      pathsIndex is STILL lagging (never caught up in this synthetic
+    //      repro). If the mark survived call #2's failure, the gate again
+    //      tolerates the lag and the edit commits. If it was wrongly wiped,
+    //      the gate misreads the session's own lag as an external conflict
+    //      and skips the edit — the exact Notidian-2kf7 false-conflict class
+    //      sessionEditedKeys exists to prevent.
+    const sessionEditedKeys = new Set<string>();
+    const path = "Relays & Devices/Relays & Devices/A.md";
+
+    const first = await execute({
+      sessionEditedKeys,
+      currentFrontmatterValues: { [path]: { status: "old" } },
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "active" },
+      ],
+    });
+    expect(first.result).toMatchObject({ ok: true, applied: 1, skipped: [] });
+    expect(sessionEditedKeys.has(`${path}\0status`)).toBe(true);
+
+    // Thread call #1's committed snapshot into call #2, as the real edit
+    // serializer does — baseValue now reflects 'active'.
+    const optimisticTable = first.savedTables[first.savedTables.length - 1];
+    const second = await execute({
+      table: optimisticTable,
+      sessionEditedKeys,
+      // pathsIndex has not caught up yet: still reports the pre-edit value.
+      currentFrontmatterValues: { [path]: { status: "old" } },
+      frontmatterFailPaths: [path],
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "active-retry" },
+      ],
+    });
+
+    // The gate tolerated the lag (mark from call #1 present) and attempted the
+    // commit, which then rejected.
+    expect(second.result.ok).toBe(false);
+    expect(second.result.failed).toEqual([
+      {
+        reason: "frontmatter-write-failed",
+        write: expect.objectContaining({ rowId: "0", value: "active-retry" }),
+      },
+    ]);
+    // The mark predates call #2, so call #2's failure must NOT erase it.
+    expect(sessionEditedKeys.has(`${path}\0status`)).toBe(true);
+
+    // Call #3: a further legitimate edit while pathsIndex is still lagging.
+    // Table state is unaffected by call #2's failed write (it never landed),
+    // so it still reflects call #1's committed 'active'.
+    const third = await execute({
+      table: optimisticTable,
+      sessionEditedKeys,
+      currentFrontmatterValues: { [path]: { status: "old" } },
+      writes: [
+        { rowId: "0", columnId: "status", columnName: "status", table: "", value: "in-progress" },
+      ],
+    });
+
+    expect(third.result).toMatchObject({ ok: true, applied: 1, skipped: [] });
+    expect(third.savedFrontmatter).toEqual([
+      { path, properties: { status: "in-progress" } },
+    ]);
+  });
+
   it("allows explicit forced frontmatter writes after conflict review", async () => {
     const { result, savedFrontmatter, savedTables } = await execute({
       currentFrontmatterValues: {

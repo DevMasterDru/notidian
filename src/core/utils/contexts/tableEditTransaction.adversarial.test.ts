@@ -1018,6 +1018,45 @@ describe("adversarial: sessionEditedKeys rollback on frontmatter commit failure"
     ]);
     expect(retry.savedFrontmatter).toEqual([]);
   });
+
+  it("rolls back a newly-marked key when the whole batch aborts BEFORE any commit is attempted (allOrNothing early return)", async () => {
+    // Row A has no conflict and gets speculatively marked self-edited by the
+    // classification loop. Row B genuinely conflicts, and since this batch is
+    // allOrNothing, the function returns ok:false/applied:0 at the early-return
+    // guard — BEFORE saveFrontmatterProperties is ever called for ANY path, not
+    // just B's. Row A's mark must not survive: nothing committed to disk for it
+    // either, so leaving the mark in place would let a later, unrelated write to
+    // the same cell skip the stale-conflict gate for an edit that never landed.
+    const sessionEditedKeys = new Set<string>();
+
+    const { result, savedFrontmatter } = await execute({
+      allOrNothing: true,
+      sessionEditedKeys,
+      currentFrontmatterValues: {
+        // Row A: no entry, so canonicalValue is undefined and the write is
+        // accepted without a conflict check.
+        "Folder/Folder/B.md": { status: "external" },
+      },
+      writes: [
+        { rowId: "0", columnName: "status", table: "", value: "done" },
+        { rowId: "1", columnName: "status", table: "", value: "done" },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(0);
+    expect(result.failed).toEqual([]);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ reason: "frontmatter-conflict", write: expect.objectContaining({ rowId: "1" }) }),
+    ]);
+    // The early return fires before the per-path commit loop, so nothing was
+    // ever attempted on disk.
+    expect(savedFrontmatter).toEqual([]);
+    // Row A's speculative mark must be rolled back: it was newly introduced by
+    // this aborted call and nothing committed for it.
+    expect(sessionEditedKeys.has("Folder/Folder/A.md\0status")).toBe(false);
+    expect(sessionEditedKeys.size).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
