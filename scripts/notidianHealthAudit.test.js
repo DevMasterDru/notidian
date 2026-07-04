@@ -335,6 +335,46 @@ describe("notidian health audit", () => {
     });
   });
 
+  it("fails when indexed vault content contains directory symlinks", async () => {
+    await withTempDir(async (dir) => {
+      const sourceDir = path.join(dir, "source");
+      const vaultPath = path.join(dir, "vault");
+      const targetDir = path.join(dir, "repo-target");
+      await writeSource(sourceDir);
+      await writeVault(vaultPath);
+      await fs.mkdir(path.join(vaultPath, "Projects"), { recursive: true });
+      await fs.mkdir(targetDir);
+      await fs.writeFile(path.join(targetDir, "package.json"), "{}");
+      try {
+        await fs.symlink(targetDir, path.join(vaultPath, "Projects", "Repo Link"), "dir");
+      } catch (error) {
+        if (error?.code == "EPERM" || error?.code == "ENOTSUP") {
+          return;
+        }
+        throw error;
+      }
+
+      const result = await runHealthAudit({
+        sourceDir,
+        vaultPath,
+        pluginId: "notidian",
+        skipVault: false,
+        live: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.results).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "vault has no directory symlinks in indexed content",
+            passed: false,
+            detail: expect.stringContaining("Projects/Repo Link"),
+          }),
+        ])
+      );
+    });
+  });
+
   it("fails when the vault still has active legacy Make.md plugin data paths", async () => {
     await withTempDir(async (dir) => {
       const sourceDir = path.join(dir, "source");

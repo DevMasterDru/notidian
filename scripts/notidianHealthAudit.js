@@ -183,6 +183,56 @@ const findActiveLegacyArtifacts = async (vaultPath) => {
   return artifacts.sort();
 };
 
+const findVaultDirectorySymlinks = async (vaultPath) => {
+  const symlinks = [];
+  const visit = async (currentPath) => {
+    let entries = [];
+    try {
+      entries = await fs.readdir(currentPath, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code == "ENOENT") return;
+      throw error;
+    }
+
+    for (const entry of entries) {
+      if (
+        entry.name.startsWith(".") ||
+        entry.name == ".trash" ||
+        containsBlockedPathName(entry.name)
+      ) {
+        continue;
+      }
+
+      const fullPath = path.join(currentPath, entry.name);
+      const relativePath = normalizeRelative(path.relative(vaultPath, fullPath));
+
+      if (entry.isSymbolicLink()) {
+        const target = await fs.readlink(fullPath);
+        try {
+          const stat = await fs.stat(fullPath);
+          if (stat.isDirectory()) {
+            symlinks.push(`${relativePath} -> ${target}`);
+          }
+        } catch (error) {
+          if (error?.code == "ENOENT") {
+            symlinks.push(`${relativePath} -> ${target} (broken)`);
+            continue;
+          }
+          throw error;
+        }
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        await visit(fullPath);
+      }
+    }
+  };
+
+  await visit(vaultPath);
+  return symlinks.sort();
+};
+
 const defaultRunner = (command, args, options = {}) =>
   execFileSync(command, args, {
     encoding: "utf8",
@@ -428,6 +478,13 @@ const runHealthAudit = async (config) => {
       "Notidian is enabled in the vault",
       () => enabledPlugins.includes(config.pluginId)
     );
+    const directorySymlinks = await findVaultDirectorySymlinks(config.vaultPath);
+    await addCheck(
+      results,
+      "vault has no directory symlinks in indexed content",
+      () => directorySymlinks.length == 0,
+      directorySymlinks.length == 0 ? "none" : directorySymlinks.join(", ")
+    );
     await addCheck(
       results,
       "vault has no active legacy Make.md plugin or root cache",
@@ -598,6 +655,7 @@ if (require.main === module) {
 module.exports = {
   findActiveLegacyArtifacts,
   findActiveSpaceStores,
+  findVaultDirectorySymlinks,
   parseHealthArgs,
   runHealthAudit,
 };
