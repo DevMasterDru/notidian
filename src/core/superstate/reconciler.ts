@@ -121,6 +121,10 @@ export class Reconciler {
   private pendingRowsByDb = new Map<string, Set<string>>();
   private pendingSweepAll = false;
   private pendingSweepDbs = new Set<string>();
+  // dbPath -> the tail of that db's own sweep chain (see `sweepFolder`'s own
+  // comment: this is the fix for the two-overlapping-sweeps-corrupt-the-store
+  // hazard -- never rejects, purely internal chaining bookkeeping).
+  private sweepChains = new Map<string, Promise<void>>();
 
   private started = false;
   private readonly rowDebounce: ReturnType<typeof debounce>;
@@ -402,7 +406,48 @@ export class Reconciler {
 
   // Sweeps ONE schema'd folder: full-folder scan is intentionally reserved
   // to this path only (never the incremental per-row path), per ADR-0057 D2.
+  //
+  // Serializes per dbPath: two overlapping calls for the SAME folder (e.g. a
+  // schema-change sweep firing via `scheduleDbSweep` while a vault-open full
+  // sweep's own `runFullSweep` is still mid-iteration on that folder) must
+  // never run their bodies concurrently. Without this, whichever call's
+  // `childrenForPath` snapshot happens to RESOLVE LAST wins the shared
+  // `rowStore`/`sweepIncompleteStore` entries for this db regardless of which
+  // snapshot is actually current -- a slower call holding a STALE listing
+  // (e.g. one that still includes a row deleted after this call started, but
+  // before it resolved) can resurrect a ghost `malformed-row` violation for
+  // that already-deleted row even after a faster, more current call already
+  // correctly reported it clean. Chaining every call for a dbPath onto that
+  // dbPath's own tail promise makes every sweepFolder(dbPath) invocation take
+  // its OWN fresh `childrenForPath` snapshot only once every prior call for
+  // that same dbPath has fully settled -- so a later call always reflects
+  // state at least as current as the one before it, never stomping on it.
+  // Two DIFFERENT dbPaths remain fully concurrent (no cross-db serialization,
+  // no perf regression for the common no-overlap case).
   async sweepFolder(dbPath: string): Promise<void> {
+    const prior = this.sweepChains.get(dbPath) ?? Promise.resolve();
+    const result = prior.then(
+      () => this.sweepFolderExclusive(dbPath),
+      () => this.sweepFolderExclusive(dbPath)
+    );
+    // The chained value stored for the NEXT call must never itself reject --
+    // a failed sweep must not permanently wedge this db's chain (the next
+    // scheduled sweep still runs and self-heals), and storing an unhandled
+    // rejection here (nothing else ever awaits this exact reference) would
+    // otherwise risk an unhandled-rejection warning purely from internal
+    // bookkeeping. The ORIGINAL `result` returned to the caller is untouched
+    // -- it still rejects exactly as before if `sweepFolderExclusive` throws,
+    // matching every existing caller's own try/catch around `sweepFolder`.
+    this.sweepChains.set(
+      dbPath,
+      result.catch(() => {
+        // Swallowed deliberately -- see comment above.
+      })
+    );
+    return result;
+  }
+
+  private async sweepFolderExclusive(dbPath: string): Promise<void> {
     const resolved = this.resolveDbSchema(dbPath);
     if (!resolved) {
       // Not (or no longer) a schema'd folder -- nothing to reconcile.
