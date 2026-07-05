@@ -140,6 +140,21 @@ With `--ui`, the harness also performs live table scenarios:
 
 The conflict scenario intentionally creates the stale authority state inside Notidian's live path index instead of racing a real external file edit. Real external edits often refresh the table before a stale row can be exercised. The lower-level transaction tests cover detection against canonical metadata; this live UI step verifies that the rendered conflict action can force the attempted value through the same write path.
 
+With `--reconciler`, the harness also exercises the Data Integrity reconciler engine (`src/core/superstate/reconciler.ts`, ADR-0057) against a fixture database whose Type Profile is declared directly in its hub note's frontmatter (no adoption UI):
+
+1. Creates a fresh fixture folder and a row with valid frontmatter for a single required text field.
+2. Waits until Obsidian's metadata cache reports the row's frontmatter value.
+3. Resolves the fixture folder's hub-note path the same way the reconciler itself does, then writes a hub note directly declaring a Type Profile with that field marked `required: true`.
+4. Waits until metadata cache reports the hub note's `schema_type`.
+5. Polls `plugin.reconciler.getRowViolations` until the row reads clean.
+6. Performs an **external raw-text edit** (through the harness's own `create --overwrite` primitive, bypassing Notidian's own write path) that drops the required field's value while leaving valid YAML, and polls until the reconciler reports exactly one `required` violation for that field.
+7. Restores valid frontmatter and polls until the reconciler reports the row clean again.
+8. Performs a second external raw-text edit that breaks the row's YAML outright (an unterminated quoted scalar), and polls until the reconciler reports exactly one dedicated `malformed-row` violation (never the ordinary per-field checks).
+9. Checks captured developer errors, confirming the malformed-YAML edit did not crash the app.
+10. Deletes the fixture folder through Obsidian's vault API unless `--keep-fixture` was passed.
+
+This proves that a real external edit to a schema'd folder's row — including one that breaks its YAML — surfaces the right violation in a live vault after reload, and confirms ADR-0057 D4's assumption that a genuine YAML parse failure leaves the row's cached frontmatter property absent rather than partially populated.
+
 ## Options
 
 | Option | Default | Purpose |
@@ -148,6 +163,7 @@ The conflict scenario intentionally creates the stale authority state inside Not
 | `--allow-write` | Off | Required before fixture creation. |
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
 | `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, redo, frontmatter type changes, Select option creation and existing-option selection, Multi-select persistence, conflict apply, and file-title rename workflows. |
+| `--reconciler` | Off | Also exercises the Data Integrity reconciler engine (ADR-0057) against a fixture database with a directly-declared Type Profile, including an external raw-text edit that breaks a row's YAML. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
 | `--fixture-root=<folder>` | `Sandbox/Notidian/Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
@@ -173,7 +189,7 @@ The harness has normal Jest tests that do not require Obsidian:
 npm test -- scripts/notidianRealVaultHarness.test.js --runInBand
 ```
 
-Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, API-backed cleanup behavior, optional UI mode, expanded UI workflow sequencing, frontmatter type-matrix coverage, UI failure reporting, child-process timeouts, and cleanup behavior.
+Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, API-backed cleanup behavior, optional UI mode, expanded UI workflow sequencing, frontmatter type-matrix coverage, UI failure reporting, child-process timeouts, cleanup behavior, and the optional reconciler scenario's fixture setup, external-edit violation detection, and cleanup ordering (against a fake Obsidian CLI runner, no live vault required).
 
 ## Current Limits
 

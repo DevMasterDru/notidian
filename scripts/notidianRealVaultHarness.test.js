@@ -5,6 +5,7 @@ const {
   parseHarnessArgs,
   runRealVaultSmokeHarness,
   runSchemaAdoptionScenario,
+  runReconcilerScenario,
   validateHarnessConfig,
 } = require("./notidianRealVaultHarness");
 
@@ -49,6 +50,7 @@ describe("notidian real vault harness", () => {
       keepFixture: true,
       includeUi: false,
       includeSchemaAdoption: false,
+      includeReconciler: false,
       pluginId: "notidian-dev",
       fixtureRoot: "Notidian Smoke Fixtures",
       timeoutMs: 2500,
@@ -740,6 +742,18 @@ describe("notidian real vault harness", () => {
     expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
       .toMatchObject({ includeSchemaAdoption: false });
   });
+
+  it("parses --reconciler", () => {
+    expect(
+      parseHarnessArgs(["vault=Atlas Vault", "--allow-write", "--reconciler"], {})
+    ).toMatchObject({
+      vault: "Atlas Vault",
+      allowWrite: true,
+      includeReconciler: true,
+    });
+    expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
+      .toMatchObject({ includeReconciler: false });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1000,5 +1014,175 @@ describe("runSchemaAdoptionScenario", () => {
     await expect(
       runSchemaAdoptionScenario({ config: scenarioConfig(), runner, runId: "run-1" })
     ).rejects.toThrow("Schema adoption fixture cleanup failed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runReconcilerScenario (Notidian-loan.4, ADR-0057): declares a v3 Type
+// Profile directly in a fixture hub note's frontmatter (no adoption UI, no
+// modal, no enum/FK drafting — simpler than runSchemaAdoptionScenario), then
+// drives two EXTERNAL raw-text edits to a single fixture row through the
+// harness's own `create --overwrite` primitive and asserts the reconciler
+// (plugin.reconciler.getRowViolations) surfaces the right violation after
+// each one: a `required` violation for a value dropped while staying valid
+// YAML, and a dedicated `malformed-row` violation for YAML that fails to
+// parse outright (ADR-0057 D4).
+// ---------------------------------------------------------------------------
+describe("runReconcilerScenario", () => {
+  const RECONCILER_ROOT = "Notidian Integration Fixtures/run-1-Reconciler";
+  const RECONCILER_ROW_PATH = `${RECONCILER_ROOT}/Reconciler Row.md`;
+  const RECONCILER_HUB_PATH = `${RECONCILER_ROOT}/Reconciler Hub.md`;
+
+  const REQUIRED_VIOLATION = {
+    field: "model",
+    code: "required",
+    severity: "error",
+    message: "model is required but missing.",
+    repairTier: "manual-only",
+    suggestedFix: 'Provide a value for "model".',
+  };
+
+  const MALFORMED_ROW_VIOLATION = {
+    code: "malformed-row",
+    severity: "error",
+    message:
+      '"Reconciler Row" (Reconciler Row.md): frontmatter is missing or failed to parse.',
+    repairTier: "manual-only",
+  };
+
+  // Each waitForReconcilerViolations call in the scenario resolves on its
+  // FIRST poll (the canned response already satisfies that call's own
+  // predicate), so the Nth distinct violations-eval call maps 1:1 to the
+  // scenario's own step order: baseline clean, required violation, restored
+  // clean, malformed-row violation.
+  const buildReconcilerRunner = ({
+    violationsSequence = [
+      [],
+      [REQUIRED_VIOLATION],
+      [],
+      [MALFORMED_ROW_VIOLATION],
+    ],
+    hubPathResult = { ok: true, hubPath: RECONCILER_HUB_PATH },
+    deleteOk = true,
+  } = {}) => {
+    let violationsCallCount = 0;
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command != "eval") return "";
+
+      const codeArg = args.find((arg) => arg.startsWith("code=")) ?? "";
+      if (codeArg.includes("notidianReconcilerHubPath")) {
+        return JSON.stringify(hubPathResult);
+      }
+      if (codeArg.includes("notidianReconcilerRowViolations")) {
+        const violations = violationsSequence[violationsCallCount] ?? [];
+        violationsCallCount++;
+        return JSON.stringify({ ok: true, violations });
+      }
+      if (codeArg.includes("notidianDeleteFolder")) {
+        return JSON.stringify(
+          deleteOk ? { ok: true } : { ok: false, reason: "exception" }
+        );
+      }
+      if (codeArg.includes('"model"')) return "=> Widget A";
+      if (codeArg.includes('"schema_type"')) return "=> notidian_type_profile";
+      return "";
+    });
+    return runner;
+  };
+
+  const scenarioConfig = (overrides = {}) => ({
+    ...baseConfig,
+    timeoutMs: 500,
+    pollIntervalMs: 0,
+    ...overrides,
+  });
+
+  it("drives fixture setup, both external-edit violations, and cleanup in order", async () => {
+    const runner = buildReconcilerRunner();
+
+    const result = await runReconcilerScenario({
+      config: scenarioConfig(),
+      runner,
+      runId: "run-1",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      folder: RECONCILER_ROOT,
+      hubPath: RECONCILER_HUB_PATH,
+      rowPath: RECONCILER_ROW_PATH,
+    });
+
+    const commandSequence = runner.mock.calls.map(([args]) => args[1]);
+    expect(commandSequence).toEqual([
+      "eval", // ensure fixture folder
+      "create", // row, valid frontmatter
+      "eval", // waitForMetadataValue(model)
+      "eval", // resolve hub path
+      "create", // hub note declaring Type Profile directly
+      "eval", // waitForMetadataValue(schema_type)
+      "eval", // baseline clean
+      "create", // external edit A: drop required field (still valid YAML)
+      "eval", // required violation surfaces
+      "create", // restore valid content
+      "eval", // clean again
+      "create", // external edit B: malformed YAML
+      "eval", // malformed-row violation surfaces
+      "dev:errors",
+      "eval", // cleanup (delete folder)
+    ]);
+  });
+
+  it("throws when the hub path cannot be resolved", async () => {
+    const runner = buildReconcilerRunner({
+      hubPathResult: { ok: false, reason: "missing-note-path" },
+    });
+
+    await expect(
+      runReconcilerScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Reconciler fixture hub path resolution failed");
+
+    // Cleanup still runs even though the scenario failed early.
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(true);
+  });
+
+  it("times out waiting for the required violation to surface", async () => {
+    const runner = buildReconcilerRunner({
+      // Stays clean instead of ever surfacing the "required" violation.
+      violationsSequence: [[]],
+    });
+
+    await expect(
+      runReconcilerScenario({
+        config: scenarioConfig({ timeoutMs: 50 }),
+        runner,
+        runId: "run-1",
+      })
+    ).rejects.toThrow(/Timed out waiting for reconciler violations \(required violation\)/);
+  });
+
+  it("skips cleanup when --keep-fixture is set", async () => {
+    const runner = buildReconcilerRunner();
+
+    await runReconcilerScenario({
+      config: scenarioConfig({ keepFixture: true }),
+      runner,
+      runId: "run-1",
+    });
+
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(false);
+  });
+
+  it("surfaces a cleanup failure when the scenario itself succeeded", async () => {
+    const runner = buildReconcilerRunner({ deleteOk: false });
+
+    await expect(
+      runReconcilerScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Reconciler fixture cleanup failed");
   });
 });

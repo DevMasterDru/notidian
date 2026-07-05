@@ -47,6 +47,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     keepFixture: false,
     includeUi: false,
     includeSchemaAdoption: false,
+    includeReconciler: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -71,6 +72,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--adopt-schema") {
       config.includeSchemaAdoption = true;
+      continue;
+    }
+    if (arg == "--reconciler") {
+      config.includeReconciler = true;
       continue;
     }
     const separator = arg.indexOf("=");
@@ -3686,6 +3691,385 @@ const runSchemaAdoptionScenario = async ({ config, runner, runId }) => {
   return { ok: true, folder: root, hubPath };
 };
 
+// ---------------------------------------------------------------------------
+// --reconciler / runReconcilerScenario (Notidian-loan.4, ADR-0057): the Data
+// Integrity reconciler is a read-only, event-driven engine
+// (src/core/superstate/reconciler.ts) that watches a schema'd folder's rows
+// and holds their current Violation[] in memory, recomputed from live index
+// state -- nothing in this scenario writes through Notidian's own
+// transaction path. It is threaded behind its own --reconciler flag
+// (config.includeReconciler), the same convention as
+// --adopt-schema/config.includeSchemaAdoption, so it never perturbs any
+// other scenario's already-pinned eval-call sequence.
+//
+// Unlike schema adoption, this scenario declares its Type Profile DIRECTLY in
+// the hub note's frontmatter (no adoption UI, no modal, no enum/FK drafting)
+// -- the bead's own DoD is an EXTERNAL raw-text edit to a fixture row (the
+// harness's own `create --overwrite` primitive, simulating an edit made
+// completely outside Notidian) surfacing the right violation after reload.
+// Two such edits are exercised on the SAME row, in sequence:
+//   A) valid YAML that drops the declared required field's value entirely --
+//      the reconciler must surface exactly one `required` violation, then
+//      clear it once the value is restored.
+//   B) YAML that fails to parse at all (an unterminated double-quoted
+//      scalar) -- the reconciler must resolve to exactly ONE dedicated
+//      `malformed-row` violation (ADR-0057 D4's `brokenFrontmatterViolation`,
+//      reconciler.ts ~103-110), never fall through to ordinary per-field
+//      checks, and never crash the app (checked via the same `cleanDevErrors`
+//      pattern every other scenario uses).
+//
+// `plugin.reconciler` is TS-private on the plugin class but runtime-reachable
+// via `eval`, exactly like `plugin.superstate` is throughout this file; it is
+// also populated by a lazy dynamic `import()` in main.ts's `onload` (Notidian
+// -loan.4's own landed wiring), so a `missing-reconciler` response from
+// `reconcilerRowViolationsEvalCode` is a real, expected transient this
+// scenario's own poll loop (never a one-shot check) must tolerate, not an
+// error.
+// ---------------------------------------------------------------------------
+
+const RECONCILER_REQUIRED_FIELD = "model";
+const RECONCILER_VALID_VALUE = "Widget A";
+const RECONCILER_ROW_TITLE = "Reconciler Row";
+
+const reconcilerHubContent = () =>
+  [
+    "---",
+    "schema_type: notidian_type_profile",
+    "fields:",
+    `  ${RECONCILER_REQUIRED_FIELD}:`,
+    "    kind: text",
+    "    required: true",
+    "---",
+    "# Reconciler Fixture Hub",
+    "",
+  ].join("\n");
+
+const reconcilerRowValidContent = () =>
+  [
+    "---",
+    `${RECONCILER_REQUIRED_FIELD}: ${RECONCILER_VALID_VALUE}`,
+    "---",
+    `# ${RECONCILER_ROW_TITLE}`,
+    "",
+  ].join("\n");
+
+// External edit A: valid YAML, but the declared required field's value is
+// gone entirely (not merely blanked) -- validateRow.ts's `checkRequired` /
+// `isMissingValue` treats an absent key the same as `null`/`""`.
+const reconcilerRowDroppedRequiredContent = () =>
+  [
+    "---",
+    "notes: dropped-required-field",
+    "---",
+    `# ${RECONCILER_ROW_TITLE}`,
+    "",
+  ].join("\n");
+
+// External edit B: an unterminated double-quoted scalar. Obsidian extracts
+// the frontmatter block textually (the two `---` fence lines) before handing
+// the substring to its YAML parser, so this fails to parse as YAML without
+// disturbing the fence lines themselves -- confirming this empirically in a
+// real vault (does the broken parse actually leave
+// `pathsIndex.get(path)?.metadata?.property` absent, per ADR-0057 D4's
+// assumption) is this whole scenario's reason for existing.
+const reconcilerRowMalformedYamlContent = () =>
+  [
+    "---",
+    `${RECONCILER_REQUIRED_FIELD}: "${RECONCILER_VALID_VALUE}`,
+    "---",
+    `# ${RECONCILER_ROW_TITLE}`,
+    "",
+  ].join("\n");
+
+// Resolves the fixture folder's hub-note path the SAME way the reconciler
+// itself does (reconciler.ts's `resolveDbSchema`/`dbForNotePath`: always
+// `spacesIndex.get(dbPath)?.space?.notePath`, regardless of the
+// `enableFolderNote` setting -- that setting only picks `notePath` vs.
+// `defPath` for OTHER callers via `metadataPathForSpace`
+// (core/superstate/utils/spaces.ts), and `defPath` is an internal
+// `def.json`, never a Markdown hub note; the reconciler's own code never
+// reads it). Forces the same `reloadSpace`/`reloadContextByPath` pair
+// `schemaAdoptionContextSetupEvalCode` and `tableViewSetupEvalCode` already
+// use, so `spacesIndex` carries a fresh entry for a folder that was only
+// just created.
+const reconcilerHubPathEvalCode = ({
+  pluginId,
+  folder,
+  timeoutMs,
+  pollIntervalMs,
+}) =>
+  `(async () => {
+    const marker = "notidianReconcilerHubPath";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const timeoutMs = ${Number(timeoutMs)};
+    const pollIntervalMs = Math.max(1, ${Number(pollIntervalMs)});
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.superstate?.spaceManager) {
+        return finish({ ok: false, reason: "missing-plugin" });
+      }
+      const folder = ${JSON.stringify(folder)};
+      const start = Date.now();
+      let notePath = null;
+      do {
+        await plugin.superstate.reloadSpace(
+          plugin.superstate.spaceManager.spaceInfoForPath(folder),
+          null,
+          true
+        );
+        await plugin.superstate.reloadContextByPath(folder, {
+          force: true,
+          calculate: true,
+        });
+        notePath =
+          plugin.superstate.spacesIndex.get(folder)?.space?.notePath ?? null;
+        if (notePath) break;
+        await sleep(pollIntervalMs);
+      } while (Date.now() - start <= timeoutMs);
+      if (!notePath) {
+        return finish({ ok: false, reason: "missing-note-path" });
+      }
+      return finish({ ok: true, hubPath: notePath });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// `plugin.reconciler` is the runtime-reachable-but-TS-private engine instance
+// (see this section's own header comment); `missing-reconciler` is a real,
+// expected transient (a lazy dynamic import in main.ts's onload), not a
+// fatal condition -- the caller's own poll loop (waitForReconcilerViolations)
+// is what tolerates it, not this eval code.
+const reconcilerRowViolationsEvalCode = ({ pluginId, dbPath, rowPath }) =>
+  `(() => {
+    const marker = "notidianReconcilerRowViolations";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.reconciler) {
+        return finish({ ok: false, reason: "missing-reconciler" });
+      }
+      const violations = plugin.reconciler.getRowViolations(
+        ${JSON.stringify(dbPath)},
+        ${JSON.stringify(rowPath)}
+      );
+      return finish({ ok: true, violations });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// Node-side poll loop, cloned from waitForMetadataValue's own shape (a
+// separate `eval` round-trip per attempt, not a poll loop embedded in one
+// eval call) -- `plugin.reconciler.getRowViolations` is a synchronous,
+// already-in-memory read, so each attempt is cheap; a non-ok response
+// (missing-reconciler, or a thrown exception) never satisfies `predicate`
+// and is retried exactly like a not-yet-matching violations array.
+const waitForReconcilerViolations = async ({
+  config,
+  runner,
+  pluginId,
+  dbPath,
+  rowPath,
+  predicate,
+  label,
+}) => {
+  const start = Date.now();
+  let lastResult = null;
+
+  while (Date.now() - start <= config.timeoutMs) {
+    lastResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: reconcilerRowViolationsEvalCode({ pluginId, dbPath, rowPath }),
+      })
+    );
+
+    if (lastResult?.ok && predicate(lastResult.violations ?? [])) {
+      return lastResult.violations ?? [];
+    }
+    await sleep(Math.max(1, config.pollIntervalMs));
+  }
+
+  throw new Error(
+    `Timed out waiting for reconciler violations (${label}) on ${rowPath}. Last result: ${JSON.stringify(
+      lastResult
+    )}`
+  );
+};
+
+const isCleanViolations = (violations) =>
+  Array.isArray(violations) && violations.length == 0;
+
+const isSingleRequiredViolation = (violations) =>
+  Array.isArray(violations) &&
+  violations.length == 1 &&
+  violations[0]?.code == "required" &&
+  violations[0]?.field == RECONCILER_REQUIRED_FIELD &&
+  violations[0]?.severity == "error";
+
+const isSingleMalformedRowViolation = (violations) =>
+  Array.isArray(violations) &&
+  violations.length == 1 &&
+  violations[0]?.code == "malformed-row" &&
+  violations[0]?.severity == "error" &&
+  violations[0]?.repairTier == "manual-only";
+
+const runReconcilerScenario = async ({ config, runner, runId }) => {
+  const root = joinVaultPath(config.fixtureRoot, `${runId}-Reconciler`);
+  const rowPath = `${root}/${RECONCILER_ROW_TITLE}.md`;
+  let scenarioError = null;
+  let hubPath = null;
+
+  try {
+    await runObsidian(config, runner, "eval", {
+      code: ensureFixtureFolderEvalCode({ folder: root }),
+    });
+
+    await runObsidian(config, runner, "create", {
+      path: rowPath,
+      content: reconcilerRowValidContent(),
+      overwrite: true,
+    });
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: rowPath,
+      property: RECONCILER_REQUIRED_FIELD,
+      expected: RECONCILER_VALID_VALUE,
+    });
+
+    const hubPathResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: reconcilerHubPathEvalCode({
+          pluginId: config.pluginId,
+          folder: root,
+          timeoutMs: config.timeoutMs,
+          pollIntervalMs: config.pollIntervalMs,
+        }),
+      })
+    );
+    if (!hubPathResult?.ok) {
+      throw new Error(
+        `Reconciler fixture hub path resolution failed: ${
+          hubPathResult?.reason ?? "unknown"
+        }`
+      );
+    }
+    hubPath = hubPathResult.hubPath;
+
+    await runObsidian(config, runner, "create", {
+      path: hubPath,
+      content: reconcilerHubContent(),
+      overwrite: true,
+    });
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: hubPath,
+      property: "schema_type",
+      expected: "notidian_type_profile",
+    });
+
+    // Baseline: the valid row must read clean before either external edit.
+    // (A reconciler that has not yet examined this row also reads as `[]`;
+    // the real proof this scenario exists for is the flips below.)
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath,
+      predicate: isCleanViolations,
+      label: "baseline clean",
+    });
+
+    // External edit A: drop the required field's value while staying valid
+    // YAML.
+    await runObsidian(config, runner, "create", {
+      path: rowPath,
+      content: reconcilerRowDroppedRequiredContent(),
+      overwrite: true,
+    });
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath,
+      predicate: isSingleRequiredViolation,
+      label: "required violation",
+    });
+
+    // Restore valid content -- the violation must clear.
+    await runObsidian(config, runner, "create", {
+      path: rowPath,
+      content: reconcilerRowValidContent(),
+      overwrite: true,
+    });
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath,
+      predicate: isCleanViolations,
+      label: "restored clean",
+    });
+
+    // External edit B: break the row's YAML entirely.
+    await runObsidian(config, runner, "create", {
+      path: rowPath,
+      content: reconcilerRowMalformedYamlContent(),
+      overwrite: true,
+    });
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath,
+      predicate: isSingleMalformedRowViolation,
+      label: "malformed-row violation",
+    });
+
+    const devErrors = await runObsidian(config, runner, "dev:errors");
+    if (!cleanDevErrors(devErrors)) {
+      throw new Error(
+        `Obsidian captured developer errors during the reconciler scenario:\n${devErrors}`
+      );
+    }
+  } catch (error) {
+    scenarioError = error;
+  }
+
+  if (!config.keepFixture) {
+    const cleanupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: deleteFolderEvalCode({ folder: root }),
+      })
+    );
+    if (!scenarioError && !cleanupResult?.ok) {
+      scenarioError = new Error(
+        `Reconciler fixture cleanup failed: ${
+          cleanupResult?.reason ?? "unknown"
+        }`
+      );
+    }
+  }
+
+  if (scenarioError) throw scenarioError;
+  return { ok: true, folder: root, hubPath, rowPath };
+};
+
 const runRealVaultSmokeHarness = async (config, runner) => {
   const errors = validateHarnessConfig(config);
   if (errors.length > 0) {
@@ -3779,6 +4163,14 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       });
     }
 
+    if (config.includeReconciler) {
+      await runReconcilerScenario({
+        config,
+        runner: execute,
+        runId: paths.runId,
+      });
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -3847,6 +4239,7 @@ const usage = () => [
   "  --keep-fixture           Leave fixtures in the vault for inspection.",
   "  --ui                     Also exercise the live Notidian table DOM.",
   "  --adopt-schema           Also exercise the schema-adoption preview/confirm modal.",
+  "  --reconciler             Also exercise the Data Integrity reconciler engine (ADR-0057).",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,
@@ -3886,5 +4279,6 @@ module.exports = {
   parseHarnessArgs,
   runRealVaultSmokeHarness,
   runSchemaAdoptionScenario,
+  runReconcilerScenario,
   validateHarnessConfig,
 };

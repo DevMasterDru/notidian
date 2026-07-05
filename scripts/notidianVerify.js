@@ -25,6 +25,7 @@ const parseVerifyArgs = (argv = process.argv.slice(2), env = process.env) => {
     pluginId: env.NOTIDIAN_PLUGIN_ID ?? DEFAULT_PLUGIN_ID,
     ui: false,
     adoptSchema: false,
+    reconciler: false,
     requireClean: false,
     settleMs: DEFAULT_SETTLE_MS,
   };
@@ -40,6 +41,10 @@ const parseVerifyArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--adopt-schema") {
       config.adoptSchema = true;
+      continue;
+    }
+    if (arg == "--reconciler") {
+      config.reconciler = true;
       continue;
     }
     if (arg == "--require-clean") {
@@ -128,6 +133,7 @@ const createLiveVerificationSteps = ({
   pluginId = DEFAULT_PLUGIN_ID,
   ui = false,
   adoptSchema = false,
+  reconciler = false,
   settleMs = DEFAULT_SETTLE_MS,
 } = {}) => {
   const smokeArgs = [
@@ -140,6 +146,7 @@ const createLiveVerificationSteps = ({
   ];
   if (ui) smokeArgs.push("--ui");
   if (adoptSchema) smokeArgs.push("--adopt-schema");
+  if (reconciler) smokeArgs.push("--reconciler");
 
   return [
     {
@@ -248,6 +255,7 @@ const usage = () => [
   "  --require-clean       Require empty git status before and after source checks.",
   "  --ui                  Include the optional live table DOM smoke.",
   "  --adopt-schema        Include the optional schema-adoption preview/confirm smoke.",
+  "  --reconciler          Include the optional Data Integrity reconciler engine smoke.",
   `  --vault-path=<path>    Defaults to ${DEFAULT_VAULT_PATH}.`,
   "  --vault=<name>        Defaults to the vault path basename.",
   `  --plugin-id=<id>      Defaults to ${DEFAULT_PLUGIN_ID}.`,
