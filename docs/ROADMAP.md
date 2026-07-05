@@ -16,7 +16,7 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 - **Frontmatter-link relations + rollups UX polish** (ADR 0029 → bd `Notidian-f0pj.2`). ✓ Shipped.
 - **Filename template mirror** (ADR 0054 → bd `Notidian-pay5.1`). ✓ Shipped.
 - **Key-match FK relations** (ADR 0029 → bd `Notidian-mx0k.1`). Owner-authorized 2026-06-30. Key-match resolver shipped; island header (mx0k.2) reverted in favor of template sync (ADR 0055).
-- **Template sync — computed properties** (ADR 0055). Owner-authorized 2026-06-30. Replaces the reverted grouping island with a general-purpose template interpolation + cross-DB lookup + reactive sync layer. Awaiting sessionized build.
+- ~~**Template sync — computed properties** (ADR 0055)~~ — owner-authorized 2026-06-30; resequenced by ADR-0058 (2026-07-02) to ship as Wave 4 (`Notidian-loan.12`) of the Data Integrity Program instead of standalone — see Parked below.
 
 ## Data Integrity Program (owner ratified 2026-07-02)
 
@@ -46,3 +46,4 @@ issues yet.
 - **Owner one-time live-verify: view-customization durability** — confirm hidden props / column widths / column order survive a frame save + AI/api write + plugin reload across 2+ sibling views post-Notidian-2y21; owner-action-gated (eyes-on in a running vault, no further offline code change). Run when next in the vault. — (deploy-and-live-verify contract [ADR 0051](adr/0051-deploy-and-live-verify-contract.md); fix bead `Notidian-2y21`; checklist bead `Notidian-peh7`)
 - **parseGradient strict-mode for paste/import** — recognize `circle`/`ellipse` radial shape keywords as direction and reject malformed percent tokens like `red x%`; the live colorPickerMenu editor authors well-formed strings, so this is paste/import-only. — (`src/core/utils/color/gradient.ts`; current behavior pinned as characterization in `gradient.parser.test.ts`; bead `Notidian-j1n1`)
 - ~~**Key-match foreign key relations + grouping island**~~ — key-match pulled 2026-06-30 (shipped as mx0k.1); island reverted, replaced by template sync (ADR 0055).
+- **Template sync — computed properties (full build-out)** — do not build standalone from ADR-0055's original 3-phase plan; ADR-0058 (Accepted 2026-07-02) resequences it as Wave 4 of the Data Integrity Program (`Notidian-loan.12`, blocked on `Notidian-loan.8`), or it reproduces the D1 stored-copy-drift bug (six Gidi pin-map device labels scrambled). — ([ADR 0055](adr/0055-template-sync-computed-properties.md) / [ADR 0058](adr/0058-derived-field-authority-class.md); epic `Notidian-v341` closed superseded-by-sequencing)
