@@ -208,6 +208,139 @@ describe("Reconciler", () => {
     reconciler.stop();
   });
 
+  it("does not resurrect a phantom malformed-row violation when a row is deleted before its debounced revalidation flushes", async () => {
+    // Reviewer finding (Notidian-loan.4): a row queued for incremental
+    // revalidation that is then deleted BEFORE the debounce fires must not
+    // have its pending entry survive the delete -- otherwise the later
+    // flush still calls revalidateRow for a path pathsIndex no longer has,
+    // resurrecting a synthetic "malformed-row" violation for a deleted file.
+    const pathsIndex = new Map<string, any>([
+      [NOTE_PATH, { metadata: { property: HUB_REQUIRED } }],
+      [ROW1, { metadata: { property: { model: "Widget A" } }, spaces: [DB] }],
+    ]);
+    const superstate = makeSuperstate({
+      pathsIndex,
+      spacesIndex: dbSpacesIndex(),
+    });
+    const reconciler = new Reconciler(superstate, {
+      rowDebounceMs: 300,
+      sweepDebounceMs: 1_000_000,
+    });
+    reconciler.start();
+
+    // Queue an incremental revalidation for ROW1 -- still debouncing.
+    await superstate.eventsDispatcher.dispatchEvent("pathStateUpdated", {
+      path: ROW1,
+    });
+
+    // ROW1 is deleted before the debounce elapses. Mirrors superstate's own
+    // onPathDeleted, which removes the pathsIndex entry BEFORE dispatching
+    // `pathDeleted` (superstate.ts).
+    pathsIndex.delete(ROW1);
+    await superstate.eventsDispatcher.dispatchEvent("pathDeleted", {
+      path: ROW1,
+    });
+
+    jest.advanceTimersByTime(300);
+
+    expect(reconciler.getRowViolations(DB, ROW1)).toEqual([]);
+    reconciler.stop();
+  });
+
+  it("revalidates a renamed row via pathChanged and clears the stale violation stored under the old path", async () => {
+    // Reviewer finding (Notidian-loan.4): superstate.onPathRename dispatches
+    // ONLY `pathChanged` for a rename -- never pathStateUpdated/pathCreated/
+    // pathDeleted -- so a reconciler that doesn't subscribe to it leaves a
+    // violation recorded under the pre-rename path as a permanent ghost.
+    const OLD_PATH = `${DB}/old-name.md`;
+    const NEW_PATH = `${DB}/new-name.md`;
+    const pathsIndex = new Map<string, any>([
+      [NOTE_PATH, { metadata: { property: HUB_REQUIRED } }],
+      [OLD_PATH, { metadata: { property: {} }, spaces: [DB] }],
+    ]);
+    const superstate = makeSuperstate({
+      pathsIndex,
+      spacesIndex: dbSpacesIndex(),
+    });
+    const reconciler = new Reconciler(superstate, {
+      rowDebounceMs: 10,
+      sweepDebounceMs: 1_000_000,
+    });
+    reconciler.start();
+
+    await superstate.eventsDispatcher.dispatchEvent("pathStateUpdated", {
+      path: OLD_PATH,
+    });
+    jest.advanceTimersByTime(10);
+    expect(reconciler.getRowViolations(DB, OLD_PATH)).toHaveLength(1);
+
+    // Simulate the rename exactly as superstate.onPathRename does: the old
+    // pathsIndex entry is gone, the new path is indexed, and ONLY
+    // `pathChanged` is dispatched.
+    pathsIndex.delete(OLD_PATH);
+    pathsIndex.set(NEW_PATH, {
+      metadata: { property: { model: "Widget A" } },
+      spaces: [DB],
+    });
+    await superstate.eventsDispatcher.dispatchEvent("pathChanged", {
+      path: OLD_PATH,
+      newPath: NEW_PATH,
+    });
+    jest.advanceTimersByTime(10);
+
+    expect(reconciler.getRowViolations(DB, OLD_PATH)).toEqual([]);
+    expect(reconciler.getRowViolations(DB, NEW_PATH)).toEqual([]);
+    reconciler.stop();
+  });
+
+  it("surfaces a fresh title-binding violation after a rename that no longer matches the bound field", async () => {
+    const HUB_TITLE = {
+      schema_type: "notidian_type_profile",
+      fields: { name: { kind: "text", title_binding: true } },
+    };
+    const OLD_PATH = `${DB}/Widget A.md`;
+    const NEW_PATH = `${DB}/Widget B.md`;
+    const pathsIndex = new Map<string, any>([
+      [NOTE_PATH, { metadata: { property: HUB_TITLE } }],
+      [
+        OLD_PATH,
+        { metadata: { property: { name: "Widget A" } }, spaces: [DB] },
+      ],
+    ]);
+    const superstate = makeSuperstate({
+      pathsIndex,
+      spacesIndex: dbSpacesIndex(),
+    });
+    const reconciler = new Reconciler(superstate, {
+      rowDebounceMs: 10,
+      sweepDebounceMs: 1_000_000,
+    });
+    reconciler.start();
+
+    await superstate.eventsDispatcher.dispatchEvent("pathStateUpdated", {
+      path: OLD_PATH,
+    });
+    jest.advanceTimersByTime(10);
+    expect(reconciler.getRowViolations(DB, OLD_PATH)).toEqual([]);
+
+    // Rename the file without touching the bound "name" field -- the new
+    // basename no longer matches it.
+    pathsIndex.delete(OLD_PATH);
+    pathsIndex.set(NEW_PATH, {
+      metadata: { property: { name: "Widget A" } },
+      spaces: [DB],
+    });
+    await superstate.eventsDispatcher.dispatchEvent("pathChanged", {
+      path: OLD_PATH,
+      newPath: NEW_PATH,
+    });
+    jest.advanceTimersByTime(10);
+
+    const violations = reconciler.getRowViolations(DB, NEW_PATH);
+    expect(violations.some((v) => v.code == "title-binding")).toBe(true);
+    reconciler.stop();
+  });
+
   it("triggers a full sweep of its own db on a hub-note edit (schema change), not a row revalidation of the hub note", async () => {
     const pathsIndex = new Map<string, any>([
       [NOTE_PATH, { metadata: { property: HUB_REQUIRED } }],

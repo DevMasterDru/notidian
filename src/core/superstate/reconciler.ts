@@ -153,6 +153,16 @@ export class Reconciler {
     this.handlePathEvent(payload.path);
   private onPathDeleted = (payload: { path: string }) =>
     this.handlePathDeletedEvent(payload.path);
+  // A rename is a routine, first-class row-identity edit (ADR-0016), but
+  // superstate.onPathRename (superstate.ts) dispatches ONLY `pathChanged`
+  // for it -- never pathStateUpdated/pathCreated/pathDeleted (those are the
+  // create/update/delete triggers this reconciler otherwise relies on). Left
+  // unsubscribed, a rename that introduces or fixes a title_binding mismatch
+  // (or any other field check) goes undetected until the next full sweep,
+  // and a violation stored under the pre-rename path becomes a permanent
+  // ghost (reviewer finding, Notidian-loan.4).
+  private onPathChanged = (payload: { path: string; newPath: string }) =>
+    this.handlePathChangedEvent(payload.path, payload.newPath);
   private onSuperstateUpdated = () => this.scheduleFullSweep();
 
   start(): void {
@@ -169,6 +179,10 @@ export class Reconciler {
     this.superstate.eventsDispatcher.addListener(
       "pathDeleted",
       this.onPathDeleted
+    );
+    this.superstate.eventsDispatcher.addListener(
+      "pathChanged",
+      this.onPathChanged
     );
     this.superstate.eventsDispatcher.addListener(
       "superstateUpdated",
@@ -195,6 +209,10 @@ export class Reconciler {
     this.superstate.eventsDispatcher.removeListener(
       "pathDeleted",
       this.onPathDeleted
+    );
+    this.superstate.eventsDispatcher.removeListener(
+      "pathChanged",
+      this.onPathChanged
     );
     this.superstate.eventsDispatcher.removeListener(
       "superstateUpdated",
@@ -240,7 +258,34 @@ export class Reconciler {
         if (rows.size == 0) this.rowStore.delete(dbPath);
       }
     }
+    // A row already queued for incremental revalidation (via
+    // scheduleRowRevalidate, still waiting out the debounce window) must
+    // never survive its own delete: left in place, the debounced flush
+    // later still calls revalidateRow for a path pathsIndex no longer has
+    // an entry for, which resolves to isPlainRow == false and resurrects a
+    // synthetic "malformed-row" ghost violation for a file that no longer
+    // exists (reviewer finding, Notidian-loan.4). Purge it from every db's
+    // pending set -- a path can be pending under more than one db (a note
+    // can belong to multiple spaces), so this is not scoped to one dbPath.
+    for (const [dbPath, pendingRows] of [...this.pendingRowsByDb]) {
+      if (pendingRows.delete(path) && pendingRows.size == 0) {
+        this.pendingRowsByDb.delete(dbPath);
+      }
+    }
     if (changed) this.notifyChange();
+  }
+
+  // ADR-0016: a rename is a routine, first-class row-identity edit, but it
+  // is dispatched ONLY as `pathChanged` (never pathStateUpdated/pathCreated/
+  // pathDeleted) -- see onPathChanged's own doc comment. First clear any
+  // violation entry stored under the pre-rename path (and any revalidation
+  // still queued for it) exactly as a delete would, since the row no longer
+  // lives there; then treat the new path like any other create/update event
+  // so a (possibly title_binding-relevant, since basename just changed)
+  // fresh revalidation is scheduled for it.
+  private handlePathChangedEvent(oldPath: string, newPath: string): void {
+    this.handlePathDeletedEvent(oldPath);
+    this.handlePathEvent(newPath);
   }
 
   private dbForNotePath(path: string): string | null {
