@@ -10,6 +10,7 @@ import { ICLIManager } from "./actions";
 import { IAPI } from "./api";
 import { IAssetManager } from "./assets";
 import { Command } from "./commands";
+import { IDataHealthReconciler } from "./dataHealth";
 import { Focus } from "./focus";
 import { IndexMap } from "./indexMap";
 import { FrameRoot, MDBFrames } from "./mframe";
@@ -35,6 +36,10 @@ export abstract class ISuperstate {
     ui: IUIManager;
     cli: ICLIManager;
     assets: IAssetManager;
+    // Notidian-loan.5 (ADR-0057): the Data Integrity reconciler's read-only
+    // public API (see reconciler.ts's own doc comment) — null until main.ts
+    // constructs it post-load, nulled again at plugin unload.
+    reconciler: IDataHealthReconciler | null;
     pathsIndex: Map<string, PathState>;
     spacesIndex: Map<string, SpaceState>;
     contextsIndex: Map<string, ContextState>;

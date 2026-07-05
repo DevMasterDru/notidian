@@ -56,7 +56,11 @@ import {
 } from "core/utils/contexts/context";
 import { partitionNewRowValuesByAuthority } from "core/utils/contexts/newRowValueWrites";
 import { runGuardedRowDelete } from "core/utils/contexts/tableRowDeleteGuard";
-import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
+import {
+  defaultMenu,
+  menuSection,
+  menuSeparator,
+} from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { serializeOptionValue } from "core/utils/serializer";
 import {
   attrsWithTextGroupOrder,
@@ -198,6 +202,17 @@ import { fieldTypeForField, fieldTypeForType } from "schemas/mdb";
 import i18n from "shared/i18n";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
+import {
+  DataHealthViolation,
+  MALFORMED_ROW_CODE,
+} from "shared/types/dataHealth";
+import {
+  emptyEncodingIsAutofixable,
+  enumValuesForField,
+  fieldFromSchema,
+  resolveDbTypeProfile,
+} from "./rowHealthRepair";
+import { RowHealthBadge } from "./RowHealthBadge";
 import {
   ColumnDataAnchorMode,
   ColumnHeaderDisplayMode,
@@ -450,6 +465,12 @@ const TableRowDragHandle = (props: {
     event: React.MouseEvent<HTMLTableCellElement>,
     rowId: string
   ) => void;
+  // Data Integrity Program health surfaces (Notidian-loan.5): the caller
+  // (TableView, flag-gated) resolves this row's violations and passes them
+  // straight through — this component carries no lookup/gating logic of its
+  // own, same posture as HubRowIndicator.
+  healthViolations?: DataHealthViolation[];
+  onOpenHealthMenu?: (e: React.MouseEvent) => void;
 }) => {
   const {
     attributes,
@@ -513,6 +534,12 @@ const TableRowDragHandle = (props: {
         >
           <span className="mk-row-grip" aria-hidden="true"></span>
         </button>
+        {props.healthViolations && props.healthViolations.length > 0 ? (
+          <RowHealthBadge
+            violations={props.healthViolations}
+            onOpenMenu={props.onOpenHealthMenu}
+          />
+        ) : null}
       </div>
     </td>
   );
@@ -656,6 +683,60 @@ export const TableView = (props: { superstate: Superstate }) => {
     subItemAddRows,
     subItemsTreeNodes,
   } = useContext(ContextEditorContext);
+
+  // Data Integrity Program health surfaces (Notidian-loan.5, ADR-0057 D3/D4).
+  // Flag-gated kill-switch: OFF subscribes to nothing and every violation
+  // lookup below stays an empty Map, so the badge/broken-row/jump-to-row
+  // branches all render exactly as they did before this feature existed.
+  // Notidian-loan.5 review round 2 (unit S2): `healthSurfacesEnabled` below
+  // already reads the LIVE settings value every render, but nothing forces
+  // a render when the flag is toggled at runtime with no other prop/state
+  // change in flight -- same settingsChanged subscribe idiom SpaceTreeView.tsx
+  // uses for its own persisted-setting reactivity. Optional-chained (unlike
+  // that precedent) because this component's own test harnesses commonly
+  // stub a partial superstate with no eventsDispatcher at all; a real
+  // Superstate always has one.
+  const [, setSettingsBump] = useState(0);
+  useEffect(() => {
+    const handleSettingsChanged = () => setSettingsBump((n) => n + 1);
+    props.superstate.eventsDispatcher?.addListener(
+      "settingsChanged",
+      handleSettingsChanged
+    );
+    return () => {
+      props.superstate.eventsDispatcher?.removeListener(
+        "settingsChanged",
+        handleSettingsChanged
+      );
+    };
+  }, []);
+  const healthSurfacesEnabled = !!props.superstate.settings
+    .enableDataHealthSurfaces;
+  const dbPath = spaceCache?.path ?? spaceInfo?.path;
+  const [healthBump, setHealthBump] = useState(0);
+  useEffect(() => {
+    if (!healthSurfacesEnabled) return;
+    // Notidian-loan.5 review round 2 (unit S1): the reconciler's onChange
+    // now carries the mutated dbPath -- bump only for THIS view's own
+    // database (or a nullish dbPath, a global signal every subscriber
+    // honors), so an unrelated database's sweep/revalidation never forces
+    // this table to re-render.
+    const unsubscribe = props.superstate.reconciler?.onChange((changedDb) => {
+      if (!changedDb || changedDb === dbPath) setHealthBump((n) => n + 1);
+    });
+    return () => unsubscribe?.();
+  }, [healthSurfacesEnabled, props.superstate.reconciler, dbPath]);
+  // healthBump is read only to force recomputation on every reconciler
+  // mutation -- getDbViolations already returns a fresh defensive-copy
+  // snapshot (reconciler.ts), so there is nothing else to memoize against.
+  const violationsByRow = useMemo(() => {
+    if (!healthSurfacesEnabled || !dbPath) return new Map<string, DataHealthViolation[]>();
+    return (
+      props.superstate.reconciler?.getDbViolations(dbPath) ??
+      new Map<string, DataHealthViolation[]>()
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [healthSurfacesEnabled, dbPath, props.superstate.reconciler, healthBump]);
 
   // ADR 0052: a collapsed grouped island is view state, not a row mutation.
   // Keep an optimistic local copy so the header responds immediately; the
@@ -1187,6 +1268,134 @@ export const TableView = (props: { superstate: Superstate }) => {
       writes: [write],
     });
     pushTableUndo(filterTableUndoEntryForResult(undoEntry, result));
+  };
+
+  // Data Integrity Program repair funnel (Notidian-loan.5, ADR-0057 D5): the
+  // ONLY way any repair below writes a value. Same house pattern as every
+  // other direct cell edit in this file (tableUndoWriteForDirectEdit ->
+  // applyValueEdits (ContextEditorContext) -> summaryForTableEditResult
+  // toast -> pushDirectTableUndo, which itself builds the undo entry from
+  // THIS render's pre-edit `data`/`cols` and applies filterTableUndoEntryFor-
+  // Result). Never saveFrontmatterProperties/processFrontMatter/
+  // deleteProperty — those bypass the undo journal entirely.
+  const applyRowHealthFix = async (
+    field: SpaceTableColumn,
+    value: string,
+    targetRowPath: string,
+    label: string
+  ) => {
+    // Defense-in-depth (Notidian-loan.5 review round 2, unit S2): a stale-
+    // rendered repair menu (constructed while the flag was on) must never be
+    // able to write after the kill-switch flips off mid-session -- the
+    // WRITE PATH itself refuses, independent of whatever menu/badge is still
+    // on screen.
+    if (!props.superstate.settings.enableDataHealthSurfaces) return;
+    const rowRecord = data.find(
+      (r) => String(r?.[PathPropertyName] ?? "") == targetRowPath
+    );
+    const rowId = rowRecord ? String(rowRecord["_index"]) : undefined;
+    if (rowId == undefined) {
+      props.superstate.ui.notify(i18n.labels.rowHealthRowNotFound);
+      return;
+    }
+    const write = tableUndoWriteForDirectEdit({
+      rowId,
+      column: field,
+      value,
+      path: targetRowPath,
+    });
+    if (!write) {
+      props.superstate.ui.notify(i18n.labels.rowHealthFieldNotEditable);
+      return;
+    }
+    const result = await applyValueEdits([write]);
+    const summary = summaryForTableEditResult(result);
+    if (summary) props.superstate.ui.notify(summary);
+    pushDirectTableUndo(write, result, label);
+  };
+
+  // The row-health badge's repair menu (Unit 3; descoped round 2, Notidian-
+  // loan.5): one entry per violation (message + repair-tier label), with a
+  // real action ONLY for the SINGLE ADR-0057 D5 funnel-safe class: autofix
+  // empty-encoding when the field's declared policy is "empty-string". Every
+  // other code — enum, title-binding, reference-broken, every manual-only
+  // code, and an empty-encoding field whose policy is "absent" — is
+  // text-only. One-click APPLICATION of enum/title-binding is Wave 2
+  // (ADR-0057 D5; loan.7/loan.8): the enum one-click write used to overwrite
+  // the WHOLE field, destroying any other legal member of a multi-value
+  // field — Wave 2 is where that gets a real merge instead of a blind
+  // overwrite. "absent" stays genuinely out of this funnel's write shape (a
+  // TableCellWrite always SETS a value; it cannot delete a key).
+  const openRowHealthRepairMenu = (
+    e: React.MouseEvent,
+    targetRowPath: string,
+    violations: DataHealthViolation[]
+  ) => {
+    if (violations.length == 0) return;
+    const anchorRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const win = windowFromDocument(e.view?.document ?? document);
+    const schema = resolveDbTypeProfile(props.superstate, dbPath);
+
+    const menuOptions: SelectOption[] = [];
+    violations.forEach((violation, index) => {
+      if (index > 0) menuOptions.push(menuSeparator);
+      const tier =
+        violation.repairTier == "autofix"
+          ? i18n.labels.repairTierAutofix
+          : violation.repairTier == "one-click"
+          ? i18n.labels.repairTierOneClick
+          : i18n.labels.repairTierManual;
+      menuOptions.push(menuSection(`${violation.message} (${tier})`));
+
+      const field = fieldFromSchema(schema, violation.field);
+      // Health violations are ALWAYS root-frontmatter-scoped (the
+      // reconciler's own revalidateRow only ever reads root frontmatter —
+      // see reconciler.ts). Root-scope this lookup (mirror the file's own
+      // name+table idiom, e.g. line ~3720's `keyOf`) so schema/column drift
+      // can never resolve a same-named LINKED CONTEXT column here and
+      // misroute the write into another table; an unmatched field falls
+      // through to the manual/text-only branch below instead.
+      const column = violation.field
+        ? cols.find((c) => c.table == "" && c.name == violation.field)
+        : undefined;
+
+      if (violation.code == "empty-encoding" && column && emptyEncodingIsAutofixable(field)) {
+        menuOptions.push({
+          name: i18n.labels.fixEmptyString,
+          onClick: () =>
+            applyRowHealthFix(column, "", targetRowPath, "Fix empty encoding"),
+        });
+      } else if (violation.code == "empty-encoding") {
+        menuOptions.push({ name: i18n.labels.manualKeyRemoval, disabled: true });
+      } else if (violation.code == "enum") {
+        // Notidian-loan.5: one-click APPLICATION (enum/title-binding) is
+        // Wave 2 (ADR-0057 D5; loan.7/loan.8) — S5 surfaces the suggested
+        // fix as text; only the ratified empty-encoding autofix writes.
+        const values = enumValuesForField(field);
+        if (values.length > 0) {
+          menuOptions.push({
+            name: `${i18n.labels.chooseEnumValue.replace(
+              "${1}",
+              violation.field ?? ""
+            )}: ${values.join(", ")}`,
+            disabled: true,
+          });
+        } else if (violation.suggestedFix) {
+          menuOptions.push({ name: violation.suggestedFix, disabled: true });
+        }
+      } else if (violation.suggestedFix) {
+        // Covers "title-binding" (Wave 2, see comment above), "reference-
+        // broken", and every other manual-only code — all text-only, same
+        // treatment.
+        menuOptions.push({ name: violation.suggestedFix, disabled: true });
+      }
+    });
+
+    props.superstate.ui.openMenu(
+      anchorRect,
+      defaultMenu(props.superstate.ui, menuOptions),
+      win
+    );
   };
 
   const newRow = async (name: string, index?: number, data?: DBRow) => {
@@ -2826,6 +3035,53 @@ export const TableView = (props: { superstate: Superstate }) => {
     },
   });
 
+  // Jump-to-row (Notidian-loan.5 Unit 4): the Database Health panel is a
+  // separate modal portal tree (not a descendant of this component), so
+  // "Show row" signals it via a window CustomEvent rather than a prop
+  // callback. Flag-gated: OFF attaches no listener.
+  useEffect(() => {
+    if (!healthSurfacesEnabled) return;
+    const win =
+      (ref.current as HTMLElement | null)?.ownerDocument?.defaultView ??
+      window;
+    const handleJumpToRow = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ dbPath: string; rowPath: string }>)
+        .detail;
+      if (!detail || detail.dbPath != dbPath) return;
+      // Expand to the Load-All pagination path first (Notidian-8h9 legacy
+      // pagination) so a row beyond the current page window is mounted at
+      // all. table.setPageSize is a state update, so the row may not be in
+      // the DOM yet on the very next line — the lookup below is deferred a
+      // tick to let the re-render commit first.
+      table.setPageSize(tableLoadAllPageSize(data.length));
+      win.setTimeout(() => {
+        const rowRecord = data.find(
+          (r) => String(r?.[PathPropertyName] ?? "") == detail.rowPath
+        );
+        const rowId = rowRecord ? String(rowRecord["_index"]) : undefined;
+        const tableEl = ref.current as HTMLElement | null;
+        const rowEl =
+          rowId != undefined
+            ? (tableEl?.querySelector(
+                `tr[data-row-id="${rowId}"]`
+              ) as HTMLElement | null)
+            : null;
+        if (!rowEl) {
+          // Documented limitation (collapsed group / virtualized window not
+          // covering this row) — no group-expansion machinery is built for
+          // this wave; the panel stays open so the owner can try another row.
+          props.superstate.ui.notify(i18n.labels.rowInCollapsedGroup);
+          return;
+        }
+        rowEl.scrollIntoView({ block: "center" });
+        rowEl.classList.add("mk-row-health-flash");
+        win.setTimeout(() => rowEl.classList.remove("mk-row-health-flash"), 2000);
+      }, 50);
+    };
+    win.addEventListener("mk-health-jump-to-row", handleJumpToRow);
+    return () => win.removeEventListener("mk-health-jump-to-row", handleJumpToRow);
+  }, [healthSurfacesEnabled, dbPath, data, table]);
+
   // The paginated/windowed row model the body renders. With virtualization the
   // page size already covers every row, so this is the full assembled set; the
   // windowing below slices it. With the kill-switch OFF this is exactly the
@@ -3763,6 +4019,17 @@ export const TableView = (props: { superstate: Superstate }) => {
               // Purely presentational — never in `data`, so selection / dnd /
               // copy-paste-fill / virtualization indexing are untouched.
               const addRows = subItemAddRows?.get(rowPath);
+              // Data Integrity Program health surfaces (Notidian-loan.5):
+              // group-header rows are not data rows and never carry
+              // violations of their own (isGroupHeader gate mirrors the
+              // rowOriginalIndex handling above).
+              const rowViolations =
+                healthSurfacesEnabled && !isGroupHeader
+                  ? violationsByRow.get(rowPath) ?? []
+                  : [];
+              const rowIsBroken = rowViolations.some(
+                (v) => v.code == MALFORMED_ROW_CODE
+              );
 
               return (
                 <React.Fragment key={row.id}>
@@ -3772,7 +4039,10 @@ export const TableView = (props: { superstate: Superstate }) => {
                     rowSelected && "mk-active",
                     // Notion-like group band: mark the header row so CSS can lift
                     // it into a distinct island, set apart from data rows.
-                    isGroupHeader && "mk-row-group-header"
+                    isGroupHeader && "mk-row-group-header",
+                    // D4 broken-row rendering: the native open-file affordance on
+                    // the name cell is the existing way in — no new button here.
+                    rowIsBroken && "mk-row-broken"
                   )}
                   draggingOver={overId == rowDndId(rowOriginalIndex)}
                   onContextMenu={(e) => {
@@ -3857,6 +4127,10 @@ export const TableView = (props: { superstate: Superstate }) => {
                       frozen={frozenColumnCount > 0}
                       onReorderStart={prepareRowDrag}
                       onSelectStart={startRowSelectionDrag}
+                      healthViolations={rowViolations}
+                      onOpenHealthMenu={(e) =>
+                        openRowHealthRepairMenu(e, rowPath, rowViolations)
+                      }
                     />
                   ) : (
                     <td

@@ -618,6 +618,26 @@ export const en = {
     "base100": "Base100",
     "installSpaceKit": "Install Space Kit",
     "hubRowIndicator": "This row is the hub of a nested database — open it",
+    "rowHealthBadge": "This row has data issues — click to repair",
+    "rowHealthRowNotFound": "Could not locate this row to apply the fix.",
+    "rowHealthFieldNotEditable": "This field cannot be edited through the repair menu.",
+    "repairTierAutofix": "auto-fix",
+    "repairTierOneClick": "one-click",
+    "repairTierManual": "manual",
+    "fixEmptyString": "Fix: set explicit empty string",
+    "manualKeyRemoval": "manual — key removal not yet funnel-supported",
+    "chooseEnumValue": "Choose a value for ${1}",
+    "setFieldToBasename": "Set ${1} to ${2}",
+    "databaseHealth": "Database Health",
+    "databaseHealthAllClear": "No issues",
+    "databaseHealthIssueSingular": "1 issue",
+    "databaseHealthIssueCount": "${1} issues",
+    "databaseHealthTotal": "Total: ${1}",
+    "allDatabases": "All databases",
+    "showRow": "Show row",
+    "rowInCollapsedGroup": "Row is in a collapsed group",
+    "sweepIncompleteCardTitle": "Sweep diagnostic",
+    "noDatabasesWithIssues": "No databases have reported issues",
     "filesCount": "{$1} Files",
     "someFilesHaveInvalidNames": "Some Files Have Invalid Names",
     "placeholder": "Type '${1}' for commands",
@@ -1309,6 +1329,10 @@ export const en = {
     "enableNestedHubRows": {
       "name": "Nested Databases (Row-as-Child-Hub)",
       "desc": "When a database row's file has a same-named sibling folder, treat the row as the hub of a nested child database: renaming/moving/deleting the row keeps the folder in sync, and the row's own nested-schema keys are kept out of the parent database's columns"
+    },
+    "enableDataHealthSurfaces": {
+      "name": "Data Health Surfaces",
+      "desc": "Show row and database health badges, a Database Health panel, and one-click repairs for Data Integrity Program violations (title binding, enum, empty encoding, references, invariants). Turn off to hide these surfaces; the underlying detection engine keeps running in the background either way"
     },
     "folderNoteInsideFolder": {
       "name": "Folder Note Inside Folder",

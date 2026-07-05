@@ -58,6 +58,7 @@ import { SuperstateEvent } from "shared/types/PathState";
 import { ISuperstate, PathStateWithRank } from "shared/types/superstate";
 import { getParentPathFromString } from "utils/path";
 import { fastSearch, searchPath } from "./workers/search/impl";
+import type { Reconciler } from "./reconciler";
 export type SuperProperty = {
     id: string,
     name: string,
@@ -104,6 +105,15 @@ public api: API;
     public ui: UIManager
     public cli: CLIManager
     public assets: IAssetManager | null
+    // Data Integrity reconciler (Notidian-loan.4/.5, ADR-0057). Set by main.ts
+    // right after construction, nulled at plugin unload; the ONLY read surface
+    // the health-surfaces UI (badges/chip/panel) uses (getRowViolations/
+    // getDbViolations/getSweepIncomplete/getAllDbPaths/getViolationCount/
+    // onChange -- see reconciler.ts's own public API doc comment). `import
+    // type` so this never becomes a runtime import (reconciler.ts imports
+    // Superstate from "makemd-core", which re-exports THIS class's own
+    // interface -- a real value import here would cycle back through it).
+    public reconciler: Reconciler | null = null;
     //Index
     public pathsIndex: Map<string, PathState>
     public spacesIndex: Map<string, SpaceState>

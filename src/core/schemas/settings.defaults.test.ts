@@ -64,6 +64,7 @@ const REQUIRED_SETTING_KEYS = {
   currentWaypoint: true,
   enableFolderNote: true,
   enableNestedHubRows: true,
+  enableDataHealthSurfaces: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
   folderIndentationLines: true,
@@ -174,6 +175,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "collapsibleNoteBody", // Notidian-8sl
   "filenameTemplateEnforcement", // Notidian-pay5 / ADR 0054
   "enableNestedHubRows", // Notidian-z21a / Atlas Method ADR-0042 D1
+  "enableDataHealthSurfaces", // Notidian-loan.5 / ADR-0057
 ];
 
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {

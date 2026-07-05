@@ -832,6 +832,81 @@ body.mk-property-header-tooltip-visible > .tooltip {
   opacity: 0.74;
 }
 
+/* Data Integrity Program health surfaces (Notidian-loan.5, ADR-0057 D3/D4).
+   Plain text/CSS only -- no icon font, no sticker, no dangerouslySetInnerHTML
+   (ADR-0017/0019 sanitize invariant). The badge sits in the row gutter's
+   bottom-right corner -- the drag handle already owns the top (-8px) -- so it
+   never competes with `.mk-row-selector`'s centered row number. */
+.mk-row-health-badge {
+  all: unset;
+  box-sizing: border-box;
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 3px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mk-row-health-badge-dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.mk-row-health-badge--error .mk-row-health-badge-dot {
+  background: var(--text-error);
+}
+
+.mk-row-health-badge--warn .mk-row-health-badge-dot {
+  background: var(--text-warning);
+}
+
+.mk-row-health-badge-count {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--mk-ui-text-tertiary);
+}
+
+.mk-row-health-badge:hover .mk-row-health-badge-count {
+  color: var(--mk-ui-text-secondary);
+}
+
+/* Broken-row rendering (D4): a row whose frontmatter is absent/unparseable
+   gets a subtle, non-obtrusive error tint on the WHOLE row -- the native
+   open-file affordance on the name cell is the existing way in; this is
+   deliberately not a new button. */
+.mk-row-broken > td {
+  background: color-mix(in srgb, var(--background-modifier-error) 10%, transparent);
+}
+
+/* Jump-to-row (Unit 4): a temporary highlight so "Show row" from the
+   Database Health panel is visually findable once scrolled into view. */
+.mk-row-health-flash > td {
+  transition: background-color 400ms ease;
+  background: color-mix(in srgb, var(--mk-ui-active) 22%, transparent);
+}
+
+.mk-db-health-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mk-db-health-chip-clear {
+  color: var(--text-success, var(--color-green));
+}
+
+.mk-db-health-chip-count {
+  color: var(--text-warning);
+  font-size: 12px;
+}
+
 .mk-row-number {
   display: block;
   min-width: 0;

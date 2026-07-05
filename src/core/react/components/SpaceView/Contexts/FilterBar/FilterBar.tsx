@@ -71,6 +71,10 @@ import { windowFromDocument } from "shared/utils/dom";
 import { parseMultiString } from "utils/parsers";
 import { parseMDBStringValue } from "utils/properties";
 import { serializeMultiString } from "utils/serializers";
+import {
+  DatabaseHealthPanel,
+  formatIssueCount,
+} from "core/react/components/Navigator/DatabaseHealthPanel";
 import { ContextTitle } from "./ContextTitle";
 import { ListSelector } from "./ListSelector";
 import { SearchBar } from "./SearchBar";
@@ -108,6 +112,55 @@ export const FilterBar = (props: {
 
   const { frameSchema, saveSchema, setFrameSchema } =
     useContext(FramesMDBContext);
+
+  // Data Integrity Program header chip (Notidian-loan.5, ADR-0057 D3/D4).
+  // Flag-gated kill-switch: OFF subscribes to nothing and renders nothing.
+  // Notidian-loan.5 review round 2 (unit S2): `healthSurfacesEnabled` below
+  // already reads the LIVE settings value every render, but nothing forces
+  // a render when the flag is toggled at runtime with no other prop/state
+  // change in flight -- same settingsChanged subscribe idiom SpaceTreeView.tsx
+  // uses for its own persisted-setting reactivity. Optional-chained (unlike
+  // that precedent) because this component's own test harnesses commonly
+  // stub a partial superstate with no eventsDispatcher at all; a real
+  // Superstate always has one.
+  const [, setSettingsBump] = useState(0);
+  useEffect(() => {
+    const handleSettingsChanged = () => setSettingsBump((n) => n + 1);
+    props.superstate.eventsDispatcher?.addListener(
+      "settingsChanged",
+      handleSettingsChanged
+    );
+    return () => {
+      props.superstate.eventsDispatcher?.removeListener(
+        "settingsChanged",
+        handleSettingsChanged
+      );
+    };
+  }, []);
+  const healthSurfacesEnabled = !!props.superstate.settings
+    .enableDataHealthSurfaces;
+  const [, setHealthBump] = useState(0);
+  useEffect(() => {
+    if (!healthSurfacesEnabled) return;
+    // Notidian-loan.5 review round 2 (unit S1): bump only for THIS view's
+    // own database (or a nullish dbPath, a global signal every subscriber
+    // honors) -- an unrelated database's reconciler activity must not force
+    // this chip to re-render.
+    const unsubscribe = props.superstate.reconciler?.onChange((changedDb) => {
+      if (!changedDb || changedDb === spaceCache?.path) {
+        setHealthBump((n) => n + 1);
+      }
+    });
+    return () => unsubscribe?.();
+  }, [healthSurfacesEnabled, props.superstate.reconciler, spaceCache?.path]);
+  // Re-read on every render (a reconciler mutation bumps state above, which
+  // forces this render); getViolationCount is the SAME formula the Database
+  // Health panel's own total uses — a DoD assertion, not just a nicety —
+  // never cached.
+  const healthViolationCount =
+    healthSurfacesEnabled && spaceCache?.path
+      ? props.superstate.reconciler?.getViolationCount(spaceCache.path) ?? 0
+      : 0;
 
   const properties = spaceCache?.propertyTypes ?? [];
   const propertiesForPredicate = async (
@@ -2228,6 +2281,40 @@ export const FilterBar = (props: {
                       }}
                     ></button>
                   </>
+                )}
+                {healthSurfacesEnabled && (
+                  <button
+                    type="button"
+                    className="mk-toolbar-button mk-db-health-chip"
+                    data-violation-count={healthViolationCount}
+                    aria-label={i18n.labels.databaseHealth}
+                    title={i18n.labels.databaseHealth}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!spaceCache?.path) return;
+                      props.superstate.ui.openModal(
+                        i18n.labels.databaseHealth,
+                        <DatabaseHealthPanel
+                          superstate={props.superstate}
+                          dbPath={spaceCache.path}
+                        />,
+                        windowFromDocument(e.view.document)
+                      );
+                    }}
+                  >
+                    {healthViolationCount == 0 ? (
+                      <span
+                        className="mk-db-health-chip-clear"
+                        aria-hidden="true"
+                      >
+                        &#10003;
+                      </span>
+                    ) : (
+                      <span className="mk-db-health-chip-count">
+                        {formatIssueCount(healthViolationCount)}
+                      </span>
+                    )}
+                  </button>
                 )}
                 <button
                   className="mk-toolbar-button"

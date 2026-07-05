@@ -44,6 +44,13 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // (pre-feature) handling of a row whose file happens to have a same-named
   // sibling folder.
   enableNestedHubRows: true,
+  // Notidian-loan.5: default ON — owner-ratified Data Integrity Program
+  // (ADR-0057). KILL-SWITCH: set false to hide every health-surfaces UI
+  // element (row badges + repair menu, mk-row-broken tint, the FilterBar
+  // Database Health chip, and the Database Health panel) and unsubscribe them
+  // from the reconciler; the reconciler itself (Notidian-loan.4) keeps
+  // detecting in the background either way -- this flag only gates the UI.
+  enableDataHealthSurfaces: true,
   spaceViewShowNoteBody: true,
   // Notidian-8sl: default ON — the owner explicitly requested a collapsible +
   // shrink-to-fit space-note body, so it ships enabled; the owner verifies it by

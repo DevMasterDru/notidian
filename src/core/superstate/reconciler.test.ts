@@ -734,4 +734,110 @@ describe("Reconciler", () => {
     await reconciler.sweepFolder(DB);
     expect(listener).not.toHaveBeenCalled();
   });
+
+  // Notidian-loan.5 review round 2 (unit S1): onChange listeners now receive
+  // the mutated dbPath, so a subscriber scoped to ONE database (TableView/
+  // FilterBar) never has to re-render on a totally unrelated database's
+  // reconciler activity.
+  it("passes the mutated dbPath to onChange listeners", async () => {
+    const pathsIndex = new Map<string, any>([
+      [NOTE_PATH, { metadata: { property: HUB_REQUIRED } }],
+      [ROW1, { metadata: { property: {} } }],
+    ]);
+    const childrenForPath = jest.fn().mockResolvedValue([NOTE_PATH, ROW1]);
+    const superstate = makeSuperstate({
+      pathsIndex,
+      spacesIndex: dbSpacesIndex(),
+      childrenForPath,
+    });
+    const reconciler = new Reconciler(superstate);
+    const listener = jest.fn();
+    reconciler.onChange(listener);
+
+    await reconciler.sweepFolder(DB);
+
+    expect(listener).toHaveBeenCalledWith(DB);
+  });
+
+  // Notidian-loan.5 review round 2 (unit S1): setRowViolations skips the
+  // notify on a genuine no-op (a clean row stays clean), but a real change
+  // still notifies exactly once.
+  it("skips the onChange notify for a genuine no-op revalidation, but still notifies on a real change", async () => {
+    const pathsIndex = new Map<string, any>([
+      [NOTE_PATH, { metadata: { property: HUB_REQUIRED } }],
+      [ROW1, { metadata: { property: { model: "Widget A" } } }], // clean row
+    ]);
+    const childrenForPath = jest.fn().mockResolvedValue([NOTE_PATH, ROW1]);
+    const superstate = makeSuperstate({
+      pathsIndex,
+      spacesIndex: dbSpacesIndex(),
+      childrenForPath,
+    });
+    const reconciler = new Reconciler(superstate);
+
+    // Establish the clean baseline BEFORE subscribing.
+    await reconciler.sweepFolder(DB);
+    expect(reconciler.getViolationCount(DB)).toBe(0);
+
+    const listener = jest.fn();
+    reconciler.onChange(listener);
+
+    // Same clean data again -- a genuine no-op; the reconciler must not
+    // force every subscriber to re-render for nothing.
+    await reconciler.sweepFolder(DB);
+    expect(listener).not.toHaveBeenCalled();
+
+    // Now the row actually breaks -- a real change must still notify.
+    pathsIndex.set(ROW1, { metadata: { property: {} } });
+    await reconciler.sweepFolder(DB);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  // Notidian-loan.5 review round 2 (unit S1, re-review Q1): the no-op-skip's
+  // violationsEqual must compare EVERY field a health surface renders, not
+  // just code/field/message -- severity drives the badge tint, repairTier the
+  // repair-menu/panel text, suggestedFix the informational text. A violation
+  // that keeps the same code+field+message but flips one of those (e.g. a
+  // reference-broken severity error<->warn on an onBrokenWrite policy change)
+  // is a real change the UI must re-render for; skipping its notify leaves a
+  // stale badge/menu.
+  it("notifies when a violation changes only in severity, repairTier, or suggestedFix", () => {
+    const reconciler = new Reconciler(makeSuperstate());
+    const listener = jest.fn();
+    reconciler.onChange(listener);
+
+    const base = {
+      code: "reference-broken",
+      field: "board_id",
+      message: "identical message",
+      severity: "error",
+      repairTier: "one-click",
+      suggestedFix: "fix A",
+    };
+    const setRow = (v: any) =>
+      (reconciler as any).setRowViolations(DB, ROW1, [v]);
+
+    setRow({ ...base }); // undefined -> present: a real change
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    listener.mockClear();
+    setRow({ ...base }); // byte-identical: genuine no-op, must skip
+    expect(listener).not.toHaveBeenCalled();
+
+    setRow({ ...base, severity: "warn" }); // severity flip only
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    listener.mockClear();
+    setRow({ ...base, severity: "warn", repairTier: "manual-only" }); // repairTier flip only
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    listener.mockClear();
+    setRow({
+      ...base,
+      severity: "warn",
+      repairTier: "manual-only",
+      suggestedFix: "fix B",
+    }); // suggestedFix flip only
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });

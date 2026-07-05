@@ -59,6 +59,16 @@ export interface MakeMDSettings {
   // hub row exists in the vault yet to verify placement against). OFF ==
   // byte-identical legacy behavior (no cascade, no discovery exclusion).
   enableNestedHubRows: boolean;
+  // Notidian-loan.5 (default ON, kill-switch, ADR-0057): master gate for the
+  // Data Integrity Program's health-surfaces UI -- the row gutter's
+  // RowHealthBadge (+ its repair menu), the broken-row `mk-row-broken` tint,
+  // the FilterBar header chip, and the Database Health panel. The underlying
+  // Reconciler (Notidian-loan.4) keeps detecting/revalidating regardless (it
+  // is a separate, always-on read-only engine); this flag ONLY gates whether
+  // any of that state is ever rendered or subscribed to. OFF == every one of
+  // these surfaces renders nothing and subscribes to nothing (byte-identical
+  // to pre-S5 rendering).
+  enableDataHealthSurfaces: boolean;
   folderIndentationLines: boolean;
   revealActiveFile: boolean;
   hiddenFiles: string[];

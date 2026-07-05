@@ -658,6 +658,9 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     // onto superstate.eventsDispatcher and schedules the initial sweep.
     import("core/superstate/reconciler").then(({ Reconciler }) => {
       this.reconciler = new Reconciler(this.superstate);
+      // Notidian-loan.5: expose it on superstate too -- the health-surfaces UI
+      // (row/chip/panel) only ever has `superstate`, never the plugin instance.
+      this.superstate.reconciler = this.reconciler;
       this.reconciler.start();
     });
 
@@ -810,6 +813,7 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
 
   onunload() {
     this.reconciler?.stop();
+    this.superstate.reconciler = null;
     this.superstate.persister.unload();
 
     this.detachFileTreeLeafs();

@@ -61,6 +61,7 @@ import {
   Violation,
 } from "core/utils/contexts/validateRow";
 import { PathPropertyName } from "shared/types/context";
+import { MALFORMED_ROW_CODE } from "shared/types/dataHealth";
 
 // ---------------------------------------------------------------------------
 // Public shapes (this is the read API S5's future health-surfaces UI wires
@@ -94,6 +95,37 @@ export type ReconcilerOptions = {
 const isPlainRow = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value == "object" && !Array.isArray(value);
 
+// Notidian-loan.5 review round 2 (unit S1): a cheap, order-sensitive
+// equality for setRowViolations' no-op-notify skip -- length + per-index
+// compare of EVERY field a health surface renders (never a deep/JSON
+// compare). It must cover severity (badge tint) and repairTier (repair-menu
+// tier + Database Health panel text) and suggestedFix (informational text)
+// as well as code/field/message: those CAN vary for the same code+field+
+// message -- e.g. a reference-broken violation flips severity error<->warn
+// when the schema's onBrokenWrite policy changes, and an invariant's
+// repairTier flips autofix<->manual-only when invariant.autofix toggles,
+// both without touching the message. Omitting them would let the no-op-skip
+// suppress a notify the UI needs and leave a stale badge/menu.
+const violationsEqual = (
+  a: Violation[] | undefined,
+  b: Violation[]
+): boolean => {
+  if (!a || a.length != b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].code != b[i].code ||
+      a[i].field != b[i].field ||
+      a[i].message != b[i].message ||
+      a[i].severity != b[i].severity ||
+      a[i].repairTier != b[i].repairTier ||
+      a[i].suggestedFix != b[i].suggestedFix
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 // D4 / wall-04: the ONE synthetic violation a schema'd-folder row gets when
 // its frontmatter is absent or failed to parse -- reuses validateRowPatch's
 // own `malformed-row` code (the same semantic class: "this is not a valid
@@ -101,7 +133,7 @@ const isPlainRow = (value: unknown): value is Record<string, unknown> =>
 // `Violation[]` for a future UI, with zero new codes added to that closed
 // union.
 const brokenFrontmatterViolation = (rowPath: string): Violation => ({
-  code: "malformed-row",
+  code: MALFORMED_ROW_CODE,
   severity: "error",
   message: `"${pageTitleFromPath(
     rowPath
@@ -116,7 +148,7 @@ export class Reconciler {
   // dbPath -> the sweep-mechanism-level diagnostic, when the last sweep
   // couldn't account for every row it should have (see SweepIncompleteInfo).
   private sweepIncompleteStore = new Map<string, SweepIncompleteInfo>();
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(dbPath?: string) => void>();
 
   private pendingRowsByDb = new Map<string, Set<string>>();
   private pendingSweepAll = false;
@@ -591,25 +623,34 @@ export class Reconciler {
   private clearDb(dbPath: string): void {
     const hadRows = this.rowStore.delete(dbPath);
     const hadSweep = this.sweepIncompleteStore.delete(dbPath);
-    if (hadRows || hadSweep) this.notifyChange();
+    if (hadRows || hadSweep) this.notifyChange(dbPath);
   }
 
+  // Notidian-loan.5 review round 2 (unit S1): skips the notify on a genuine
+  // no-op -- the row was clean and stays clean, or the incoming violation
+  // set is byte-identical (same length, same code/field/message per index)
+  // to what is already stored -- so a subscriber (TableView/FilterBar) does
+  // not re-render on every sweep of an unrelated/unchanged row. The stored
+  // value is still written either way; only the notify is conditional.
   private setRowViolations(
     dbPath: string,
     rowPath: string,
     violations: Violation[]
   ): void {
     let db = this.rowStore.get(dbPath);
+    let changed: boolean;
     if (violations.length == 0) {
+      changed = !!db?.has(rowPath);
       if (db?.delete(rowPath) && db.size == 0) this.rowStore.delete(dbPath);
     } else {
+      changed = !violationsEqual(db?.get(rowPath), violations);
       if (!db) {
         db = new Map();
         this.rowStore.set(dbPath, db);
       }
       db.set(rowPath, violations);
     }
-    this.notifyChange();
+    if (changed) this.notifyChange(dbPath);
   }
 
   private pruneRowsNotIn(dbPath: string, keep: Set<string>): void {
@@ -623,7 +664,7 @@ export class Reconciler {
       }
     }
     if (db.size == 0) this.rowStore.delete(dbPath);
-    if (changed) this.notifyChange();
+    if (changed) this.notifyChange(dbPath);
   }
 
   private recordSweepIncomplete(
@@ -637,17 +678,23 @@ export class Reconciler {
       expectedRows: expected,
       message,
     });
-    this.notifyChange();
+    this.notifyChange(dbPath);
   }
 
   private clearSweepIncomplete(dbPath: string): void {
-    if (this.sweepIncompleteStore.delete(dbPath)) this.notifyChange();
+    if (this.sweepIncompleteStore.delete(dbPath)) this.notifyChange(dbPath);
   }
 
-  private notifyChange(): void {
+  // `dbPath` identifies which database mutated; omitted (undefined) for a
+  // mutation that cannot be attributed to a single db (e.g.
+  // handlePathDeletedEvent's own direct call, since one deleted path can
+  // clear rows out of more than one db at once) -- subscribers scoped to one
+  // db treat an undefined dbPath as a global "re-check me too" signal (see
+  // IDataHealthReconciler.onChange's own doc comment).
+  private notifyChange(dbPath?: string): void {
     for (const listener of this.listeners) {
       try {
-        listener();
+        listener(dbPath);
       } catch {
         // A subscriber's own bug must never break the reconciler.
       }
@@ -704,8 +751,13 @@ export class Reconciler {
   }
 
   /** Subscribe to any store mutation (row violations changed, cleared, or a
-   * sweep-incomplete flag set/cleared). Returns an unsubscribe function. */
-  onChange(listener: () => void): () => void {
+   * sweep-incomplete flag set/cleared). Returns an unsubscribe function.
+   * `listener` receives the mutated dbPath, or `undefined` for a mutation
+   * that cannot be attributed to one db -- a db-scoped subscriber should
+   * treat a nullish dbPath as "re-check me too" (see `notifyChange`'s own
+   * doc comment); a vault-aware subscriber (the Database Health panel) can
+   * ignore the argument and always re-render. */
+  onChange(listener: (dbPath?: string) => void): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
