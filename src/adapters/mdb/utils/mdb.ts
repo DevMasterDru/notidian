@@ -411,8 +411,19 @@ export const getMDBTableProperties = async (
   return fieldsTables;
 };
 
-export const initiateDB = (db: Database) => {
-  replaceDB(db, {
+export const initiateDB = (db: Database): boolean => {
+  // Notidian-g6f5: vaultSchema is a fixed, non-empty-cols constant (path/
+  // parent/created/sticker/color/folder/rank/name), so the empty-cols-with-
+  // rows refusal (Notidian-jn8p) can't fire here. Capture+log the boolean
+  // anyway (mirrors the saveDBToPath/saveZippedDBToPath contract established
+  // by Notidian-jn41) so a genuine seed failure is surfaced to any future
+  // caller instead of being silently swallowed -- initiateDB currently has no
+  // callers in this repo, so this is a forward-looking correctness fix.
+  const result = replaceDB(db, {
     vault: vaultSchema,
   });
+  if (!result) {
+    console.warn(`[notidian] Failed to initiate DB with the vault schema.`);
+  }
+  return result;
 };

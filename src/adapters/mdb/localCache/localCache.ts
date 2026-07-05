@@ -41,7 +41,17 @@ export class LocalStorageCache implements LocalCachePersister {
             tables = [];
             }
         if (tables.length == 0) {
-            replaceDB(this.db, this.defaultTables);
+            // Notidian-g6f5: this.defaultTables is built entirely from the
+            // fixed CacheDBSchema constant (non-empty cols: path/cache/version)
+            // with no rows, so the empty-cols-with-rows refusal (Notidian-jn8p)
+            // can't fire here. Still capture+log the boolean for defense in
+            // depth -- mirrors the saveDBToPath/saveZippedDBToPath contract
+            // (Notidian-jn41) so a genuine seed failure (e.g. a mid-batch exec
+            // throw) is surfaced instead of silently treated as initialized.
+            const seeded = replaceDB(this.db, this.defaultTables);
+            if (!seeded) {
+                console.warn(`[notidian] Failed to seed local cache schema at ${this.storageDBPath}.`);
+            }
         }
         this.initialized = true;
     }
@@ -51,7 +61,11 @@ export class LocalStorageCache implements LocalCachePersister {
     }
 public reset() {
     if (!this.initialized) return;
-    replaceDB(this.db, this.defaultTables);
+    // Notidian-g6f5: same fixed-schema guarantee as initialize() above.
+    const seeded = replaceDB(this.db, this.defaultTables);
+    if (!seeded) {
+        console.warn(`[notidian] Failed to reset local cache schema at ${this.storageDBPath}.`);
+    }
 }
     /** Store file metadata by path. */
     public async store(path: string, cache: string, type: string): Promise<void> {

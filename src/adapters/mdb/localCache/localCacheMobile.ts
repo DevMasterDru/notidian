@@ -37,10 +37,21 @@ export class MobileCachePersister implements LocalCachePersister {
             tables = [];
             }
         if (tables.length == 0) {
-            replaceDB(db, this.types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {}));
-            await withDBPathWriteQueue(this.storageDBPath, () =>
-                saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
-            )
+            // Notidian-g6f5: the seed schema is built entirely from the fixed
+            // CacheDBSchema constant (non-empty cols: path/cache/version) with
+            // no rows, so the empty-cols-with-rows refusal (Notidian-jn8p)
+            // can't fire here. Still gate the write on replaceDB's result --
+            // mirrors saveZippedDBToPath's fix (Notidian-jn41) so a genuine
+            // seed failure (e.g. a mid-batch exec throw) never exports a
+            // half-seeded image and reports success.
+            const seeded = replaceDB(db, this.types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {}));
+            if (seeded) {
+                await withDBPathWriteQueue(this.storageDBPath, () =>
+                    saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
+                )
+            } else {
+                console.warn(`[notidian] Failed to seed local cache schema at ${this.storageDBPath}; skipping write.`);
+            }
         }
         this.maps = this.types.reduce((p, type) => ({...p, [type]: new Map((selectDB(db, type)?.rows ?? []).map(f => [f.path, f]))}), {});
         db.close();
@@ -56,12 +67,18 @@ export class MobileCachePersister implements LocalCachePersister {
 public async reset() {
     if (!this.initialized) return;
     const db = await this.getDB();
-    replaceDB(db, this.types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {}));
-            await withDBPathWriteQueue(this.storageDBPath, () =>
-                saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
-            )
-            this.maps = this.types.reduce((acc, type) => ({...acc, [type]: new Map((selectDB(db, type)?.rows ?? []).map(f => [f.path, f]))}), {});
-            db.close();
+    // Notidian-g6f5: same fixed-schema guarantee as initialize() above --
+    // gate the write on replaceDB's result.
+    const seeded = replaceDB(db, this.types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {}));
+    if (seeded) {
+        await withDBPathWriteQueue(this.storageDBPath, () =>
+            saveZippedDBFile(this.mdbAdapter, this.storageDBPath, db.export().buffer as ArrayBuffer)
+        )
+    } else {
+        console.warn(`[notidian] Failed to reset local cache schema at ${this.storageDBPath}; skipping write.`);
+    }
+    this.maps = this.types.reduce((acc, type) => ({...acc, [type]: new Map((selectDB(db, type)?.rows ?? []).map(f => [f.path, f]))}), {});
+    db.close();
 }
 
     /** Store file metadata by path. */
