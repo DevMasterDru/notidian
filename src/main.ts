@@ -156,6 +156,7 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
   ui: ObsidianUI;
 
   private filenameEnforcer: import("core/utils/contexts/filenameEnforcer").FilenameEnforcer | null = null;
+  private reconciler: import("core/superstate/reconciler").Reconciler | null = null;
 
   private pluginDataFilePath(fileName: string) {
     return normalizePath(pluginDataPath(this.app.vault.configDir, fileName));
@@ -651,6 +652,15 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
       );
     });
 
+    // Data Integrity reconciler (Notidian-loan.4 / ADR-0057). Read-only
+    // detection engine (no write-path change, no UI yet -- S5) -- lazy
+    // import to avoid eager load cost; `start()` wires its own listeners
+    // onto superstate.eventsDispatcher and schedules the initial sweep.
+    import("core/superstate/reconciler").then(({ Reconciler }) => {
+      this.reconciler = new Reconciler(this.superstate);
+      this.reconciler.start();
+    });
+
     this.loadSuperState();
     this.addSettingTab(new NotidianPluginSettingsTab(this.app, this));
     await this.loadSpaces();
@@ -799,8 +809,9 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   }
 
   onunload() {
+    this.reconciler?.stop();
     this.superstate.persister.unload();
-    
+
     this.detachFileTreeLeafs();
   }
 }
