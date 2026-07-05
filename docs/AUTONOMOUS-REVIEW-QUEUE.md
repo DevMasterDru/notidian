@@ -99,6 +99,74 @@ a ≥60% overlap ratio, capped at the top 3 matches; adoption only ever ADDS
 fields not yet declared — it never edits an already-declared field's enum/FK/
 empty-policy, even to refine it).
 
+### Notidian-21l4 — Navigator text filter: verify drag-and-drop while a filter query is active
+
+**2026-07-05.** Fully investigated, characterized with regression tests, and
+committed on `autolong/run-3` (`014d8bc`) — **not** a code-review or decision
+item; a **bd-write-path infrastructure blocker** (`bd --claim`/`close`/
+`remember`/`create` all refuse with `embeddeddolt: store is read-only` for this
+clone throughout the session — a different failure signature than
+`Notidian-loan.3`'s pending-migration message above, most likely a concurrent
+embedded-dolt writer elsewhere on this heavily-parallel host; `bd show`/`list`
+still work read-only).
+
+**Important prerequisite finding — please read before re-routing follow-ups:**
+`Notidian-nrjb` ("Vault file-tree text filter") is the feature this bead's
+verification depends on. Its `bd show` record is `status: closed` with a
+glowing "Shipped flag-gated..." `close_reason`, **but its `notes` field says
+"Reverted: failed verification/review after fix attempts. Left open for
+re-attempt."** — and indeed `git reflog show autolong/run-3` confirms its three
+shipped commits (`e2cc88d`, `330986e`, `65399f4`) were reset out of this
+branch's history (`autolong/run-3@{34}: reset: moving to 6492fb3`, discarding
+`@{35..37}`) shortly after being committed, almost certainly by a concurrent
+sibling session sharing this same working directory/branch. **No
+navigator-text-filter code (`filterTreeByQuery` or otherwise) exists in this
+tree today, on any local or remote branch** (`git grep filterTreeByQuery` is
+empty everywhere). `Notidian-nrjb`'s status/notes are inconsistent (closed +
+"left open for re-attempt") and should be reconciled once `bd` writes recover —
+recommend reopening it, and re-scoping its two other still-open follow-ups
+(`Notidian-d6lk` content/full-text match, `Notidian-a9m7` debounce) as blocked
+on its re-attempt, same as this one was.
+
+**What this bead actually delivered, given the above:** since there is no live
+filter feature to drive, "verify" was done as a **clear-correct data-flow
+audit** of the general-purpose (filter-agnostic) DND math itself, rather than
+a live UI check:
+
+- `getProjection`'s `getParentId` reverse-slice search only requires visible
+  **ancestors** to be present in `flattenedTree` — an invariant any correct
+  ancestor-inclusive filter already guarantees — and never depends on sibling
+  contiguity, so an entirely omitted non-matching branch cannot corrupt
+  depth/parent resolution.
+- The rank committed by `dropPathInTree`/`dropPathsInTree` (`newRank =
+  overItem.rank ?? -1`) is always the target's own `rank` field — traced to
+  `superstate.ts` `getSpaceItems`: `rank: ranks.indexOf(f)`, the item's real
+  absolute position in the full underlying context/mdb order — resolved via
+  id-based `.find()`, **never** the `flattenedTree` array position.
+- **Conclusion: no bug.** The design is already filter-safe by construction
+  (id/field-driven, not array-position-driven).
+
+Added 5 adversarial regression tests (2 in `dragPath.test.ts`, 3 in
+`dropPath.test.ts`) building the exact non-contiguous, ancestor-only shape a
+filtered tree would produce (an entirely omitted sibling branch, `sortable:
+false` ancestor-only breadcrumb rows, and `rank` values with real gaps versus
+array position) and pinning the correct resolution end to end for both
+single- and multi-path drops, plus the ancestor-drop guard excluding a
+filtered breadcrumb dropped onto its own visible matched descendant. These
+lock in the exact contract any future re-implementation of `Notidian-nrjb`
+must satisfy — this suite doubles as that feature's acceptance test the day
+it's re-attempted.
+
+**Evidence:** `npm test -- --runInBand` 293/293 suites, 9019/9019 tests green
+(5 new); `npx tsc -noEmit -skipLibCheck` exit 0; `npm run build` clean
+(pre-existing unrelated `TableView.css` warnings only; `main.js`/`styles.css`
+byte-unchanged since only `*.test.ts` files were touched).
+
+**Owner/next-session action:** once `bd` writes recover on this clone, claim +
+close `Notidian-21l4` with this entry as evidence, reconcile `Notidian-nrjb`'s
+closed-but-"left open for re-attempt" status, and re-scope `Notidian-d6lk` /
+`Notidian-a9m7` as blocked on that re-attempt.
+
 ---
 
 ## Awaiting owner USE — default-ON flag-gated changes (ship-then-verify)
