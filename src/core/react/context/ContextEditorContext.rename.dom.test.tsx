@@ -239,4 +239,136 @@ describe("frontmatter property rename", () => {
       "Owner",
     ]);
   });
+
+  // Notidian-lqt4: this DOM harness is the only test file that exercises
+  // renameFrontmatterPropertyKey's real UI wiring (the notify message built
+  // by frontmatterRenameIssueMessage, its caseVariantCount computation, and
+  // the resulting early-return-without-writing). The bead's own commit
+  // message cited this file's pass count as "Verification" for that wiring
+  // without adding a single case here that reaches the
+  // "case-variant-frontmatter-key" branch -- so a future copy-paste error in
+  // that switch case (e.g. swapping caseVariantCount for conflictCount)
+  // would go undetected. This test closes that gap end to end, through the
+  // real production code path (not by calling the private message-builder
+  // directly).
+  it("blocks the rename and notifies with the case-variant message when a stray differently-cased spelling of the new key already exists, without writing anything", async () => {
+    const reloadContextByPath = jest.fn().mockResolvedValue(undefined);
+    const saveSchema = jest.fn().mockResolvedValue(undefined);
+    const saveProperties = jest.fn().mockResolvedValue(true);
+    const deleteProperty = jest.fn().mockResolvedValue(undefined);
+    const notify = jest.fn();
+    const superstate = {
+      settings: { autoImportObsidianPropertiesToContexts: false },
+      contextsIndex: new Map([
+        [
+          contextPath,
+          {
+            schemas: [
+              { id: "files", name: "Files", type: "db", primary: "true" },
+            ],
+          },
+        ],
+      ]),
+      spacesIndex: new Map([[contextPath, { type: "folder" }]]),
+      spacesMap: { getInverse: (): string[] => [filePath] },
+      // "STATE" is a stray case-variant of the requested new key "State" --
+      // the file already carries the exact old key "Status" too.
+      pathsIndex: new Map([
+        [
+          filePath,
+          {
+            metadata: {
+              property: { Status: "Open", Owner: "Dev", STATE: "Stale" },
+            },
+          },
+        ],
+      ]),
+      eventsDispatcher: {
+        addListener: jest.fn(),
+        removeListener: jest.fn(),
+      },
+      reloadContext: jest.fn().mockResolvedValue(undefined),
+      reloadContextByPath,
+      spaceManager: {
+        readTable: jest.fn(async () => table),
+        saveTable: jest.fn().mockResolvedValue(true),
+        saveProperties,
+        deleteProperty,
+        resolvePath: (path: string) => path,
+      },
+      ui: { notify, setActivePath: jest.fn() },
+    } as any;
+    const frameSchema = {
+      id: "filesView",
+      name: "Files View",
+      type: "view",
+      def: { db: "files" },
+      predicate: JSON.stringify({
+        filters: [],
+        sort: [],
+        groupBy: [],
+        colsOrder: [PathPropertyName, "Status", "Owner"],
+        colsHidden: [],
+        colsSize: {},
+      }),
+    } as any;
+
+    await act(async () => {
+      root.render(
+        <SpaceContext.Provider
+          value={{
+            spaceInfo: { path: contextPath, readOnly: false },
+            readMode: true,
+            spaceState: { contexts: [] },
+          }}
+        >
+          <PathContext.Provider value={{ pathState: { path: contextPath } }}>
+            <FramesMDBContext.Provider
+              value={{
+                frameSchemas: [frameSchema],
+                frameSchema,
+                saveSchema,
+              }}
+            >
+              <ContextEditorProvider superstate={superstate}>
+                <CaptureContext />
+              </ContextEditorProvider>
+            </FramesMDBContext.Provider>
+          </PathContext.Provider>
+        </SpaceContext.Provider>
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const statusColumn = capturedContext.cols.find(
+      (column: any) => column.name == "Status"
+    );
+
+    let renameResult: boolean | undefined;
+    await act(async () => {
+      renameResult = await capturedContext.renameFrontmatterPropertyKey(
+        statusColumn,
+        "State",
+        () => true
+      );
+    });
+
+    expect(renameResult).toBe(false);
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [message] = notify.mock.calls[0];
+    expect(message).toContain("Status");
+    expect(message).toContain("State");
+    expect(message).toContain("STATE");
+    expect(message).toContain("1 file");
+    // No write of any kind happened -- neither the frontmatter save nor the
+    // schema/predicate rename went through.
+    expect(saveProperties).not.toHaveBeenCalled();
+    expect(deleteProperty).not.toHaveBeenCalled();
+    expect(saveSchema).not.toHaveBeenCalled();
+    expect(reloadContextByPath).not.toHaveBeenCalled();
+  });
 });

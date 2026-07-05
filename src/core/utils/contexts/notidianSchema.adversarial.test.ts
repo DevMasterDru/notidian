@@ -297,6 +297,151 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
     expect(exactStates.every((f) => f.state === "old-only")).toBe(true);
   });
 
+  it("Notidian-lqt4 mustFix: an exact old-key match plus a stray case-variant of the NEW key is surfaced, never silently double-written (old-only branch)", () => {
+    // Reviewer-flagged gap: the original fix only ran the case-variant
+    // fallback in the "neither key present" branch. A file with an EXACT
+    // match on the old key (hasOld = true) but ALSO a pre-existing,
+    // differently-cased spelling of the new key ("STATUS" vs the real
+    // target "Status") took the old-only branch untouched -- no issue was
+    // raised, canApplyAutomatically stayed true, and the automatic write
+    // would have added a second live "Status" key alongside the stale
+    // "STATUS" one.
+    const table = baseTable();
+    table.cols = table.cols.map((c) =>
+      c.name === "status" ? { ...c, name: "State" } : c
+    );
+    const paths = ["DB/Row0.md"];
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "DB/Row0.md": { State: "active", STATUS: "legacy-stale-value" },
+    };
+
+    const plan = planRenameFrontmatterProperty({
+      table,
+      oldKey: "State",
+      newKey: "Status",
+      paths,
+      frontmatterByPath,
+    });
+
+    expect(plan.canApplyAutomatically).toBe(false);
+    expect(plan.requiresResolution).toBe(true);
+    expect(plan.issues).toEqual([
+      {
+        reason: "case-variant-frontmatter-key",
+        path: "DB/Row0.md",
+        requestedKey: "Status",
+        foundKey: "STATUS",
+      },
+    ]);
+    expect(plan.fileStates).toEqual([
+      {
+        path: "DB/Row0.md",
+        state: "case-variant",
+        oldValue: "active",
+        newValue: "legacy-stale-value",
+      },
+    ]);
+    // The whole point: no automatic write for this path, so the pre-existing
+    // "STATUS" key is never left orphaned next to a freshly written "Status".
+    expect(plan.automaticWrites).toEqual([]);
+  });
+
+  it("Notidian-lqt4 mustFix: an exact new-key match plus a stray case-variant of the OLD key is surfaced (new-only branch)", () => {
+    // Symmetric gap: hasNew = true (exact "state" already present), but a
+    // stray case-variant of the OLD key ("Priority" as a differently-cased
+    // spelling of the source column "priority") sits in the same file. The
+    // new-only branch never writes anything either way, but silently
+    // classifying the file as plain "new-only" (no issue) would report a
+    // full, unqualified success while the stale-cased old key is left
+    // completely untouched and unflagged.
+    const table = baseTable();
+    table.cols = table.cols.map((c) =>
+      c.name === "status" ? { ...c, name: "priority" } : c
+    );
+    const paths = ["DB/Row0.md"];
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "DB/Row0.md": { Priority: "High", state: "already-migrated" },
+    };
+
+    const plan = planRenameFrontmatterProperty({
+      table,
+      oldKey: "priority",
+      newKey: "state",
+      paths,
+      frontmatterByPath,
+    });
+
+    expect(plan.canApplyAutomatically).toBe(false);
+    expect(plan.requiresResolution).toBe(true);
+    expect(plan.issues).toEqual([
+      {
+        reason: "case-variant-frontmatter-key",
+        path: "DB/Row0.md",
+        requestedKey: "priority",
+        foundKey: "Priority",
+      },
+    ]);
+    expect(plan.fileStates).toEqual([
+      {
+        path: "DB/Row0.md",
+        state: "case-variant",
+        oldValue: "High",
+        newValue: "already-migrated",
+      },
+    ]);
+    expect(plan.automaticWrites).toEqual([]);
+  });
+
+  it("Notidian-lqt4 mustFix: a single file carrying case-variants of BOTH old and new keys produces two distinct issues for one path", () => {
+    // Neither key is present under its exact spelling, and the file's real
+    // frontmatter holds a stray case-variant of EACH side at once -- the
+    // dual-issue-per-path branch (oldCaseVariantKey AND newCaseVariantKey
+    // both truthy) that no prior test constructed.
+    const table = baseTable();
+    table.cols = table.cols.map((c) =>
+      c.name === "status" ? { ...c, name: "state" } : c
+    );
+    const paths = ["DB/Row0.md"];
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "DB/Row0.md": { State: "queued", ARCHIVED: "yes" },
+    };
+
+    const plan = planRenameFrontmatterProperty({
+      table,
+      oldKey: "state",
+      newKey: "archived",
+      paths,
+      frontmatterByPath,
+    });
+
+    expect(plan.canApplyAutomatically).toBe(false);
+    expect(plan.requiresResolution).toBe(true);
+    expect(plan.issues).toEqual([
+      {
+        reason: "case-variant-frontmatter-key",
+        path: "DB/Row0.md",
+        requestedKey: "state",
+        foundKey: "State",
+      },
+      {
+        reason: "case-variant-frontmatter-key",
+        path: "DB/Row0.md",
+        requestedKey: "archived",
+        foundKey: "ARCHIVED",
+      },
+    ]);
+    // One fileState entry per path, even though it carries two issues.
+    expect(plan.fileStates).toEqual([
+      {
+        path: "DB/Row0.md",
+        state: "case-variant",
+        oldValue: "queued",
+        newValue: "yes",
+      },
+    ]);
+    expect(plan.automaticWrites).toEqual([]);
+  });
+
   it("PIN: sourceColumn lookup is case-sensitive — case-variant oldKey fails safely (missing-source-column)", () => {
     const table = baseTable(); // column is exactly "status"
     const paths = buildPaths(50);
@@ -391,6 +536,143 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
       } else {
         expect(plan.canApplyAutomatically).toBe(true);
       }
+    }
+  });
+
+  it("500-run fuzz (Notidian-lqt4): an exact match on one key plus an independent stray case-variant of the OTHER key is always routed to case-variant, in both the old-only and new-only shapes", () => {
+    // Every earlier fuzz in this suite only ever varies the CASING of the
+    // OLD key while holding the new key ("archived") fixed and exact, so it
+    // can never construct the shapes this bead's reviewers flagged as
+    // unproven: an exact old-key file that ALSO carries a stray case-variant
+    // of the new key, and the symmetric exact-new-key-plus-stray-old-variant
+    // shape. This fuzz builds each file from one of six explicit shapes and
+    // asserts the exact classification + automaticWrites/issues invariant
+    // for every one of them.
+    const rng = makeRng(0xdead22);
+    const OLD_VARIANTS = ["State", "STATE", "sTaTe"]; // never exactly "state"
+    const NEW_VARIANTS = ["Archived", "ARCHIVED", "aRchiVED"]; // never exactly "archived"
+    const shapes = [
+      "old-exact-only",
+      "new-exact-only",
+      "old-exact-plus-new-variant",
+      "new-exact-plus-old-variant",
+      "old-variant-only",
+      "new-variant-only",
+      "both-variants",
+      "unrelated-only",
+    ] as const;
+
+    for (let run = 0; run < PROPERTY_RUNS; run++) {
+      const table = baseTable();
+      table.cols = table.cols.map((c) =>
+        c.name === "status" ? { ...c, name: "state" } : c
+      );
+      const n = randInt(rng, 1, 40);
+      const paths = buildPaths(n, `S${run}`);
+      const frontmatterByPath: Record<string, Record<string, unknown>> = {};
+      const shapeByPath = new Map<string, (typeof shapes)[number]>();
+
+      for (const path of paths) {
+        const shape = pick(rng, shapes);
+        shapeByPath.set(path, shape);
+        const fm: Record<string, unknown> = {};
+        switch (shape) {
+          case "old-exact-only":
+            fm["state"] = "v";
+            break;
+          case "new-exact-only":
+            fm["archived"] = "v";
+            break;
+          case "old-exact-plus-new-variant":
+            fm["state"] = "v";
+            fm[pick(rng, NEW_VARIANTS)] = "stray";
+            break;
+          case "new-exact-plus-old-variant":
+            fm["archived"] = "v";
+            fm[pick(rng, OLD_VARIANTS)] = "stray";
+            break;
+          case "old-variant-only":
+            fm[pick(rng, OLD_VARIANTS)] = "v";
+            break;
+          case "new-variant-only":
+            fm[pick(rng, NEW_VARIANTS)] = "v";
+            break;
+          case "both-variants":
+            fm[pick(rng, OLD_VARIANTS)] = "v";
+            fm[pick(rng, NEW_VARIANTS)] = "w";
+            break;
+          case "unrelated-only":
+            fm["some_other_key"] = "v";
+            break;
+        }
+        frontmatterByPath[path] = fm;
+      }
+
+      const plan = planRenameFrontmatterProperty({
+        table,
+        oldKey: "state",
+        newKey: "archived",
+        paths,
+        frontmatterByPath,
+      });
+
+      const stateByPath = new Map(plan.fileStates.map((f) => [f.path, f.state]));
+      const writtenPaths = new Set(plan.automaticWrites.map((w) => w.path));
+      const caseVariantIssuePaths = new Set(
+        plan.issues
+          .filter((issue) => issue.reason === "case-variant-frontmatter-key")
+          .map((issue) => issue.path)
+      );
+
+      for (const path of paths) {
+        const shape = shapeByPath.get(path);
+        const state = stateByPath.get(path);
+        switch (shape) {
+          case "old-exact-only":
+            expect(state).toBe("old-only");
+            expect(writtenPaths.has(path)).toBe(true);
+            expect(caseVariantIssuePaths.has(path)).toBe(false);
+            break;
+          case "new-exact-only":
+            expect(state).toBe("new-only");
+            expect(writtenPaths.has(path)).toBe(false);
+            expect(caseVariantIssuePaths.has(path)).toBe(false);
+            break;
+          case "old-exact-plus-new-variant":
+          case "new-exact-plus-old-variant":
+          case "old-variant-only":
+          case "new-variant-only":
+            expect(state).toBe("case-variant");
+            expect(writtenPaths.has(path)).toBe(false);
+            expect(caseVariantIssuePaths.has(path)).toBe(true);
+            break;
+          case "both-variants":
+            expect(state).toBe("case-variant");
+            expect(writtenPaths.has(path)).toBe(false);
+            // Both sides are stray case-variants here -- two distinct
+            // issues share this one path.
+            expect(
+              plan.issues.filter(
+                (issue) =>
+                  issue.reason === "case-variant-frontmatter-key" &&
+                  issue.path === path
+              ).length
+            ).toBe(2);
+            break;
+          case "unrelated-only":
+            expect(state).toBe("neither");
+            expect(writtenPaths.has(path)).toBe(false);
+            expect(caseVariantIssuePaths.has(path)).toBe(false);
+            break;
+        }
+      }
+
+      // CONFIRM-GATED: any per-file case-variant issue blocks the whole plan.
+      if (caseVariantIssuePaths.size > 0) {
+        expect(plan.canApplyAutomatically).toBe(false);
+        expect(plan.requiresResolution).toBe(true);
+      }
+      expect(plan.canApplyAutomatically).toBe(plan.issues.length === 0);
     }
   });
 

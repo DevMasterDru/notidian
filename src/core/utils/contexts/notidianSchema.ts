@@ -64,9 +64,12 @@ export type RenameFrontmatterPropertyFileState =
   | "new-only"
   | "both-same"
   | "both-conflict"
-  // Notidian-lqt4: neither oldKey nor newKey is present under its exact
-  // spelling, but a case-variant of one (or both) IS present in this file's
-  // real frontmatter keys — ambiguous, so it is never "neither" and never
+  // Notidian-lqt4: at least one of oldKey/newKey is NOT present under its
+  // exact spelling (covers the "neither" case as well as "old-only"/
+  // "new-only" -- an exact match on one side never rules out a stray
+  // case-variant of the other), and a case-variant spelling of the missing
+  // side IS present in this file's real frontmatter keys — ambiguous, so it
+  // is never folded into "old-only"/"new-only"/"neither" and never
   // auto-written.
   | "case-variant"
   | "neither";
@@ -198,8 +201,11 @@ const columnForKey = (
 
 // Notidian-lqt4: mirrors caseInsensitiveColumn's case-folding, but scans a
 // single file's real frontmatter keys instead of the table's schema columns.
-// Used only as a fallback once the exact-string presence check has already
-// found neither key, so it never overrides an exact match.
+// Called only for a key that did NOT already match exactly (the caller skips
+// the probe on whichever side has an exact hit), so it never overrides an
+// exact match; it is used for the old-only and new-only cases as well as
+// neither, since an exact match on one key never rules out a stray
+// case-variant of the other.
 const caseVariantFrontmatterKey = (
   frontmatter: FrontmatterSnapshot,
   key: string
@@ -449,49 +455,41 @@ export const planRenameFrontmatterProperty = ({
             newKey: normalizedNewKey,
           });
         }
-      } else if (hasOld) {
-        const oldValue = frontmatter[normalizedOldKey];
-        fileStates.push({
-          path,
-          state: "old-only",
-          oldValue,
-        });
-        automaticWrites.push({
-          path,
-          set: { [normalizedNewKey]: oldValue },
-          removeKeys: [normalizedOldKey],
-        });
-      } else if (hasNew) {
-        fileStates.push({
-          path,
-          state: "new-only",
-          newValue: frontmatter[normalizedNewKey],
-        });
       } else {
-        // Notidian-lqt4: the exact-string scan found neither key. Before
-        // concluding this file is untouched by the rename, fall back to a
-        // case-insensitive lookup across the file's own keys -- a
-        // case-variant spelling here must never be classified "neither"
-        // (silently invisible) or counted toward automatic success.
-        const oldCaseVariantKey = caseVariantFrontmatterKey(
-          frontmatter,
-          normalizedOldKey
-        );
-        const newCaseVariantKey = caseVariantFrontmatterKey(
-          frontmatter,
-          normalizedNewKey
-        );
+        // Notidian-lqt4: whenever the exact-string scan does not find BOTH
+        // keys, a stray case-variant spelling of whichever key is missing
+        // can still be sitting in this file's real frontmatter -- e.g. old
+        // key "State" is present exactly, but the file already carries a
+        // hand-edited "STATUS" (a case-variant of the new key "Status").
+        // This fallback must run for the old-only and new-only cases too,
+        // not just when the scan finds neither key -- otherwise a blind
+        // automaticWrite for the old-only case would add a *second*,
+        // differently-cased spelling of the new key instead of surfacing
+        // the collision, leaving the file with two live keys for one
+        // logical column. Skip probing the side that already has an exact
+        // match (hasOld/hasNew), since that side cannot also be a
+        // case-variant miss.
+        const oldCaseVariantKey = hasOld
+          ? undefined
+          : caseVariantFrontmatterKey(frontmatter, normalizedOldKey);
+        const newCaseVariantKey = hasNew
+          ? undefined
+          : caseVariantFrontmatterKey(frontmatter, normalizedNewKey);
 
         if (oldCaseVariantKey || newCaseVariantKey) {
           fileStates.push({
             path,
             state: "case-variant",
-            oldValue: oldCaseVariantKey
-              ? frontmatter[oldCaseVariantKey]
-              : undefined,
-            newValue: newCaseVariantKey
-              ? frontmatter[newCaseVariantKey]
-              : undefined,
+            oldValue: hasOld
+              ? frontmatter[normalizedOldKey]
+              : oldCaseVariantKey
+                ? frontmatter[oldCaseVariantKey]
+                : undefined,
+            newValue: hasNew
+              ? frontmatter[normalizedNewKey]
+              : newCaseVariantKey
+                ? frontmatter[newCaseVariantKey]
+                : undefined,
           });
           if (oldCaseVariantKey) {
             issues.push({
@@ -509,6 +507,24 @@ export const planRenameFrontmatterProperty = ({
               foundKey: newCaseVariantKey,
             });
           }
+        } else if (hasOld) {
+          const oldValue = frontmatter[normalizedOldKey];
+          fileStates.push({
+            path,
+            state: "old-only",
+            oldValue,
+          });
+          automaticWrites.push({
+            path,
+            set: { [normalizedNewKey]: oldValue },
+            removeKeys: [normalizedOldKey],
+          });
+        } else if (hasNew) {
+          fileStates.push({
+            path,
+            state: "new-only",
+            newValue: frontmatter[normalizedNewKey],
+          });
         } else {
           fileStates.push({ path, state: "neither" });
         }
