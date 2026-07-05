@@ -373,6 +373,18 @@ row+cell.
 
 ### Notidian-z21a — Nested databases: row-as-child-hub (schema + views + row ops) — verify-then-build
 
+> **RESOLVED 2026-07-05 (same day, follow-up session):** recovered exactly as
+> prescribed below — cherry-picked `notidian-z21a-attempt-1` (skipping the
+> interleaved, already-restored `8d0d32d`), moved `onPathDeleted(path)` inside
+> the `if (deleted)` guard with a red-first regression test, adversarial
+> re-review found no must-fix, landed as `3ce5380` (9126/9126 tests, build
+> green). Follow-ups (HubRowIndicator wiring; `ui.notify` on swallowed
+> primary-delete failure) are filed as `Notidian-b0fm`, not open scope here. The bd
+> read-only diagnosis below is also superseded: root cause is the
+> `.beads/config.yaml` `repos.additional` read-only hydration of
+> `~/.beads-planning`, where the whole issue graph actually lives (see
+> `Notidian-6amu` notes, 2026-07-05).
+
 **2026-07-05.** Attempted on `autolong/run-3`, reverted after two real fix
 rounds still left one unresolved must-fix finding — **not abandoned, fully
 recoverable.** `bd`'s notes field could not be updated with this finding
@@ -430,7 +442,25 @@ entry above), so the full diagnosis lives here instead.
 
 ## Pending — decisions (pick a direction)
 
-_(none — realigned: clear-correct ADRs were implemented, speculative ones parked to docs/ROADMAP.md)_
+- **`Notidian-loan.4` DoD gap (reconciler engine):** code + 18 unit tests landed
+  (`c3ff496`, `ff469a9`) but the bead's explicit DoD item — a live-harness
+  scenario for an external raw-text edit including one that breaks YAML,
+  `verify:live` green — was never built (the implementing commit itself says a
+  fabricated broken-YAML fixture felt out of proportion). Decide: build the
+  missing harness scenario, or relax the DoD and close. Until then the bead
+  stays open on purpose — do not rubber-stamp close it.
+- **bd store architecture (`Notidian-6amu`):** the entire Notidian issue graph
+  (456 issues) lives in `~/.beads-planning`, hydrated read-only into this repo
+  via `.beads/config.yaml` `repos.additional` — that read-only guard is the
+  whole "embeddeddolt: store is read-only" saga (and it blocks UPDATE/DELETE
+  but not INSERT, so creates silently land in the planning store; that
+  inconsistency is the one genuinely-upstream item, tracked in `Notidian-nir`).
+  Interim write path (working, in use): `bd -C ~/.beads-planning`. Decide:
+  (a) keep `~/.beads-planning` as the working store and drop the pretense of a
+  repo-local store, or (b) migrate the Notidian rows into this repo's own
+  `.beads/embeddeddolt` and drop the additional-repo hydration, restoring the
+  documented per-repo architecture (recommended — but check what else reads
+  `~/.beads-planning` before moving anything).
 
 ## Cleared
 
