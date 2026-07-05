@@ -617,6 +617,7 @@ export const en = {
     "base90": "Base90",
     "base100": "Base100",
     "installSpaceKit": "Install Space Kit",
+    "hubRowIndicator": "This row is the hub of a nested database — open it",
     "filesCount": "{$1} Files",
     "someFilesHaveInvalidNames": "Some Files Have Invalid Names",
     "placeholder": "Type '${1}' for commands",
@@ -1043,7 +1044,9 @@ export const en = {
     "tableSaveFailed": "Failed to save table changes for ",
     "missingTableSkipped": "Skipped loading tables whose data is missing from the database file: ",
     "undoRestoreRowsFailed": "Could not restore the deleted rows. The change was kept so you can try again.",
-    "redoDeleteRowsFailed": "Could not re-delete the rows. The change was kept so you can try again."
+    "redoDeleteRowsFailed": "Could not re-delete the rows. The change was kept so you can try again.",
+    "hubRowCascadeRenameFailed": "Renamed the row, but could not move its nested database folder to match. Rename the folder manually to keep them in sync.",
+    "hubRowCascadeDeleteFailed": "Deleted the row, but could not delete its nested database folder. Remove the folder manually if it should not remain."
   },
   "settings": {
     "importUrls": "Import Urls",
@@ -1302,6 +1305,10 @@ export const en = {
     "enableFolderNote": {
       "name": "Enable Folder Note",
       "desc": "Access the folder note in the folder page and hide the folder note from spaces"
+    },
+    "enableNestedHubRows": {
+      "name": "Nested Databases (Row-as-Child-Hub)",
+      "desc": "When a database row's file has a same-named sibling folder, treat the row as the hub of a nested child database: renaming/moving/deleting the row keeps the folder in sync, and the row's own nested-schema keys are kept out of the parent database's columns"
     },
     "folderNoteInsideFolder": {
       "name": "Folder Note Inside Folder",

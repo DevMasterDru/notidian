@@ -36,6 +36,14 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   spacesPerformance: false,
   currentWaypoint: 0,
   enableFolderNote: true,
+  // Notidian-z21a: default ON — the owner explicitly seeded a live consumer
+  // (vault Knowledge root hub, 2026-07-05) whose domain rows are meant to be
+  // hubs of their own child unit databases (ADR-0042 D1); the owner verifies
+  // it by USE. RETAINED as a kill-switch: set false to fully disable the
+  // row-op cascade + discovery-exclusion behavior and restore legacy
+  // (pre-feature) handling of a row whose file happens to have a same-named
+  // sibling folder.
+  enableNestedHubRows: true,
   spaceViewShowNoteBody: true,
   // Notidian-8sl: default ON — the owner explicitly requested a collapsible +
   // shrink-to-fit space-note body, so it ships enabled; the owner verifies it by

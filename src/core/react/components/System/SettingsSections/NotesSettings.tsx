@@ -286,6 +286,27 @@ export const NotesSettings = ({ superstate }: SettingsProps) => {
         <div className="mk-setting-item">
           <div className="mk-setting-item-info">
             <div className="mk-setting-item-name">
+              {i18n.settings.enableNestedHubRows.name}
+            </div>
+            <div className="mk-setting-item-description">
+              {i18n.settings.enableNestedHubRows.desc}
+            </div>
+          </div>
+          <div className="mk-setting-item-control">
+            <input
+              type="checkbox"
+              checked={superstate.settings.enableNestedHubRows}
+              onChange={(e) => {
+                superstate.settings.enableNestedHubRows = e.target.checked;
+                immediateSave();
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="mk-setting-item">
+          <div className="mk-setting-item-info">
+            <div className="mk-setting-item-name">
               {i18n.settings.spaceViewShowNoteBody.name}
             </div>
             <div className="mk-setting-item-description">

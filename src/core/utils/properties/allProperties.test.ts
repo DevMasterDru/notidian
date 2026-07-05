@@ -6,8 +6,10 @@ import {
   contextHasOnlyDefaultColumns,
   contextHasOnlyDefaultOrFrontmatterColumns,
   discoverFrontmatterPropertiesFromPathStates,
+  excludedFrontmatterPropertyNames,
   filterPropertiesForNameQuery,
   frontmatterPropertySource,
+  isTypeProfileDeclaringRowFrontmatter,
   materializeFrontmatterBackedContextTable,
   propertyMenuDiscoveryScope,
   shouldImportFrontmatterColumns,
@@ -228,6 +230,195 @@ describe("discoverFrontmatterPropertiesFromPathStates", () => {
     );
 
     expect(result.map((property) => property.name)).toEqual(["repo"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Row-as-child-hub (Notidian-z21a, Atlas Method ADR-0042 D1, gated behind
+// enableNestedHubRows): a row that is ITSELF a nested child-hub declares Type
+// Profile structural keys (schema_type/fields/kind_fields/invariants) on its
+// OWN frontmatter for its own child database — e.g. "Knowledge/Gidi.md" is a
+// row of the Knowledge database that ALSO nests "Knowledge/Gidi/". Verify
+// step 1 characterizes the CURRENT/flag-off breakage: those structural keys
+// leak into the PARENT (Knowledge) table as noisy discovered columns.
+//
+// The exclusion must be scoped to the ROW that actually declares the schema
+// (`schema_type === "notidian_type_profile"` on THAT row's own frontmatter),
+// never a vault-wide exclusion by bare key name — an unrelated row elsewhere
+// that merely happens to use a field named "fields"/"invariants"/
+// "kind_fields"/"schema_type" for its own purposes must keep that column
+// discoverable. `excludedFrontmatterPropertyNames` itself only ever holds
+// the always-on structural keys (metadata/alias/tags); the row-scoped check
+// is `isTypeProfileDeclaringRowFrontmatter`.
+// ---------------------------------------------------------------------------
+describe("excludedFrontmatterPropertyNames — Type Profile structural keys (Notidian-z21a)", () => {
+  it("never includes the reserved Type Profile keys — that exclusion is row-scoped, not global", () => {
+    const excluded = excludedFrontmatterPropertyNames(settings);
+    expect(excluded.has("schema_type")).toBe(false);
+    expect(excluded.has("fields")).toBe(false);
+    expect(excluded.has("kind_fields")).toBe(false);
+    expect(excluded.has("invariants")).toBe(false);
+
+    const gated = { ...settings, enableNestedHubRows: true } as MakeMDSettings;
+    const gatedExcluded = excludedFrontmatterPropertyNames(gated);
+    expect(gatedExcluded.has("schema_type")).toBe(false);
+    expect(gatedExcluded.has("fields")).toBe(false);
+    expect(gatedExcluded.has("kind_fields")).toBe(false);
+    expect(gatedExcluded.has("invariants")).toBe(false);
+  });
+
+  describe("isTypeProfileDeclaringRowFrontmatter", () => {
+    it("is true only when the flag is on AND this row's own frontmatter declares the Type Profile schema_type", () => {
+      const gated = { ...settings, enableNestedHubRows: true } as MakeMDSettings;
+      expect(
+        isTypeProfileDeclaringRowFrontmatter(
+          { schema_type: "notidian_type_profile" },
+          gated
+        )
+      ).toBe(true);
+    });
+
+    it("is false when the flag is off, even if the row declares schema_type", () => {
+      expect(
+        isTypeProfileDeclaringRowFrontmatter(
+          { schema_type: "notidian_type_profile" },
+          settings
+        )
+      ).toBe(false);
+    });
+
+    it("is false for a row that does not declare schema_type, even with the flag on", () => {
+      const gated = { ...settings, enableNestedHubRows: true } as MakeMDSettings;
+      expect(
+        isTypeProfileDeclaringRowFrontmatter({ fields: {} }, gated)
+      ).toBe(false);
+      expect(isTypeProfileDeclaringRowFrontmatter(null, gated)).toBe(false);
+    });
+  });
+
+  it("flag ON: an UNRELATED row's own legitimately-named field (\"fields\") stays discoverable — the exclusion never applies vault-wide by bare key-name collision", () => {
+    const gated = { ...settings, enableNestedHubRows: true } as MakeMDSettings;
+    const pathsIndex = new Map<string, any>([
+      [
+        "Projects/Widget.md",
+        pathState({
+          status: "active",
+          // Legitimate row data on an ordinary, non-hub row — no sibling
+          // folder, no schema_type declaration, unrelated to any nested
+          // child database. Must NOT be silently dropped just because the
+          // key name collides with a Type Profile structural key.
+          fields: ["a", "b"],
+        }),
+      ],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["Projects/Widget.md"],
+      gated,
+      [],
+      defaultContextSchemaID
+    );
+
+    expect(result.map((property) => property.name)).toEqual([
+      "status",
+      "fields",
+    ]);
+  });
+
+  it("flag ON: a nested hub-row's OWN schema declaration no longer pollutes the parent table's discovered columns", () => {
+    const gated = { ...settings, enableNestedHubRows: true } as MakeMDSettings;
+    const pathsIndex = new Map<string, any>([
+      [
+        "Knowledge/Gidi.md",
+        pathState({
+          database: "gidi",
+          scope: "project",
+          schema_type: "notidian_type_profile",
+          fields: { title: { kind: "text" } },
+          kind_fields: {},
+          invariants: [],
+        }),
+      ],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["Knowledge/Gidi.md"],
+      gated,
+      [],
+      defaultContextSchemaID
+    );
+
+    expect(result.map((property) => property.name)).toEqual([
+      "database",
+      "scope",
+    ]);
+  });
+
+  it("flag ON: scoping is PER ROW, not per table — a genuine hub row's schema_type is hidden while a sibling row's own unrelated \"fields\" column stays discoverable", () => {
+    const gated = { ...settings, enableNestedHubRows: true } as MakeMDSettings;
+    const pathsIndex = new Map<string, any>([
+      [
+        "Knowledge/Gidi.md",
+        pathState({
+          database: "gidi",
+          schema_type: "notidian_type_profile",
+          fields: { title: { kind: "text" } },
+        }),
+      ],
+      [
+        "Knowledge/Plain.md",
+        pathState({
+          database: "plain",
+          // No schema_type declaration on this row — "fields" here is
+          // ordinary row data, not a Type Profile structural key, and must
+          // stay discoverable even though a SIBLING row in the same table
+          // is a genuine hub row.
+          fields: ["x"],
+        }),
+      ],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["Knowledge/Gidi.md", "Knowledge/Plain.md"],
+      gated,
+      [],
+      defaultContextSchemaID
+    );
+
+    expect(result.map((property) => property.name)).toEqual([
+      "database",
+      "fields",
+    ]);
+  });
+
+  it("flag OFF: CURRENT BEHAVIOR — the same nested hub-row's schema keys DO leak into the parent table", () => {
+    const pathsIndex = new Map<string, any>([
+      [
+        "Knowledge/Gidi.md",
+        pathState({
+          database: "gidi",
+          schema_type: "notidian_type_profile",
+          fields: { title: { kind: "text" } },
+        }),
+      ],
+    ]);
+
+    const result = discoverFrontmatterPropertiesFromPathStates(
+      pathsIndex,
+      ["Knowledge/Gidi.md"],
+      settings,
+      [],
+      defaultContextSchemaID
+    );
+
+    expect(result.map((property) => property.name)).toEqual([
+      "database",
+      "schema_type",
+      "fields",
+    ]);
   });
 });
 

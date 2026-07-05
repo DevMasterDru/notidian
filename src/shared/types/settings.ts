@@ -44,6 +44,21 @@ export interface MakeMDSettings {
   folderNoteInsideFolder: boolean;
   folderNoteName: string;
   enableFolderNote: boolean;
+  // Notidian-z21a (default ON, kill-switch): a database row whose file has a
+  // same-named sibling folder is itself the hub of a nested child database
+  // (row-as-child-hub, depth 1 — Atlas Method ADR-0042 D1; the adjacent
+  // hub-note resolution this builds on is folderNoteInsideFolder=false, ADR
+  // 0008, and already works unconditionally). When ON: renaming/moving/
+  // deleting such a row cascades to its child folder instead of orphaning
+  // it, and the Type Profile structural keys (schema_type/fields/kind_fields/
+  // invariants) a nested hub-row declares for ITS OWN child database are
+  // excluded from the PARENT database's frontmatter column discovery. A
+  // standalone, tested HubRowIndicator component exists
+  // (core/react/components/UI/Toggles/HubRowIndicator.tsx) for a future
+  // row-rendering integration (not yet wired into any row surface — no live
+  // hub row exists in the vault yet to verify placement against). OFF ==
+  // byte-identical legacy behavior (no cascade, no discovery exclusion).
+  enableNestedHubRows: boolean;
   folderIndentationLines: boolean;
   revealActiveFile: boolean;
   hiddenFiles: string[];
