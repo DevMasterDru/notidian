@@ -442,25 +442,25 @@ entry above), so the full diagnosis lives here instead.
 
 ## Pending — decisions (pick a direction)
 
-- **`Notidian-loan.4` DoD gap (reconciler engine):** code + 18 unit tests landed
-  (`c3ff496`, `ff469a9`) but the bead's explicit DoD item — a live-harness
-  scenario for an external raw-text edit including one that breaks YAML,
-  `verify:live` green — was never built (the implementing commit itself says a
-  fabricated broken-YAML fixture felt out of proportion). Decide: build the
-  missing harness scenario, or relax the DoD and close. Until then the bead
-  stays open on purpose — do not rubber-stamp close it.
-- **bd store architecture (`Notidian-6amu`):** the entire Notidian issue graph
-  (456 issues) lives in `~/.beads-planning`, hydrated read-only into this repo
-  via `.beads/config.yaml` `repos.additional` — that read-only guard is the
-  whole "embeddeddolt: store is read-only" saga (and it blocks UPDATE/DELETE
-  but not INSERT, so creates silently land in the planning store; that
-  inconsistency is the one genuinely-upstream item, tracked in `Notidian-nir`).
-  Interim write path (working, in use): `bd -C ~/.beads-planning`. Decide:
-  (a) keep `~/.beads-planning` as the working store and drop the pretense of a
-  repo-local store, or (b) migrate the Notidian rows into this repo's own
-  `.beads/embeddeddolt` and drop the additional-repo hydration, restoring the
-  documented per-repo architecture (recommended — but check what else reads
-  `~/.beads-planning` before moving anything).
+_(none — the two items queued earlier on 2026-07-05 were decided and executed
+the same day, owner having delegated the call:_
+- _**`Notidian-loan.4` DoD gap → BUILT, not relaxed.** The missing live-harness
+  scenario shipped: `--reconciler` flag threaded through
+  `notidianRealVaultHarness.js`/`notidianVerify.js` per the loan.3
+  `--adopt-schema` precedent; external raw edit → `required` violation →
+  restore → clean; broken-YAML edit → single `malformed-row` violation, no
+  crash. Both `verify:live` modes green. Empirical yield: ADR-0057 D4's
+  parse-failure assumption (absent `metadata.property`) confirmed against real
+  Obsidian, previously mock-only._
+- _**bd store architecture → migrated (option b, the Atlasidian precedent).**
+  Forensics showed `~/.beads-planning` was bd-init fork-detection fallout
+  (experimental bd-307), not architecture: zero git commits/remotes, Notidian
+  the only repo still routing there. Full 457-issue export/import into this
+  repo's own store; `routing.mode: "maintainer"`; hydration commented out;
+  write path proven natively; memories intact (321); `bd stats`/`bd export`
+  read 457 where they read 0. `~/.beads-planning` holds a frozen pre-migration
+  copy as fallback — do not write there. Upstream guard inconsistency remains
+  tracked in `Notidian-nir`.)_
 
 ## Cleared
 
