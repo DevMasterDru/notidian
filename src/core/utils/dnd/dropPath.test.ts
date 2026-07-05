@@ -932,6 +932,177 @@ describe("dropPathsInTree — delegation, ancestor guard, newSpace bail", () => 
 });
 
 // =========================================================================
+// dropPathInTree / dropPathsInTree — FILTERED navigator tree: ancestor-only
+// rows + gapped rank values (Notidian-21l4)
+// =========================================================================
+// Same premise as the sibling suite in dragPath.test.ts: the navigator
+// text-filter feature (Notidian-nrjb) that would produce this exact tree
+// shape had its shipped commits reverted from this branch's history before
+// this bead was reached (`bd show Notidian-nrjb` — "Reverted: failed
+// verification/review after fix attempts. Left open for re-attempt"), so
+// there is no live filter UI to drive today. dropPathInTree/dropPathsInTree
+// are unchanged, general-purpose commit functions though — they take
+// whatever (flattenedTree, projection) they're handed — so this suite feeds
+// them the shape a filtered tree produces (a sortable:false ancestor-only
+// breadcrumb row sitting in the array alongside a real match whose `rank`
+// reflects real hidden siblings, i.e. rank != its position in the array) and
+// pins that the commit math resolves the REAL rank/space via id lookups and
+// each node's own `rank`/`item.path` fields, never via array position.
+describe("dropPathInTree / dropPathsInTree — FILTERED tree: ancestor-only row + gapped rank (Notidian-21l4)", () => {
+  it("single-path reorder inside a filtered subtree commits the target's REAL rank, not its position in the filtered array", async () => {
+    // Filtered flattenedTree as it would render for a query matching only
+    // "target.md": [FolderB (ancestor-only breadcrumb, sortable:false),
+    // draggedFile (the item being moved), overFile (the match, real rank 9 —
+    // 6 real siblings ranked 0-8 are hidden by the filter and never appear in
+    // this array at all)]. overFile sits at ARRAY index 2, not rank index 9.
+    const flattened: TreeNode[] = [
+      node({ id: "FolderB", type: "space", itemPath: "FolderB", rank: 1 }), // ancestor-only breadcrumb
+      node({
+        id: "draggedFile",
+        type: "file",
+        parentId: "FolderB",
+        itemPath: "FolderB/dragged.md",
+        rank: 5,
+      }),
+      node({
+        id: "overFile",
+        type: "file",
+        parentId: "FolderB",
+        itemPath: "FolderB/target.md",
+        rank: 9, // real absolute rank; array position is only 2
+      }),
+    ];
+    const ss = makeSuperstate({
+      paths: {
+        "FolderB/dragged.md": { path: "FolderB/dragged.md" },
+        "FolderB/target.md": { path: "FolderB/target.md" },
+      },
+      spaces: { FolderB: { path: "FolderB", name: "FolderB", type: "folder" } },
+    });
+    const proj = projection({
+      depth: 1,
+      insert: false,
+      parentId: "FolderB",
+      sortable: true,
+    });
+    await dropPathInTree(
+      ss,
+      "ignored",
+      "draggedFile",
+      "overFile",
+      proj,
+      flattened,
+      [],
+      MOVE
+    );
+    // Same-space reorder (both live under FolderB) => updatePathRankInSpace
+    // with the REAL rank 9, never the filtered-array index (2).
+    expect(updatePathRankInSpace).toHaveBeenCalledTimes(1);
+    expect(updatePathRankInSpace).toHaveBeenCalledWith(
+      ss,
+      "FolderB/dragged.md",
+      9,
+      "FolderB"
+    );
+    expect(movePathToNewSpaceAtIndex).not.toHaveBeenCalled();
+    expect(removePathsFromSpace).not.toHaveBeenCalled();
+  });
+
+  it("multi-path drop resolves the REAL target rank through a gapped filtered array, unperturbed by an unrelated ancestor-only row earlier in the list", async () => {
+    const flattened: TreeNode[] = [
+      // An unrelated filtered ancestor-only breadcrumb elsewhere in the tree —
+      // present only because SOME other match forced it visible; not the
+      // drop target and must not influence the resolution below.
+      node({ id: "OtherAncestor", type: "space", itemPath: "OtherAncestor", rank: 0 }),
+      node({ id: "Folder", type: "space", itemPath: "Folder", rank: 1 }),
+      node({
+        id: "overFile",
+        type: "file",
+        depth: 1,
+        parentId: "Folder",
+        itemPath: "Folder/target.md",
+        rank: 7, // real rank; array position is 2
+      }),
+    ];
+    const ss = folderWorld({
+      paths: { "Folder/target.md": { path: "Folder/target.md" } },
+    });
+    const proj = projection({ insert: false, parentId: "Folder", sortable: true });
+    await dropPathsInTree(
+      ss,
+      ["Other/b.md", "Folder/a.md"],
+      null as any,
+      "overFile",
+      proj,
+      flattened,
+      [],
+      MOVE
+    );
+    expect(movePathToNewSpaceAtIndex).toHaveBeenCalledTimes(2);
+    // index handed down is the REAL rank (7), not the array position (1).
+    expect(movePathToNewSpaceAtIndex.mock.calls[0][3]).toBe(7);
+    expect(movePathToNewSpaceAtIndex.mock.calls[1][3]).toBe(7);
+  });
+
+  it("REGRESSION LOCK — the ancestor-drop guard still excludes a filtered ancestor-only row dropped onto its own visible matched descendant", async () => {
+    // In a filtered tree you can simultaneously see a forced-visible ancestor
+    // breadcrumb (FolderB) AND one of its own real matching descendants
+    // (FolderB/Match1). Dragging the breadcrumb row itself onto its own child
+    // must still be excluded by the ancestor-drop guard, exactly as it would
+    // be in an unfiltered tree.
+    const flattened: TreeNode[] = [
+      node({
+        id: "containerNode",
+        type: "space",
+        parentId: null,
+        itemPath: "FolderB/Match1",
+        rank: 0,
+      }),
+      node({
+        id: "overFile",
+        type: "file",
+        depth: 1,
+        parentId: "containerNode",
+        itemPath: "FolderB/Match1/leaf.md",
+        rank: 0,
+      }),
+    ];
+    const ss = makeSuperstate({
+      paths: {
+        FolderB: { path: "FolderB" },
+        "Other/b.md": { path: "Other/b.md" },
+      },
+      spaces: {
+        "FolderB/Match1": { path: "FolderB/Match1", name: "Match1", type: "folder" },
+      },
+    });
+    const proj = projection({
+      insert: false,
+      parentId: "containerNode",
+      sortable: false,
+    });
+    await dropPathsInTree(
+      ss,
+      ["FolderB", "Other/b.md"], // FolderB is an ancestor of the drop target FolderB/Match1
+      null as any,
+      "overFile",
+      proj,
+      flattened,
+      [],
+      MOVE
+    );
+    // Only the non-ancestor path is committed; the ancestor breadcrumb itself
+    // is silently excluded, never moved into its own descendant.
+    expect(movePathToNewSpaceAtIndex).toHaveBeenCalledTimes(1);
+    expect(movePathToNewSpaceAtIndex.mock.calls[0][1]).toBe(
+      ss.pathsIndex.get("Other/b.md")
+    );
+    const movedItems = movePathToNewSpaceAtIndex.mock.calls.map((c: any[]) => c[1]);
+    expect(movedItems).not.toContain(ss.pathsIndex.get("FolderB"));
+  });
+});
+
+// =========================================================================
 // reorderOpenSpace — the waypoint (open-space) reorder used when newSpace null
 // =========================================================================
 describe("reorderOpenSpace — waypoint path ordering", () => {

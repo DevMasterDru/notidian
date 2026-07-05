@@ -882,3 +882,77 @@ describe("getMultiProjection — multi-path drop placement", () => {
     expect(mk("copy").copy).toBe(true);
   });
 });
+
+// =========================================================================
+// getProjection — FILTERED navigator tree: non-contiguous, ancestor-only
+// flattenedTree (Notidian-21l4)
+// =========================================================================
+// The navigator text-filter feature (Notidian-nrjb) renders a flattenedTree
+// that OMITS every non-matching sibling branch wholesale while force-including
+// every ancestor of a match (marked sortable:false — a filtered ancestor row
+// is a pure navigation breadcrumb, not a real reorder target). At the time
+// this bead was filed, nrjb's shipped commits (e2cc88d / 330986e / 65399f4)
+// had already been reverted from this branch's history — `bd show
+// Notidian-nrjb` carries the note "Reverted: failed verification/review after
+// fix attempts. Left open for re-attempt" — so no navigator-filter code exists
+// in this tree today; there is nothing filter-specific left to exercise live.
+//
+// getProjection is a general-purpose, id-driven pure function regardless of
+// where its TreeNode[] came from: nothing in it is filter-specific. So this
+// suite builds the exact SHAPE a filtered tree would produce — an entirely
+// omitted non-matching branch, ancestor-only sortable:false rows, and a
+// non-contiguous parent/depth chain — directly, and pins that getParentId's
+// reverse-slice resolves the TRUE real parent (never the filtered array's
+// neighbor position). This is the executable contract any future filter
+// re-implementation (or any other feature producing a sparse tree) must
+// satisfy.
+describe("getProjection — FILTERED tree: omitted sibling branch + ancestor-only rows (Notidian-21l4)", () => {
+  // Real tree (conceptual) — only what filterTreeByQuery-shaped output would
+  // include is present in `items`; everything else is a matching-comment only:
+  //
+  //   root (d0, space)
+  //     FolderA (d1, space)         -- non-matching; entirely OMITTED w/ subtree
+  //     FolderB (d1, space, sortable:false -- forced-visible ancestor of Match1)
+  //       Match1 (d2, file, sortable:true)
+  //     Sub (d1, space, sortable:false -- forced-visible ancestor of FolderC)
+  //       FolderC (d2, space, sortable:false -- forced-visible ancestor of Match2)
+  //         Match2 (d3, file, sortable:true)
+  //
+  // flattenedTree actually rendered: [root, FolderB, Match1, Sub, FolderC, Match2]
+  const items: TreeNode[] = [
+    node({ id: "root", depth: 0, type: "space", itemType: "space", sortable: true, collapsed: false }),
+    node({ id: "root/FolderB", depth: 1, parentId: "root", type: "space", itemType: "space", sortable: false, collapsed: false, rank: 1 }),
+    node({ id: "root/FolderB/Match1", depth: 2, parentId: "root/FolderB", type: "file", itemType: "file", sortable: true, rank: 4 }),
+    node({ id: "root/Sub", depth: 1, parentId: "root", type: "space", itemType: "space", sortable: false, collapsed: false, rank: 3 }),
+    node({ id: "root/Sub/FolderC", depth: 2, parentId: "root/Sub", type: "space", itemType: "space", sortable: false, collapsed: false, rank: 0 }),
+    node({ id: "root/Sub/FolderC/Match2", depth: 3, parentId: "root/Sub/FolderC", type: "file", itemType: "file", sortable: true, rank: 2 }),
+  ];
+  const active = node({ id: "drag", depth: 3, type: "file", itemType: "file" });
+
+  it("reverse-slice parent resolution lands on the TRUE nearer ancestor (Sub), not the root, despite an omitted sibling branch and an intervening matched subtree", () => {
+    // Hover over Match2 (index 5, depth 3); request depth 2 (sibling of
+    // FolderC, i.e. directly under Sub). Two depth-2 candidates precede the
+    // hover point in array order: Match1 (idx2, parentId "root/FolderB" —
+    // WRONG if picked) and FolderC (idx4, parentId "root/Sub" — correct,
+    // nearest). A position-driven (rather than id/field-driven) resolution,
+    // or one that got confused by FolderA's total omission, could plausibly
+    // land on the wrong one or on "root" itself.
+    const p = getProjection(active, items, ["drag"], 5, 2, 0, false, MOVE, "root");
+    expect(p.depth).toBe(2);
+    expect(p.parentId).toBe("root/Sub");
+    expect(p.parentId).not.toBe("root/FolderB");
+    expect(p.parentId).not.toBe("root");
+  });
+
+  it("sortable:false on a filtered ancestor-only row still yields sortable:true via the next-item fallback (hovering the breadcrumb row itself)", () => {
+    // Hover directly on FolderB (idx1, sortable:false, an ancestor-only
+    // filter breadcrumb), requesting its own depth (1) — a sibling landing.
+    // previousItemDroppable (type 'space') && !insert && nextItem(Match1).sortable
+    // => the OR-fallback makes the projection sortable even though the
+    // hovered row's own `sortable` flag is false.
+    const p = getProjection(active, items, ["drag"], 1, 1, 0, false, MOVE, "root");
+    expect(p.depth).toBe(1);
+    expect(p.parentId).toBe("root");
+    expect(p.sortable).toBe(true);
+  });
+});
