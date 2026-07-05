@@ -273,11 +273,13 @@ const frontmatterRenameIssueMessage = ({
   oldKey,
   newKey,
   conflictCount,
+  caseVariantCount,
 }: {
   issue: NotidianSchemaIssue;
   oldKey: string;
   newKey: string;
   conflictCount: number;
+  caseVariantCount: number;
 }): string => {
   switch (issue.reason) {
     case "empty-key":
@@ -294,6 +296,12 @@ const frontmatterRenameIssueMessage = ({
       } already contain both keys with different values. First conflict: ${
         issue.path
       }.`;
+    case "case-variant-frontmatter-key":
+      return `Cannot rename "${oldKey}" to "${newKey}" because ${caseVariantCount} file${
+        caseVariantCount == 1 ? "" : "s"
+      } already contain a differently-cased spelling of "${
+        issue.requestedKey
+      }" ("${issue.foundKey}"). First occurrence: ${issue.path}.`;
   }
 };
 
@@ -344,6 +352,7 @@ const frontmatterDeleteIssueMessage = ({
     case "same-key":
     case "duplicate-column":
     case "frontmatter-conflict":
+    case "case-variant-frontmatter-key":
       return `Could not delete frontmatter property "${key}".`;
   }
 };
@@ -1602,6 +1611,9 @@ export const ContextEditorProvider: React.FC<
       const conflicts = plan.issues.filter(
         (issue) => issue.reason == "frontmatter-conflict"
       );
+      const caseVariants = plan.issues.filter(
+        (issue) => issue.reason == "case-variant-frontmatter-key"
+      );
       const issue = plan.issues[0];
       if (issue) {
         props.superstate.ui.notify(
@@ -1610,6 +1622,7 @@ export const ContextEditorProvider: React.FC<
             oldKey: column.name,
             newKey: normalizedNewKey,
             conflictCount: conflicts.length,
+            caseVariantCount: caseVariants.length,
           })
         );
       }
@@ -1634,6 +1647,11 @@ export const ContextEditorProvider: React.FC<
         "new-only": 0,
         neither: 0,
         "both-conflict": 0,
+        // Reachable only in type shape, not at runtime: a "case-variant"
+        // fileState always accompanies a "case-variant-frontmatter-key"
+        // issue, which makes plan.canApplyAutomatically false and returns
+        // above before this reduce ever runs.
+        "case-variant": 0,
       }
     );
 

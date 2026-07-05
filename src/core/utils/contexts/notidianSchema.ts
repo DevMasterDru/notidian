@@ -25,6 +25,17 @@ export type NotidianSchemaIssue =
       path: string;
       oldKey: string;
       newKey: string;
+    }
+  | {
+      // Notidian-lqt4: a file's actual frontmatter key is a case-variant
+      // spelling of oldKey/newKey (e.g. column "state", file key "State").
+      // The exact-string per-file presence scan cannot see it, so it is
+      // surfaced here explicitly instead of silently falling through to
+      // "neither" (never renamed, never flagged).
+      reason: "case-variant-frontmatter-key";
+      path: string;
+      requestedKey: string;
+      foundKey: string;
     };
 
 export type FrontmatterSchemaSummary = {
@@ -53,6 +64,11 @@ export type RenameFrontmatterPropertyFileState =
   | "new-only"
   | "both-same"
   | "both-conflict"
+  // Notidian-lqt4: neither oldKey nor newKey is present under its exact
+  // spelling, but a case-variant of one (or both) IS present in this file's
+  // real frontmatter keys — ambiguous, so it is never "neither" and never
+  // auto-written.
+  | "case-variant"
   | "neither";
 
 export type RenameFrontmatterPropertyFilePlan = {
@@ -179,6 +195,20 @@ const columnForKey = (
   table: SpaceTable,
   key: string
 ): SpaceProperty | undefined => table.cols.find((column) => column.name == key);
+
+// Notidian-lqt4: mirrors caseInsensitiveColumn's case-folding, but scans a
+// single file's real frontmatter keys instead of the table's schema columns.
+// Used only as a fallback once the exact-string presence check has already
+// found neither key, so it never overrides an exact match.
+const caseVariantFrontmatterKey = (
+  frontmatter: FrontmatterSnapshot,
+  key: string
+): string | undefined => {
+  const lowerKey = key.toLowerCase();
+  return Object.keys(frontmatter).find(
+    (candidate) => candidate != key && candidate.toLowerCase() == lowerKey
+  );
+};
 
 const stableNormalize = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -438,7 +468,50 @@ export const planRenameFrontmatterProperty = ({
           newValue: frontmatter[normalizedNewKey],
         });
       } else {
-        fileStates.push({ path, state: "neither" });
+        // Notidian-lqt4: the exact-string scan found neither key. Before
+        // concluding this file is untouched by the rename, fall back to a
+        // case-insensitive lookup across the file's own keys -- a
+        // case-variant spelling here must never be classified "neither"
+        // (silently invisible) or counted toward automatic success.
+        const oldCaseVariantKey = caseVariantFrontmatterKey(
+          frontmatter,
+          normalizedOldKey
+        );
+        const newCaseVariantKey = caseVariantFrontmatterKey(
+          frontmatter,
+          normalizedNewKey
+        );
+
+        if (oldCaseVariantKey || newCaseVariantKey) {
+          fileStates.push({
+            path,
+            state: "case-variant",
+            oldValue: oldCaseVariantKey
+              ? frontmatter[oldCaseVariantKey]
+              : undefined,
+            newValue: newCaseVariantKey
+              ? frontmatter[newCaseVariantKey]
+              : undefined,
+          });
+          if (oldCaseVariantKey) {
+            issues.push({
+              reason: "case-variant-frontmatter-key",
+              path,
+              requestedKey: normalizedOldKey,
+              foundKey: oldCaseVariantKey,
+            });
+          }
+          if (newCaseVariantKey) {
+            issues.push({
+              reason: "case-variant-frontmatter-key",
+              path,
+              requestedKey: normalizedNewKey,
+              foundKey: newCaseVariantKey,
+            });
+          }
+        } else {
+          fileStates.push({ path, state: "neither" });
+        }
       }
     }
   }
@@ -459,7 +532,9 @@ export const planRenameFrontmatterProperty = ({
         ),
       };
   const requiresResolution = issues.some(
-    (issue) => issue.reason == "frontmatter-conflict"
+    (issue) =>
+      issue.reason == "frontmatter-conflict" ||
+      issue.reason == "case-variant-frontmatter-key"
   );
 
   return {

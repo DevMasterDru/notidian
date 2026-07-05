@@ -30,9 +30,16 @@
 // while its schema-duplicate checks are case-insensitive. That asymmetry
 // means a rename/delete plan can silently fail to "see" a case-variant
 // frontmatter key sitting right next to the one it operated on — the exact
-// shape of bug the module downstream (m_fields) hit. These tests PIN that
-// observed behavior (characterization, not a fix — zero production-code
-// change in this bead) so any future change to the asymmetry is deliberate.
+// shape of bug the module downstream (m_fields) hit. Most sections below PIN
+// that observed behavior (characterization only, zero production-code
+// change) so any future change to the asymmetry is deliberate. The one
+// exception is planRenameFrontmatterProperty's per-file scan
+// (Notidian-lqt4): that specific asymmetry was promoted from a pinned
+// characterization to an actual fix -- see the
+// "planRenameFrontmatterProperty — case-variant collisions" describe block
+// below, whose bug-pinning test was rewritten to assert the FIXED, safe
+// behavior (a distinct "case-variant-frontmatter-key" issue + "case-variant"
+// fileState, never silent "neither").
 // ===========================================================================
 
 import { frontmatterPropertySource } from "core/utils/properties/allProperties";
@@ -209,15 +216,18 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
     expect(plan.automaticWrites).toEqual([]);
   });
 
-  it("PIN (Notidian-buqr class): a case-variant frontmatter key is invisible to the exact-match rename scan", () => {
+  it("FIXED (Notidian-lqt4, was Notidian-buqr-class PIN): a case-variant frontmatter key is surfaced as a conflict, never silently dropped", () => {
     // Table column is exactly "state". 300 files hold the exact key "state";
     // 200 files instead hold a case-variant spelling "State" — a corrupt or
-    // hand-edited frontmatter scenario. The per-file presence check
-    // (hasOwn(frontmatter, normalizedOldKey)) is exact-string, so those 200
-    // "State" files are classified "neither" — not renamed, not flagged as a
-    // conflict, simply invisible. canApplyAutomatically can still read TRUE
-    // even though 200 rows still carry the (soon to be stale) "state" family
-    // of keys entirely untouched by the rename plan.
+    // hand-edited frontmatter scenario. The exact-string per-file presence
+    // check (hasOwn(frontmatter, normalizedOldKey)) still cannot see "State"
+    // directly, but planRenameFrontmatterProperty now falls back to a
+    // case-insensitive scan of each file's real keys whenever the exact scan
+    // finds neither key -- so those 200 "State" files are routed to a
+    // distinct "case-variant" fileState + a "case-variant-frontmatter-key"
+    // issue instead of "neither". canApplyAutomatically must be false: no
+    // caller can ever read this rename as a silent full success while 200
+    // rows still carry an untouched, differently-cased "state" family key.
     const table = baseTable();
     table.cols = table.cols.map((c) =>
       c.name === "status" ? { ...c, name: "state" } : c
@@ -238,20 +248,53 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
       frontmatterByPath,
     });
 
-    expect(plan.canApplyAutomatically).toBe(true); // no exact-match conflict found
-    expect(plan.issues).toEqual([]);
-    expect(plan.automaticWrites.length).toBe(300); // only the exact-cased files
+    // CONFIRM-GATED: the case-variant ambiguity blocks full automatic apply.
+    expect(plan.canApplyAutomatically).toBe(false);
+    expect(plan.requiresResolution).toBe(true);
+    expect(plan.issues.length).toBe(200); // one issue per "Variant/" file
+    expect(
+      plan.issues.every((issue) => issue.reason === "case-variant-frontmatter-key")
+    ).toBe(true);
+    expect(
+      plan.issues.every(
+        (issue) =>
+          issue.reason !== "case-variant-frontmatter-key" ||
+          (issue.requestedKey === "state" && issue.foundKey === "State")
+      )
+    ).toBe(true);
+    expect(
+      new Set(
+        plan.issues.map((issue) =>
+          issue.reason === "case-variant-frontmatter-key" ? issue.path : ""
+        )
+      )
+    ).toEqual(new Set(variantPaths));
+
+    // The 300 exact-cased files are still classified and previewed normally
+    // -- the plan still computes their writes, it just can never be applied
+    // automatically as a whole until the case-variant files are resolved.
+    expect(plan.automaticWrites.length).toBe(300);
     expect(
       plan.automaticWrites.every((w) => w.path.startsWith("Exact/"))
     ).toBe(true);
-    // Every variant-cased file is filed as "neither" — untouched, unflagged.
-    const variantStates = plan.fileStates.filter((f) =>
-      f.path.startsWith("Variant/")
-    );
-    expect(variantStates.every((f) => f.state === "neither")).toBe(true);
     expect(
       plan.automaticWrites.some((w) => w.path.startsWith("Variant/"))
     ).toBe(false);
+
+    // Every variant-cased file is now surfaced as "case-variant" -- never
+    // "neither", never silently untouched-and-unflagged.
+    const variantStates = plan.fileStates.filter((f) =>
+      f.path.startsWith("Variant/")
+    );
+    expect(variantStates.length).toBe(200);
+    expect(variantStates.every((f) => f.state === "case-variant")).toBe(true);
+    expect(variantStates.every((f) => f.oldValue === "active")).toBe(true);
+    expect(variantStates.every((f) => f.newValue === undefined)).toBe(true);
+    // The exact-cased files are unaffected -- still "old-only" as before.
+    const exactStates = plan.fileStates.filter((f) =>
+      f.path.startsWith("Exact/")
+    );
+    expect(exactStates.every((f) => f.state === "old-only")).toBe(true);
   });
 
   it("PIN: sourceColumn lookup is case-sensitive — case-variant oldKey fails safely (missing-source-column)", () => {
@@ -277,7 +320,7 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
     expect(plan.automaticWrites).toEqual([]);
   });
 
-  it("500-run fuzz: automaticWrites never includes a both-conflict or case-variant-orphaned path", () => {
+  it("500-run fuzz: automaticWrites never includes a both-conflict or case-variant path (FIXED behavior)", () => {
     const rng = makeRng(0xdead11);
     const CASINGS = ["state", "State", "STATE", "sTaTe"];
 
@@ -310,6 +353,11 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
           .filter((f) => f.state === "both-conflict")
           .map((f) => f.path)
       );
+      const caseVariantPaths = new Set(
+        plan.fileStates
+          .filter((f) => f.state === "case-variant")
+          .map((f) => f.path)
+      );
       const neitherOrNewOnlyPaths = new Set(
         plan.fileStates
           .filter((f) => f.state === "neither" || f.state === "new-only")
@@ -318,7 +366,23 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
 
       for (const write of plan.automaticWrites) {
         expect(conflictPaths.has(write.path)).toBe(false);
+        expect(caseVariantPaths.has(write.path)).toBe(false);
         expect(neitherOrNewOnlyPaths.has(write.path)).toBe(false);
+      }
+      // FIXED (Notidian-lqt4): a case-variant-cased path (any CASINGS entry
+      // other than the exact "state") with no exact "archived" key present
+      // must never fall into "neither" -- it is always routed to
+      // "case-variant", accompanied by a matching issue, and always blocks
+      // full automatic apply for the whole plan.
+      if (caseVariantPaths.size > 0) {
+        expect(plan.canApplyAutomatically).toBe(false);
+        expect(plan.requiresResolution).toBe(true);
+        const issuePaths = new Set(
+          plan.issues
+            .filter((issue) => issue.reason === "case-variant-frontmatter-key")
+            .map((issue) => issue.path)
+        );
+        expect(issuePaths).toEqual(caseVariantPaths);
       }
       // CONFIRM-GATED: any issue at all (schema or per-file conflict) means
       // canApplyAutomatically must be false.
@@ -326,6 +390,61 @@ describe("planRenameFrontmatterProperty — case-variant collisions", () => {
         expect(plan.canApplyAutomatically).toBe(false);
       } else {
         expect(plan.canApplyAutomatically).toBe(true);
+      }
+    }
+  });
+
+  it("500-run fuzz: case-variant detection also fires across NFC/NFD-normalized old/new keys, treating them as genuinely distinct (no false-positive case-fold across normalization forms)", () => {
+    // "café" (NFC, precomposed é) vs "café" (NFD, e + combining acute) are
+    // visually identical but different code point sequences. The fix's
+    // fallback lookup case-folds via toLowerCase() only (mirroring
+    // caseInsensitiveColumn's existing contract) -- it does NOT Unicode-
+    // normalize, so an NFD-keyed file is never mistaken for a case-variant
+    // of an NFC oldKey, and vice versa. This is a deliberate, narrower scope
+    // than full Unicode-fold case-variant detection (documented, unfixed gap
+    // -- see the "Unicode NFC/NFD-normalized key collisions" describe block).
+    const rng = makeRng(0xdead15);
+    const CAFE_NFC = "café";
+    // Derive the NFD form programmatically rather than hand-typing a second
+    // invisible Unicode string literal -- "é" (precomposed) vs "e" + U+0301
+    // (combining acute) render identically, so a hand-typed second literal
+    // risks silently collapsing to the same NFC bytes as CAFE_NFC.
+    const CAFE_NFD = CAFE_NFC.normalize("NFD");
+    const CASINGS = [CAFE_NFC, CAFE_NFD, "CAFÉ", "Café"];
+
+    for (let run = 0; run < PROPERTY_RUNS; run++) {
+      const table = baseTable();
+      table.cols = table.cols.map((c) =>
+        c.name === "status" ? { ...c, name: CAFE_NFC } : c
+      );
+      const n = randInt(rng, 1, 40);
+      const paths = buildPaths(n, `U${run}`);
+      const frontmatterByPath: Record<string, Record<string, unknown>> = {};
+      for (const path of paths) {
+        frontmatterByPath[path] = { [pick(rng, CASINGS)]: "v" };
+      }
+
+      const plan = planRenameFrontmatterProperty({
+        table,
+        oldKey: CAFE_NFC,
+        newKey: "renamed",
+        paths,
+        frontmatterByPath,
+      });
+
+      expect(() => plan).not.toThrow();
+      for (const fileState of plan.fileStates) {
+        const key = Object.keys(frontmatterByPath[fileState.path])[0];
+        if (key === CAFE_NFC) {
+          expect(fileState.state).toBe("old-only");
+        } else if (key.toLowerCase() === CAFE_NFC.toLowerCase()) {
+          // "CAFÉ" / "Café" are real case-variants of the NFC column name.
+          expect(fileState.state).toBe("case-variant");
+        } else {
+          // CAFE_NFD is a different code point sequence entirely -- neither
+          // an exact match nor a case-fold match of the NFC column name.
+          expect(fileState.state).toBe("neither");
+        }
       }
     }
   });
