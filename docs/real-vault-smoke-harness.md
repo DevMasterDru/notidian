@@ -155,6 +155,21 @@ With `--reconciler`, the harness also exercises the Data Integrity reconciler en
 
 This proves that a real external edit to a schema'd folder's row — including one that breaks its YAML — surfaces the right violation in a live vault after reload, and confirms ADR-0057 D4's assumption that a genuine YAML parse failure leaves the row's cached frontmatter property absent rather than partially populated.
 
+With `--health`, the harness also exercises the Data Integrity health surfaces (row badges, the broken-row rendering, the FilterBar's Database Health chip and panel, and the one ratified autofix — Notidian-loan.5, ADR-0057 D3/D4) against a fixture database whose Type Profile is declared directly in its hub note's frontmatter, the same no-adoption-UI convention `--reconciler` uses:
+
+1. Creates a fresh fixture folder and two rows: one with a valid required `model` value but its `code` field (declared `empty: "empty-string"`) entirely absent, and one with malformed YAML (an unterminated quoted scalar).
+2. Resolves the fixture folder's hub-note path and writes a hub note declaring a Type Profile with `model` marked `required: true` and `code` marked `empty: "empty-string"`.
+3. Polls `plugin.reconciler.getRowViolations` until the empty-`code` row reports exactly one autofix-tier `empty-encoding` violation, and until the malformed-YAML row reports exactly one `malformed-row` violation.
+4. Forces the fixture folder's default view to table and opens it, then waits for the malformed-YAML row to render with the `mk-row-broken` class instead of vanishing.
+5. Waits for the empty-`code` row's `.mk-row-health-badge` to render with `data-repair-tier="autofix"` and `data-violation-code="empty-encoding"`.
+6. **DOM-drives the ratified autofix**: clicks the row-health badge to open the real repair menu, then clicks the one actionable menu item (`i18n.labels.fixEmptyString`, "Fix: set explicit empty string") — the same funnel every other direct cell edit in this file uses (`tableUndoWriteForDirectEdit` → `applyValueEdits` → `executeTableValueWrites`), never a raw frontmatter write.
+7. Waits until the row's `code` value on disk becomes an **explicit empty string** (distinct from merely staying absent — a dedicated on-disk read, since `waitForMetadataValue`'s own normalization cannot tell the two apart), until the reconciler reports the row clean again, and until the badge itself is gone from the rendered row.
+8. Waits for the FilterBar's `.mk-db-health-chip` to settle to the fixture database's post-fix violation count (the malformed-row violation, still unfixed — manual-only), then clicks the chip to open the Database Health panel and verifies the chip's `data-violation-count`, the panel's `data-panel-violation-count`, and a direct `reconciler.getViolationCount` call for the same database all agree.
+9. Checks captured developer errors.
+10. Deletes the fixture folder through Obsidian's vault API unless `--keep-fixture` was passed.
+
+This proves the health surfaces render real violation state from a live vault (not just mocked fixtures), that the one ratified autofix writes through the same funnel every other table edit uses and clears the badge once the reconciler revalidates, and that the FilterBar chip and Database Health panel never drift from each other or from the reconciler's own live count.
+
 ## Options
 
 | Option | Default | Purpose |
@@ -164,6 +179,7 @@ This proves that a real external edit to a schema'd folder's row — including o
 | `--keep-fixture` | Off | Keeps fixture notes for manual inspection. |
 | `--ui` | Off | Also exercises the live Notidian table DOM for direct edit, paste, undo, redo, frontmatter type changes, Select option creation and existing-option selection, Multi-select persistence, conflict apply, and file-title rename workflows. |
 | `--reconciler` | Off | Also exercises the Data Integrity reconciler engine (ADR-0057) against a fixture database with a directly-declared Type Profile, including an external raw-text edit that breaks a row's YAML. |
+| `--health` | Off | Also exercises the Data Integrity health surfaces (ADR-0057 D3/D4): a broken row rendered as `mk-row-broken`, the ratified empty-encoding autofix DOM-driven through the real repair menu and funnel, and the FilterBar chip vs. Database Health panel vs. live reconciler count agreement. |
 | `--plugin-id=<id>` | `notidian` | Plugin id to reload. |
 | `--fixture-root=<folder>` | `Sandbox/Notidian/Integration Fixtures` | Folder for smoke fixtures. |
 | `--timeout-ms=<number>` | `10000` | Metadata-cache polling timeout. |
@@ -189,7 +205,7 @@ The harness has normal Jest tests that do not require Obsidian:
 npm test -- scripts/notidianRealVaultHarness.test.js --runInBand
 ```
 
-Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, API-backed cleanup behavior, optional UI mode, expanded UI workflow sequencing, frontmatter type-matrix coverage, UI failure reporting, child-process timeouts, cleanup behavior, and the optional reconciler scenario's fixture setup, external-edit violation detection, and cleanup ordering (against a fake Obsidian CLI runner, no live vault required).
+Those tests cover safety gating, CLI argument construction, fixture path creation, metadata polling behavior, API-backed rename behavior, API-backed cleanup behavior, optional UI mode, expanded UI workflow sequencing, frontmatter type-matrix coverage, UI failure reporting, child-process timeouts, cleanup behavior, the optional reconciler scenario's fixture setup, external-edit violation detection, and cleanup ordering, and the optional health surfaces scenario's fixture setup, broken-row DOM rendering, autofix funnel interaction, on-disk explicit-empty-string settling, badge clearing, and chip/panel/live-count agreement (against a fake Obsidian CLI runner, no live vault required).
 
 ## Current Limits
 

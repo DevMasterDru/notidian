@@ -48,6 +48,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     includeUi: false,
     includeSchemaAdoption: false,
     includeReconciler: false,
+    includeHealthSurfaces: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -76,6 +77,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--reconciler") {
       config.includeReconciler = true;
+      continue;
+    }
+    if (arg == "--health") {
+      config.includeHealthSurfaces = true;
       continue;
     }
     const separator = arg.indexOf("=");
@@ -4070,6 +4075,687 @@ const runReconcilerScenario = async ({ config, runner, runId }) => {
   return { ok: true, folder: root, hubPath, rowPath };
 };
 
+// ---------------------------------------------------------------------------
+// --health / runHealthSurfacesScenario (Notidian-loan.5, ADR-0057 D3/D4): the
+// health SURFACES sit on top of S4's reconciler engine -- this scenario is
+// the first to actually drive the live table DOM against real violation
+// state, not just poll `plugin.reconciler`'s read API in the dark (the
+// --reconciler scenario's whole reason for existing). Threaded behind its
+// own --health flag (config.includeHealthSurfaces), same convention as
+// --adopt-schema/--reconciler, so it never perturbs any other scenario's
+// already-pinned eval-call sequence.
+//
+// Like --reconciler, the Type Profile is declared DIRECTLY in the hub note's
+// frontmatter (reusing reconcilerHubPathEvalCode verbatim -- it is already
+// fully generic over `folder`, nothing reconciler-scenario-specific lives
+// inside it). Two fixture rows exercise the two DoD surfaces:
+//   - a BROKEN row (malformed YAML, same unterminated-quote idiom
+//     runReconcilerScenario uses) -- proves a schema'd folder's row that
+//     fails to parse renders as `tr.mk-row-broken` instead of vanishing.
+//   - an EMPTY row (valid YAML, but the `code` field -- declared
+//     `empty: "empty-string"` -- is entirely absent) -- proves the ONE
+//     ratified autofix (empty-encoding, per TableView.tsx's
+//     openRowHealthRepairMenu/applyRowHealthFix doc comment) writes through
+//     the SAME funnel every other direct cell edit in this file uses
+//     (tableUndoWriteForDirectEdit -> applyValueEdits -> ContextEditorContext
+//     -> executeTableValueWrites), never saveFrontmatterProperties/
+//     processFrontMatter/deleteProperty directly, and that the row's badge
+//     clears once the reconciler revalidates.
+//
+// The autofix is driven through the REAL repair menu (click
+// `.mk-row-health-badge` -> `.mk-menu` -> the one actionable item, whose
+// literal label is i18n.labels.fixEmptyString == "Fix: set explicit empty
+// string" -- restated here as HEALTH_FIX_LABEL, the same
+// restate-the-source-string convention RECONCILER_REQUIRED_FIELD/
+// RECONCILER_VALID_VALUE already use for the reconciler scenario's hub
+// fields), exactly like the --ui scenario's Select-option menus are driven
+// (openMenu -> clickElement -> find `.mk-menu-option` by innerText -> click).
+// No fallback funnel-eval path was needed -- the menu proved reachable and
+// stable on the first live run (see this bead's close note for the
+// first-try confirmation).
+// ---------------------------------------------------------------------------
+
+const HEALTH_REQUIRED_FIELD = "model";
+const HEALTH_EMPTY_FIELD = "code";
+const HEALTH_VALID_VALUE = "Widget A";
+const HEALTH_BROKEN_ROW_TITLE = "Health Broken Row";
+const HEALTH_EMPTY_ROW_TITLE = "Health Empty Row";
+// Restated from src/shared/en.ts's `fixEmptyString` label (i18n.labels
+// .fixEmptyString) -- the ONE actionable, write-wired repair-menu item's
+// literal text (TableView.tsx's openRowHealthRepairMenu). Every other menu
+// entry (enum, title-binding, manual-only codes, an "absent"-policy empty-
+// encoding violation) is rendered `disabled: true` -- text-only, per the
+// round-2 descope this scenario's own header comment restates.
+const HEALTH_FIX_LABEL = "Fix: set explicit empty string";
+
+const healthHubContent = () =>
+  [
+    "---",
+    "schema_type: notidian_type_profile",
+    "fields:",
+    `  ${HEALTH_REQUIRED_FIELD}:`,
+    "    kind: text",
+    "    required: true",
+    `  ${HEALTH_EMPTY_FIELD}:`,
+    "    kind: text",
+    "    empty: empty-string",
+    "---",
+    "# Health Fixture Hub",
+    "",
+  ].join("\n");
+
+// Valid YAML; `model` is present but `code` is entirely absent -- per
+// validateRow.ts's checkEmptyEncoding, an absent value on a field declared
+// `empty: "empty-string"` is the ONE case that yields a single, autofix-tier
+// `empty-encoding` violation (never a `required` violation too, since `code`
+// itself is not declared required).
+const healthEmptyRowContent = () =>
+  [
+    "---",
+    `${HEALTH_REQUIRED_FIELD}: ${HEALTH_VALID_VALUE}`,
+    "---",
+    `# ${HEALTH_EMPTY_ROW_TITLE}`,
+    "",
+  ].join("\n");
+
+// An unterminated double-quoted scalar -- same malformed-YAML idiom
+// reconcilerRowMalformedYamlContent uses (see that function's own comment
+// for why this reliably fails to parse without disturbing the fence lines).
+const healthBrokenRowContent = () =>
+  [
+    "---",
+    `${HEALTH_REQUIRED_FIELD}: "${HEALTH_VALID_VALUE}`,
+    "---",
+    `# ${HEALTH_BROKEN_ROW_TITLE}`,
+    "",
+  ].join("\n");
+
+const isSingleEmptyEncodingAutofixViolation = (violations) =>
+  Array.isArray(violations) &&
+  violations.length == 1 &&
+  violations[0]?.code == "empty-encoding" &&
+  violations[0]?.field == HEALTH_EMPTY_FIELD &&
+  violations[0]?.repairTier == "autofix";
+
+// One-shot DOM read (no embedded poll loop -- the Node-side
+// waitForHealthRowDom below owns retrying): locates the fixture folder's
+// live table (same `.mk-space-view[data-path]` -> `.mk-table` idiom every
+// other DOM helper in this file uses), finds the row whose rendered text
+// includes `rowTitle` (works whether the row's Name cell shows a frontmatter
+// title override or just the file's own basename -- a broken row has no
+// frontmatter title, so it always falls back to basename), and reports both
+// broken-row state (`tr.mk-row-broken`) and row-health-badge state
+// (`.mk-row-health-badge`'s data-* attributes, or absent entirely once a
+// violation clears).
+const healthRowDomEvalCode = ({ folder, rowTitle }) =>
+  `(() => {
+    const marker = "notidianHealthRowDom";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const folder = ${JSON.stringify(folder)};
+      const rowTitle = ${JSON.stringify(rowTitle)};
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) {
+        return finish({ ok: false, reason: !view ? "missing-view" : "missing-table" });
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr[data-row-id]"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return finish({
+          ok: false,
+          reason: "missing-row",
+          tableText: table.innerText.slice(0, 500),
+        });
+      }
+      const badge = row.querySelector(".mk-row-health-badge");
+      return finish({
+        ok: true,
+        isBroken: row.classList.contains("mk-row-broken"),
+        hasBadge: !!badge,
+        violationCount: badge ? Number(badge.getAttribute("data-violation-count")) : 0,
+        violationCode: badge ? badge.getAttribute("data-violation-code") : null,
+        repairTier: badge ? badge.getAttribute("data-repair-tier") : null,
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// Node-side poll loop, cloned from waitForMetadataValue's own shape (a
+// separate `eval` round-trip per attempt) -- rendering can lag one tick
+// behind the reconciler's own store mutation (TableView's onChange
+// subscription re-renders asynchronously), so a single-shot DOM read right
+// after an API-level violation check is not enough on its own.
+const waitForHealthRowDom = async ({
+  config,
+  runner,
+  folder,
+  rowTitle,
+  predicate,
+  label,
+}) => {
+  const start = Date.now();
+  let lastResult = null;
+
+  while (Date.now() - start <= config.timeoutMs) {
+    lastResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: healthRowDomEvalCode({ folder, rowTitle }),
+      })
+    );
+
+    if (lastResult?.ok && predicate(lastResult)) return lastResult;
+    await sleep(Math.max(1, config.pollIntervalMs));
+  }
+
+  throw new Error(
+    `Timed out waiting for health row DOM (${label}) on ${rowTitle}. Last result: ${JSON.stringify(
+      lastResult
+    )}`
+  );
+};
+
+const isBrokenRowRendered = (result) => result.isBroken === true;
+
+const isAutofixBadgeVisible = (result) =>
+  result.hasBadge === true &&
+  result.violationCount === 1 &&
+  result.violationCode == "empty-encoding" &&
+  result.repairTier == "autofix";
+
+const isBadgeCleared = (result) => result.hasBadge === false;
+
+// DOM-drives the ONE actionable repair (Unit 3): click the badge to open the
+// repair menu (RowHealthBadge.tsx's onClick -> TableView's
+// openRowHealthRepairMenu), then click the menu item whose innerText is
+// HEALTH_FIX_LABEL (TableView.tsx wires this item's onClick to
+// applyRowHealthFix -> applyValueEdits -> executeTableValueWrites -- the
+// SAME funnel every other direct cell edit in this file goes through). A
+// single click-and-return, not an embedded settle-poll -- the caller polls
+// the AFTER-effects (on-disk value + cleared badge) separately, exactly like
+// every other multi-step outcome this file asserts.
+const healthAutofixEvalCode = ({ folder, rowTitle, fixLabel }) =>
+  `(async () => {
+    const marker = "notidianHealthAutofix";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const clickElement = (element) => {
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, view: window }));
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, view: window }));
+    };
+    try {
+      const folder = ${JSON.stringify(folder)};
+      const rowTitle = ${JSON.stringify(rowTitle)};
+      const fixLabel = ${JSON.stringify(fixLabel)};
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) =>
+          view.getAttribute("data-path") === folder &&
+          view.querySelector(".mk-table")
+        );
+      const view = views[views.length - 1];
+      const table = view?.querySelector(".mk-table");
+      if (!view || !table) {
+        return finish({ ok: false, reason: !view ? "missing-view" : "missing-table" });
+      }
+      const row = Array.from(table.querySelectorAll("tbody tr[data-row-id]"))
+        .find((candidate) => candidate.innerText.includes(rowTitle));
+      if (!row) {
+        return finish({
+          ok: false,
+          reason: "missing-row",
+          tableText: table.innerText.slice(0, 500),
+        });
+      }
+      const badge = row.querySelector(".mk-row-health-badge");
+      if (!badge) return finish({ ok: false, reason: "missing-badge" });
+      clickElement(badge);
+      await sleep(250);
+      const menu = Array.from(document.querySelectorAll(".mk-menu")).at(-1);
+      if (!menu) return finish({ ok: false, reason: "missing-repair-menu" });
+      const option = Array.from(menu.querySelectorAll(".mk-menu-option")).find(
+        (item) => item.innerText.trim().includes(fixLabel)
+      );
+      if (!option) {
+        return finish({
+          ok: false,
+          reason: "missing-autofix-option",
+          menuText: menu.innerText.slice(0, 500),
+        });
+      }
+      clickElement(option);
+      return finish({ ok: true });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// On-disk assertion primitive, cloned from waitForMetadataValue's own shape
+// but NOT waitForMetadataValue itself: metadataEvalCode's `value == null ->
+// ""` normalization makes an absent key and an explicit empty string
+// indistinguishable, which is exactly the distinction this scenario needs
+// to prove (the autofix's whole job is turning "absent" into "explicit
+// empty string", per validateRow.ts's checkEmptyEncoding/
+// emptyEncodingViolation -- see this section's own header comment).
+const healthFieldStateEvalCode = ({ path, property }) =>
+  `(() => {
+    const marker = "notidianHealthFieldState";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const file = app.vault.getAbstractFileByPath(${JSON.stringify(path)});
+      if (!file) return finish({ hasKey: false, value: null });
+      const cache = app.metadataCache.getFileCache(file);
+      const fm = cache?.frontmatter ?? {};
+      const property = ${JSON.stringify(property)};
+      const hasKey = Object.prototype.hasOwnProperty.call(fm, property);
+      return finish({ hasKey, value: hasKey ? fm[property] : null });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const waitForExplicitEmptyStringValue = async ({
+  config,
+  runner,
+  path,
+  property,
+}) => {
+  const start = Date.now();
+  let lastResult = null;
+
+  while (Date.now() - start <= config.timeoutMs) {
+    lastResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: healthFieldStateEvalCode({ path, property }),
+      })
+    );
+
+    if (lastResult?.hasKey === true && lastResult?.value === "") {
+      return lastResult;
+    }
+    await sleep(Math.max(1, config.pollIntervalMs));
+  }
+
+  throw new Error(
+    `Timed out waiting for an explicit empty string ${property}="" on ${path}. Last value: ${JSON.stringify(
+      lastResult
+    )}`
+  );
+};
+
+// Read-only chip count (no click -- Node-side waitForHealthChipCount below
+// owns retrying until the FilterBar's own onChange-triggered re-render has
+// settled to the expected post-fix count, BEFORE the atomic click+compare
+// eval below risks racing a still-stale chip against a freshly-opened panel).
+const healthChipCountEvalCode = ({ folder }) =>
+  `(() => {
+    const marker = "notidianHealthChipCount";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const folder = ${JSON.stringify(folder)};
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) => view.getAttribute("data-path") === folder);
+      const view = views[views.length - 1];
+      const chip = view?.querySelector(".mk-db-health-chip");
+      if (!view || !chip) {
+        return finish({ ok: false, reason: !view ? "missing-view" : "missing-chip" });
+      }
+      return finish({
+        ok: true,
+        violationCount: Number(chip.getAttribute("data-violation-count")),
+      });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const waitForHealthChipCount = async ({
+  config,
+  runner,
+  folder,
+  predicate,
+  label,
+}) => {
+  const start = Date.now();
+  let lastResult = null;
+
+  while (Date.now() - start <= config.timeoutMs) {
+    lastResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: healthChipCountEvalCode({ folder }),
+      })
+    );
+
+    if (lastResult?.ok && predicate(lastResult)) return lastResult;
+    await sleep(Math.max(1, config.pollIntervalMs));
+  }
+
+  throw new Error(
+    `Timed out waiting for health chip count (${label}) on ${folder}. Last result: ${JSON.stringify(
+      lastResult
+    )}`
+  );
+};
+
+// Chip == panel (Unit 2/DatabaseHealthPanel.tsx's own DoD comment: "this
+// panel's total always equals the FilterBar chip's count for the same
+// dbPath"). Both the chip's `data-violation-count` and the panel's
+// `data-panel-violation-count` are populated straight from
+// `reconciler.getViolationCount(dbPath)` -- `liveCount` below calls that
+// SAME method directly (not re-derived from the DOM) so the comparison is
+// against the live reconciler count for the fixture DB, not just an
+// internal-consistency check between two renders of the same number. One
+// atomic eval round-trip (click chip -> poll for the panel's own DOM to
+// mount -> read both counts -> close the modal) avoids a race where two
+// separate round-trips could straddle a reconciler mutation.
+const healthChipPanelEvalCode = ({ pluginId, folder }) =>
+  `(async () => {
+    const marker = "notidianHealthChipPanel";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const clickElement = (element) => {
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, view: window }));
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0, view: window }));
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, view: window }));
+    };
+    try {
+      const pluginId = ${JSON.stringify(pluginId)};
+      const folder = ${JSON.stringify(folder)};
+      const plugin = app.plugins.plugins[pluginId];
+      const views = Array.from(document.querySelectorAll(".mk-space-view"))
+        .filter((view) => view.getAttribute("data-path") === folder);
+      const view = views[views.length - 1];
+      const chip = view?.querySelector(".mk-db-health-chip");
+      if (!view || !chip) {
+        return finish({ ok: false, reason: !view ? "missing-view" : "missing-chip" });
+      }
+      const chipCount = Number(chip.getAttribute("data-violation-count"));
+      clickElement(chip);
+      let panel = null;
+      const start = Date.now();
+      do {
+        panel = document.querySelector(
+          '.mk-health-panel[data-health-view="db"] [data-panel-violation-count]'
+        );
+        if (panel) break;
+        await sleep(50);
+      } while (Date.now() - start <= 5000);
+      if (!panel) return finish({ ok: false, reason: "missing-panel" });
+      const panelCount = Number(panel.getAttribute("data-panel-violation-count"));
+      const liveCount = plugin?.reconciler?.getViolationCount(folder) ?? null;
+      const closeButton = document.querySelector(".mk-modal-wrapper .mk-x-small");
+      if (closeButton) clickElement(closeButton);
+      return finish({ ok: true, chipCount, panelCount, liveCount });
+    } catch (error) {
+      return finish({
+        ok: false,
+        reason: "exception",
+        message: String(error?.message ?? error),
+      });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const runHealthSurfacesScenario = async ({ config, runner, runId }) => {
+  const root = joinVaultPath(config.fixtureRoot, `${runId}-Health`);
+  const emptyRowPath = `${root}/${HEALTH_EMPTY_ROW_TITLE}.md`;
+  const brokenRowPath = `${root}/${HEALTH_BROKEN_ROW_TITLE}.md`;
+  let scenarioError = null;
+  let hubPath = null;
+
+  try {
+    await runObsidian(config, runner, "eval", {
+      code: ensureFixtureFolderEvalCode({ folder: root }),
+    });
+
+    // The empty row is written BEFORE the hub declares any schema -- same
+    // ordering runReconcilerScenario uses -- so its own frontmatter has
+    // already settled in the metadata cache once the schema arrives and the
+    // reconciler's schema-change sweep evaluates it for the first time.
+    await runObsidian(config, runner, "create", {
+      path: emptyRowPath,
+      content: healthEmptyRowContent(),
+      overwrite: true,
+    });
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: emptyRowPath,
+      property: HEALTH_REQUIRED_FIELD,
+      expected: HEALTH_VALID_VALUE,
+    });
+
+    // The broken row's frontmatter can never settle in the metadata cache by
+    // definition (that is the point) -- no waitForMetadataValue call for it;
+    // the reconciler poll below is this scenario's only settle signal.
+    await runObsidian(config, runner, "create", {
+      path: brokenRowPath,
+      content: healthBrokenRowContent(),
+      overwrite: true,
+    });
+
+    // Reused verbatim from the --reconciler scenario (Notidian-loan.4): fully
+    // generic over `folder`, resolves the fixture folder's hub-note path the
+    // same way the reconciler itself does (see that function's own doc
+    // comment for why enableFolderNote never matters here).
+    const hubPathResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: reconcilerHubPathEvalCode({
+          pluginId: config.pluginId,
+          folder: root,
+          timeoutMs: config.timeoutMs,
+          pollIntervalMs: config.pollIntervalMs,
+        }),
+      })
+    );
+    if (!hubPathResult?.ok) {
+      throw new Error(
+        `Health fixture hub path resolution failed: ${
+          hubPathResult?.reason ?? "unknown"
+        }`
+      );
+    }
+    hubPath = hubPathResult.hubPath;
+
+    await runObsidian(config, runner, "create", {
+      path: hubPath,
+      content: healthHubContent(),
+      overwrite: true,
+    });
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: hubPath,
+      property: "schema_type",
+      expected: "notidian_type_profile",
+    });
+
+    // Reused verbatim from the --reconciler scenario: plugin.reconciler's own
+    // read API (getRowViolations), polled through the SAME Node-side loop.
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath: emptyRowPath,
+      predicate: isSingleEmptyEncodingAutofixViolation,
+      label: "empty-encoding autofix violation",
+    });
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath: brokenRowPath,
+      predicate: isSingleMalformedRowViolation,
+      label: "malformed-row violation",
+    });
+
+    // Force the fixture root's default view to table (same tableViewSetup-
+    // EvalCode the --ui scenario uses) so the DOM assertions below have a
+    // live `.mk-space-view[data-path]` -> `.mk-table` to query.
+    const setupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: tableViewSetupEvalCode({ pluginId: config.pluginId, folder: root }),
+      })
+    );
+    assertUiEvalOk("health table setup", setupResult);
+
+    // DoD item 1: the broken fixture row is visible in the table (rendered
+    // as an error row, not silently absent).
+    await waitForHealthRowDom({
+      config,
+      runner,
+      folder: root,
+      rowTitle: HEALTH_BROKEN_ROW_TITLE,
+      predicate: isBrokenRowRendered,
+      label: "broken row rendered",
+    });
+
+    // Pre-condition for the autofix below: the empty row's badge is visible
+    // with the expected autofix-tier empty-encoding violation.
+    await waitForHealthRowDom({
+      config,
+      runner,
+      folder: root,
+      rowTitle: HEALTH_EMPTY_ROW_TITLE,
+      predicate: isAutofixBadgeVisible,
+      label: "autofix badge visible",
+    });
+
+    // DoD item 2 (part 1): DOM-drive the ratified autofix through the real
+    // repair menu -- the ONLY write this scenario performs, and it goes
+    // through the funnel (see this section's header comment + the module's
+    // own grep-checked DoD item).
+    const autofixResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: healthAutofixEvalCode({
+          folder: root,
+          rowTitle: HEALTH_EMPTY_ROW_TITLE,
+          fixLabel: HEALTH_FIX_LABEL,
+        }),
+      })
+    );
+    if (!autofixResult?.ok) {
+      throw new Error(
+        `Health autofix DOM interaction failed: ${formatUiFailure(autofixResult)}`
+      );
+    }
+
+    // DoD item 2 (part 2): the write landed ON DISK as an explicit empty
+    // string (never merely "still absent" -- see healthFieldStateEvalCode's
+    // own comment for why waitForMetadataValue itself cannot tell the two
+    // apart).
+    await waitForExplicitEmptyStringValue({
+      config,
+      runner,
+      path: emptyRowPath,
+      property: HEALTH_EMPTY_FIELD,
+    });
+
+    // DoD item 2 (part 3): the reconciler has revalidated and the violation
+    // is gone.
+    await waitForReconcilerViolations({
+      config,
+      runner,
+      pluginId: config.pluginId,
+      dbPath: root,
+      rowPath: emptyRowPath,
+      predicate: isCleanViolations,
+      label: "empty-encoding cleared",
+    });
+
+    // DoD item 2 (part 4): the badge itself is gone from the rendered row.
+    await waitForHealthRowDom({
+      config,
+      runner,
+      folder: root,
+      rowTitle: HEALTH_EMPTY_ROW_TITLE,
+      predicate: isBadgeCleared,
+      label: "autofix badge cleared",
+    });
+
+    // DoD item 3: chip count == panel count. Only the malformed-row
+    // violation remains at this point (manual-only, never fixed by this
+    // scenario) -- settle the chip to that count first so the atomic
+    // click+compare eval below never races a still-stale chip render.
+    await waitForHealthChipCount({
+      config,
+      runner,
+      folder: root,
+      predicate: (result) => result.violationCount === 1,
+      label: "post-fix chip count",
+    });
+
+    const chipPanelResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: healthChipPanelEvalCode({ pluginId: config.pluginId, folder: root }),
+      })
+    );
+    if (!chipPanelResult?.ok) {
+      throw new Error(
+        `Health chip/panel DOM interaction failed: ${formatUiFailure(
+          chipPanelResult
+        )}`
+      );
+    }
+    if (
+      chipPanelResult.chipCount !== chipPanelResult.panelCount ||
+      chipPanelResult.chipCount !== chipPanelResult.liveCount
+    ) {
+      throw new Error(
+        `Database Health chip count (${chipPanelResult.chipCount}) does not match panel count (${chipPanelResult.panelCount}) or the live reconciler count (${chipPanelResult.liveCount}) for ${root}.`
+      );
+    }
+
+    const devErrors = await runObsidian(config, runner, "dev:errors");
+    if (!cleanDevErrors(devErrors)) {
+      throw new Error(
+        `Obsidian captured developer errors during the health surfaces scenario:\n${devErrors}`
+      );
+    }
+  } catch (error) {
+    scenarioError = error;
+  }
+
+  if (!config.keepFixture) {
+    const cleanupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: deleteFolderEvalCode({ folder: root }),
+      })
+    );
+    if (!scenarioError && !cleanupResult?.ok) {
+      scenarioError = new Error(
+        `Health fixture cleanup failed: ${cleanupResult?.reason ?? "unknown"}`
+      );
+    }
+  }
+
+  if (scenarioError) throw scenarioError;
+  return { ok: true, folder: root, hubPath, emptyRowPath, brokenRowPath };
+};
+
 const runRealVaultSmokeHarness = async (config, runner) => {
   const errors = validateHarnessConfig(config);
   if (errors.length > 0) {
@@ -4171,6 +4857,14 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       });
     }
 
+    if (config.includeHealthSurfaces) {
+      await runHealthSurfacesScenario({
+        config,
+        runner: execute,
+        runId: paths.runId,
+      });
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -4240,6 +4934,7 @@ const usage = () => [
   "  --ui                     Also exercise the live Notidian table DOM.",
   "  --adopt-schema           Also exercise the schema-adoption preview/confirm modal.",
   "  --reconciler             Also exercise the Data Integrity reconciler engine (ADR-0057).",
+  "  --health                 Also exercise the Data Integrity health surfaces (badges/chip/panel/autofix, ADR-0057 D3/D4).",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,
@@ -4280,5 +4975,6 @@ module.exports = {
   runRealVaultSmokeHarness,
   runSchemaAdoptionScenario,
   runReconcilerScenario,
+  runHealthSurfacesScenario,
   validateHarnessConfig,
 };

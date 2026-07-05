@@ -26,6 +26,7 @@ const parseVerifyArgs = (argv = process.argv.slice(2), env = process.env) => {
     ui: false,
     adoptSchema: false,
     reconciler: false,
+    health: false,
     requireClean: false,
     settleMs: DEFAULT_SETTLE_MS,
   };
@@ -45,6 +46,10 @@ const parseVerifyArgs = (argv = process.argv.slice(2), env = process.env) => {
     }
     if (arg == "--reconciler") {
       config.reconciler = true;
+      continue;
+    }
+    if (arg == "--health") {
+      config.health = true;
       continue;
     }
     if (arg == "--require-clean") {
@@ -134,6 +139,7 @@ const createLiveVerificationSteps = ({
   ui = false,
   adoptSchema = false,
   reconciler = false,
+  health = false,
   settleMs = DEFAULT_SETTLE_MS,
 } = {}) => {
   const smokeArgs = [
@@ -147,6 +153,7 @@ const createLiveVerificationSteps = ({
   if (ui) smokeArgs.push("--ui");
   if (adoptSchema) smokeArgs.push("--adopt-schema");
   if (reconciler) smokeArgs.push("--reconciler");
+  if (health) smokeArgs.push("--health");
 
   return [
     {
@@ -256,6 +263,7 @@ const usage = () => [
   "  --ui                  Include the optional live table DOM smoke.",
   "  --adopt-schema        Include the optional schema-adoption preview/confirm smoke.",
   "  --reconciler          Include the optional Data Integrity reconciler engine smoke.",
+  "  --health              Include the optional Data Integrity health surfaces smoke (badges/chip/panel/autofix).",
   `  --vault-path=<path>    Defaults to ${DEFAULT_VAULT_PATH}.`,
   "  --vault=<name>        Defaults to the vault path basename.",
   `  --plugin-id=<id>      Defaults to ${DEFAULT_PLUGIN_ID}.`,

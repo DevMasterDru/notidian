@@ -6,6 +6,7 @@ const {
   runRealVaultSmokeHarness,
   runSchemaAdoptionScenario,
   runReconcilerScenario,
+  runHealthSurfacesScenario,
   validateHarnessConfig,
 } = require("./notidianRealVaultHarness");
 
@@ -51,6 +52,7 @@ describe("notidian real vault harness", () => {
       includeUi: false,
       includeSchemaAdoption: false,
       includeReconciler: false,
+      includeHealthSurfaces: false,
       pluginId: "notidian-dev",
       fixtureRoot: "Notidian Smoke Fixtures",
       timeoutMs: 2500,
@@ -754,6 +756,18 @@ describe("notidian real vault harness", () => {
     expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
       .toMatchObject({ includeReconciler: false });
   });
+
+  it("parses --health", () => {
+    expect(
+      parseHarnessArgs(["vault=Atlas Vault", "--allow-write", "--health"], {})
+    ).toMatchObject({
+      vault: "Atlas Vault",
+      allowWrite: true,
+      includeHealthSurfaces: true,
+    });
+    expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
+      .toMatchObject({ includeHealthSurfaces: false });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1184,5 +1198,288 @@ describe("runReconcilerScenario", () => {
     await expect(
       runReconcilerScenario({ config: scenarioConfig(), runner, runId: "run-1" })
     ).rejects.toThrow("Reconciler fixture cleanup failed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runHealthSurfacesScenario (Notidian-loan.5, ADR-0057 D3/D4): declares a
+// Type Profile directly in a fixture hub note's frontmatter (same
+// no-adoption-UI convention runReconcilerScenario uses) with a required
+// `model` field and a `code` field declared `empty: "empty-string"`, then
+// drives two fixture rows through the LIVE table DOM: a malformed-YAML row
+// that must render as `tr.mk-row-broken`, and a row whose `code` value is
+// entirely absent that must show an autofix-tier `.mk-row-health-badge`,
+// have that autofix DOM-driven through the real repair menu (proving the
+// write lands on disk as an explicit empty string AND goes through the same
+// funnel every other direct cell edit uses), and clear once the reconciler
+// revalidates. Finally asserts the FilterBar's `.mk-db-health-chip` count
+// equals the Database Health panel's `data-panel-violation-count` AND the
+// live `reconciler.getViolationCount` for the fixture database.
+// ---------------------------------------------------------------------------
+describe("runHealthSurfacesScenario", () => {
+  const HEALTH_ROOT = "Notidian Integration Fixtures/run-1-Health";
+  const HEALTH_EMPTY_ROW_PATH = `${HEALTH_ROOT}/Health Empty Row.md`;
+  const HEALTH_BROKEN_ROW_PATH = `${HEALTH_ROOT}/Health Broken Row.md`;
+  const HEALTH_HUB_PATH = `${HEALTH_ROOT}/Health Fixture Hub.md`;
+
+  const EMPTY_ENCODING_VIOLATION = {
+    field: "code",
+    code: "empty-encoding",
+    severity: "error",
+    message:
+      'code: empty value is encoded as absent, but the declared policy is "empty-string".',
+    repairTier: "autofix",
+    suggestedFix:
+      'Set "code" to an explicit empty string ("") instead of omitting or nulling it.',
+  };
+
+  const MALFORMED_ROW_VIOLATION = {
+    code: "malformed-row",
+    severity: "error",
+    message:
+      '"Health Broken Row" (Health Broken Row.md): frontmatter is missing or failed to parse.',
+    repairTier: "manual-only",
+  };
+
+  const BROKEN_ROW_DOM = {
+    ok: true,
+    isBroken: true,
+    hasBadge: false,
+    violationCount: 0,
+    violationCode: null,
+    repairTier: null,
+  };
+  const AUTOFIX_BADGE_DOM = {
+    ok: true,
+    isBroken: false,
+    hasBadge: true,
+    violationCount: 1,
+    violationCode: "empty-encoding",
+    repairTier: "autofix",
+  };
+  const CLEARED_BADGE_DOM = {
+    ok: true,
+    isBroken: false,
+    hasBadge: false,
+    violationCount: 0,
+    violationCode: null,
+    repairTier: null,
+  };
+
+  // Each waitForX call in the scenario resolves on its FIRST poll (the
+  // canned response already satisfies that call's own predicate), so the
+  // Nth distinct call for a given marker maps 1:1 to the scenario's own
+  // step order -- same convention buildReconcilerRunner's
+  // `violationsSequence` uses.
+  const buildHealthRunner = ({
+    violationsSequence = [
+      [EMPTY_ENCODING_VIOLATION],
+      [MALFORMED_ROW_VIOLATION],
+      [],
+    ],
+    rowDomSequence = [BROKEN_ROW_DOM, AUTOFIX_BADGE_DOM, CLEARED_BADGE_DOM],
+    hubPathResult = { ok: true, hubPath: HEALTH_HUB_PATH },
+    tableSetupResult = { ok: true },
+    autofixResult = { ok: true },
+    fieldStateResult = { hasKey: true, value: "" },
+    chipCountResult = { ok: true, violationCount: 1 },
+    chipPanelResult = { ok: true, chipCount: 1, panelCount: 1, liveCount: 1 },
+    deleteOk = true,
+  } = {}) => {
+    let violationsCallCount = 0;
+    let rowDomCallCount = 0;
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command != "eval") return "";
+
+      const codeArg = args.find((arg) => arg.startsWith("code=")) ?? "";
+      if (codeArg.includes("notidianEnsureFixtureFolder")) {
+        return JSON.stringify({ ok: true, created: [] });
+      }
+      if (codeArg.includes("notidianReconcilerHubPath")) {
+        return JSON.stringify(hubPathResult);
+      }
+      if (codeArg.includes("notidianReconcilerRowViolations")) {
+        const violations = violationsSequence[violationsCallCount] ?? [];
+        violationsCallCount++;
+        return JSON.stringify({ ok: true, violations });
+      }
+      if (codeArg.includes("notidianTableUiSetup")) {
+        return JSON.stringify(tableSetupResult);
+      }
+      if (codeArg.includes("notidianHealthRowDom")) {
+        const result = rowDomSequence[rowDomCallCount] ?? {
+          ok: false,
+          reason: "missing-row",
+        };
+        rowDomCallCount++;
+        return JSON.stringify(result);
+      }
+      if (codeArg.includes("notidianHealthAutofix")) {
+        return JSON.stringify(autofixResult);
+      }
+      if (codeArg.includes("notidianHealthFieldState")) {
+        return JSON.stringify(fieldStateResult);
+      }
+      if (codeArg.includes("notidianHealthChipCount")) {
+        return JSON.stringify(chipCountResult);
+      }
+      if (codeArg.includes("notidianHealthChipPanel")) {
+        return JSON.stringify(chipPanelResult);
+      }
+      if (codeArg.includes("notidianDeleteFolder")) {
+        return JSON.stringify(
+          deleteOk ? { ok: true } : { ok: false, reason: "exception" }
+        );
+      }
+      if (codeArg.includes('"model"')) return "=> Widget A";
+      if (codeArg.includes('"schema_type"')) return "=> notidian_type_profile";
+      return "";
+    });
+    return runner;
+  };
+
+  const scenarioConfig = (overrides = {}) => ({
+    ...baseConfig,
+    timeoutMs: 500,
+    pollIntervalMs: 0,
+    ...overrides,
+  });
+
+  it("drives fixture setup, DOM assertions, the autofix funnel, chip==panel, and cleanup in order", async () => {
+    const runner = buildHealthRunner();
+
+    const result = await runHealthSurfacesScenario({
+      config: scenarioConfig(),
+      runner,
+      runId: "run-1",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      folder: HEALTH_ROOT,
+      hubPath: HEALTH_HUB_PATH,
+      emptyRowPath: HEALTH_EMPTY_ROW_PATH,
+      brokenRowPath: HEALTH_BROKEN_ROW_PATH,
+    });
+
+    const commandSequence = runner.mock.calls.map(([args]) => args[1]);
+    expect(commandSequence).toEqual([
+      "eval", // ensure fixture folder
+      "create", // empty row (valid model, code absent)
+      "eval", // waitForMetadataValue(model) on empty row
+      "create", // broken row (malformed YAML)
+      "eval", // resolve hub path
+      "create", // hub note declaring Type Profile directly
+      "eval", // waitForMetadataValue(schema_type)
+      "eval", // empty-encoding autofix violation surfaces
+      "eval", // malformed-row violation surfaces
+      "eval", // table view setup
+      "eval", // broken row rendered as mk-row-broken
+      "eval", // autofix badge visible
+      "eval", // DOM-drive the autofix (click badge -> menu -> fix)
+      "eval", // on-disk explicit empty string settles
+      "eval", // empty-encoding violation clears
+      "eval", // badge cleared in DOM
+      "eval", // chip settles to the post-fix count
+      "eval", // chip click -> panel open -> chip==panel compare
+      "dev:errors",
+      "eval", // cleanup (delete folder)
+    ]);
+  });
+
+  it("throws when the hub path cannot be resolved", async () => {
+    const runner = buildHealthRunner({
+      hubPathResult: { ok: false, reason: "missing-note-path" },
+    });
+
+    await expect(
+      runHealthSurfacesScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Health fixture hub path resolution failed");
+
+    // Cleanup still runs even though the scenario failed early.
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(true);
+  });
+
+  it("times out waiting for the broken row to render as mk-row-broken", async () => {
+    const runner = buildHealthRunner({
+      rowDomSequence: [{ ok: true, isBroken: false, hasBadge: false }],
+    });
+
+    await expect(
+      runHealthSurfacesScenario({
+        config: scenarioConfig({ timeoutMs: 50 }),
+        runner,
+        runId: "run-1",
+      })
+    ).rejects.toThrow(/Timed out waiting for health row DOM \(broken row rendered\)/);
+  });
+
+  it("throws when the autofix menu interaction fails", async () => {
+    const runner = buildHealthRunner({
+      autofixResult: { ok: false, reason: "missing-repair-menu" },
+    });
+
+    await expect(
+      runHealthSurfacesScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Health autofix DOM interaction failed: missing-repair-menu");
+  });
+
+  it("times out waiting for the on-disk value to become an explicit empty string", async () => {
+    const runner = buildHealthRunner({
+      fieldStateResult: { hasKey: false, value: null },
+    });
+
+    await expect(
+      runHealthSurfacesScenario({
+        config: scenarioConfig({ timeoutMs: 50 }),
+        runner,
+        runId: "run-1",
+      })
+    ).rejects.toThrow(/Timed out waiting for an explicit empty string/);
+  });
+
+  it("throws when the chip count and panel count disagree", async () => {
+    const runner = buildHealthRunner({
+      chipPanelResult: { ok: true, chipCount: 1, panelCount: 2, liveCount: 1 },
+    });
+
+    await expect(
+      runHealthSurfacesScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow(/chip count \(1\) does not match panel count \(2\)/);
+  });
+
+  it("throws when the chip count disagrees with the live reconciler count", async () => {
+    const runner = buildHealthRunner({
+      chipPanelResult: { ok: true, chipCount: 1, panelCount: 1, liveCount: 2 },
+    });
+
+    await expect(
+      runHealthSurfacesScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow(/live reconciler count \(2\)/);
+  });
+
+  it("skips cleanup when --keep-fixture is set", async () => {
+    const runner = buildHealthRunner();
+
+    await runHealthSurfacesScenario({
+      config: scenarioConfig({ keepFixture: true }),
+      runner,
+      runId: "run-1",
+    });
+
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(false);
+  });
+
+  it("surfaces a cleanup failure when the scenario itself succeeded", async () => {
+    const runner = buildHealthRunner({ deleteOk: false });
+
+    await expect(
+      runHealthSurfacesScenario({ config: scenarioConfig(), runner, runId: "run-1" })
+    ).rejects.toThrow("Health fixture cleanup failed");
   });
 });
