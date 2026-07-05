@@ -371,6 +371,63 @@ row+cell.
   in code — the circular import cannot return). Full suite (1142 tests) + tsc +
   build green.
 
+### Notidian-z21a — Nested databases: row-as-child-hub (schema + views + row ops) — verify-then-build
+
+**2026-07-05.** Attempted on `autolong/run-3`, reverted after two real fix
+rounds still left one unresolved must-fix finding — **not abandoned, fully
+recoverable.** `bd`'s notes field could not be updated with this finding
+directly (`Notidian-6amu`: `bd close`/`bd update --notes` fail
+`embeddeddolt: store is read-only` while `bd create` still works — logged
+here per the same infra-blocked-bookkeeping pattern as the `Notidian-21l4`
+entry above), so the full diagnosis lives here instead.
+
+- **Recovered work:** the attempt is permanently preserved at git tag
+  **`notidian-z21a-attempt-1`** (`af2c55c`), three commits deep:
+  `684d0aa` (initial build: `hubRowCascade.ts` planner + cascade rename/move/
+  delete wiring in `path.ts` + row-scoped Type Profile key exclusion in
+  `allProperties.ts`, all behind new flag `settings.enableNestedHubRows`,
+  default ON per owner-requested provenance), `a08427c` (round 1: fixed 4
+  independently-verified must-fix findings — wrong deletion API
+  (`deleteSpace` instead of `deletePath`), unconditional cascade on rename/
+  move even when the primary op failed, and an over-broad vault-wide Type
+  Profile key exclusion narrowed to declaring rows only), `af2c55c` (round 2:
+  fixed 2 more — paired `cascadeHubRowDelete` with `onSpaceDeleted` index
+  cleanup, guarded `deletePath`'s cascade on the primary delete's own
+  try/catch result).
+- **The one remaining bug (why round 2 still didn't land):** two independent
+  reviewer lenses converged on the same finding in `af2c55c`'s `deletePath`
+  (`src/core/superstate/utils/path.ts`): `superstate.onPathDeleted(path)` runs
+  **unconditionally**, one line before the `if (deleted)` guard that gates
+  everything else added in this bead:
+  ```ts
+  let deleted = true;
+  try { await superstate.spaceManager.deletePath(path); } catch (e) { deleted = false; }
+  superstate.onPathDeleted(path);        // ← must move inside the guard below
+  if (deleted) { await cascadeHubRowDelete(superstate, path); }
+  ```
+  `onPathDeleted` (`superstate.ts:701-729`) does the real, disk-persisted
+  mutation — purges the row from every context/table view, `pathsIndex`,
+  `spacesMap`/`linksMap`, dispatches `pathDeleted` — so a failed primary file
+  delete still silently makes the row vanish from every Notidian view even
+  though the file remains on disk. The fix is a one-line move: pull
+  `onPathDeleted(path)` inside the `if (deleted)` block, alongside the cascade
+  call. Cherry-picking `notidian-z21a-attempt-1` and applying that one move
+  (plus a regression test asserting a failed primary delete never calls
+  `onPathDeleted`) should be enough to land clean on the next attempt.
+- **Grounding:** built against the real vault Knowledge root hub
+  (`Knowledge.md`, seeded 2026-07-05, 0 rows at build time) and Atlas Method
+  ADR-0042 D1 (root Knowledge DB whose domain rows are themselves hubs of
+  child unit DBs, depth 1) — owner-requested provenance, not speculative.
+  Verify-then-build step 1 (characterizing current schema-resolution/view-
+  picker/row-op behavior on a hub-row) found the view/space-selection half
+  already works unconditionally (adjacent-mode hub-note resolution in
+  `spaceInfo.ts`, already covered by `spaceInfo.test.ts`); the real gaps were
+  only the cascade rename/move/delete + Type Profile key leakage this bead
+  addressed.
+- **Also shipped, standalone:** a `HubRowIndicator` component, jsdom-tested but
+  **not yet wired into any row-rendering surface** — wiring it in is separate,
+  follow-up scope, not part of the revert.
+
 ## Pending — decisions (pick a direction)
 
 _(none — realigned: clear-correct ADRs were implemented, speculative ones parked to docs/ROADMAP.md)_
