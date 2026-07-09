@@ -50,6 +50,27 @@ export const isHubRowPath = (
   return isConfiguredHubFolder(folder, path, notePathForFolder);
 };
 
+// Render gate for the hub-row indicator affordance (Notidian-b0fm). The
+// standalone HubRowIndicator carries no gating logic of its own; a row-render
+// surface (TableView gutter) shows it for a row only when BOTH the opt-in
+// indicator flag AND the underlying nested-hub feature are enabled AND the
+// row's path is a configured hub row. Kept pure (no I/O, no throws — caller
+// supplies the notePath read) so the flag/relationship gate is unit-testable
+// off the render path, same posture as isHubRowPath.
+export const shouldRenderHubRowIndicator = (
+  settings: {
+    enableHubRowIndicator?: boolean;
+    enableNestedHubRows?: boolean;
+  },
+  path: string,
+  notePathForFolder: (folderPath: string) => string | null | undefined
+): boolean => {
+  if (!settings.enableHubRowIndicator || !settings.enableNestedHubRows) {
+    return false;
+  }
+  return isHubRowPath(path, notePathForFolder);
+};
+
 export type HubRowCascadePlan =
   | { kind: "rename"; fromFolder: string; toFolder: string }
   | { kind: "delete"; folder: string }

@@ -44,6 +44,14 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // (pre-feature) handling of a row whose file happens to have a same-named
   // sibling folder.
   enableNestedHubRows: true,
+  // Notidian-b0fm: default OFF — review-queue flag-gate. Wires the standalone
+  // HubRowIndicator into the TableView row gutter for a hub row (a row whose
+  // file is the configured note of a same-named sibling folder). Core
+  // render-path change with no offline-provable placement and no live hub row
+  // to verify against, so it ships GATED OFF for the owner to enable +
+  // live-verify (docs/AUTONOMOUS-REVIEW-QUEUE.md). OFF == the pre-feature
+  // gutter, independent of enableNestedHubRows.
+  enableHubRowIndicator: false,
   // Notidian-loan.5: default ON — owner-ratified Data Integrity Program
   // (ADR-0057). KILL-SWITCH: set false to hide every health-surfaces UI
   // element (row badges + repair menu, mk-row-broken tint, the FilterBar

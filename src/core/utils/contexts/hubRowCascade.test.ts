@@ -3,6 +3,7 @@ import {
   isHubRowPath,
   planHubRowDeleteCascade,
   planHubRowRenameCascade,
+  shouldRenderHubRowIndicator,
   typeProfileReservedFrontmatterKeys,
 } from "./hubRowCascade";
 
@@ -82,6 +83,64 @@ describe("isHubRowPath", () => {
   it("false for a non-markdown path", () => {
     const notePathForFolder = () => HUB_ROW_PATH;
     expect(isHubRowPath("Knowledge/Gidi", notePathForFolder)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldRenderHubRowIndicator (Notidian-b0fm) — the pure render gate for the
+// row-render-surface indicator. It ANDs the opt-in indicator flag, the
+// underlying nested-hub feature flag, and the actual hub-row relationship, so
+// the indicator can never appear on a non-hub row, with the feature off, or
+// with the opt-in flag off (its default). The DEFAULT-OFF flag is what keeps
+// this untested-in-the-real-vault render change dark until the owner enables
+// it (docs/AUTONOMOUS-REVIEW-QUEUE.md).
+// ---------------------------------------------------------------------------
+describe("shouldRenderHubRowIndicator", () => {
+  const isHub = () => HUB_ROW_PATH; // folder's configured note === this row
+  const notAHub = (): string | null => null; // no indexed sibling folder
+
+  it("true only when both flags are on AND the row is a configured hub row", () => {
+    expect(
+      shouldRenderHubRowIndicator(
+        { enableHubRowIndicator: true, enableNestedHubRows: true },
+        HUB_ROW_PATH,
+        isHub
+      )
+    ).toBe(true);
+  });
+
+  it("false when the opt-in indicator flag is off (its default), even for a real hub row", () => {
+    expect(
+      shouldRenderHubRowIndicator(
+        { enableHubRowIndicator: false, enableNestedHubRows: true },
+        HUB_ROW_PATH,
+        isHub
+      )
+    ).toBe(false);
+  });
+
+  it("false when the underlying nested-hub feature is off, even with the indicator flag on", () => {
+    expect(
+      shouldRenderHubRowIndicator(
+        { enableHubRowIndicator: true, enableNestedHubRows: false },
+        HUB_ROW_PATH,
+        isHub
+      )
+    ).toBe(false);
+  });
+
+  it("false for an ordinary (non-hub) row even with both flags on", () => {
+    expect(
+      shouldRenderHubRowIndicator(
+        { enableHubRowIndicator: true, enableNestedHubRows: true },
+        HUB_ROW_PATH,
+        notAHub
+      )
+    ).toBe(false);
+  });
+
+  it("false when the flags are absent/undefined (unset settings read as off)", () => {
+    expect(shouldRenderHubRowIndicator({}, HUB_ROW_PATH, isHub)).toBe(false);
   });
 });
 

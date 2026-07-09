@@ -189,6 +189,14 @@ export const deletePath = async (superstate: Superstate, path: string) => {
         await superstate.spaceManager.deletePath(path);
     } catch (e) {
         deleted = false;
+        // Surface the failure instead of swallowing it (Notidian-b0fm). The
+        // primary delete rejected, so the row's own file is still on disk and
+        // the cascade below is correctly skipped — but without this the user
+        // gets NO signal at all (the caught `e` was previously unused), unlike
+        // cascadeHubRowRename/Delete's own failure notices. Non-blocking: a
+        // notice only, never a throw/rollback, matching this file's
+        // secondary-effect contract.
+        superstate.ui.notify(i18n.notice.deletePathFailed);
     }
     if (deleted) {
         superstate.onPathDeleted(path);

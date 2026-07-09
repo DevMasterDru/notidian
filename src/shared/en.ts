@@ -1068,7 +1068,8 @@ export const en = {
     "undoRestoreRowsFailed": "Could not restore the deleted rows. The change was kept so you can try again.",
     "redoDeleteRowsFailed": "Could not re-delete the rows. The change was kept so you can try again.",
     "hubRowCascadeRenameFailed": "Renamed the row, but could not move its nested database folder to match. Rename the folder manually to keep them in sync.",
-    "hubRowCascadeDeleteFailed": "Deleted the row, but could not delete its nested database folder. Remove the folder manually if it should not remain."
+    "hubRowCascadeDeleteFailed": "Deleted the row, but could not delete its nested database folder. Remove the folder manually if it should not remain.",
+    "deletePathFailed": "Could not delete this item. It may still exist — try again."
   },
   "settings": {
     "importUrls": "Import Urls",
@@ -1335,6 +1336,10 @@ export const en = {
     "enableDataHealthSurfaces": {
       "name": "Data Health Surfaces",
       "desc": "Show row and database health badges, a Database Health panel, and one-click repairs for Data Integrity Program violations (title binding, enum, empty encoding, references, invariants). Turn off to hide these surfaces; the underlying detection engine keeps running in the background either way"
+    },
+    "enableHubRowIndicator": {
+      "name": "Nested-Database Row Indicator",
+      "desc": "When Nested Databases is on, show a small open-the-nested-database button in the gutter of any row that is itself the hub of a same-named child folder. Off by default; the cascade/discovery behavior of Nested Databases is unaffected either way"
     },
     "folderNoteInsideFolder": {
       "name": "Folder Note Inside Folder",

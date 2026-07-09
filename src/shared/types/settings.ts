@@ -59,6 +59,19 @@ export interface MakeMDSettings {
   // hub row exists in the vault yet to verify placement against). OFF ==
   // byte-identical legacy behavior (no cascade, no discovery exclusion).
   enableNestedHubRows: boolean;
+  // Notidian-b0fm (default OFF, review-queue flag-gate): opt-in render-surface
+  // affordance that wires the standalone HubRowIndicator
+  // (core/react/components/UI/Toggles/HubRowIndicator.tsx) into the TableView
+  // row gutter (alongside RowHealthBadge). When ON *and* enableNestedHubRows is
+  // ON, a row whose file is the configured hub note of a same-named sibling
+  // folder (isHubRowPath) gets a small button that opens that nested child
+  // database. DEFAULT OFF: this is a core render-path change whose live
+  // placement/behavior can't be proven by tsc/jest/build, and no live hub row
+  // existed in the vault to verify against — it ships gated OFF for the owner
+  // to enable + live-verify (docs/AUTONOMOUS-REVIEW-QUEUE.md). OFF ==
+  // byte-identical legacy gutter (no indicator, whatever enableNestedHubRows
+  // is set to).
+  enableHubRowIndicator: boolean;
   // Notidian-loan.5 (default ON, kill-switch, ADR-0057): master gate for the
   // Data Integrity Program's health-surfaces UI -- the row gutter's
   // RowHealthBadge (+ its repair menu), the broken-row `mk-row-broken` tint,

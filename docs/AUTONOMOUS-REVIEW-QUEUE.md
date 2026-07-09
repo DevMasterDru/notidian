@@ -169,6 +169,55 @@ closed-but-"left open for re-attempt" status, and re-scope `Notidian-d6lk` /
 
 ---
 
+## Awaiting owner enable + live-verify — default-OFF flag-gated changes
+
+These are **core render-path changes that are NOT owner-requested**, so per
+[AGENTS.md](../AGENTS.md) they ship **default-OFF** and stay dark until the owner
+enables the flag and live-verifies in the vault. Offline gates (tsc/jest/build)
+prove the OFF path is byte-identical legacy behavior and the ON path's pure/DOM
+logic; only the owner's in-vault use confirms the live placement/behavior.
+
+### Notidian-b0fm — Nested-database row indicator wired into the TableView gutter
+
+**2026-07-09 (`autolong/run-4`).** z21a follow-up: the standalone, already-tested
+`HubRowIndicator` component (landed unwired in Notidian-z21a) is now wired into the
+TableView row gutter, alongside `RowHealthBadge`, for a row that is itself the hub
+of a same-named child folder. Gated OFF because it is a core render-path change with
+no offline-provable placement, and there was no live hub row in the vault to verify
+against at implementation time.
+
+- **Setting:** `enableHubRowIndicator` (default `false`) — `src/shared/types/settings.ts`,
+  defaulted in `src/core/schemas/settings.ts`, OFF-default pinned in
+  `src/core/schemas/settings.defaults.test.ts` (`DOCUMENTED_REVIEW_QUEUE_FLAGS`).
+- **What it does when ON:** for each data row whose file is the configured note of
+  a same-named sibling folder (`shouldRenderHubRowIndicator` = `enableHubRowIndicator`
+  AND `enableNestedHubRows` AND `isHubRowPath`), the gutter renders a small
+  `.mk-hub-row-indicator` button; clicking it opens that nested child-database
+  folder via `ui.openPath`. Gutter is otherwise unchanged.
+- **Dependency:** requires `enableNestedHubRows` ON too (the indicator is
+  meaningless without the nested-hub cascade/discovery behavior).
+- **How to toggle:** set `enableHubRowIndicator: true` (and confirm
+  `enableNestedHubRows: true`) in the plugin's `data.json`, then reload the plugin
+  (`obsidian plugin:reload id=notidian`). No settings-UI toggle yet.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - Open a database that has a hub row (a row whose file is the note of a
+    same-named sibling folder, e.g. the Knowledge root's domain rows): the gutter
+    of that row (and only that row) shows the indicator button.
+  - Clicking the indicator opens the nested child database folder; clicking
+    elsewhere on the row still selects/opens the row as before (the indicator
+    `stopPropagation`s its own click).
+  - Toggle the flag OFF → the indicator disappears and the gutter is byte-for-byte
+    the pre-feature gutter.
+- **Offline evidence in place:** `hubRowCascade.test.ts`
+  (`shouldRenderHubRowIndicator` gate: both-flags-and-hub-row truth table),
+  `HubRowIndicator.dom.test.tsx` (component render/click contract, pre-existing),
+  and `TableView.hubRowIndicator.dom.test.tsx` (jsdom wiring: OFF/nested-OFF/
+  non-hub-row = no indicator; ON + hub row = exactly one indicator, click opens
+  the folder). `settings.defaults.test.ts` pins the OFF default. Full suite + tsc
+  + build green.
+
+---
+
 ## Awaiting owner USE — default-ON flag-gated changes (ship-then-verify)
 
 These are **owner-requested core render-path changes** shipped **default-ON behind

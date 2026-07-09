@@ -64,6 +64,7 @@ const REQUIRED_SETTING_KEYS = {
   currentWaypoint: true,
   enableFolderNote: true,
   enableNestedHubRows: true,
+  enableHubRowIndicator: true,
   enableDataHealthSurfaces: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
@@ -180,6 +181,17 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "enableNavigatorTextFilter", // Notidian-nrjb
 ];
 
+// The documented DEFAULT-OFF review-queue flag-gates (AGENTS.md "Authority &
+// safety invariants" default-OFF branch + docs/AUTONOMOUS-REVIEW-QUEUE.md).
+// Each is a core render-path change that is NOT owner-requested, so it ships
+// GATED OFF and dark until the owner enables + live-verifies it. A flipped
+// default here would silently ship an un-live-verified render change ON — the
+// exact failure the flag-gate exists to prevent; pin them LOUD as honest
+// `false` booleans (the mirror of the DEFAULT-ON pins above).
+const DOCUMENTED_REVIEW_QUEUE_FLAGS: ReadonlyArray<keyof MakeMDSettings> = [
+  "enableHubRowIndicator", // Notidian-b0fm (z21a follow-up)
+];
+
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {
   test("every required MakeMDSettings key has a default in DEFAULT_SETTINGS", () => {
     // Runtime set-equality on the value side. The compile-time manifest already
@@ -214,6 +226,20 @@ describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {
         expect(typeof value).toBe("boolean");
         // DEFAULT-ON: the feature is live until the owner flips the switch.
         expect(value).toBe(true);
+      }
+    );
+  });
+
+  describe("documented review-queue flag-gates are pinned LOUD (default-OFF booleans)", () => {
+    test.each(DOCUMENTED_REVIEW_QUEUE_FLAGS)(
+      "%s default is the boolean `false` (not owner-requested — ships dark, awaiting owner enable + live-verify)",
+      (flag) => {
+        const value = DEFAULT_SETTINGS[flag];
+        // Honest boolean so ON is a deliberate owner `true`, never an
+        // accidental truthy default.
+        expect(typeof value).toBe("boolean");
+        // DEFAULT-OFF: the render change stays dark until the owner enables it.
+        expect(value).toBe(false);
       }
     );
   });

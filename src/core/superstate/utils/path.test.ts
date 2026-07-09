@@ -3,6 +3,7 @@ import {
     movePathToSpace,
     renamePathByName,
 } from "./path";
+import i18n from "shared/i18n";
 
 // ---------------------------------------------------------------------------
 // Row-as-child-hub cascade wiring (Notidian-z21a, Atlas Method ADR-0042 D1).
@@ -338,6 +339,59 @@ describe("deletePath — hub-row cascade", () => {
             HUB_ROW_FOLDER
         );
         expect(superstate.onSpaceDeleted).not.toHaveBeenCalled();
+    });
+
+    it("a failed primary delete NOTIFIES the user instead of failing silently (Notidian-b0fm — parity with the cascade failure notices)", async () => {
+        const superstate = buildSuperstate({
+            enableNestedHubRows: true,
+            hubFolder: true,
+            deletePathImpl: jest.fn((path: string) =>
+                path === HUB_ROW_PATH
+                    ? Promise.reject(new Error("locked"))
+                    : Promise.resolve(undefined)
+            ),
+        });
+
+        await expect(
+            deletePath(superstate as any, HUB_ROW_PATH)
+        ).resolves.toBeUndefined();
+
+        // Exactly one notice, the primary-delete-failed one — the cascade never
+        // runs (guarded on `deleted`), so its own notice can't also fire here.
+        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+        expect(superstate.ui.notify).toHaveBeenCalledWith(
+            i18n.notice.deletePathFailed
+        );
+    });
+
+    it("a plain (non-hub) row's failed primary delete also notifies (the notice is unconditional, not a hub-only path)", async () => {
+        const superstate = buildSuperstate({
+            enableNestedHubRows: false,
+            deletePathImpl: jest.fn(() => Promise.reject(new Error("locked"))),
+        });
+
+        await expect(
+            deletePath(superstate as any, "Knowledge/Plain.md")
+        ).resolves.toBeUndefined();
+
+        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+        expect(superstate.ui.notify).toHaveBeenCalledWith(
+            i18n.notice.deletePathFailed
+        );
+        expect(superstate.onPathDeleted).not.toHaveBeenCalled();
+    });
+
+    it("a SUCCESSFUL primary delete never fires the failure notice", async () => {
+        const superstate = buildSuperstate({
+            enableNestedHubRows: false,
+        });
+
+        await deletePath(superstate as any, "Knowledge/Plain.md");
+
+        expect(superstate.ui.notify).not.toHaveBeenCalledWith(
+            i18n.notice.deletePathFailed
+        );
+        expect(superstate.onPathDeleted).toHaveBeenCalledWith("Knowledge/Plain.md");
     });
 
     it("a failed primary delete never calls onPathDeleted and never runs the cascade (Notidian-z21a fix)", async () => {

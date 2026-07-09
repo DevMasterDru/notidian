@@ -213,6 +213,11 @@ import {
   resolveDbTypeProfile,
 } from "./rowHealthRepair";
 import { RowHealthBadge } from "./RowHealthBadge";
+import { HubRowIndicator } from "core/react/components/UI/Toggles/HubRowIndicator";
+import {
+  hubRowChildFolderPath,
+  shouldRenderHubRowIndicator,
+} from "core/utils/contexts/hubRowCascade";
 import {
   ColumnDataAnchorMode,
   ColumnHeaderDisplayMode,
@@ -471,6 +476,13 @@ const TableRowDragHandle = (props: {
   // own, same posture as HubRowIndicator.
   healthViolations?: DataHealthViolation[];
   onOpenHealthMenu?: (e: React.MouseEvent) => void;
+  // Row-as-child-hub indicator (Notidian-b0fm, DEFAULT-OFF flag-gated). The
+  // caller (TableView) resolves both flags + the hub-row relationship and only
+  // sets `showHubRowIndicator` when all hold, so this component carries no
+  // gating logic of its own — same pass-through posture as healthViolations.
+  superstate?: Superstate;
+  showHubRowIndicator?: boolean;
+  onOpenHub?: (e: React.MouseEvent) => void;
 }) => {
   const {
     attributes,
@@ -538,6 +550,12 @@ const TableRowDragHandle = (props: {
           <RowHealthBadge
             violations={props.healthViolations}
             onOpenMenu={props.onOpenHealthMenu}
+          />
+        ) : null}
+        {props.showHubRowIndicator && props.superstate ? (
+          <HubRowIndicator
+            superstate={props.superstate}
+            onOpen={(e) => props.onOpenHub?.(e)}
           />
         ) : null}
       </div>
@@ -737,6 +755,22 @@ export const TableView = (props: { superstate: Superstate }) => {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [healthSurfacesEnabled, dbPath, props.superstate.reconciler, healthBump]);
+
+  // Row-as-child-hub indicator (Notidian-b0fm, DEFAULT-OFF flag-gated). When
+  // enabled (settings.enableHubRowIndicator AND settings.enableNestedHubRows),
+  // a row whose file is the configured note of a same-named sibling folder gets
+  // a gutter button that opens that nested child database. OFF (the default) ==
+  // the gutter renders exactly as before. `notePathForFolder` is the same
+  // spacesIndex read path.ts's cascade uses; memoized so the per-row hub check
+  // in the render loop is a cheap Map lookup, never a fresh closure per row.
+  const hubIndicatorEnabled =
+    !!props.superstate.settings.enableHubRowIndicator &&
+    !!props.superstate.settings.enableNestedHubRows;
+  const notePathForFolder = useCallback(
+    (folderPath: string): string | null =>
+      props.superstate.spacesIndex?.get(folderPath)?.space?.notePath ?? null,
+    [props.superstate]
+  );
 
   // ADR 0052: a collapsed grouped island is view state, not a row mutation.
   // Keep an optimistic local copy so the header responds immediately; the
@@ -4030,6 +4064,18 @@ export const TableView = (props: { superstate: Superstate }) => {
               const rowIsBroken = rowViolations.some(
                 (v) => v.code == MALFORMED_ROW_CODE
               );
+              // Row-as-child-hub indicator (Notidian-b0fm, DEFAULT-OFF): show
+              // it only for a genuine hub row (both flags on + the row's file
+              // is a same-named sibling folder's configured note). Group headers
+              // are not data rows and never carry the affordance.
+              const rowIsHub =
+                hubIndicatorEnabled && !isGroupHeader
+                  ? shouldRenderHubRowIndicator(
+                      props.superstate.settings,
+                      rowPath,
+                      notePathForFolder
+                    )
+                  : false;
 
               return (
                 <React.Fragment key={row.id}>
@@ -4131,6 +4177,14 @@ export const TableView = (props: { superstate: Superstate }) => {
                       onOpenHealthMenu={(e) =>
                         openRowHealthRepairMenu(e, rowPath, rowViolations)
                       }
+                      superstate={props.superstate}
+                      showHubRowIndicator={rowIsHub}
+                      onOpenHub={() => {
+                        const folder = hubRowChildFolderPath(rowPath);
+                        if (folder) {
+                          props.superstate.ui.openPath(folder, false);
+                        }
+                      }}
                     />
                   ) : (
                     <td
