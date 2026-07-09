@@ -94,6 +94,12 @@ export const computeFieldValueStats = (
   // candidates — the exact data-integrity regression this must faithfully cover
   // (the summary advertises presentCount over all spellings, so the field's
   // stats must too).
+  //
+  // Exclusion is enforced UPSTREAM: discoverFrontmatterSchema folds its
+  // excluded-key set case-insensitively (Notidian-1adj), so a logical field
+  // whose case-folded name matches an excluded key emits no summary and never
+  // reaches here — this case-fold therefore only ever unions spellings of a
+  // NON-excluded field, never re-admits an excluded key's case-variant values.
   const lowerKey = key.toLowerCase();
 
   for (const path of paths) {
@@ -369,7 +375,15 @@ export const detectPropertyProfileDivergence = ({
   excludedKeys = [],
 }: DetectPropertyProfileDivergenceOptions): PropertyProfileDivergence => {
   const rowCount = paths.length;
-  const excluded = new Set([PathPropertyName, ...excludedKeys]);
+  // Notidian-1adj: fold the exclusion set case-insensitively, matching
+  // discoverFrontmatterSchema's own case-folded exclusion. A case-sensitive
+  // check would count a case-variant of an excluded key (e.g. `Tags` when
+  // `tags` is excluded) as a populated, discriminating field — surfacing the
+  // excluded property in the coherence advisory that the field-union pass
+  // deliberately drops.
+  const excluded = new Set(
+    [PathPropertyName, ...excludedKeys].map((key) => key.toLowerCase())
+  );
 
   // Per-row present-field set: keys the row genuinely ANSWERS with — the same
   // present/empty notion computeFieldValueStats uses, so a key declared with an
@@ -378,7 +392,7 @@ export const detectPropertyProfileDivergence = ({
     const frontmatter = frontmatterForPath(frontmatterByPath, path);
     const present = new Set<string>();
     for (const key of Object.keys(frontmatter)) {
-      if (excluded.has(key)) continue;
+      if (excluded.has(key.toLowerCase())) continue;
       const values = toValueList(frontmatter[key])
         .map((value) => value.trim())
         .filter((value) => value.length > 0);

@@ -533,6 +533,59 @@ describe("draftTypeProfileAdoption", () => {
       presentCount: 13,
     });
   });
+
+  // Notidian-1adj (consumer-path regression, EXCLUDED-key case-variant collision):
+  // discoverFrontmatterSchema now folds its exclusion set case-insensitively, so
+  // a stray case-variant of an excluded key (e.g. `Tags` when `tags` is excluded)
+  // never surfaces as a drafted field. Pre-fix, exclusion was case-sensitive:
+  // `tags` was dropped but `Tags` survived as a summary whose canonical key
+  // computeFieldValueStats then case-folded, re-unioning EVERY excluded `tags`
+  // value into the drafted enum/FK/empty stats — leaking excluded data and
+  // inflating the field's counts above the summary's advertised presentCount.
+  it("does not draft a field for — or leak the values of — a case-variant of an EXCLUDED key", () => {
+    // `tags` is on the exclusion list (the real static set excludes it). Every
+    // row carries lowercase `tags:` (excluded system tags), plus a real
+    // `status:` field, and one row has a stray capital `Tags:`.
+    const paths = Array.from({ length: 6 }, (_, i) => `X-${i}.md`);
+    const cycle = ["active", "paused", "done"];
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {};
+    paths.forEach((p, i) => {
+      frontmatterByPath[p] = {
+        tags: [`sys-${i}`, "shared"],
+        status: cycle[i % 3],
+        ...(i === 5 ? { Tags: ["stray-capital"] } : {}),
+      };
+    });
+
+    const draft = draftTypeProfileAdoption({
+      database: "Ops/Things",
+      paths,
+      frontmatterByPath,
+      excludedKeys: ["tags"],
+    });
+
+    const drafted = draft.fields.map((f) => f.field.name.toLowerCase());
+    // Neither the excluded `tags` nor its stray `Tags` case-variant is drafted.
+    expect(drafted).not.toContain("tags");
+    // The genuine field is drafted, and NONE of the excluded values leaked into
+    // it (its vocabulary is exactly the status values, never `shared`/`sys-*`/
+    // `stray-capital`).
+    const status = draft.fields.find((f) => f.field.name === "status")!;
+    expect(status).toBeDefined();
+    const allDraftedValues = draft.fields.flatMap(
+      (f) => f.enumCandidate?.values ?? []
+    );
+    expect(allDraftedValues).not.toContain("shared");
+    expect(allDraftedValues).not.toContain("stray-capital");
+    expect(allDraftedValues.some((v) => v.startsWith("sys-"))).toBe(false);
+    // And the excluded values never reach the FK-candidate scorer either.
+    const allFkValues = draft.fields.flatMap((f) =>
+      f.foreignKeyCandidates.map((c) => c.candidateCount)
+    );
+    // status has 3 distinct values; nothing here should surface a leak-inflated
+    // candidateCount tied to the excluded tag vocabulary.
+    expect(allFkValues.every((c) => c <= 3)).toBe(true);
+  });
 });
 
 describe("detectPropertyProfileDivergence (ADR-0040 Database Boundary Test)", () => {
@@ -749,6 +802,25 @@ describe("detectPropertyProfileDivergence (ADR-0040 Database Boundary Test)", ()
         "location",
         "safety",
         "sourcing",
+      ],
+    });
+    expect(result.divergent).toBe(false);
+  });
+
+  it("excludes configured keys case-INSENSITIVELY (Notidian-1adj)", () => {
+    // Same divergence-driving keys, but supplied to excludedKeys in a different
+    // casing than the frontmatter uses. A case-sensitive exclusion would leave
+    // the signal intact and still flag divergence; folding both sides drops it.
+    const result = detectPropertyProfileDivergence({
+      paths: toolsAndMaterialsPaths,
+      frontmatterByPath: toolsAndMaterialsFrontmatter,
+      excludedKeys: [
+        "Platform",
+        "URL",
+        "Account",
+        "Location",
+        "Safety",
+        "Sourcing",
       ],
     });
     expect(result.divergent).toBe(false);

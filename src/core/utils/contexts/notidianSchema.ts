@@ -369,13 +369,25 @@ export const discoverFrontmatterSchema = ({
   frontmatterByPath,
   excludedKeys = [],
 }: DiscoverFrontmatterSchemaOptions): FrontmatterSchemaSummary[] => {
-  const excluded = new Set([PathPropertyName, ...excludedKeys]);
-  // Notidian-1adj: aggregate by case-folded key so case-variant spellings of
-  // one logical field ("state" vs "State") collapse into ONE summary entry,
-  // mirroring the mdb-collapse (Notidian-1q8y) / rename (Notidian-lqt4) /
-  // delete (Notidian-1e93) siblings. The Map is keyed by key.toLowerCase() and
-  // its insertion order (first-seen group order) drives the deterministic
-  // output order, matching the original first-seen emission contract.
+  // Notidian-1adj: fold the exclusion set case-insensitively too. Discovery
+  // aggregates spellings by key.toLowerCase() below, so a logical field is
+  // excluded iff its CASE-FOLDED name matches an excluded key — mirroring that
+  // merge. A case-sensitive `excluded.has(key)` would drop only the excluded
+  // spelling (e.g. lowercase `tags`) while surfacing a case-variant (`Tags`) as
+  // a bogus summary; the adoption consumer then feeds that summary's canonical
+  // key to computeFieldValueStats, which case-folds and re-unions the very
+  // values the exclusion was meant to drop — leaking excluded (`tags`) data
+  // into the drafted enum/FK/empty stats. Folding here keeps every pass agreeing
+  // on the same logical-field exclusion.
+  const excluded = new Set(
+    [PathPropertyName, ...excludedKeys].map((key) => key.toLowerCase())
+  );
+  // Aggregate by case-folded key so case-variant spellings of one logical field
+  // ("state" vs "State") collapse into ONE summary entry, mirroring the
+  // mdb-collapse (Notidian-1q8y) / rename (Notidian-lqt4) / delete
+  // (Notidian-1e93) siblings. The Map is keyed by key.toLowerCase() and its
+  // insertion order (first-seen group order) drives the deterministic output
+  // order, matching the original first-seen emission contract.
   const groups = new Map<
     string,
     {
@@ -398,9 +410,9 @@ export const discoverFrontmatterSchema = ({
     const touched = new Set<string>();
 
     for (const key of Object.keys(frontmatter)) {
-      if (excluded.has(key)) continue;
-
       const canonical = key.toLowerCase();
+      if (excluded.has(canonical)) continue;
+
       const group = groups.get(canonical) ?? {
         presentCount: 0,
         observedTypes: [],

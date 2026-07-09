@@ -280,6 +280,56 @@ describe("discoverFrontmatterSchema — case-variant key collisions", () => {
     const again = discoverFrontmatterSchema({ paths, frontmatterByPath });
     expect(again).toEqual(schema);
   });
+
+  it("FIXED (Notidian-1adj): a case-VARIANT of an excluded key is excluded too — no bogus summary for the surviving spelling", () => {
+    // excludedKeys carries lowercase `tags` (the real static exclusion set does:
+    // Obsidian's system tags). Rows carry lowercase `tags` (excluded) AND one
+    // stray capital `Tags`. A case-SENSITIVE exclusion would drop only `tags`
+    // and surface `Tags` as its own summary whose presentCount counts just the
+    // one stray row — a phantom field that is really a mis-cased instance of the
+    // excluded system tags. Case-folding the exclusion drops the whole logical
+    // group: no `tags`/`Tags` summary survives at all.
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "R/0.md": { tags: ["alpha"], status: "active" },
+      "R/1.md": { tags: ["beta"], status: "paused" },
+      "R/2.md": { Tags: ["gamma"], status: "active" }, // stray capital variant
+    };
+    const paths = Object.keys(frontmatterByPath);
+
+    const schema = discoverFrontmatterSchema({
+      paths,
+      frontmatterByPath,
+      excludedKeys: ["tags"],
+    });
+
+    // Neither spelling of the excluded logical field survives.
+    expect(schema.some((s) => s.key.toLowerCase() === "tags")).toBe(false);
+    // The genuinely non-excluded field is still discovered normally.
+    const status = schema.find((s) => s.key === "status");
+    expect(status).toBeDefined();
+    expect(status!.presentCount).toBe(3);
+  });
+
+  it("FIXED (Notidian-1adj): an excluded key supplied in a DIFFERENT case still folds — every spelling in the data is dropped", () => {
+    // The exclusion list itself is capitalized (`Status`); the data uses mixed
+    // casings. Folding both sides means the logical field is excluded regardless
+    // of which casing the exclusion was configured in.
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "R/0.md": { status: "a", keep: "x" },
+      "R/1.md": { Status: "b", keep: "y" },
+      "R/2.md": { STATUS: "c", keep: "z" },
+    };
+    const paths = Object.keys(frontmatterByPath);
+
+    const schema = discoverFrontmatterSchema({
+      paths,
+      frontmatterByPath,
+      excludedKeys: ["Status"],
+    });
+
+    expect(schema.some((s) => s.key.toLowerCase() === "status")).toBe(false);
+    expect(schema.map((s) => s.key)).toEqual(["keep"]);
+  });
 });
 
 describe("createFrontmatterPropertyPlan — case-variant duplicate stress", () => {
