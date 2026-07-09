@@ -216,24 +216,82 @@ const caseVariantFrontmatterKey = (
   );
 };
 
-const stableNormalize = (value: unknown): unknown => {
+// Notidian-hz8f: a stable, JSON-serializable canonical form for equality
+// comparison. Two guards make this safety-critical (it gates
+// planRenameFrontmatterProperty's "both-same" auto-drop of the old key):
+//   * a WeakSet visited-guard tracks the *ancestor* chain of the current
+//     recursion so a self-referential value yields a stable "[Circular]"
+//     sentinel instead of overflowing the stack. Each container is removed
+//     from the set after its subtree is normalized, so a value merely shared
+//     across siblings (a DAG, not a cycle) still normalizes fully every time.
+//   * explicit Map/Set branches run BEFORE the plain-object branch. Map/Set
+//     entries are not own enumerable string keys, so the object branch's
+//     Object.keys() returns [] for them -- two DIFFERENT Maps/Sets would both
+//     collapse to "{}" and false-compare EQUAL, silently auto-dropping a
+//     differing value. Each is normalized via its (recursively normalized)
+//     entries, sorted for order-independence, under a distinct tag so a Map,
+//     a Set, and a plain object never collide.
+const CIRCULAR_SENTINEL = "[Circular]";
+
+const byJson = (a: unknown, b: unknown): number => {
+  const ja = JSON.stringify(a);
+  const jb = JSON.stringify(b);
+  return ja < jb ? -1 : ja > jb ? 1 : 0;
+};
+
+const stableNormalize = (
+  value: unknown,
+  visited: WeakSet<object> = new WeakSet()
+): unknown => {
   if (Array.isArray(value)) {
-    return value.map((item) => stableNormalize(item));
+    if (visited.has(value)) return CIRCULAR_SENTINEL;
+    visited.add(value);
+    const normalized = value.map((item) => stableNormalize(item, visited));
+    visited.delete(value);
+    return normalized;
   }
 
   if (value instanceof Date) {
     return value.toISOString();
   }
 
+  if (value instanceof Map) {
+    if (visited.has(value)) return CIRCULAR_SENTINEL;
+    visited.add(value);
+    const entries = [...value.entries()]
+      .map(([entryKey, entryValue]) => [
+        stableNormalize(entryKey, visited),
+        stableNormalize(entryValue, visited),
+      ])
+      .sort(byJson);
+    visited.delete(value);
+    return { "[Map]": entries };
+  }
+
+  if (value instanceof Set) {
+    if (visited.has(value)) return CIRCULAR_SENTINEL;
+    visited.add(value);
+    const values = [...value.values()]
+      .map((item) => stableNormalize(item, visited))
+      .sort(byJson);
+    visited.delete(value);
+    return { "[Set]": values };
+  }
+
   if (value && typeof value == "object") {
-    return Object.keys(value as Record<string, unknown>)
+    if (visited.has(value)) return CIRCULAR_SENTINEL;
+    visited.add(value);
+    const normalized = Object.keys(value as Record<string, unknown>)
       .sort()
-      .reduce<Record<string, unknown>>((normalized, key) => {
-        normalized[key] = stableNormalize(
-          (value as Record<string, unknown>)[key]
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = stableNormalize(
+          (value as Record<string, unknown>)[key],
+          visited
         );
-        return normalized;
+        return acc;
       }, {});
+    visited.delete(value);
+    return normalized;
   }
 
   return value;

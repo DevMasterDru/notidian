@@ -1066,19 +1066,56 @@ describe("non-plain-object frontmatter FIELD values (arrays/null/primitives/exot
   // parsing (Map/Set/circular refs) but are legal at the `unknown` type
   // boundary and worth pinning defensively, mirroring the sibling
   // keyMatchResolver adversarial suite's EXOTIC_VALUES treatment.
-  it("PIN: Map/Set frontmatter values normalize to an empty object and compare EQUAL regardless of content", () => {
-    // stableNormalize's plain-object branch calls Object.keys(value), which
-    // returns [] for Map/Set instances (their entries are not own
-    // enumerable string properties) -- so two DIFFERENT Maps are reported
-    // "both-same" by valuesEqual. This is a latent correctness gap (not a
-    // crash, not reachable from real YAML-parsed frontmatter today), pinned
-    // here rather than fixed (zero production-code change in this bead).
+  it("Notidian-hz8f FIXED: Map/Set frontmatter values with different contents compare NOT equal (no false both-same auto-drop)", () => {
+    // stableNormalize now has explicit Map/Set branches (before the plain-
+    // object branch). Previously Object.keys(map) returned [] so two DIFFERENT
+    // Maps both collapsed to "{}" and valuesEqual reported them "both-same" --
+    // planRenameFrontmatterProperty would then auto-write removeKeys:[oldKey],
+    // silently dropping a value that actually differed (latent data loss).
+    // Now the differing contents surface as a "both-conflict" with no
+    // automatic write, for both Map and Set values.
+    const table = baseTable();
+
+    for (const [oldValue, newValue] of [
+      [new Map([["a", 1]]), new Map([["b", 2]])],
+      [new Set([1, 2, 3]), new Set([4, 5, 6])],
+    ] as const) {
+      const path = "A.md";
+      const frontmatterByPath = { [path]: { status: oldValue, workflow: newValue } };
+
+      const plan = planRenameFrontmatterProperty({
+        table,
+        oldKey: "status",
+        newKey: "workflow",
+        paths: [path],
+        frontmatterByPath,
+      });
+
+      expect(plan.fileStates).toEqual([
+        { path, state: "both-conflict", oldValue, newValue },
+      ]);
+      expect(plan.issues).toContainEqual({
+        reason: "frontmatter-conflict",
+        path,
+        oldKey: "status",
+        newKey: "workflow",
+      });
+      expect(plan.automaticWrites).toEqual([]);
+      expect(plan.canApplyAutomatically).toBe(false);
+    }
+  });
+
+  it("Notidian-hz8f FIXED: Map/Set frontmatter values with identical contents compare EQUAL (order-independent)", () => {
+    // The Map/Set branches sort their (recursively normalized) entries, so two
+    // Sets with the same members in a different insertion order -- and two
+    // Maps with the same key/value pairs -- normalize identically and compare
+    // EQUAL, yielding the "both-same" auto-migration path.
     const table = baseTable();
     const path = "A.md";
     const frontmatterByPath = {
       [path]: {
-        status: new Map([["a", 1]]),
-        workflow: new Map([["b", 2]]), // different content
+        status: new Set([3, 1, 2]),
+        workflow: new Set([1, 2, 3]), // same members, different order
       },
     };
 
@@ -1098,17 +1135,19 @@ describe("non-plain-object frontmatter FIELD values (arrays/null/primitives/exot
         newValue: frontmatterByPath[path].workflow,
       },
     ]);
+    expect(plan.automaticWrites).toEqual([
+      { path, set: {}, removeKeys: ["status"] },
+    ]);
   });
 
-  it("PIN: a self-referential (circular) frontmatter value crashes valuesEqual's normalize step", () => {
+  it("Notidian-hz8f FIXED: a self-referential (circular) frontmatter value no longer crashes valuesEqual's normalize step", () => {
     // Cannot occur from real YAML parsing (no object identity in YAML), but
-    // the type signature (`unknown`) permits it. stableNormalize recurses
-    // into the object's own keys with no cycle guard, so a self-reference
-    // causes unbounded recursion. Pinned as a known, currently-unreachable
-    // crash surface rather than silently "fixed" here (see follow-up bead).
-    // Two DISTINCT circular objects are used (not the same reference) so
-    // valuesEqual's Object.is(left, right) fast path can't short-circuit
-    // before reaching stableNormalize.
+    // the type signature (`unknown`) permits it. stableNormalize now threads a
+    // WeakSet visited-guard so a self-reference yields a stable "[Circular]"
+    // sentinel instead of overflowing the stack. Two DISTINCT circular objects
+    // are used (not the same reference) so valuesEqual's Object.is(left, right)
+    // fast path can't short-circuit before reaching stableNormalize; with the
+    // same shape they normalize identically and compare EQUAL (both-same).
     const circularA: Record<string, unknown> = {};
     circularA.self = circularA;
     const circularB: Record<string, unknown> = {};
@@ -1120,15 +1159,20 @@ describe("non-plain-object frontmatter FIELD values (arrays/null/primitives/exot
       [path]: { status: circularA, workflow: circularB },
     };
 
-    expect(() =>
+    const call = () =>
       planRenameFrontmatterProperty({
         table,
         oldKey: "status",
         newKey: "workflow",
         paths: [path],
         frontmatterByPath,
-      })
-    ).toThrow();
+      });
+
+    expect(call).not.toThrow();
+    const plan = call();
+    expect(plan.fileStates).toEqual([
+      { path, state: "both-same", oldValue: circularA, newValue: circularB },
+    ]);
   });
 });
 
