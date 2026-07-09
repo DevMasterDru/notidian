@@ -214,6 +214,76 @@ describe("notidian real vault harness", () => {
     expect(calls.map((args) => args[1])).not.toContain("delete");
   });
 
+  it("cleanup names every fixture row variant and sweeps the run prefix so a mid-rename error leaves no orphaned row files (Notidian-glu0)", async () => {
+    // Regression: the smoke scenario renames Alpha -> "Alpha Renamed" -> (UI)
+    // "Alpha UI Renamed"; if it errors after a live rename lands on disk but
+    // before primaryPath is re-tracked, cleanup used to delete only
+    // [primaryPath, betaPath] and orphan the actual renamed file. Cleanup must
+    // now name every row variant AND sweep every markdown file under the run's
+    // unique prefix, so no fixture row survives whichever endpoint the scenario
+    // reached.
+    const evalResponses = ["=> old", "=> active", "=> active"];
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command == "eval") {
+        const code = args.find((arg) => arg.startsWith("code=")) ?? "";
+        if (code.includes("notidianEnsureFixtureFolder")) {
+          return JSON.stringify({ ok: true, created: [] });
+        }
+        if (code.includes("notidianRenameFile")) {
+          return JSON.stringify({ ok: true, path: args[0] });
+        }
+        if (code.includes("notidianCleanupFixtures")) {
+          return JSON.stringify({ ok: true, deleted: [], missing: [] });
+        }
+        if (code.includes("notidianLegacyArtifactSnapshot")) {
+          return cleanLegacyArtifactSnapshot;
+        }
+        return evalResponses.shift() ?? "active";
+      }
+      if (command == "read") return "---\nstatus: active\n---\n# Alpha";
+      if (command == "dev:errors" && !args.includes("clear")) {
+        return "No errors captured.";
+      }
+      return "";
+    });
+
+    await runRealVaultSmokeHarness(
+      {
+        ...baseConfig,
+        now: () => new Date("2026-05-25T10:20:30.456Z"),
+      },
+      runner
+    );
+
+    const paths = createFixturePaths(
+      baseConfig,
+      new Date("2026-05-25T10:20:30.456Z")
+    );
+    const cleanupArgs = runner.mock.calls
+      .map(([args]) => args)
+      .find((args) => args.join(" ").includes("notidianCleanupFixtures"));
+    expect(cleanupArgs).toBeDefined();
+    const cleanupCode =
+      cleanupArgs.find((arg) => arg.startsWith("code=")) ?? "";
+
+    // Every row-file endpoint the scenario can create is named explicitly.
+    for (const rowPath of [
+      paths.alphaPath,
+      paths.betaPath,
+      paths.alphaRenamedPath,
+      paths.alphaUiRenamedPath,
+    ]) {
+      expect(cleanupCode).toContain(JSON.stringify(rowPath));
+    }
+
+    // ...and the prefix sweep is the catch-all for whichever renamed variant
+    // the scenario actually landed on when it errored.
+    expect(cleanupCode).toContain(JSON.stringify(paths.prefix));
+    expect(cleanupCode).toContain("getMarkdownFiles()");
+    expect(cleanupCode).toContain("file.path.startsWith(prefix)");
+  });
+
   it("runs the optional table UI smoke scenario before cleanup", async () => {
     const calls = [];
     const evalResponses = [

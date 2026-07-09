@@ -422,15 +422,31 @@ const ensureFixtureFolderEvalCode = ({ folder }) =>
     }
   })()`.replace(/\s+/g, " ");
 
-const cleanupFixturesEvalCode = ({ paths }) =>
+// Deletes the smoke scenario's row files. It takes both an explicit list of
+// paths AND the run's unique fixture prefix: the explicit list names every
+// row-file endpoint the scenario can create, and the prefix sweep then removes
+// any remaining markdown file under that prefix. The sweep is the catch-all for
+// a row the scenario renamed after `primaryPath` was last tracked (e.g. an
+// error between a live rename and its post-rename metadata assertion), which
+// leaves an orphan the explicit list alone would miss (Notidian-glu0). Because
+// the prefix is unique per run (it embeds the run timestamp), the sweep never
+// touches another run's fixtures.
+const cleanupFixturesEvalCode = ({ paths, prefix = null }) =>
   `(async () => {
     const marker = "notidianCleanupFixtures";
     const finish = (payload) => JSON.stringify({ marker, ...payload });
-    const paths = ${JSON.stringify(paths)};
+    const explicitPaths = ${JSON.stringify(paths)};
+    const prefix = ${JSON.stringify(prefix)};
+    const targets = new Set(explicitPaths.filter(Boolean));
+    if (prefix) {
+      for (const file of app.vault.getMarkdownFiles()) {
+        if (file.path.startsWith(prefix)) targets.add(file.path);
+      }
+    }
     const deleted = [];
     const missing = [];
     const failed = [];
-    for (const path of paths) {
+    for (const path of targets) {
       try {
         const file = app.vault.getAbstractFileByPath(path);
         if (!file) {
@@ -2779,11 +2795,29 @@ const cleanupFixtures = async ({
   if (config.keepFixture) return false;
 
   const deletePaths = [
-    ...new Set([primaryPath, betaPath, ...extraPaths].filter(Boolean)),
+    ...new Set(
+      [
+        primaryPath,
+        betaPath,
+        // Every row-file endpoint the smoke scenario can create, named
+        // explicitly so a scenario that errors mid-rename (leaving
+        // primaryPath out of sync with the on-disk file) still deletes each
+        // variant. The prefix sweep in cleanupFixturesEvalCode is the
+        // belt-and-suspenders catch-all (Notidian-glu0).
+        paths.alphaPath,
+        paths.betaPath,
+        paths.alphaRenamedPath,
+        paths.alphaUiRenamedPath,
+        ...extraPaths,
+      ].filter(Boolean)
+    ),
   ];
   const cleanupResult = parseJsonEvalResult(
     await runObsidian(config, runner, "eval", {
-      code: cleanupFixturesEvalCode({ paths: deletePaths }),
+      code: cleanupFixturesEvalCode({
+        paths: deletePaths,
+        prefix: paths.prefix,
+      }),
     })
   );
 
