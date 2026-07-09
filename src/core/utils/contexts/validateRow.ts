@@ -550,7 +550,18 @@ export const validateRowPatch = (
   // being silently skipped because the fields list happened to be empty. The
   // per-field loop below is already a correct no-op over an empty `fields`
   // array, so this early return bought nothing but a defeated invariant.
-  const fields = Array.isArray(schema?.fields) ? schema!.fields : [];
+  // `schema.fields` is already Array-guarded above; ALSO drop any non-object
+  // ELEMENT (null/undefined/scalar) before either the `fieldsByName` Map build
+  // or the per-field loop dereferences `field.name` (Notidian-iscd). That deref
+  // at the Map build sits OUTSIDE `pushSafe`, so an unguarded null element there
+  // threw `TypeError` and aborted the whole pass — a real gap vs the "never
+  // throws" adversarial contract. `parseTypeProfile` only ever emits constructed
+  // object fields, so this is defensive-depth only; the skip mirrors that
+  // parser's own `isPlainObject` posture — a malformed field has no name to
+  // attribute, so it degrades to a silent skip rather than a diagnostic.
+  const fields = (
+    Array.isArray(schema?.fields) ? schema!.fields : []
+  ).filter((field): field is TypeProfileField => isPlainObject(field));
 
   const effectiveRow: Record<string, unknown> = { ...rowRecord, ...patchRecord };
   const fieldsByName = new Map(fields.map((field) => [field.name, field]));

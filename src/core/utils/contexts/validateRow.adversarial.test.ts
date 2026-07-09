@@ -432,11 +432,13 @@ const genGarbageSchema = (rng: Rng): unknown =>
     {},
     { fields: 5 },
     { fields: "nope", invariants: "nope" },
-    // NOTE: deliberately NO null/undefined ELEMENT inside `fields` here — that
-    // one class currently throws (unguarded deref at the fieldsByName Map
-    // build) and is pinned separately as a KNOWN GAP + follow-up Notidian-iscd.
-    // Non-object entries that the pushSafe wrapper DOES tolerate stay in-scope.
-    { fields: [{}, { name: 1 }, { name: "x", type: {} }, 5] },
+    // Notidian-iscd CLOSED the null/undefined-ELEMENT gap: a non-object entry
+    // inside `fields` is now filtered at the source (isPlainObject) before the
+    // fieldsByName Map build derefs `field.name`, so it degrades to skip. Keep
+    // null/undefined mixed with the other non-object entries the pushSafe
+    // wrapper tolerates, so the TOTAL property covers the whole class.
+    { fields: [null, {}, undefined, { name: 1 }, { name: "x", type: {} }, 5] },
+    { fields: [null, undefined] },
     {
       fields: [genField(rng, "alpha"), genField(rng, "beta")],
       invariants: "not-an-array",
@@ -964,42 +966,68 @@ describe("validateRowPatch — empty-encoding vs required interplay", () => {
 });
 
 // ===========================================================================
-// KNOWN GAP (follow-up: Notidian-iscd) — surfaced by this fuzzer.
+// CLOSED GAP (Notidian-iscd) — a null/undefined ELEMENT inside schema.fields.
 //
 // The adversarial contract promises validateRowPatch NEVER throws on a
 // malformed schema, and the module already defends against `fields` not being
-// an array. But a `fields` ARRAY holding a null/undefined ELEMENT is
+// an array. A `fields` ARRAY holding a null/undefined ELEMENT was once
 // dereferenced unguarded at the fieldsByName Map build
 // (validateRow.ts: `fields.map((field) => [field.name, field])`) — OUTSIDE the
-// pushSafe wrapper — so it currently THROWS instead of degrading to skip.
-// parseTypeProfile never emits such an element (each parsed field is a
-// constructed object), so this is defensive-depth only, not a live-reachable
-// crash — hence a routed follow-up bead rather than an in-bead product fix.
+// pushSafe wrapper — so it THREW instead of degrading to skip. Notidian-iscd
+// filters non-object field entries at the source with the same `isPlainObject`
+// posture parseTypeProfile uses, so such an element now degrades to a silent
+// skip. parseTypeProfile never emits such an element (each parsed field is a
+// constructed object), so this remains defensive-depth only.
 //
-// This test PINS the current behavior so the gap stays visible: when
-// Notidian-iscd lands, flip this to `.not.toThrow()` and re-add a null/
-// undefined field element to `genGarbageSchema`'s pool so the TOTAL property
-// covers it.
+// These tests PIN the closed behavior: a null/undefined field element must NOT
+// throw, and — since it has no name to attribute — must contribute no
+// violation of its own (an empty schema over an empty row is clean). The
+// garbage-schema fuzzer (genGarbageSchema) also re-includes null/undefined
+// field elements so the TOTAL property covers the class end-to-end.
 // ===========================================================================
 
-describe("validateRowPatch — KNOWN GAP: null field entry (Notidian-iscd)", () => {
-  it("currently throws on a null element inside schema.fields (pins the gap)", () => {
+describe("validateRowPatch — CLOSED GAP: null field entry (Notidian-iscd)", () => {
+  it("does not throw on a null element inside schema.fields; degrades to skip", () => {
     const schema = {
       fields: [null],
       kindFields: {},
       invariants: [],
       issues: [],
     } as unknown as NotidianTypeProfile;
-    expect(() => validateRowPatch(schema, {}, {})).toThrow();
+    let result: Violation[] = [];
+    expect(() => {
+      result = validateRowPatch(schema, {}, {});
+    }).not.toThrow();
+    expect(result).toEqual([]);
   });
 
-  it("currently throws on an undefined element inside schema.fields (pins the gap)", () => {
+  it("does not throw on an undefined element inside schema.fields; degrades to skip", () => {
     const schema = {
       fields: [undefined],
       kindFields: {},
       invariants: [],
       issues: [],
     } as unknown as NotidianTypeProfile;
-    expect(() => validateRowPatch(schema, {}, {})).toThrow();
+    let result: Violation[] = [];
+    expect(() => {
+      result = validateRowPatch(schema, {}, {});
+    }).not.toThrow();
+    expect(result).toEqual([]);
+  });
+
+  it("skips only the malformed element, still validating the well-formed siblings", () => {
+    const schema = {
+      fields: [null, { name: "x", kind: "text", type: "text", required: true }, undefined],
+      kindFields: {},
+      invariants: [],
+      issues: [],
+    } as unknown as NotidianTypeProfile;
+    let result: Violation[] = [];
+    expect(() => {
+      result = validateRowPatch(schema, {}, {});
+    }).not.toThrow();
+    // The null/undefined siblings vanish; the real `required` field still fires.
+    expect(result.map((v) => v.code)).toEqual(["required"]);
+    expect(result[0].field).toBe("x");
   });
 });
