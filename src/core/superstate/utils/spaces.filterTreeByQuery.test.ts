@@ -154,6 +154,58 @@ describe("filterTreeByQuery (Notidian-nrjb)", () => {
     );
   });
 
+  // ---------------------------------------------------------------------------
+  // SUBTREE CONTIGUITY / mis-parenting regression (review catch, Notidian-nrjb):
+  // The depth-indented flat renderer (SpaceTreeItem indents purely by `depth`;
+  // VirtualizedList draws in array order) reads nesting SOLELY from `depth` +
+  // position, so the flattened output must be strict DFS pre-order -- every
+  // subtree CONTIGUOUS. A plain lexical string sort does NOT guarantee this: a
+  // sibling FILE whose name extends a sibling FOLDER's name with a separator
+  // that sorts before '/' (0x2F) -- a space (0x20), '-' (0x2D), '.' (0x2E) --
+  // sorts BETWEEN the folder and the folder's own descendants, so the deeper
+  // descendant renders one level below that FILE and appears mis-parented under
+  // it. (Verified: ["/","Projects","Projects Overview.md","Projects/Sub",
+  // "Projects/Sub/match.md"] is the lexical order.)
+  // ---------------------------------------------------------------------------
+  it("emits strict DFS pre-order: a sibling file whose name extends a folder name never breaks subtree contiguity", () => {
+    const entries: Record<string, PathState> = {
+      "/": makePathState({ path: "/", name: "vault", parent: "", label: { name: "Vault", sticker: "", color: "" } }),
+      Projects: makePathState({ path: "Projects", name: "Projects", parent: "/", label: { name: "Projects", sticker: "", color: "" } }),
+      // Sibling FILE at the SAME level as the folder, whose name extends the
+      // folder name with a space (0x20 < 0x2F) -- the exact interleaving trigger.
+      "Projects Overview.md": makePathState({ path: "Projects Overview.md", name: "Projects Overview.md", parent: "/", label: { name: "Projects Overview", sticker: "", color: "" } }),
+      "Projects/Sub": makePathState({ path: "Projects/Sub", name: "Sub", parent: "Projects", label: { name: "Sub", sticker: "", color: "" } }),
+      "Projects/Sub/match.md": makePathState({ path: "Projects/Sub/match.md", name: "match.md", parent: "Projects/Sub", label: { name: "match", sticker: "", color: "" } }),
+    };
+    const superstate = makeSuperstate(entries, ["/", "Projects", "Projects/Sub"]);
+    const result = filterTreeByQuery(superstate, [entries["/"]], "pro");
+
+    // Nothing is dropped -- the whole matched set (plus the '/' ancestor) renders.
+    expect(pathsOf(result)).toEqual(
+      ["/", "Projects", "Projects Overview.md", "Projects/Sub", "Projects/Sub/match.md"].sort()
+    );
+
+    // Depth-indented-tree invariant: whenever the row directly above a node is
+    // EXACTLY one level shallower, it MUST be that node's rendered parent --
+    // otherwise the node visually nests under the wrong row. The lexical sort
+    // violates this (Projects/Sub@depth2 follows Projects Overview.md@depth1,
+    // which is not its parent); strict DFS pre-order satisfies it for every row.
+    for (let i = 1; i < result.length; i++) {
+      const node = result[i];
+      const prev = result[i - 1];
+      if (node.parentId != null && prev.depth === node.depth - 1) {
+        expect(prev.path).toBe(node.parentId);
+      }
+    }
+
+    // The entire "Projects" subtree is contiguous; the sibling file sorts AFTER
+    // it, never interleaved inside it.
+    const idx = (p: string) => result.findIndex((n) => n.path === p);
+    expect(idx("Projects")).toBeLessThan(idx("Projects/Sub"));
+    expect(idx("Projects/Sub")).toBeLessThan(idx("Projects/Sub/match.md"));
+    expect(idx("Projects/Sub/match.md")).toBeLessThan(idx("Projects Overview.md"));
+  });
+
   it("types every depth-0 result as a 'group' root section, nested folders as 'space', and leaves as 'file'", () => {
     const result = filterTreeByQuery(makeSuperstate(), rootSpaces(), "alpha");
     const byPath = new Map(result.map((n) => [n.path, n]));

@@ -312,12 +312,63 @@ export const filterTreeByQuery = (
     return depth;
   };
 
-  // 4. Drop ghost AND hidden ancestors, then sort so every ancestor sorts before its
-  // descendants -- a path is always a strict string prefix of its children's
-  // paths, so a plain string compare is enough (no need to re-derive real
-  // space membership order).
+  // 4. Drop ghost AND hidden ancestors, then emit in strict DFS PRE-ORDER of the
+  // rendered tree so every subtree is CONTIGUOUS. The depth-indented flat
+  // renderer (SpaceTreeItem indents purely by `depth`; VirtualizedList draws in
+  // array order; the child-count guide line spans `childrenCount` following
+  // rows) reads nesting SOLELY from `depth` + position, so each node must sit
+  // immediately under its own parent's subtree.
+  //
+  // A plain lexical string sort does NOT guarantee this. It only guarantees
+  // "ancestor before descendant"; it does NOT keep a subtree contiguous, because
+  // '/' (0x2F) is not the lowest separator: a sibling FILE whose name extends a
+  // sibling FOLDER's name with a space (0x20), '-' (0x2D) or '.' (0x2E) sorts
+  // BETWEEN the folder and the folder's own descendants (e.g. "Projects", then
+  // "Projects Overview.md", then "Projects/Sub"), so "Projects/Sub" would render
+  // one level deeper than the FILE just above it and appear mis-parented under
+  // it. Instead: group every renderable path under its RENDERED parent
+  // (ancestorOf -- already accounts for re-parenting past hidden/ghost hops),
+  // order siblings by path SEGMENTS, then walk the forest depth-first. This
+  // mirrors the contiguous output the non-filter treeForRoot/treeForSpace
+  // recursion already produces.
   const renderablePaths = [...includedPaths].filter(isRenderable);
-  const sortedPaths = renderablePaths.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  // Segment-wise compare: a whole path segment ('/'-delimited) is the unit, so a
+  // folder ("Projects") always sorts before any sibling whose first segment
+  // merely extends it ("Projects Overview.md"), and an ancestor (fewer segments,
+  // shared prefix) always sorts before its descendants.
+  const compareBySegments = (a: string, b: string): number => {
+    const as = a.split("/");
+    const bs = b.split("/");
+    const shared = Math.min(as.length, bs.length);
+    for (let i = 0; i < shared; i++) {
+      if (as[i] !== bs[i]) return as[i] < bs[i] ? -1 : 1;
+    }
+    return as.length - bs.length;
+  };
+  const segmentOrdered = [...renderablePaths].sort(compareBySegments);
+  // Bucket every renderable path under its rendered parent (null == a forest
+  // root: a view root, or a match whose only ancestors were ghost/hidden). Each
+  // bucket inherits segmentOrdered's sibling order.
+  const childrenByRenderedParent = new Map<string | null, string[]>();
+  segmentOrdered.forEach((path) => {
+    const parent = ancestorOf(path) ?? null;
+    const siblings = childrenByRenderedParent.get(parent);
+    if (siblings) siblings.push(path);
+    else childrenByRenderedParent.set(parent, [path]);
+  });
+  const sortedPaths: string[] = [];
+  const emitted = new Set<string>();
+  const emitSubtree = (path: string) => {
+    if (emitted.has(path)) return; // forest is acyclic by construction; defensive
+    emitted.add(path);
+    sortedPaths.push(path);
+    (childrenByRenderedParent.get(path) ?? []).forEach(emitSubtree);
+  };
+  (childrenByRenderedParent.get(null) ?? []).forEach(emitSubtree);
+  // Safety net: a malformed/cyclic ancestor link must never DROP a renderable
+  // path from the result (only mis-order it). Sweep any node the forest walk
+  // missed, in segment order, so the emitted set always equals renderablePaths.
+  segmentOrdered.forEach(emitSubtree);
 
   // Children-count is the number of INCLUDED, RENDERABLE (i.e. currently
   // visible in this filtered result) direct-or-re-parented children, not the
