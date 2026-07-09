@@ -204,6 +204,28 @@ export interface MakeMDSettings {
   // underline) with their prior inline active expressions, and the 3-knobs
   // menu re-lists Filter/Sort (the prior duplication).
   viewSettingsInlineBar: boolean;
+  // Vault file-tree text filter (bd Notidian-nrjb). When true, MainList renders
+  // a text-filter box above the navigator's SpaceTreeComponent; typing narrows
+  // the tree LIVE to every path whose display name or full path contains the
+  // query (case-insensitive), force-showing every ancestor of a match
+  // (walked via PathState.parent) regardless of the persisted
+  // settings.expandedSpaces collapse state -- the pure filterTreeByQuery
+  // helper (core/superstate/utils/spaces.ts) computes this off the
+  // already-loaded pathsIndex/spacesIndex caches only (no spaceManager I/O),
+  // so it is safe to run on every keystroke even in a large vault.
+  //   true (default): the filter box renders; the tree recomputes byte-for-byte
+  //     the normal expandedSpaces-driven flattened tree when the query is blank,
+  //     and switches to filterTreeByQuery's result set otherwise.
+  //   false (kill-switch): the filter box does not render at all and
+  //     SpaceTreeComponent never receives a query, so its render path is
+  //     byte-for-byte the pre-feature expandedSpaces-driven tree.
+  // DEFAULT-ON / KILL-SWITCH: owner-requested 2026-07-03 ("the vault has grown
+  // large enough that finding files by browsing is slow"); the owner's live USE
+  // is the verification (core render-path change, not fully tsc/jest/build
+  // verifiable offline — ADR 0051). filterTreeByQuery itself is pure and fully
+  // unit-tested; the MainList/SpaceTreeView wiring is covered by the
+  // deploy-and-live-verify contract.
+  enableNavigatorTextFilter: boolean;
   basicsSettings: MakeBasicsSettings;
   notesPreview: boolean;
   editStickerInSidebar: boolean;

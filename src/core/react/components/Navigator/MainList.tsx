@@ -2,7 +2,7 @@ import { SpaceTreeComponent } from "core/react/components/Navigator/SpaceTree/Sp
 import { isTouchScreen } from "core/utils/ui/screen";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { ErrorBoundary, useErrorBoundary } from "react-error-boundary";
 import { FocusSelector } from "./Focuses/FocusSelector";
 import { MainMenu } from "./MainMenu";
@@ -11,6 +11,16 @@ export const MainList = (props: { superstate: Superstate }) => {
   const [indexing, setIndexing] = React.useState(false);
   // const [error, resetError] = useErrorBoundary();
   // if (error) props.superstate.ui.error(error);
+
+  // Vault file-tree text filter (bd Notidian-nrjb). Local, ephemeral UI state
+  // only -- not persisted, so reopening the sidebar always starts unfiltered.
+  // Gated end-to-end by settings.enableNavigatorTextFilter (DEFAULT-ON
+  // kill-switch): when false, neither the box below nor a filterQuery prop are
+  // ever rendered/passed, so SpaceTreeComponent's render path is byte-for-byte
+  // the pre-feature one.
+  const navigatorTextFilterEnabled =
+    props.superstate.settings.enableNavigatorTextFilter;
+  const [filterQuery, setFilterQuery] = useState("");
 
   useEffect(() => {
     const reindex = async () => {
@@ -45,8 +55,33 @@ export const MainList = (props: { superstate: Superstate }) => {
           <MainMenu superstate={props.superstate}></MainMenu>
         )}
         <FocusSelector superstate={props.superstate}></FocusSelector>
+        {navigatorTextFilterEnabled && (
+          <div className="mk-navigator-filter">
+            <input
+              type="text"
+              className="mk-navigator-filter-input"
+              placeholder={i18n.labels.navigatorFilterPlaceholder}
+              aria-label={i18n.labels.navigatorFilterPlaceholder}
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+            ></input>
+            {filterQuery.length > 0 && (
+              <button
+                className="mk-toolbar-button mk-navigator-filter-clear"
+                aria-label={i18n.labels.navigatorFilterClear}
+                onClick={() => setFilterQuery("")}
+                dangerouslySetInnerHTML={{
+                  __html: props.superstate.ui.getSticker("ui//clear"),
+                }}
+              ></button>
+            )}
+          </div>
+        )}
 
-        <SpaceTreeComponent superstate={props.superstate} />
+        <SpaceTreeComponent
+          superstate={props.superstate}
+          filterQuery={navigatorTextFilterEnabled ? filterQuery : undefined}
+        />
       </ErrorBoundary>
     </>
   );

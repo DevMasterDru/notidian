@@ -713,6 +713,8 @@ export const en = {
     "noFile": "File does not exist yet. Click to create.",
     "blinkPlaceholder": "Search for notes, spaces...",
     "searchPlaceholder": "Search this view...",
+    "navigatorFilterPlaceholder": "Filter files and folders...",
+    "navigatorFilterClear": "Clear filter",
     "searchView": "Search",
     "searchViewTooltip": "Search this view (⌘/Ctrl+F)",
     "contextItemSelectPlaceholder": "Find Item",

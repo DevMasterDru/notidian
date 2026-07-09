@@ -509,3 +509,31 @@ body:not(.is-mobile) .mk-tree-wrapper .mk-folder-buttons {
     transform:  translateX(100%) scaleX(0.5);
   }
 }
+
+/* Vault file-tree text filter (bd Notidian-nrjb, settings.enableNavigatorTextFilter). */
+.mk-navigator-filter {
+  display: flex;
+  align-items: center;
+  margin: 4px 8px;
+  padding: 2px 6px;
+  background: var(--mk-ui-background-input);
+  border: var(--input-border-width) solid var(--mk-ui-border);
+  border-radius: var(--mk-ui-radius-medium);
+}
+
+.mk-navigator-filter-input {
+  flex-grow: 1;
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--mk-ui-text-primary);
+  padding: 4px 2px;
+}
+
+.mk-navigator-filter-input:focus {
+  outline: none;
+}
+
+.mk-navigator-filter-clear {
+  flex-shrink: 0;
+}

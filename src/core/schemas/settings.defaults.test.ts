@@ -127,6 +127,7 @@ const REQUIRED_SETTING_KEYS = {
   subItemAddRow: true,
   filenameTemplateEnforcement: true,
   viewSettingsInlineBar: true,
+  enableNavigatorTextFilter: true,
   basicsSettings: true,
   firstLaunch: true,
   notesPreview: true,
@@ -176,6 +177,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "filenameTemplateEnforcement", // Notidian-pay5 / ADR 0054
   "enableNestedHubRows", // Notidian-z21a / Atlas Method ADR-0042 D1
   "enableDataHealthSurfaces", // Notidian-loan.5 / ADR-0057
+  "enableNavigatorTextFilter", // Notidian-nrjb
 ];
 
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {

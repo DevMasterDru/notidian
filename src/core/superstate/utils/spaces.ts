@@ -146,6 +146,218 @@ export const pathStateToTreeNode = (
   type: 'file',
 });
 
+// ---------------------------------------------------------------------------
+// Navigator text filter (bd Notidian-nrjb, gated by
+// settings.enableNavigatorTextFilter). PURE + offline: reads only the
+// already-loaded superstate.pathsIndex/spacesIndex Maps (in-memory caches) --
+// unlike treeForRoot/treeForSpace above, it never calls superstate.getSpaceItems
+// (which side-effects a spaceManager.loadPath per item), so it is safe to
+// recompute on every keystroke of a large vault without touching the
+// filesystem.
+// ---------------------------------------------------------------------------
+
+// The same display-name resolution SpaceTreeItem uses to render a row's label
+// (label.name -> name -> raw path), so the filter matches what the user sees.
+const navigatorFilterDisplayName = (pathState: PathState, path: string): string =>
+  pathState?.label?.name ?? pathState?.name ?? path;
+
+const navigatorFilterIsMatch = (
+  pathState: PathState,
+  path: string,
+  queryLower: string
+): boolean => {
+  if (queryLower.length === 0) return true; // empty query => passthrough (match all)
+  if (
+    navigatorFilterDisplayName(pathState, path).toLowerCase().includes(queryLower)
+  )
+    return true;
+  return path.toLowerCase().includes(queryLower);
+};
+
+/**
+ * Build a flattened TreeNode[] of every non-hidden path (file or space) whose
+ * display name or full path contains `query` (case-insensitive; a blank query
+ * matches everything), PLUS every ancestor of a match -- walked upward via
+ * PathState.parent, stopping at (and including) the first `activeViewSpaces`
+ * root reached, or at a dead end -- so a match stays reachable regardless of
+ * the persisted expandedSpaces collapse state.
+ *
+ * This intentionally does NOT reuse the treeForRoot/treeForSpace recursion:
+ * those walk real space membership (superstate.getSpaceItems), which is
+ * correct for the always-expanded-by-user tree but would force a
+ * spaceManager.loadPath call for every path in the vault on every keystroke.
+ * PathState.parent is the real filesystem/space container for the common
+ * folder-based case this bead targets ("vault file tree / navigator"); a path
+ * whose parent chain never reaches a view root still renders (as its own
+ * depth-0 result group) rather than being dropped.
+ *
+ * GHOST ANCESTORS (live-verify catch, Notidian-nrjb): some `.parent` chains
+ * point at a synthetic container with no PathState entry of its own -- e.g. a
+ * tag-space's parent is the literal string "spaces:/", which superstate never
+ * indexes as a path. TreeItem/SpaceTreeItem reads `data.item.path`
+ * unconditionally (no optional chaining), so ever emitting a TreeNode with no
+ * `item` crashes the whole navigator's ErrorBoundary the instant a query
+ * matches a tag-space (e.g. typing a substring of a tag name). Every ancestor
+ * is therefore required to have a REAL pathsIndex entry (`isRenderable`) to be
+ * (a) emitted as a node at all and (b) treated as a valid parent/depth link;
+ * a ghost is still walked over (so the walk does not stop short of a real
+ * grandparent) but is silently skipped rather than rendered.
+ *
+ * HIDDEN ANCESTORS (review catch, Notidian-nrjb): `PathState.hidden` is
+ * computed per-path by `excludePathPredicate` (src/utils/hide.ts) -- it is
+ * NOT inherited/cascaded from parent to child in the indexer. So a hidden
+ * folder's own children are not automatically hidden themselves; if such a
+ * child matches the query, the step-2 ancestor walk above still force-includes
+ * the hidden folder's real PathState. `isRenderable` therefore also excludes
+ * `hidden` paths (not just ghosts) from ever being emitted as a node or
+ * treated as a valid parent/depth link -- a hidden ancestor is silently
+ * skipped rather than rendered as a full node with its own name/sticker/path
+ * (which would otherwise leak hidden content through the filter).
+ *
+ * RE-PARENTING PAST A NON-RENDERABLE ANCESTOR (review catch, Notidian-nrjb):
+ * skipping a hidden (or ghost) ancestor's own node must not orphan the match
+ * that sits below it. `nearestRenderableAncestor` walks upward past any
+ * number of consecutive non-renderable hops (hidden folders, ghosts, or a mix)
+ * to the nearest ancestor that IS renderable and was reached by the step-2
+ * walk -- depth, parentId, and childCounts all attribute to that ancestor, not
+ * to the immediate (possibly non-renderable) `.parent`. So a match under a
+ * hidden folder nests under the real, visible grandparent (e.g. the view
+ * root) instead of rendering as a disconnected top-level "group" -- the walk
+ * only bottoms out at depth 0 / parentId null when there is truly no
+ * renderable ancestor left to reach (a dead end, or nothing but ghosts all the
+ * way up, exactly the pre-existing ghost-ancestor case).
+ */
+export const filterTreeByQuery = (
+  superstate: Superstate,
+  activeViewSpaces: PathState[],
+  query: string
+): TreeNode[] => {
+  const queryLower = (query ?? "").trim().toLowerCase();
+  const rootPaths = new Set(
+    (activeViewSpaces ?? []).filter((f) => f).map((f) => f.path)
+  );
+  const isRenderable = (path: string) => {
+    const pathState = superstate.pathsIndex.get(path);
+    return !!pathState && !pathState.hidden;
+  };
+
+  // 1. Every non-hidden path whose name/path matches.
+  const matchedPaths: string[] = [];
+  for (const [path, pathState] of superstate.pathsIndex) {
+    if (!pathState || pathState.hidden) continue;
+    if (navigatorFilterIsMatch(pathState, path, queryLower)) {
+      matchedPaths.push(path);
+    }
+  }
+
+  // 2. Force-include every ancestor of a match, regardless of collapse state.
+  // Bounded by a per-walk visited-set so malformed/cyclic parent data can
+  // never spin forever. May accumulate ghost (non-renderable) ancestors --
+  // filtered out below, never emitted.
+  const includedPaths = new Set<string>();
+  matchedPaths.forEach((path) => {
+    const visited = new Set<string>();
+    let current: string | undefined = path;
+    while (current && !visited.has(current)) {
+      includedPaths.add(current);
+      visited.add(current);
+      if (rootPaths.has(current)) break;
+      const parent = superstate.pathsIndex.get(current)?.parent;
+      current = parent && parent.length > 0 ? parent : undefined;
+    }
+  });
+
+  // 3. nearestRenderableAncestor(path) walks upward from path's immediate
+  // `.parent`, skipping any number of consecutive non-renderable hops (hidden
+  // folders, ghosts, or a mix), to the first ancestor that is BOTH renderable
+  // and was reached by the step-2 inclusion walk. Bounded by a per-call
+  // visited-set (guards a self/cyclic parent) and memoized. Returns undefined
+  // at a genuine dead end (no PathState, or nothing but ghosts/hidden hops all
+  // the way up) -- the same terminal case the pre-existing ghost-ancestor
+  // handling already covered.
+  const nearestAncestorCache = new Map<string, string | undefined>();
+  const nearestRenderableAncestor = (path: string): string | undefined => {
+    if (nearestAncestorCache.has(path)) return nearestAncestorCache.get(path);
+    nearestAncestorCache.set(path, undefined); // cycle guard placeholder
+    const visited = new Set<string>([path]);
+    let current = superstate.pathsIndex.get(path)?.parent;
+    let ancestor: string | undefined;
+    while (current && current.length > 0 && !visited.has(current)) {
+      visited.add(current);
+      if (isRenderable(current) && includedPaths.has(current)) {
+        ancestor = current;
+        break;
+      }
+      current = superstate.pathsIndex.get(current)?.parent;
+    }
+    nearestAncestorCache.set(path, ancestor);
+    return ancestor;
+  };
+  // A view root always renders at depth 0 with no parent, even if its own
+  // `.parent` chain continues beyond the root boundary.
+  const ancestorOf = (path: string): string | undefined =>
+    rootPaths.has(path) ? undefined : nearestRenderableAncestor(path);
+
+  // depth = distance from the nearest RENDERABLE included ancestor (0 at a
+  // view root, or at a dead end past only ghost/hidden hops). Memoized; the
+  // same placeholder cache trick guards a self/cyclic parent from recursing
+  // forever.
+  const depthCache = new Map<string, number>();
+  const depthOf = (path: string): number => {
+    if (depthCache.has(path)) return depthCache.get(path);
+    depthCache.set(path, 0);
+    const ancestor = ancestorOf(path);
+    const depth = ancestor ? depthOf(ancestor) + 1 : 0;
+    depthCache.set(path, depth);
+    return depth;
+  };
+
+  // 4. Drop ghost AND hidden ancestors, then sort so every ancestor sorts before its
+  // descendants -- a path is always a strict string prefix of its children's
+  // paths, so a plain string compare is enough (no need to re-derive real
+  // space membership order).
+  const renderablePaths = [...includedPaths].filter(isRenderable);
+  const sortedPaths = renderablePaths.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+  // Children-count is the number of INCLUDED, RENDERABLE (i.e. currently
+  // visible in this filtered result) direct-or-re-parented children, not the
+  // real total -- correct for sizing the CSS child-count guideline against
+  // what is actually rendered (a child re-parented past a hidden ancestor
+  // counts toward the ancestor it actually renders under).
+  const childCounts = new Map<string, number>();
+  sortedPaths.forEach((path) => {
+    const ancestor = nearestRenderableAncestor(path);
+    if (ancestor) {
+      childCounts.set(ancestor, (childCounts.get(ancestor) ?? 0) + 1);
+    }
+  });
+
+  return sortedPaths.map((path, index) => {
+    const pathState = superstate.pathsIndex.get(path);
+    const depth = depthOf(path);
+    const parentId = ancestorOf(path) ?? null;
+    const isSpace = superstate.spacesIndex.has(path);
+    // Every depth-0 result renders as a "group" (root section) header, exactly
+    // like treeForRoot's own root node -- avoids the negative CSS indentation
+    // spacing 'space'-type rows assume they never sit at depth 0.
+    const type: TreeNode["type"] = depth === 0 ? "group" : isSpace ? "space" : "file";
+    return {
+      id: path,
+      parentId,
+      depth,
+      index,
+      space: parentId ?? path,
+      sortable: false,
+      type,
+      path,
+      item: { ...pathState, rank: pathState.rank ?? 0 } as PathStateWithRank,
+      childrenCount: childCounts.get(path) ?? 0,
+      collapsed: false,
+      rank: pathState.rank ?? 0,
+    };
+  });
+};
+
 export const spaceRowHeight = (superstate: Superstate, preset: number, section: boolean) => {
   const spaceHeight = preset ?? (isTouchScreen(superstate.ui) ? 40 : 29);
   return spaceHeight + (section ? 10 : 0);

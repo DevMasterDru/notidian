@@ -5,6 +5,7 @@ import { NavigatorContext } from "core/react/context/SidebarContext";
 import {
   TreeNode,
   defaultSpaceSort,
+  filterTreeByQuery,
   pathStateToTreeNode,
   spaceRowHeight,
   spaceSortFn,
@@ -39,6 +40,12 @@ import { VirtualizedList } from "./SpaceTreeVirtualized";
 
 interface SpaceTreeComponentProps {
   superstate: Superstate;
+  // Vault file-tree text filter (bd Notidian-nrjb, kill-switch
+  // settings.enableNavigatorTextFilter). Only MainList ever passes a non-blank
+  // value -- when the flag is off, MainList renders no filter box and never
+  // passes this prop, so the branch below is dead and the tree is
+  // byte-for-byte the pre-feature expandedSpaces-driven retrieveData() path.
+  filterQuery?: string;
 }
 
 const treeForSpace = (
@@ -293,6 +300,21 @@ export const SpaceTreeComponent = (props: SpaceTreeComponentProps) => {
     ) => void;
   }>(null);
 
+  // Vault file-tree text filter (bd Notidian-nrjb). A blank/whitespace-only
+  // query (the default -- and the ONLY state possible when
+  // settings.enableNavigatorTextFilter is off, since MainList then never
+  // renders the filter box or passes this prop) takes the normal
+  // expandedSpaces-driven retrieveData() path unchanged; a non-blank query
+  // switches to the pure filterTreeByQuery result set instead.
+  const trimmedFilterQuery = (props.filterQuery ?? "").trim();
+  const computeFlattenedTree = useCallback(
+    () =>
+      trimmedFilterQuery.length > 0
+        ? filterTreeByQuery(superstate, activeViewSpaces, trimmedFilterQuery)
+        : retrieveData(superstate, activeViewSpaces, active, expandedSpaces),
+    [superstate, activeViewSpaces, active, expandedSpaces, trimmedFilterQuery]
+  );
+
   const refreshableSpaces = useMemo(
     () =>
       [
@@ -434,9 +456,7 @@ export const SpaceTreeComponent = (props: SpaceTreeComponentProps) => {
   }, [flattenedTree]);
   useEffect(() => {
     const reloadData = () => {
-      setFlattenedTree(
-        retrieveData(superstate, activeViewSpaces, active, expandedSpaces)
-      );
+      setFlattenedTree(computeFlattenedTree());
     };
     const spaceUpdated = (payload: { path: string }) => {
       if (refreshableSpaces.some((f) => f == payload.path)) {
@@ -472,17 +492,12 @@ export const SpaceTreeComponent = (props: SpaceTreeComponentProps) => {
     expandedSpaces,
     refreshableSpaces,
     setFlattenedTree,
+    computeFlattenedTree,
   ]);
 
   useEffect(() => {
-    const tree = retrieveData(
-      superstate,
-      activeViewSpaces,
-      active,
-      expandedSpaces
-    );
-    setFlattenedTree(tree);
-  }, [expandedSpaces, activeViewSpaces, active]);
+    setFlattenedTree(computeFlattenedTree());
+  }, [expandedSpaces, activeViewSpaces, active, computeFlattenedTree]);
 
   const changeActivePath = (path: string) => {
     setActivePath(path);
@@ -743,7 +758,8 @@ export const SpaceTreeComponent = (props: SpaceTreeComponentProps) => {
         }
       }}
     >
-      {flattenedTree.length == 1 || editFocus ? (
+      {(trimmedFilterQuery.length === 0 && flattenedTree.length == 1) ||
+      editFocus ? (
         <FocusEditor
           superstate={superstate}
           focus={focuses[activeFocus]}
