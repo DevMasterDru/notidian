@@ -36,6 +36,7 @@ import {
   serializeTypeProfileField,
   typeProfileKindForType,
 } from "core/utils/contexts/typeProfile";
+import { PathPropertyName } from "shared/types/context";
 
 // ---------------------------------------------------------------------------
 // Per-field value statistics: a finer-grained pass than
@@ -263,6 +264,239 @@ export const findForeignKeyCandidates = (
 };
 
 // ---------------------------------------------------------------------------
+// ADR-0040 Database Boundary Test (Notidian-7v4c): an advisory, NON-BLOCKING
+// coherence diagnostic layered onto the draft. Atlas Method ADR-0040 settled
+// the general rule — one database = one question × one lifecycle × one
+// property profile; a kind joins an existing database only if it shares the
+// CORE property profile, its tail may *add* fields but never *replace* the
+// core. Kinds whose natural properties would mostly not overlap are different
+// answer-shapes and deserve their own database (the exact failure ADR-0040
+// diagnosed for the vault's Tools & Materials database).
+//
+// Silently unioning every observed frontmatter field (what draftTypeProfile-
+// Adoption does) papers over that judgment call. This pass detects when the
+// scanned rows partition into 2+ divergent property profiles — two answer-
+// shapes forced into one folder — and surfaces it so the owner can consider a
+// split. It is PURELY advisory: the union still drafts every field; this only
+// RECOMMENDS. It changes no drafting behavior.
+//
+// Scope note: ADR-0040's motivating vault case had the distinguishing fields
+// (`location`, `account`) populated on ZERO rows — the divergence lived in the
+// natural, unpopulated schema, invisible to any row scan. This heuristic
+// necessarily works over what IS observable: the per-row PROPERTY-PRESENCE
+// sets (which fields each row actually answers with). It fires on the tractable
+// case — rows that DO populate divergent field clusters — and stays silent when
+// the divergence is only latent. Advisory bias is deliberately conservative:
+// it would rather miss a latent split than false-flag a coherent database.
+// ---------------------------------------------------------------------------
+
+// Below this many rows there is not enough evidence to claim two distinct
+// answer-shapes rather than incidental early-adoption variation — stay silent.
+const DIVERGENCE_MIN_ROWS = 4;
+// A field present on at least this FRACTION of all rows is treated as part of
+// the shared universal core (name/lifecycle/decided_by-style): every answer-
+// shape carries it, so it cannot discriminate between them.
+const CORE_PREVALENCE = 0.9;
+// A field must be populated on at least this many rows to count as a
+// discriminating signal at all — a field on a single row is that one row's
+// idiosyncrasy, not an answer-shape.
+const DISCRIMINATOR_MIN_ROWS = 2;
+// Each divergent group must own at least this many characteristic fields. A
+// single differing optional field (some rows carry `url`, others `phone`) is a
+// tail variation ADR-0040 D1 explicitly ALLOWS ("its tail may add fields");
+// requiring a CLUSTER of co-populated fields per group is what separates "two
+// answer-shapes" from "one coherent shape with optional tails."
+const GROUP_MIN_CHARACTERISTIC_FIELDS = 2;
+// Each divergent group must also cover a meaningful share of the database, so
+// a couple of malformed/outlier rows never read as a second answer-shape.
+const GROUP_MIN_ROW_FRACTION = 0.15;
+// Cap example rows surfaced per group in the advisory.
+const GROUP_EXAMPLE_ROW_CAP = 3;
+
+export type PropertyProfileGroup = {
+  // Rows whose observed property profile matches this answer-shape.
+  rowCount: number;
+  // The characteristic (discriminating) fields these rows populate that the
+  // OTHER divergent groups' rows essentially never populate — the fields that
+  // make this a distinct answer-shape. Sorted, stable. By construction these
+  // sets are pairwise-disjoint across groups (ADR-0040 "share no common core").
+  characteristicFields: string[];
+  // A few example row paths from this group, for the preview (capped).
+  exampleRows: string[];
+};
+
+export type PropertyProfileDivergence = {
+  // True when the scanned rows partition into 2+ divergent answer-shapes that
+  // share no common core beyond the universal fields — the ADR-0040 boundary
+  // violation. Advisory ONLY: `draftTypeProfileAdoption` still unions every
+  // field regardless of this flag.
+  divergent: boolean;
+  // Fields present on (nearly) every row — the common core the answer-shapes
+  // DO share (name/lifecycle-style). Sorted. Context for the warning: "they
+  // share only <these>." Populated whether or not `divergent`.
+  sharedCoreFields: string[];
+  // The 2+ divergent groups, largest first. Empty unless `divergent`.
+  groups: PropertyProfileGroup[];
+};
+
+export type DetectPropertyProfileDivergenceOptions = {
+  paths: string[];
+  frontmatterByPath: FrontmatterSnapshotsByPath;
+  excludedKeys?: string[];
+};
+
+export const detectPropertyProfileDivergence = ({
+  paths,
+  frontmatterByPath,
+  excludedKeys = [],
+}: DetectPropertyProfileDivergenceOptions): PropertyProfileDivergence => {
+  const rowCount = paths.length;
+  const excluded = new Set([PathPropertyName, ...excludedKeys]);
+
+  // Per-row present-field set: keys the row genuinely ANSWERS with — the same
+  // present/empty notion computeFieldValueStats uses, so a key declared with an
+  // empty ("" / [] / all-blank) value does NOT count as populated.
+  const presentFieldsByRow: Array<Set<string>> = paths.map((path) => {
+    const frontmatter = frontmatterForPath(frontmatterByPath, path);
+    const present = new Set<string>();
+    for (const key of Object.keys(frontmatter)) {
+      if (excluded.has(key)) continue;
+      const values = toValueList(frontmatter[key])
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      if (values.length > 0) present.add(key);
+    }
+    return present;
+  });
+
+  // Field -> row-indices that populate it.
+  const rowsByField = new Map<string, number[]>();
+  presentFieldsByRow.forEach((present, rowIndex) => {
+    for (const key of present) {
+      const rows = rowsByField.get(key) ?? [];
+      rows.push(rowIndex);
+      rowsByField.set(key, rows);
+    }
+  });
+
+  const coreThreshold = rowCount * CORE_PREVALENCE;
+  const sharedCoreFields: string[] = [];
+  const discriminatingFields: string[] = [];
+  for (const [key, rows] of rowsByField) {
+    if (rows.length >= coreThreshold) {
+      sharedCoreFields.push(key);
+    } else if (rows.length >= DISCRIMINATOR_MIN_ROWS) {
+      discriminatingFields.push(key);
+    }
+    // else: a rare/near-singleton field — noise, not an answer-shape signal.
+  }
+  sharedCoreFields.sort();
+
+  const noDivergence: PropertyProfileDivergence = {
+    divergent: false,
+    sharedCoreFields,
+    groups: [],
+  };
+  if (rowCount < DIVERGENCE_MIN_ROWS) return noDivergence;
+  if (discriminatingFields.length == 0) return noDivergence;
+
+  // Union-find over rows: two rows join the same answer-shape when they
+  // co-populate the same discriminating field. Connected components therefore
+  // have PAIRWISE-DISJOINT discriminating-field sets — if a field spanned two
+  // components its rows would have merged them — which is exactly ADR-0040's
+  // "share no common core": distinct components share none of the
+  // discriminating fields, only the universal core.
+  const parent = paths.map((_, index) => index);
+  const find = (start: number): number => {
+    let root = start;
+    while (parent[root] != root) root = parent[root];
+    let node = start;
+    while (parent[node] != root) {
+      const next = parent[node];
+      parent[node] = root;
+      node = next;
+    }
+    return root;
+  };
+  const union = (a: number, b: number): void => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra != rb) parent[ra] = rb;
+  };
+  for (const key of discriminatingFields) {
+    const rows = rowsByField.get(key) ?? [];
+    for (let i = 1; i < rows.length; i++) union(rows[0], rows[i]);
+  }
+
+  // Only rows carrying >=1 discriminating field belong to an answer-shape;
+  // core-only rows (nothing but universal fields) are the shared middle and
+  // join no group.
+  const rowHasDiscriminator = presentFieldsByRow.map((present) =>
+    discriminatingFields.some((key) => present.has(key))
+  );
+
+  const componentRows = new Map<number, number[]>();
+  presentFieldsByRow.forEach((_present, rowIndex) => {
+    if (!rowHasDiscriminator[rowIndex]) return;
+    const root = find(rowIndex);
+    const rows = componentRows.get(root) ?? [];
+    rows.push(rowIndex);
+    componentRows.set(root, rows);
+  });
+
+  // Every row populating a given discriminating field shares one root (union
+  // guarantees it), so each field maps cleanly to exactly one component.
+  const componentFields = new Map<number, string[]>();
+  for (const key of discriminatingFields) {
+    const rows = rowsByField.get(key) ?? [];
+    if (rows.length == 0) continue;
+    const root = find(rows[0]);
+    const fields = componentFields.get(root) ?? [];
+    fields.push(key);
+    componentFields.set(root, fields);
+  }
+
+  const groupRowFloor = Math.max(
+    DISCRIMINATOR_MIN_ROWS,
+    Math.ceil(rowCount * GROUP_MIN_ROW_FRACTION)
+  );
+
+  const qualifyingGroups: PropertyProfileGroup[] = [];
+  for (const [root, rows] of componentRows) {
+    const fields = [...(componentFields.get(root) ?? [])].sort();
+    if (rows.length < groupRowFloor) continue;
+    if (fields.length < GROUP_MIN_CHARACTERISTIC_FIELDS) continue;
+    qualifyingGroups.push({
+      rowCount: rows.length,
+      characteristicFields: fields,
+      exampleRows: [...rows]
+        .sort((a, b) => a - b)
+        .slice(0, GROUP_EXAMPLE_ROW_CAP)
+        .map((index) => paths[index]),
+    });
+  }
+
+  qualifyingGroups.sort(
+    (a, b) =>
+      b.rowCount - a.rowCount ||
+      b.characteristicFields.length - a.characteristicFields.length ||
+      (a.characteristicFields[0] ?? "").localeCompare(
+        b.characteristicFields[0] ?? ""
+      )
+  );
+
+  // Two answer-shapes are the minimum for a boundary violation; a single
+  // qualifying group is just a coherent database with a rich tail.
+  if (qualifyingGroups.length < 2) return noDivergence;
+
+  return {
+    divergent: true,
+    sharedCoreFields,
+    groups: qualifyingGroups,
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Whole-database draft assembly.
 // ---------------------------------------------------------------------------
 
@@ -282,6 +516,12 @@ export type TypeProfileAdoptionDraft = {
   // below at write-plan time).
   fields: TypeProfileFieldDraft[];
   alreadyDeclaredFieldNames: string[];
+  // ADR-0040 Database Boundary Test (Notidian-7v4c): advisory, non-blocking.
+  // `divergent: true` when the scanned rows look like 2+ answer-shapes forced
+  // into one database. The `fields` union above is UNCHANGED by this — it only
+  // recommends a split. Optional so pre-existing draft literals/fixtures stay
+  // valid; always populated by `draftTypeProfileAdoption`.
+  profileDivergence?: PropertyProfileDivergence;
 };
 
 export type DraftTypeProfileAdoptionOptions = {
@@ -354,6 +594,13 @@ export const draftTypeProfileAdoption = ({
     rowCount: paths.length,
     fields,
     alreadyDeclaredFieldNames: [...existingNames],
+    // Advisory ADR-0040 boundary check over the SAME excluded-key set the
+    // schema discovery above used, so both passes see the same field universe.
+    profileDivergence: detectPropertyProfileDivergence({
+      paths,
+      frontmatterByPath,
+      excludedKeys,
+    }),
   };
 };
 

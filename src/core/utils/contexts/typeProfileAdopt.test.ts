@@ -3,6 +3,7 @@ import {
   computeFieldValueStats,
   deriveEmptyEncodingStats,
   deriveEnumCandidate,
+  detectPropertyProfileDivergence,
   draftTypeProfileAdoption,
   findForeignKeyCandidates,
   planTypeProfileAdoptionMerge,
@@ -422,6 +423,259 @@ describe("draftTypeProfileAdoption", () => {
       existingProfile,
     });
     expect(draft.fields).toEqual([]);
+  });
+});
+
+describe("detectPropertyProfileDivergence (ADR-0040 Database Boundary Test)", () => {
+  // Two answer-shapes forced into one folder — the exact failure ADR-0040
+  // diagnosed for the vault's Tools & Materials database. Three "tool" rows
+  // (digital tail: platform/url/account) and three "material" rows (physical
+  // tail: location/safety/sourcing) share only a universal core
+  // (decided_by/lifecycle). Their characteristic property clusters do not
+  // overlap at all.
+  const toolsAndMaterialsPaths = [
+    "Vault/Tools & Materials/T-01.md",
+    "Vault/Tools & Materials/T-02.md",
+    "Vault/Tools & Materials/T-03.md",
+    "Vault/Tools & Materials/M-01.md",
+    "Vault/Tools & Materials/M-02.md",
+    "Vault/Tools & Materials/M-03.md",
+  ];
+  const toolsAndMaterialsFrontmatter: Record<
+    string,
+    Record<string, unknown>
+  > = {
+    "Vault/Tools & Materials/T-01.md": {
+      decided_by: "dru",
+      lifecycle: "active",
+      platform: "web",
+      url: "https://a.example",
+      account: "acct-1",
+    },
+    "Vault/Tools & Materials/T-02.md": {
+      decided_by: "dru",
+      lifecycle: "active",
+      platform: "ios",
+      url: "https://b.example",
+      account: "acct-2",
+    },
+    "Vault/Tools & Materials/T-03.md": {
+      decided_by: "claude",
+      lifecycle: "retired",
+      platform: "web",
+      url: "https://c.example",
+      account: "acct-1",
+    },
+    "Vault/Tools & Materials/M-01.md": {
+      decided_by: "dru",
+      lifecycle: "active",
+      location: "shelf-a",
+      safety: "flammable",
+      sourcing: "vendor-x",
+    },
+    "Vault/Tools & Materials/M-02.md": {
+      decided_by: "dru",
+      lifecycle: "active",
+      location: "shelf-b",
+      safety: "inert",
+      sourcing: "vendor-y",
+    },
+    "Vault/Tools & Materials/M-03.md": {
+      decided_by: "claude",
+      lifecycle: "stocked",
+      location: "shelf-a",
+      safety: "flammable",
+      sourcing: "vendor-x",
+    },
+  };
+
+  it("flags two divergent answer-shapes and reports their disjoint groups + shared core", () => {
+    const result = detectPropertyProfileDivergence({
+      paths: toolsAndMaterialsPaths,
+      frontmatterByPath: toolsAndMaterialsFrontmatter,
+    });
+
+    expect(result.divergent).toBe(true);
+    // The only fields on (nearly) every row: the shared universal core.
+    expect(result.sharedCoreFields).toEqual(["decided_by", "lifecycle"]);
+    expect(result.groups.length).toBe(2);
+
+    // Each group's characteristic fields are the discriminating cluster its
+    // rows populate — and the two clusters are pairwise-disjoint (ADR-0040
+    // "share no common core"): a property in one group appears in neither the
+    // other group's cluster nor the shared core.
+    const clusters = result.groups
+      .map((g) => g.characteristicFields)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    expect(clusters).toEqual([
+      ["account", "platform", "url"],
+      ["location", "safety", "sourcing"],
+    ]);
+    for (const group of result.groups) {
+      expect(group.rowCount).toBe(3);
+      expect(group.exampleRows.length).toBeGreaterThan(0);
+    }
+    const allCharacteristic = result.groups.flatMap(
+      (g) => g.characteristicFields
+    );
+    expect(new Set(allCharacteristic).size).toBe(allCharacteristic.length);
+    for (const coreField of result.sharedCoreFields) {
+      expect(allCharacteristic).not.toContain(coreField);
+    }
+  });
+
+  it("does not flag a single coherent profile whose rows differ only by optional tail fields", () => {
+    // A coherent task database: every row shares a strong core
+    // (status/owner/priority); a few rows add a SINGLE optional tail field.
+    // ADR-0040 D1 explicitly allows a tail to *add* fields — one differing
+    // optional field per subset is not a divergent core, so no flag.
+    const paths = ["K1.md", "K2.md", "K3.md", "K4.md", "K5.md", "K6.md"];
+    const frontmatter: Record<string, Record<string, unknown>> = {
+      "K1.md": { status: "open", owner: "dru", priority: "high", sprint: "s1" },
+      "K2.md": { status: "done", owner: "dru", priority: "low", sprint: "s1" },
+      "K3.md": { status: "open", owner: "cl", priority: "med", sprint: "s2" },
+      "K4.md": { status: "open", owner: "dru", priority: "high", blocker: "x" },
+      "K5.md": { status: "done", owner: "cl", priority: "low", blocker: "y" },
+      "K6.md": { status: "open", owner: "dru", priority: "med", blocker: "z" },
+    };
+    const result = detectPropertyProfileDivergence({ paths, frontmatterByPath: frontmatter });
+    expect(result.divergent).toBe(false);
+    expect(result.groups).toEqual([]);
+    expect(result.sharedCoreFields).toEqual(["owner", "priority", "status"]);
+  });
+
+  it("does not flag sparse, near-unique per-row properties (no repeated discriminator)", () => {
+    // Every non-core field appears on exactly one row: idiosyncratic tails,
+    // below the discriminator floor, not an answer-shape signal.
+    const paths = ["R1.md", "R2.md", "R3.md", "R4.md", "R5.md"];
+    const frontmatter: Record<string, Record<string, unknown>> = {
+      "R1.md": { id: "r1", alpha: "1" },
+      "R2.md": { id: "r2", beta: "2" },
+      "R3.md": { id: "r3", gamma: "3" },
+      "R4.md": { id: "r4", delta: "4" },
+      "R5.md": { id: "r5", epsilon: "5" },
+    };
+    const result = detectPropertyProfileDivergence({ paths, frontmatterByPath: frontmatter });
+    expect(result.divergent).toBe(false);
+    expect(result.sharedCoreFields).toEqual(["id"]);
+  });
+
+  it("does not flag pairwise-overlapping rows that chain into one connected profile", () => {
+    // A "ring" of sparse pairwise overlaps: each field is shared by exactly two
+    // adjacent rows, chaining every row into ONE connected component — not two
+    // disjoint answer-shapes. A single component never divergences.
+    const paths = ["N1.md", "N2.md", "N3.md", "N4.md", "N5.md", "N6.md"];
+    const frontmatter: Record<string, Record<string, unknown>> = {
+      "N1.md": { id: "n1", a: "x", b: "x" },
+      "N2.md": { id: "n2", b: "x", c: "x" },
+      "N3.md": { id: "n3", c: "x", d: "x" },
+      "N4.md": { id: "n4", d: "x", e: "x" },
+      "N5.md": { id: "n5", e: "x", f: "x" },
+      "N6.md": { id: "n6", f: "x", a: "x" },
+    };
+    const result = detectPropertyProfileDivergence({ paths, frontmatterByPath: frontmatter });
+    expect(result.divergent).toBe(false);
+  });
+
+  it("does not flag two answer-shapes bridged by a shared discriminating field", () => {
+    // Same two clusters as the Tools & Materials fixture, but a `common_note`
+    // field populated across BOTH natures bridges them into one component: they
+    // now share a discriminating core, so the boundary is not clearly violated.
+    const frontmatter: Record<string, Record<string, unknown>> = {};
+    for (const [path, fm] of Object.entries(toolsAndMaterialsFrontmatter)) {
+      frontmatter[path] = { ...fm };
+    }
+    frontmatter["Vault/Tools & Materials/T-01.md"].common_note = "shared";
+    frontmatter["Vault/Tools & Materials/M-01.md"].common_note = "shared";
+    const result = detectPropertyProfileDivergence({
+      paths: toolsAndMaterialsPaths,
+      frontmatterByPath: frontmatter,
+    });
+    expect(result.divergent).toBe(false);
+  });
+
+  it("stays silent below the minimum row count even for two clearly divergent rows", () => {
+    const result = detectPropertyProfileDivergence({
+      paths: ["T.md", "M.md"],
+      frontmatterByPath: {
+        "T.md": { platform: "web", url: "https://a", account: "acct-1" },
+        "M.md": { location: "shelf", safety: "inert", sourcing: "vendor" },
+      },
+    });
+    expect(result.divergent).toBe(false);
+  });
+
+  it("treats an empty-valued property as unpopulated (does not count toward a cluster)", () => {
+    // Every material row DECLARES the tool tail keys but leaves them empty (and
+    // vice-versa) — the flat-schema artifact ADR-0040 called out. Empty
+    // declarations must not read as populated, so this still resolves to two
+    // divergent clusters by what each row actually ANSWERS.
+    const frontmatter: Record<string, Record<string, unknown>> = {};
+    for (const [path, fm] of Object.entries(toolsAndMaterialsFrontmatter)) {
+      const isTool = path.includes("/T-");
+      frontmatter[path] = {
+        ...fm,
+        ...(isTool
+          ? { location: "", safety: "", sourcing: "" }
+          : { platform: "", url: "", account: "" }),
+      };
+    }
+    const result = detectPropertyProfileDivergence({
+      paths: toolsAndMaterialsPaths,
+      frontmatterByPath: frontmatter,
+    });
+    expect(result.divergent).toBe(true);
+    expect(result.groups.length).toBe(2);
+  });
+
+  it("excludes configured keys from the coherence analysis", () => {
+    // If the divergence-driving keys are all excluded, no signal remains.
+    const result = detectPropertyProfileDivergence({
+      paths: toolsAndMaterialsPaths,
+      frontmatterByPath: toolsAndMaterialsFrontmatter,
+      excludedKeys: [
+        "platform",
+        "url",
+        "account",
+        "location",
+        "safety",
+        "sourcing",
+      ],
+    });
+    expect(result.divergent).toBe(false);
+  });
+
+  it("is surfaced on the whole-database draft without changing the field union", () => {
+    const draft = draftTypeProfileAdoption({
+      database: "Vault/Tools & Materials",
+      paths: toolsAndMaterialsPaths,
+      frontmatterByPath: toolsAndMaterialsFrontmatter,
+    });
+    // Advisory only: every observed field is still drafted (union unchanged).
+    expect(new Set(draft.fields.map((f) => f.field.name))).toEqual(
+      new Set([
+        "decided_by",
+        "lifecycle",
+        "platform",
+        "url",
+        "account",
+        "location",
+        "safety",
+        "sourcing",
+      ])
+    );
+    expect(draft.profileDivergence?.divergent).toBe(true);
+    expect(draft.profileDivergence?.groups.length).toBe(2);
+  });
+
+  it("reports divergent: false on the coherent Sensor Registry fixture", () => {
+    const draft = draftTypeProfileAdoption({
+      database: "Gidi/Hardware/Sensor Registry",
+      paths: sensorPaths,
+      frontmatterByPath: sensorFrontmatterByPath,
+      siblingDatabases: [boardRegistrySiblingValues],
+    });
+    expect(draft.profileDivergence?.divergent).toBe(false);
   });
 });
 

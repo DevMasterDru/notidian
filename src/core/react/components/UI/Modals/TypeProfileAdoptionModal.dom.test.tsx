@@ -52,6 +52,31 @@ const emptyDraft = (): TypeProfileAdoptionDraft => ({
   fields: [],
 });
 
+// A draft carrying the ADR-0040 advisory: two divergent answer-shapes forced
+// into one database (Notidian-7v4c). The warning is non-blocking — Adopt still
+// drafts every field.
+const draftWithDivergence = (): TypeProfileAdoptionDraft => ({
+  ...draftWithFields(),
+  database: "Vault/Tools & Materials",
+  rowCount: 6,
+  profileDivergence: {
+    divergent: true,
+    sharedCoreFields: ["decided_by", "lifecycle"],
+    groups: [
+      {
+        rowCount: 3,
+        characteristicFields: ["account", "platform", "url"],
+        exampleRows: ["Vault/Tools & Materials/T-01.md"],
+      },
+      {
+        rowCount: 3,
+        characteristicFields: ["location", "safety", "sourcing"],
+        exampleRows: ["Vault/Tools & Materials/M-01.md"],
+      },
+    ],
+  },
+});
+
 describe("TypeProfileAdoptionModal", () => {
   let root: Root;
   let container: HTMLElement;
@@ -125,6 +150,65 @@ describe("TypeProfileAdoptionModal", () => {
 
     expect(onConfirm).not.toHaveBeenCalled();
     expect(hide).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the ADR-0040 boundary advisory with its divergent groups and shared core", () => {
+    act(() => {
+      root.render(
+        <TypeProfileAdoptionModal
+          draft={draftWithDivergence()}
+          onConfirm={jest.fn()}
+        />
+      );
+    });
+
+    const warning = container.querySelector(
+      ".mk-type-profile-adoption-divergence"
+    );
+    expect(warning).toBeTruthy();
+    expect(warning?.getAttribute("role")).toBe("alert");
+    expect(container.textContent).toContain("database boundary");
+    expect(container.textContent).toContain("ADR-0040");
+    expect(container.textContent).toContain("decided_by, lifecycle");
+    expect(container.textContent).toContain("account, platform, url");
+    expect(container.textContent).toContain("location, safety, sourcing");
+  });
+
+  it("keeps the advisory non-blocking: Adopt still confirms when divergence is flagged", () => {
+    const onConfirm = jest.fn();
+    const hide = jest.fn();
+    act(() => {
+      root.render(
+        <TypeProfileAdoptionModal
+          draft={draftWithDivergence()}
+          onConfirm={onConfirm}
+          hide={hide}
+        />
+      );
+    });
+
+    const confirmButton = Array.from(
+      container.querySelectorAll("button")
+    ).find((b) => b.textContent?.includes("Adopt"));
+    expect(confirmButton).toBeTruthy();
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(hide).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows no advisory when the draft is coherent (no profileDivergence)", () => {
+    act(() => {
+      root.render(
+        <TypeProfileAdoptionModal draft={draftWithFields()} onConfirm={jest.fn()} />
+      );
+    });
+    expect(
+      container.querySelector(".mk-type-profile-adoption-divergence")
+    ).toBeNull();
   });
 
   it("offers no Adopt action and never calls onConfirm when the draft has zero fields", () => {

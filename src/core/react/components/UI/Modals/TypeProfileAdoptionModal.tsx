@@ -16,6 +16,7 @@ export const TypeProfileAdoptionModal = (props: {
 }) => {
   const { draft, onConfirm, hide } = props;
   const fieldCount = draft.fields.length;
+  const divergence = draft.profileDivergence;
 
   const confirm = () => {
     if (fieldCount == 0) return;
@@ -34,6 +35,43 @@ export const TypeProfileAdoptionModal = (props: {
             } already declared, left untouched`
           : ""}
       </div>
+
+      {divergence?.divergent ? (
+        <div
+          className="mk-type-profile-adoption-divergence"
+          role="alert"
+        >
+          <div className="mk-type-profile-adoption-divergence-title">
+            Possible database boundary issue: these rows look like{" "}
+            {divergence.groups.length} different answer-shapes forced into one
+            database.
+          </div>
+          <div className="mk-type-profile-adoption-divergence-body">
+            ADR-0040&apos;s Database Boundary Test: one database = one question ×
+            one lifecycle × one property profile. Rows here split into groups
+            whose core properties don&apos;t overlap — consider splitting into
+            separate databases. Advisory only: adopting still drafts every field
+            below.
+          </div>
+          {divergence.sharedCoreFields.length > 0 ? (
+            <div className="mk-type-profile-adoption-divergence-shared">
+              Shared core: {divergence.sharedCoreFields.join(", ")}
+            </div>
+          ) : null}
+          <ul className="mk-type-profile-adoption-divergence-groups">
+            {divergence.groups.map((group, index) => (
+              <li
+                className="mk-type-profile-adoption-divergence-group"
+                key={index}
+              >
+                Group {index + 1} ({group.rowCount} row
+                {group.rowCount == 1 ? "" : "s"}):{" "}
+                {group.characteristicFields.join(", ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {fieldCount == 0 ? (
         <div className="mk-type-profile-adoption-empty">
