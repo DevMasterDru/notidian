@@ -23,8 +23,21 @@ export const resolveApiFieldColumn = (
   field: string,
   contextTables: ReadonlyArray<SpaceTable | undefined | null>
 ): SpaceProperty | undefined => {
+  // TOTALITY (bd Notidian-9wzv): this gate sits on a WRITE path fed by
+  // potentially corrupt/legacy MDBs and external raw edits, so it must never
+  // throw on a malformed contextTables list — a crashing write is strictly
+  // worse than degrading to the verb default (a single-user vault). Same
+  // defensive posture as validateRow: Array-guard the container and skip any
+  // non-object column entry rather than dereferencing it. `optional-chaining`
+  // alone was insufficient — `cols` a truthy non-array value (`{}`, a string)
+  // reached `.find` on a value with no such method, and a null/undefined entry
+  // threw on `c.name` inside the predicate. Well-formed schemas never produce
+  // these shapes, so this is defensive-depth, not a reachable normal path.
+  if (!Array.isArray(contextTables)) return undefined;
   for (const table of contextTables) {
-    const col = table?.cols?.find((c) => c.name === field);
+    const cols = table?.cols;
+    if (!Array.isArray(cols)) continue;
+    const col = cols.find((c) => c != null && c.name === field);
     if (col) return col;
   }
   return undefined;
