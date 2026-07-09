@@ -162,6 +162,15 @@ export const TreeItem = (props: TreeItemProps) => {
   };
 
   const onDragStarted = (e: React.DragEvent<HTMLDivElement>) => {
+    // DnD is inert while a Navigator text filter is active. filterTreeByQuery
+    // (spaces.ts) emits every synthetic node with sortable:false against a
+    // sparse, re-indexed, ancestor-only flattenedTree; letting a drag start
+    // there would run id-driven projection/rank math (getProjection /
+    // dropPathsInTree) against the filtered subset's depth/parentId values
+    // instead of the real tree, committing against the wrong parent/rank
+    // (Notidian-21l4). Strict `=== false` blocks ONLY filter-emitted nodes;
+    // ordinary rows are sortable:true|undefined and unaffected.
+    if (data.sortable === false) return;
     if (selectedPaths.length > 1) {
       setDragPaths(selectedPaths.map((f) => f.path));
       superstate.ui.dragStarted(
@@ -176,6 +185,9 @@ export const TreeItem = (props: TreeItemProps) => {
     superstate.ui.dragStarted(e, [data.path]);
   };
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Returning before preventDefault() also keeps the row from becoming a
+    // valid drop target while filtered — see onDragStarted (Notidian-21l4).
+    if (data.sortable === false) return;
     e.preventDefault();
     if (!innerRef.current) return;
     const rect = innerRef.current.getBoundingClientRect();
@@ -219,6 +231,7 @@ export const TreeItem = (props: TreeItemProps) => {
     noClick: true,
   });
   const onDragEnded = (e: React.DragEvent<HTMLDivElement>) => {
+    if (data.sortable === false) return; // see onDragStarted (Notidian-21l4)
     e.stopPropagation();
     dragEnded(e, data.id);
   };
