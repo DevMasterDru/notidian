@@ -6,6 +6,7 @@ import type { Database, SqlJsStatic } from "sql.js";
 import { getMDBTables } from "./mdb";
 import { mdbTablesToDBTables, replaceDB } from "../db/db";
 import { mdbFrameToDBTables, mergeFrameFields } from "../../../core/utils/frames/frame";
+import { fieldSchema } from "../../../shared/schemas/fields";
 import type { SpaceProperty } from "../../../shared/types/mdb";
 import type { MDBFrame } from "../../../shared/types/mframe";
 
@@ -669,6 +670,207 @@ describe("Notidian-2y21: an AI/api.context.insert row write never resets view pr
       expect(rows).toEqual(["AI Row", "Row 1"]);
     } finally {
       db3.close();
+    }
+  });
+});
+
+// ===========================================================================
+// Notidian-buqr — m_fields must NOT retain case-variant field rows that the
+// physical data table deduped away (real engine).
+//
+// THE BUG. m_fields is a ROW-based table: a field's `name` is a row VALUE, not a
+// SQLite identifier, and the table's unique key `name,schemaId` uses SQLite's
+// default case-SENSITIVE BINARY collation. So m_fields can hold BOTH "Status" and
+// "status" for one schemaId. The PHYSICAL data table it describes cannot: replaceDB
+// folds column identifiers case-INSENSITIVELY (Notidian-1q8y), keeping only the
+// first-seen casing, because "Status" and "status" in one CREATE TABLE throw
+// `duplicate column name`. Observed live (Notidian-vonm.3): force-saving the
+// degenerate cols list [File, Created, Status, status] wrote a 3-column data table
+// but a 4-row m_fields, so contextForSpace afterwards reported four columns whose
+// backing table has three.
+//
+// THE FIX. replaceDB now folds m_fields ROWS with the SAME first-seen-wins rule,
+// per schemaId (uniqByKey on schemaId + name.toLowerCase()), keeping whole rows
+// verbatim — no field merge, no source/authority tie-break. This net drives the
+// real sql.js engine through the exact mdbTable save-path transformation
+// (mdbTablesToDBTables + merged m_fields, the shape mdbAdapter.saveContent
+// 'mdbTable' builds) and asserts the read-back field list matches the physical
+// columns exactly. Without the fold, m_fields carries the extra "status" row and
+// these FAIL.
+// ===========================================================================
+
+const CTX_ID = "files";
+
+// The degenerate cols the bead force-saves: File, Created, Status, status.
+const degenerateCols: SpaceProperty[] = [
+  fieldRow("File", CTX_ID),
+  fieldRow("Created", CTX_ID),
+  fieldRow("Status", CTX_ID),
+  fieldRow("status", CTX_ID),
+];
+
+// Seed a context DB whose m_schema carries the (type:'db') context schema + an
+// empty m_fields, mirroring a freshly-created Notidian context.
+const seedContextDB = (): { files: Map<string, ArrayBuffer>; dbPath: string } => {
+  const files = new Map<string, ArrayBuffer>();
+  const dbPath = "Space/.notidian/context.mdb";
+  const db = new SQL.Database();
+  try {
+    replaceDB(db, {
+      m_schema: {
+        uniques: ["id"],
+        cols: ["id", "name", "type", "def", "predicate", "primary"],
+        rows: [{ id: CTX_ID, name: "Files", type: "db", def: "", predicate: "", primary: "true" }],
+      },
+      m_fields: { uniques: fieldSchema.uniques, cols: fieldSchema.cols, rows: [] },
+    });
+    writeDB(files, dbPath, db);
+  } finally {
+    db.close();
+  }
+  return { files, dbPath };
+};
+
+// Force-save through the exact mdbTable save-path transformation the adapter uses
+// (mdbAdapter.saveContent 'mdbTable'): the new table content carries `cols`, and
+// m_fields rows = other-schema oldFields (none here) + this table's cols verbatim.
+const forceSaveMdbTable = (
+  files: Map<string, ArrayBuffer>,
+  dbPath: string,
+  cols: SpaceProperty[],
+  rows: Record<string, string>[]
+) => {
+  const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+  try {
+    const oldFields = readFields(db);
+    const content = {
+      schema: { id: CTX_ID, name: "Files", type: "db", def: "", predicate: "", primary: "true" } as any,
+      cols: cols as any,
+      rows: rows as any,
+    };
+    const tables = { [CTX_ID]: content };
+    const dbTables = {
+      ...mdbTablesToDBTables(tables as any),
+      m_fields: {
+        uniques: fieldSchema.uniques,
+        cols: fieldSchema.cols,
+        rows: [
+          ...oldFields.filter((f) => f.schemaId != CTX_ID),
+          ...Object.values(tables).flatMap((f) => f.cols),
+        ] as any,
+      },
+    };
+    replaceDB(db, dbTables as any);
+    writeDB(files, dbPath, db);
+  } finally {
+    db.close();
+  }
+};
+
+// The physical data table's REAL columns, straight from SQLite.
+const physicalColumns = (files: Map<string, ArrayBuffer>, dbPath: string): string[] => {
+  const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+  try {
+    return (db.exec(`PRAGMA table_info(${JSON.stringify(CTX_ID)})`)[0]?.values ?? []).map(
+      (r) => r[1] as string
+    );
+  } finally {
+    db.close();
+  }
+};
+
+describe("Notidian-buqr: m_fields cannot keep case-variant rows the physical table deduped away (real engine)", () => {
+  it("PINS THE DIVERGENCE: force-saving [File, Created, Status, status] yields a 3-column data table (SQLite folds status into Status)", () => {
+    const { files, dbPath } = seedContextDB();
+    forceSaveMdbTable(files, dbPath, degenerateCols, [
+      { File: "Note A", Created: "", Status: "open", status: "IGNORED" },
+    ]);
+    // The physical table can only hold the first-seen casing.
+    expect(physicalColumns(files, dbPath)).toEqual(["File", "Created", "Status"]);
+  });
+
+  it("THE FIX: m_fields is deduped to match the physical table — first-seen casing wins, whole row kept", () => {
+    const { files, dbPath } = seedContextDB();
+    forceSaveMdbTable(files, dbPath, degenerateCols, [
+      { File: "Note A", Created: "", Status: "open", status: "IGNORED" },
+    ]);
+
+    // Raw m_fields rows for the context: the extra "status" row must be gone.
+    const db = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      const names = readFields(db)
+        .filter((f) => f.schemaId == CTX_ID)
+        .map((f) => f.name);
+      expect(names).toEqual(["File", "Created", "Status"]);
+    } finally {
+      db.close();
+    }
+
+    // And they equal the physical columns exactly — the invariant the bead demands.
+    expect(physicalColumns(files, dbPath)).toEqual(["File", "Created", "Status"]);
+  });
+
+  it("contextForSpace's read path (getMDBTables) reports deduped cols matching the physical table", async () => {
+    const { files, dbPath } = seedContextDB();
+    forceSaveMdbTable(files, dbPath, degenerateCols, [
+      { File: "Note A", Created: "", Status: "open", status: "IGNORED" },
+    ]);
+
+    // getMDBTables is the read path filesystemAdapter.contextForSpace projects the
+    // context's cols from; tables[CTX].cols is the per-schema m_fields projection.
+    const adapter = makeAdapter(files);
+    const tables = await getMDBTables(adapter, dbPath);
+    expect(tables).not.toBeNull();
+    const reportedCols = (tables![CTX_ID].cols ?? []).map((c) => c.name);
+    expect(reportedCols).toEqual(["File", "Created", "Status"]);
+    // Two frontmatter columns whose backing table has one can no longer occur:
+    // the reported field list is exactly the physical table's columns.
+    expect(reportedCols).toEqual(physicalColumns(files, dbPath));
+  });
+
+  it("does NOT collapse the SAME field name across DIFFERENT schemaIds (per-schema File/Created defaults are the norm)", () => {
+    const files = new Map<string, ArrayBuffer>();
+    const dbPath = "Space/.notidian/multi.mdb";
+    const db = new SQL.Database();
+    try {
+      replaceDB(db, {
+        m_schema: {
+          uniques: ["id"],
+          cols: ["id", "name", "type", "def", "predicate", "primary"],
+          rows: [
+            { id: "ctxA", name: "A", type: "db", def: "", predicate: "", primary: "true" },
+            { id: "ctxB", name: "B", type: "db", def: "", predicate: "", primary: "true" },
+          ],
+        },
+        m_fields: {
+          uniques: fieldSchema.uniques,
+          cols: fieldSchema.cols,
+          // Same "File"/"Created" names on two schemas, plus a case-variant WITHIN ctxA.
+          rows: [
+            fieldRow("File", "ctxA"),
+            fieldRow("Created", "ctxA"),
+            fieldRow("file", "ctxA"), // <- case-variant duplicate, must be dropped
+            fieldRow("File", "ctxB"), // <- same name, different schema, must survive
+            fieldRow("Created", "ctxB"),
+          ] as any,
+        },
+        ctxA: { uniques: [], cols: ["File", "Created"], rows: [] },
+        ctxB: { uniques: [], cols: ["File", "Created"], rows: [] },
+      });
+      writeDB(files, dbPath, db);
+    } finally {
+      db.close();
+    }
+
+    const reopened = new SQL.Database(new Uint8Array(files.get(dbPath) as ArrayBuffer));
+    try {
+      const fields = readFields(reopened);
+      const bySchema = (id: string) => fields.filter((f) => f.schemaId == id).map((f) => f.name);
+      // ctxA collapsed its case-variant; ctxB's same-named fields are untouched.
+      expect(bySchema("ctxA")).toEqual(["File", "Created"]);
+      expect(bySchema("ctxB")).toEqual(["File", "Created"]);
+    } finally {
+      reopened.close();
     }
   });
 });

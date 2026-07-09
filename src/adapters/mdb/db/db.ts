@@ -3,7 +3,7 @@ import { getParentPathFromString } from "utils/path";
 import { MDBFileTypeAdapter } from "adapters/mdb/mdbAdapter";
 import JSZip from "jszip";
 import { DBRows, DBTable, DBTables, SpaceTables } from "shared/types/mdb";
-import { uniqCaseInsensitive } from "shared/utils/array";
+import { uniqByKey, uniqCaseInsensitive } from "shared/utils/array";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database, QueryExecResult, SqlJsStatic } from "sql.js";
@@ -447,6 +447,28 @@ export const replaceDB = (db: Database, tables: DBTables) => {
   let warnedMissingUniqueColumn = false;
   for (const t of Object.keys(tables)) {
       const tableFields = tables[t].cols;
+      // Notidian-buqr: m_fields is a ROW-based table — a field's `name` is a row
+      // VALUE, not a SQLite identifier — so it can hold BOTH "Status" and "status"
+      // for one schemaId (its unique key `name,schemaId` uses SQLite's default
+      // case-SENSITIVE BINARY collation). But the PHYSICAL data table those rows
+      // describe cannot: liveCols below folds column identifiers case-INSENSITIVELY
+      // (SQLite folds identifier case), so it carries only the first-seen casing.
+      // Left unchecked, m_fields would report more columns than the table has. Fold
+      // the m_fields rows with the SAME first-seen-wins rule, per schemaId, so the
+      // persisted field list and the physical table stay in permanent agreement.
+      // Whole rows survive verbatim — no field merge, no source/authority tie-break
+      // (that would risk crossing the frontmatter<->notidian boundary, ADR
+      // 0001/0014/0017) — so the survivor's own name IS the first-seen casing the
+      // liveCols fold keeps for the same input order.
+      const liveRows =
+        t === "m_fields"
+          ? uniqByKey(tables[t].rows ?? [], (r) =>
+              JSON.stringify([
+                (r as { schemaId?: unknown })?.schemaId ?? "",
+                String((r as { name?: unknown })?.name ?? "").toLowerCase(),
+              ])
+            )
+          : tables[t].rows ?? [];
       // ADR 0045 (Option A) / Notidian-k778: derive ONE de-duped, falsy-filtered
       // column list and use it for BOTH the CREATE field definition AND the
       // REPLACE rows, so the emitted statement is correct by construction —
@@ -462,7 +484,7 @@ export const replaceDB = (db: Database, tables: DBTables) => {
         // m_schema referencing a missing table (which used to make the whole
         // .mdb unloadable via getMDB), so REFUSE the entire write; with no
         // rows the table is skipped as a no-op.
-        if ((tables[t].rows ?? []).length > 0) return false;
+        if (liveRows.length > 0) return false;
         continue;
       }
       const fieldQuery = serializeSQLFieldNames(liveCols.map((f) => `${quoteIdent(f)} char`));
@@ -516,7 +538,7 @@ export const replaceDB = (db: Database, tables: DBTables) => {
           return `${p} CREATE UNIQUE INDEX IF NOT EXISTS ${quoteIdent(indexName)} ON ${quoteIdent(t)}(${indexCols});`;
         }, "");
       const beginTransaction = `BEGIN TRANSACTION;`
-      const rowsQuery = tables[t].rows.map((curr) => {
+      const rowsQuery = liveRows.map((curr) => {
         return `REPLACE INTO ${quoteIdent(t)} (${colList}) VALUES (${serializeSQLValues(liveCols
           .map((c) => `'${sanitizeSQLStatement(curr?.[c] ?? "")}'`))});`;
       });

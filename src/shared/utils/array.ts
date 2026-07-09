@@ -32,6 +32,27 @@ export const uniqCaseInsensitive = (a: string[]) => {
     return seen.has(k) ? false : (seen.add(k), true);
   });
 };
+// Object/row sibling of uniqCaseInsensitive (Notidian-buqr): keeps the FIRST-seen
+// item per caller-supplied string key and drops later duplicates, preserving input
+// order — the exact first-seen-wins semantics of uniqCaseInsensitive, lifted from a
+// string list to arbitrary rows via `keyFn`. The SURVIVING ROW IS KEPT WHOLE AND
+// VERBATIM: this deliberately does NOT merge fields between duplicates and does NOT
+// pick a "more authoritative" winner. It is used to collapse case-variant m_fields
+// rows (keyed by schemaId + name.toLowerCase()) so the persisted field list can
+// never claim more columns than the physical data table, whose columns replaceDB
+// already folds first-seen via uniqCaseInsensitive (db.ts, Notidian-1q8y). Because
+// the first-seen row survives whole, its own `name` IS the first-seen casing —
+// matching the physical column the fold keeps for the same input order — with no
+// casing rewrite needed. Whole-row-first-seen (never source/authority-weighted) is
+// intentional: an automatic dedup must never silently flip a field across the
+// frontmatter<->notidian authority boundary (ADR 0001/0014/0017).
+export const uniqByKey = <T>(items: T[], keyFn: (item: T) => string): T[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const k = keyFn(item);
+    return seen.has(k) ? false : (seen.add(k), true);
+  });
+};
 export const uniqueNameFromString = (name: string, cols: string[]) => {
   let newName = name;
   if (cols.includes(newName)) {

@@ -6,6 +6,7 @@ import {
   orderArrayByArrayWithKey,
   orderStringArrayByArray,
   uniq,
+  uniqByKey,
   uniqCaseInsensitive,
   uniqueCopyName,
   uniqueNameFromString,
@@ -259,6 +260,79 @@ describe("uniqCaseInsensitive", () => {
       expect(new Set(lowered).size).toBe(out.length);
       expect(out.length).toBe(new Set(arr.map((s) => s.toLowerCase())).size);
     }
+  });
+});
+
+// =========================================================================
+// uniqByKey  (row-level first-seen dedup — the m_fields sibling of
+//             uniqCaseInsensitive; Notidian-buqr)
+// =========================================================================
+describe("uniqByKey", () => {
+  it("keeps the FIRST-seen row per key and drops later duplicates, preserving order", () => {
+    const rows = [
+      { name: "Status", schemaId: "s1", source: "" },
+      { name: "status", schemaId: "s1", source: "notidian" },
+      { name: "Owner", schemaId: "s1", source: "" },
+    ];
+    const out = uniqByKey(rows, (r) =>
+      JSON.stringify([r.schemaId, r.name.toLowerCase()])
+    );
+    // Only the first "Status" survives; its casing AND its whole payload are kept.
+    expect(out).toEqual([
+      { name: "Status", schemaId: "s1", source: "" },
+      { name: "Owner", schemaId: "s1", source: "" },
+    ]);
+  });
+
+  it("keeps the surviving row WHOLE — never merges fields or prefers a later row by source/authority", () => {
+    // The later case-variant carries an explicit source:"notidian" marker. A
+    // source-weighted tie-break (the reverted Notidian-buqr design) would let it
+    // win and flip the field's authority. First-seen-whole-row must NOT: the
+    // frontmatter-canonical (source:"") first row survives untouched.
+    const rows = [
+      { name: "Title", schemaId: "s1", source: "", type: "text" },
+      { name: "TITLE", schemaId: "s1", source: "notidian", type: "flex" },
+    ];
+    const out = uniqByKey(rows, (r) =>
+      JSON.stringify([r.schemaId, r.name.toLowerCase()])
+    );
+    expect(out).toEqual([
+      { name: "Title", schemaId: "s1", source: "", type: "text" },
+    ]);
+  });
+
+  it("scopes the key: same name on DIFFERENT schemaIds is preserved (the m_fields norm)", () => {
+    const rows = [
+      { name: "Name", schemaId: "a" },
+      { name: "name", schemaId: "b" },
+      { name: "NAME", schemaId: "a" },
+    ];
+    const out = uniqByKey(rows, (r) =>
+      JSON.stringify([r.schemaId, r.name.toLowerCase()])
+    );
+    // a/Name and b/name are distinct; the second a/NAME collapses into a/Name.
+    expect(out).toEqual([
+      { name: "Name", schemaId: "a" },
+      { name: "name", schemaId: "b" },
+    ]);
+  });
+
+  it("mirrors uniqCaseInsensitive's surviving name for a single schema's column list", () => {
+    // Parity guarantee: for one schemaId, the survivor names uniqByKey keeps must
+    // equal exactly what uniqCaseInsensitive keeps for the same column order — so
+    // m_fields and the physical data table (folded by uniqCaseInsensitive in
+    // replaceDB) never disagree on the surviving casing/set.
+    const cols = ["File", "Created", "Status", "status", "STATUS"];
+    const rows = cols.map((name) => ({ name, schemaId: "ctx" }));
+    const out = uniqByKey(rows, (r) =>
+      JSON.stringify([r.schemaId, r.name.toLowerCase()])
+    ).map((r) => r.name);
+    expect(out).toEqual(uniqCaseInsensitive(cols));
+    expect(out).toEqual(["File", "Created", "Status"]);
+  });
+
+  it("returns [] for an empty array", () => {
+    expect(uniqByKey([] as { name: string }[], (r) => r.name)).toEqual([]);
   });
 });
 
