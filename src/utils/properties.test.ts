@@ -107,26 +107,33 @@ describe("parseMDBStringValue", () => {
       expect(parseMDBStringValue("date-end", "")).toBeNull();
     });
     it("in-memory path (frontmatter=false) parses date-only strings as local midnight, not UTC midnight", () => {
-      const priorTZ = process.env.TZ;
-      process.env.TZ = "America/Los_Angeles";
-      try {
-        const d = parseMDBStringValue("date", "2024-03-05");
-        expect(d).toBeInstanceOf(Date);
-        expect((d as Date).getTime()).toBe(new Date(2024, 2, 5).getTime());
-        expect([
-          (d as Date).getFullYear(),
-          (d as Date).getMonth(),
-          (d as Date).getDate(),
-          (d as Date).getHours(),
-          (d as Date).getMinutes(),
-        ]).toEqual([2024, 2, 5, 0, 0]);
-      } finally {
-        if (priorTZ === undefined) {
-          delete process.env.TZ;
-        } else {
-          process.env.TZ = priorTZ;
-        }
-      }
+      // TZ-AGNOSTIC BY CONSTRUCTION — no process.env.TZ mutation here on purpose.
+      // The code path does `new Date(y, m-1, d)`, which yields LOCAL midnight of
+      // that calendar date under whatever TZ the process was launched with. An
+      // earlier version of this test set process.env.TZ mid-test believing it
+      // pinned the offset; that is a silent NO-OP: V8 inside Jest resolves the
+      // Date/Intl offset once at process start and ignores runtime TZ mutation
+      // (verified — a Date built after re-setting TZ still uses the launch
+      // offset). We instead assert the guarantee the code actually makes, which
+      // holds under EVERY effective TZ (including UTC): the parsed instant equals
+      // local-midnight of the SAME calendar date. (To exercise a specific fixed
+      // offset deterministically, use the explicit-offset ISO approach from the
+      // Notidian-uskc tests below — not a runtime TZ mutation.)
+      const d = parseMDBStringValue("date", "2024-03-05");
+      expect(d).toBeInstanceOf(Date);
+      // The exact instant `new Date(2024, 2, 5)` (local midnight) produces —
+      // NOT UTC midnight, which would differ by the process offset in any
+      // non-UTC zone (under UTC the two coincide, which is still correct).
+      expect((d as Date).getTime()).toBe(new Date(2024, 2, 5).getTime());
+      // ...and its LOCAL components are exactly midnight of the same calendar
+      // date — a TZ-agnostic restatement of the same guarantee.
+      expect([
+        (d as Date).getFullYear(),
+        (d as Date).getMonth(),
+        (d as Date).getDate(),
+        (d as Date).getHours(),
+        (d as Date).getMinutes(),
+      ]).toEqual([2024, 2, 5, 0, 0]);
     });
     it("a valid datetime string parses to a Date instance (datetime/date-end share the branch)", () => {
       const dt = parseMDBStringValue("datetime", "2024-03-05T10:00:00Z");
