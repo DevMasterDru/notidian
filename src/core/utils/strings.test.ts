@@ -609,54 +609,102 @@ describe("wrapQuotes", () => {
 });
 
 describe("wrapQuotes / removeQuotes — round-trip properties", () => {
-  const plainSamples = [
+  // CONTRACT (Notidian-shrl): wrapQuotes and removeQuotes are a MATCHED
+  // encode/decode pair used across the frame-prop + style pipeline (ast.ts,
+  // htmlToTree.ts, mdToTree.ts, showFramePropsMenu.tsx, FrameNodeEditor.tsx +
+  // Submenus, SuperCell/ParameterSetter.tsx). The spec of a matched wrap/unwrap
+  // pair is round-trip identity: removeQuotes(wrapQuotes(s)) === s. This block
+  // formerly LOCKED two round-trip DEFECTS as characterization; both are now
+  // fixed, so it asserts identity instead:
+  //   (a) trailing-quote — removeQuotes' second "trailing semicolon quote"
+  //       strip used to fire whenever the unwrapped content coincidentally
+  //       ended in a quote/apostrophe (e.g. an escaped closing quote) rather
+  //       than only when the ORIGINAL wrapped string actually carried a
+  //       trailing ';', eating a real character.
+  //   (b) embedded-newline — wrapQuotes escapes a real newline as the literal
+  //       two-char sequence \n, but removeQuotes had no matching \n -> newline
+  //       unescape, so newlines came back as literal backslash-n.
+  const roundTripSamples = [
     "hello",
     "hello world",
-    "with \"a quote\" in the middle",
+    'with "a quote" in the middle',
     "trailing space ",
     "semi;colon",
     "123",
     "true",
+    'say "hi"', // ENDS in a literal double-quote char (defect a)
+    'ends with one quote"', // single trailing quote char
+    '"wrapped in real quotes"', // literal quote chars at BOTH ends
+    "line1\nline2", // one embedded real newline (defect b)
+    "a\nb\nc", // multiple embedded real newlines
+    "\n", // a lone real newline
+    'q"\nq"', // combined embedded quote + newline
+    "just;a;value;with;semis", // interior semicolons must NOT trip the ';' strip
   ];
 
-  it("round-trips for values that do NOT end in a literal double-quote char and have no newline", () => {
-    // removeQuotes re-strips a trailing quote/apostrophe a SECOND time after
-    // removing the outer wrap (to also eat a trailing semicolon's quote) --
-    // that second strip is harmless UNLESS the unwrapped content itself
-    // still ends in a quote character, which never happens for this sample
-    // set (none end in `"`), so the round trip is lossless here.
-    for (const s of plainSamples) {
+  it("removeQuotes(wrapQuotes(s)) === s for every representative value", () => {
+    for (const s of roundTripSamples) {
       expect(removeQuotes(wrapQuotes(s) as string)).toBe(s);
     }
   });
 
-  it("LOCKED ASYMMETRY: wrapQuotes escapes \\n, but removeQuotes never reverses it -- newlines do NOT round-trip", () => {
-    // wrapQuotes replaces a real newline with the literal two-char sequence
-    // `\n` (backslash + n). removeQuotes only reverses the `\"` escape (via
-    // `.replace(/\\"/g, '"')`) -- it has no equivalent `\n` -> newline
-    // unescape. So a value containing a real newline comes back with a
-    // LITERAL backslash-n in place of the original newline character.
-    const original = "multi\nline\nvalue";
-    const wrapped = wrapQuotes(original);
-    expect(wrapped).toBe(`"multi\\nline\\nvalue"`);
-    const back = removeQuotes(wrapped as string);
-    expect(back).toBe("multi\\nline\\nvalue"); // literal backslash-n, NOT a real newline
-    expect(back).not.toBe(original);
-  });
-
-  it("LOCKED BUG-SHAPED QUIRK: a value ENDING in a literal double-quote char does NOT round-trip", () => {
-    // wrapQuotes('say "hi"') -> `"say \"hi\""`. removeQuotes then strips the
-    // outer wrap (`"..."` -> `say \"hi\"`), and because the unwrapped
-    // content HAPPENS to still end in a quote char (the escaped closing
-    // quote's `"`), removeQuotes's second "trailing quote" strip fires
-    // AGAIN and eats that character too -- leaving a stray trailing
-    // backslash and only ONE surviving quote instead of two.
-    // Characterized as-is (not "fixed" here); see the companion bug bead
-    // filed alongside this DEPTH bead for a possible follow-up.
+  it("a value ENDING in a literal double-quote char now round-trips (defect a fixed)", () => {
+    // wrapQuotes('say "hi"') -> `"say \"hi\""`. removeQuotes strips the outer
+    // wrap to `say \"hi\"`; the old code, seeing it still ends in a quote,
+    // re-stripped that escaped closing quote and returned 'say "hi\' (stray
+    // backslash, one surviving quote). The hadSemicolon guard means the second
+    // strip no longer fires here, so the original is restored exactly.
     const original = 'say "hi"';
     const wrapped = wrapQuotes(original);
     expect(wrapped).toBe(`"say \\"hi\\""`);
-    expect(removeQuotes(wrapped as string)).toBe('say "hi\\');
+    expect(removeQuotes(wrapped as string)).toBe(original);
+  });
+
+  it("embedded newlines now round-trip (defect b fixed)", () => {
+    // wrapQuotes still escapes each real newline as the literal two chars \n ...
+    const original = "multi\nline\nvalue";
+    const wrapped = wrapQuotes(original);
+    expect(wrapped).toBe(`"multi\\nline\\nvalue"`);
+    // ... and removeQuotes now reverses that escape back to real newlines.
+    expect(removeQuotes(wrapped as string)).toBe(original);
+  });
+
+  it("ADVERSARIAL: a genuine trailing ';' still strips, but a quote-ending value WITHOUT ';' does not", () => {
+    // The two shapes the second-strip guard must keep distinct:
+    //   - a real CSS-style trailing semicolon: strip the ';' AND its quote.
+    expect(removeQuotes(`"value";`)).toBe("value");
+    expect(removeQuotes(`'value';`)).toBe("value");
+    //   - a value whose content merely ENDS in a quote char (no ';'): keep it.
+    //     wrapQuotes('a"') === `"a\""`; the trailing quote must survive decode.
+    expect(wrapQuotes('a"')).toBe(`"a\\""`);
+    expect(removeQuotes(wrapQuotes('a"') as string)).toBe('a"');
+    expect(removeQuotes(`"a\\""`)).toBe('a"');
+  });
+
+  it("ADVERSARIAL: multiple embedded newlines (incl. leading/adjacent) all round-trip", () => {
+    const original = "\na\n\nb\n";
+    expect(removeQuotes(wrapQuotes(original) as string)).toBe(original);
+  });
+
+  it("ADVERSARIAL: a combined embedded quote + newline value round-trips", () => {
+    const original = 'he said "hi"\nthen left';
+    expect(removeQuotes(wrapQuotes(original) as string)).toBe(original);
+  });
+
+  it("KNOWN LIMITATION: a LITERAL backslash-n (not a real newline) does NOT round-trip", () => {
+    // wrapQuotes only escapes REAL newlines (its /\n/ matches the newline char)
+    // and never escapes raw backslashes, so a value literally containing the two
+    // chars backslash+n is left untouched by wrapQuotes and is then
+    // INDISTINGUISHABLE from an escaped real newline on decode. This
+    // non-injectivity is pre-existing (wrapQuotes has never escaped backslashes)
+    // and out of scope for the Notidian-shrl fix; documented here so the boundary
+    // is explicit rather than a silent surprise.
+    const literalBackslashN = "foo\\nbar"; // 8 chars: f o o \ n b a r (NOT a newline)
+    const wrapped = wrapQuotes(literalBackslashN);
+    expect(wrapped).toBe(`"foo\\nbar"`); // wrapQuotes left the literal \n alone
+    const back = removeQuotes(wrapped as string);
+    expect(back).toBe("foo\nbar"); // decoded to a REAL newline
+    expect(back).not.toBe(literalBackslashN);
   });
 });
 
@@ -722,12 +770,15 @@ describe("removeQuotes", () => {
     expect(removeQuotes(`hello"`)).toBe(`hello"`);
   });
 
-  it("LOCKED: a lone single-character double-quote string collapses to ''", () => {
+  it("a lone single-character double-quote string passes through unchanged", () => {
     // startsWith('"') and endsWith('"') are both trivially true for the
-    // single-char string `"`, so it is treated as a matched quote pair;
-    // substring(1, 0) clamps to substring(0, 1) = `"` again, which still
-    // ends in a quote, so the second strip fires and empties it out.
-    expect(removeQuotes(`"`)).toBe("");
+    // single-char string `"`, so it enters the matched-pair branch, but
+    // substring(1, 0) clamps back to substring(0, 1) = `"`. Since there was NO
+    // trailing ';', the guarded second strip does NOT fire, so it comes back
+    // unchanged. (Before the Notidian-shrl double-strip fix this spuriously
+    // collapsed to ''. wrapQuotes never emits a bare quote, so this is a
+    // decode-only edge case with no round-trip consumer.)
+    expect(removeQuotes(`"`)).toBe(`"`);
   });
 
   it("passes a bare semicolon through unchanged (no quote pattern matched)", () => {

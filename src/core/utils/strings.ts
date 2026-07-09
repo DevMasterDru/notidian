@@ -84,15 +84,29 @@ export const removeQuotes = (s: string): string => {
   const doubleQuoteWithSemicolon = s.startsWith('"') && (s.endsWith('";') || s.endsWith('"'));
 
   if (singleQuoteWithSemicolon || doubleQuoteWithSemicolon) {
+      // Did the ORIGINAL wrapped string carry a trailing ';'? This decides the
+      // second strip below. substring(1, len-1) drops the opening quote and the
+      // LAST char: that last char is the ';' when a semicolon was present
+      // (leaving the closing quote still attached, to be stripped next), but is
+      // the closing quote itself when there was NO semicolon (already removed —
+      // so a second strip must NOT fire). The old code re-inspected the stripped
+      // content instead ("does it still end in a quote?"), which conflated an
+      // escaped closing quote — e.g. wrapQuotes('say "hi"') === `"say \"hi\""` —
+      // with the semicolon case and ate a real character on round-trip.
+      const hadSemicolon = s.endsWith(";");
       // Remove the quotes
       s = s.substring(1, s.length - 1);
-      // If there was a semicolon, remove it as well
-      if (s.endsWith('"') || s.endsWith("'")) {
+      // If there was a trailing semicolon, its preceding closing quote is still
+      // attached — strip it too. Guarded on hadSemicolon so it fires ONLY for a
+      // genuine trailing ';', never for content that merely ends in a quote char.
+      if (hadSemicolon && (s.endsWith('"') || s.endsWith("'"))) {
           s = s.substring(0, s.length - 1);
       }
-      return s.replace(/\\"/g, '"')
+      // Reverse BOTH of wrapQuotes' escapes: \" -> " and the literal two-char
+      // sequence \n -> a real newline, so removeQuotes is a true inverse.
+      return s.replace(/\\"/g, '"').replace(/\\n/g, "\n")
   } else {
-      return s.replace(/\\"/g, '"');
+      return s.replace(/\\"/g, '"').replace(/\\n/g, "\n");
   }
 }
 
