@@ -362,11 +362,19 @@ const frontmatterDeleteConfirmationMessage = ({
   totalFiles,
   affectedFiles,
   untouchedFiles,
+  caseVariantFiles,
+  caseVariantExample,
 }: {
   key: string;
   totalFiles: number;
   affectedFiles: number;
   untouchedFiles: number;
+  // Notidian-1e93: files whose key is a case-variant spelling of the deleted
+  // column (e.g. "State" for column "state"). Surfaced as its own line so a
+  // human confirming the delete sees these orphaned-casing removals distinctly
+  // rather than having them vanish into the "do not contain this key" tally.
+  caseVariantFiles: number;
+  caseVariantExample?: string;
 }): string =>
   [
     `Delete frontmatter property "${key}"?`,
@@ -374,6 +382,13 @@ const frontmatterDeleteConfirmationMessage = ({
     `${affectedFiles} file${
       affectedFiles == 1 ? "" : "s"
     } will permanently remove this YAML key.`,
+    ...(caseVariantFiles > 0
+      ? [
+          `${caseVariantFiles} of those store it under a different capitalization${
+            caseVariantExample ? ` (e.g. "${caseVariantExample}")` : ""
+          } — those spellings will also be removed.`,
+        ]
+      : []),
     `${untouchedFiles} of ${totalFiles} file${
       totalFiles == 1 ? "" : "s"
     } do not contain this key.`,
@@ -1874,6 +1889,8 @@ export const ContextEditorProvider: React.FC<
           totalFiles: paths.length,
           affectedFiles: plan.affectedFiles.length,
           untouchedFiles: paths.length - plan.affectedFiles.length,
+          caseVariantFiles: plan.caseVariantFiles.length,
+          caseVariantExample: plan.caseVariantFiles[0]?.foundKeys[0],
         })
       );
       if (!confirmed) return false;

@@ -141,6 +141,22 @@ export type EnumValueRenameCascadePlan = {
   affectedPaths: string[];
 };
 
+// Notidian-1e93: a file matched by the destructive delete only because it
+// carries a case-variant spelling of the deleted column (column "state", file
+// key "State"). Surfaced on a DEDICATED plan field — not folded into the
+// undifferentiated "N of M files do not contain this key" tally, and NOT pushed
+// onto `issues` (the delete consumer treats any issue as a hard abort, but here
+// we WANT the delete to proceed and strip the orphaned variant).
+export type FrontmatterDeleteCaseVariant = {
+  path: string;
+  requestedKey: string;
+  // The actual case-variant spellings present in this file's frontmatter that
+  // the delete will remove (their real casing, so the write actually strips
+  // them). A file with both "state" and "State" surfaces "State" here while
+  // both are removed.
+  foundKeys: string[];
+};
+
 export type DeleteFrontmatterPropertyPlan = {
   canApplyAutomatically: boolean;
   destructive: boolean;
@@ -149,6 +165,8 @@ export type DeleteFrontmatterPropertyPlan = {
   tablePreview: SpaceTable;
   affectedFiles: string[];
   frontmatterWrites: FrontmatterWritePlan[];
+  // Subset of affectedFiles that matched only via a case-variant key spelling.
+  caseVariantFiles: FrontmatterDeleteCaseVariant[];
 };
 
 // Exported (Notidian-loan.3, ADR-0056 D9): the schema-adoption planner
@@ -651,18 +669,40 @@ export const planDeleteFrontmatterProperty = ({
   const destructive = mode == "delete-frontmatter";
   const affectedFiles: string[] = [];
   const frontmatterWrites: FrontmatterWritePlan[] = [];
+  const caseVariantFiles: FrontmatterDeleteCaseVariant[] = [];
 
   if (destructive && normalizedKey && issues.length == 0) {
+    // Notidian-1e93 (mirrors the Notidian-lqt4 rename fix): the per-file scan
+    // was exact-string (`hasOwn(frontmatter, normalizedKey)`), so a file whose
+    // real key is a case-variant of the deleted column (column "state", file
+    // key "State") was silently skipped — the orphaned variant survived the
+    // "delete this column" op, and the file was mis-counted as one that never
+    // held the key. Match case-insensitively (as the schema-level column check
+    // already does), remove EVERY spelling that folds onto this column keyed by
+    // its ACTUAL casing, and surface variant-only matches distinctly.
+    const lowerKey = normalizedKey.toLowerCase();
     for (const path of paths) {
       const frontmatter = frontmatterForPath(frontmatterByPath, path);
-      if (!hasOwn(frontmatter, normalizedKey)) continue;
+      const matchingKeys = Object.keys(frontmatter).filter(
+        (candidate) => candidate.toLowerCase() == lowerKey
+      );
+      if (matchingKeys.length == 0) continue;
 
       affectedFiles.push(path);
       frontmatterWrites.push({
         path,
         set: {},
-        removeKeys: [normalizedKey],
+        removeKeys: matchingKeys,
       });
+
+      const variantKeys = matchingKeys.filter((key) => key != normalizedKey);
+      if (variantKeys.length > 0) {
+        caseVariantFiles.push({
+          path,
+          requestedKey: normalizedKey,
+          foundKeys: variantKeys,
+        });
+      }
     }
   }
 
@@ -674,6 +714,7 @@ export const planDeleteFrontmatterProperty = ({
     tablePreview,
     affectedFiles,
     frontmatterWrites,
+    caseVariantFiles,
   };
 };
 

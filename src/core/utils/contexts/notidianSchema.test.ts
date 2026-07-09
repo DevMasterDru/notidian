@@ -305,3 +305,166 @@ describe("planDeleteFrontmatterProperty", () => {
       .toMatchObject({ hidden: "true" });
   });
 });
+
+// Notidian-1e93: the destructive delete's per-file presence scan was
+// exact-string, so a file whose real frontmatter key is a case-variant of the
+// deleted column ("status" vs "STATUS") was silently skipped — the orphaned
+// spelling survived the delete AND was folded indistinguishably into the
+// "N of M files do not contain this key" confirmation count. The fix mirrors
+// the landed Notidian-lqt4 rename pattern: match case-insensitively, remove the
+// key under its ACTUAL casing, and surface variant-only matches on a dedicated
+// `caseVariantFiles` plan field (NOT `issues`, which the delete consumer treats
+// as a hard abort).
+describe("planDeleteFrontmatterProperty — case-variant orphan removal (Notidian-1e93)", () => {
+  it("exact match: removes the exact key and reports no case variant", () => {
+    const plan = planDeleteFrontmatterProperty({
+      table: table(),
+      key: "status",
+      mode: "delete-frontmatter",
+      paths: ["Relays & Devices/A.md"],
+      frontmatterByPath: {
+        "Relays & Devices/A.md": { status: "active" },
+      },
+    });
+
+    expect(plan.issues).toEqual([]);
+    expect(plan.affectedFiles).toEqual(["Relays & Devices/A.md"]);
+    expect(plan.frontmatterWrites).toEqual([
+      { path: "Relays & Devices/A.md", set: {}, removeKeys: ["status"] },
+    ]);
+    expect(plan.caseVariantFiles).toEqual([]);
+    expect(plan.requiresConfirmation).toBe(true);
+  });
+
+  it("case-variant match: removes the key under its ACTUAL casing and surfaces it distinctly", () => {
+    const plan = planDeleteFrontmatterProperty({
+      table: table(), // column is "status"
+      key: "status",
+      mode: "delete-frontmatter",
+      paths: ["Relays & Devices/A.md"],
+      frontmatterByPath: {
+        // real frontmatter key is a case-variant spelling of the column
+        "Relays & Devices/A.md": { STATUS: "active" },
+      },
+    });
+
+    // No missing-source-column issue: the deleted COLUMN "status" exists; only
+    // the FILE's key casing differs. The delete proceeds (not aborted).
+    expect(plan.issues).toEqual([]);
+    expect(plan.affectedFiles).toEqual(["Relays & Devices/A.md"]);
+    // Removed under the file's REAL casing so the orphan is actually stripped.
+    expect(plan.frontmatterWrites).toEqual([
+      { path: "Relays & Devices/A.md", set: {}, removeKeys: ["STATUS"] },
+    ]);
+    // Surfaced distinctly on the dedicated plan field, never as an issue.
+    expect(plan.caseVariantFiles).toEqual([
+      {
+        path: "Relays & Devices/A.md",
+        requestedKey: "status",
+        foundKeys: ["STATUS"],
+      },
+    ]);
+    expect(plan.requiresConfirmation).toBe(true);
+  });
+
+  it("genuinely absent: files without any spelling of the key stay uncounted as affected", () => {
+    const plan = planDeleteFrontmatterProperty({
+      table: table(),
+      key: "status",
+      mode: "delete-frontmatter",
+      paths: ["Relays & Devices/A.md", "Relays & Devices/B.md"],
+      frontmatterByPath: {
+        "Relays & Devices/A.md": { note: "unrelated" },
+        "Relays & Devices/B.md": {},
+      },
+    });
+
+    expect(plan.affectedFiles).toEqual([]);
+    expect(plan.frontmatterWrites).toEqual([]);
+    expect(plan.caseVariantFiles).toEqual([]);
+    expect(plan.requiresConfirmation).toBe(false);
+  });
+
+  it("mixed corpus: variant files leave the 'do not contain this key' bucket and land in affectedFiles", () => {
+    const paths = [
+      "Relays & Devices/Exact.md",
+      "Relays & Devices/Variant.md",
+      "Relays & Devices/Absent.md",
+    ];
+    const plan = planDeleteFrontmatterProperty({
+      table: table(),
+      key: "status",
+      mode: "delete-frontmatter",
+      paths,
+      frontmatterByPath: {
+        "Relays & Devices/Exact.md": { status: "a" },
+        "Relays & Devices/Variant.md": { Status: "b" },
+        "Relays & Devices/Absent.md": { other: "c" },
+      },
+    });
+
+    // Both the exact AND the case-variant file are affected; only the truly
+    // absent file is left out — proving variants no longer fold into the
+    // "untouched" (do-not-contain-this-key) tally the confirmation reports.
+    expect(plan.affectedFiles).toEqual([
+      "Relays & Devices/Exact.md",
+      "Relays & Devices/Variant.md",
+    ]);
+    const untouched = paths.length - plan.affectedFiles.length;
+    expect(untouched).toBe(1);
+    expect(plan.caseVariantFiles).toEqual([
+      {
+        path: "Relays & Devices/Variant.md",
+        requestedKey: "status",
+        foundKeys: ["Status"],
+      },
+    ]);
+  });
+
+  it("exact + variant in the same file: removes both spellings, still surfaced as a variant", () => {
+    const plan = planDeleteFrontmatterProperty({
+      table: table(),
+      key: "status",
+      mode: "delete-frontmatter",
+      paths: ["Relays & Devices/Both.md"],
+      frontmatterByPath: {
+        "Relays & Devices/Both.md": { status: "lower", STATUS: "upper" },
+      },
+    });
+
+    expect(plan.affectedFiles).toEqual(["Relays & Devices/Both.md"]);
+    // Both spellings removed — leaving "STATUS" behind would recreate the bug.
+    expect(plan.frontmatterWrites).toEqual([
+      {
+        path: "Relays & Devices/Both.md",
+        set: {},
+        removeKeys: ["status", "STATUS"],
+      },
+    ]);
+    // The orphaned variant spelling (only the non-exact one) is surfaced.
+    expect(plan.caseVariantFiles).toEqual([
+      {
+        path: "Relays & Devices/Both.md",
+        requestedKey: "status",
+        foundKeys: ["STATUS"],
+      },
+    ]);
+  });
+
+  it("hide-from-view mode never inspects or removes case variants", () => {
+    const plan = planDeleteFrontmatterProperty({
+      table: table(),
+      key: "status",
+      mode: "hide-from-view",
+      paths: ["Relays & Devices/A.md"],
+      frontmatterByPath: {
+        "Relays & Devices/A.md": { STATUS: "active" },
+      },
+    });
+
+    expect(plan.frontmatterWrites).toEqual([]);
+    expect(plan.affectedFiles).toEqual([]);
+    expect(plan.caseVariantFiles).toEqual([]);
+    expect(plan.requiresConfirmation).toBe(false);
+  });
+});
