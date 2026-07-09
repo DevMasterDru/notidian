@@ -3478,15 +3478,41 @@ const schemaAdoptionModalConfirmEvalCode = ({ timeoutMs, pollIntervalMs }) =>
     }
   })()`.replace(/\s+/g, " ");
 
-const deleteFolderEvalCode = ({ folder }) =>
+// Deletes the fixture FOLDER and -- because the folder-note convention can
+// place a space's hub note ADJACENT to its folder (a sibling `<Folder>.md`
+// that a recursive folder delete never touches) -- the resolved folder-note
+// path too, so no stray hub note is left in Sandbox after a run. Callers pass
+// the SAME `notePath` the harness already resolved and wrote the hub note to
+// (reconcilerHubPathEvalCode -> `space.notePath`), which honors the running
+// vault's live inside-vs-adjacent placement setting instead of assuming a
+// fixed location. When the note lives INSIDE the folder it was already removed
+// with it and the second delete is a null-guarded no-op, so passing
+// `folderNote` is always safe. `folderNote` is optional: a scenario that
+// failed before resolving its hub path passes `null` and only the folder is
+// removed.
+//
+// NOTE (same whitespace-collapse caveat every *EvalCode helper here carries):
+// the returned template is `.replace(/\s+/g, " ")`-flattened before Obsidian
+// runs it, so a `//` line comment INSIDE the template would swallow the rest
+// of the program once collapsed -- all commentary stays out here.
+const deleteFolderEvalCode = ({ folder, folderNote = null }) =>
   `(async () => {
     const marker = "notidianDeleteFolder";
     const finish = (payload) => JSON.stringify({ marker, ...payload });
-    try {
-      const file = app.vault.getAbstractFileByPath(${JSON.stringify(folder)});
-      if (!file) return finish({ ok: true, reason: "already-absent" });
+    const deletePath = async (path) => {
+      if (!path) return false;
+      const file = app.vault.getAbstractFileByPath(path);
+      if (!file) return false;
       await app.vault.delete(file, true);
-      return finish({ ok: true });
+      return true;
+    };
+    try {
+      const folderDeleted = await deletePath(${JSON.stringify(folder)});
+      const folderNoteDeleted = await deletePath(${JSON.stringify(folderNote)});
+      if (!folderDeleted && !folderNoteDeleted) {
+        return finish({ ok: true, reason: "already-absent" });
+      }
+      return finish({ ok: true, folderNoteDeleted });
     } catch (error) {
       return finish({
         ok: false,
@@ -4059,7 +4085,7 @@ const runReconcilerScenario = async ({ config, runner, runId }) => {
   if (!config.keepFixture) {
     const cleanupResult = parseJsonEvalResult(
       await runObsidian(config, runner, "eval", {
-        code: deleteFolderEvalCode({ folder: root }),
+        code: deleteFolderEvalCode({ folder: root, folderNote: hubPath }),
       })
     );
     if (!scenarioError && !cleanupResult?.ok) {
@@ -4742,7 +4768,7 @@ const runHealthSurfacesScenario = async ({ config, runner, runId }) => {
   if (!config.keepFixture) {
     const cleanupResult = parseJsonEvalResult(
       await runObsidian(config, runner, "eval", {
-        code: deleteFolderEvalCode({ folder: root }),
+        code: deleteFolderEvalCode({ folder: root, folderNote: hubPath }),
       })
     );
     if (!scenarioError && !cleanupResult?.ok) {
@@ -4971,6 +4997,7 @@ module.exports = {
   buildObsidianArgs,
   createObsidianRunner,
   createFixturePaths,
+  deleteFolderEvalCode,
   parseHarnessArgs,
   runRealVaultSmokeHarness,
   runSchemaAdoptionScenario,

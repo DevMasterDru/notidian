@@ -1199,6 +1199,32 @@ describe("runReconcilerScenario", () => {
       runReconcilerScenario({ config: scenarioConfig(), runner, runId: "run-1" })
     ).rejects.toThrow("Reconciler fixture cleanup failed");
   });
+
+  it("cleanup deletes the resolved sibling folder-note, not just the fixture folder", async () => {
+    // The folder-note convention can place the hub note ADJACENT to the
+    // fixture folder (a sibling `.md` OUTSIDE it), and a recursive folder
+    // delete never touches that -- so the cleanup eval must carry the resolved
+    // note path alongside the folder (Notidian-118z).
+    const ADJACENT_HUB = "Notidian Integration Fixtures/run-1-Reconciler.md";
+    const runner = buildReconcilerRunner({
+      hubPathResult: { ok: true, hubPath: ADJACENT_HUB },
+    });
+
+    await runReconcilerScenario({
+      config: scenarioConfig(),
+      runner,
+      runId: "run-1",
+    });
+
+    const deleteArgs = runner.mock.calls
+      .map(([args]) => args)
+      .find((args) => args.join(" ").includes("notidianDeleteFolder"));
+    expect(deleteArgs).toBeDefined();
+    const codeArg = deleteArgs.find((arg) => arg.startsWith("code=")) ?? "";
+    // Both the folder itself and its adjacent hub note are named in the eval.
+    expect(codeArg).toContain(JSON.stringify(RECONCILER_ROOT));
+    expect(codeArg).toContain(JSON.stringify(ADJACENT_HUB));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1481,5 +1507,29 @@ describe("runHealthSurfacesScenario", () => {
     await expect(
       runHealthSurfacesScenario({ config: scenarioConfig(), runner, runId: "run-1" })
     ).rejects.toThrow("Health fixture cleanup failed");
+  });
+
+  it("cleanup deletes the resolved sibling folder-note, not just the fixture folder", async () => {
+    // Same folder-note sibling leak the reconciler scenario guards against:
+    // an adjacent hub note lives OUTSIDE the fixture folder, so the cleanup
+    // eval must name the resolved note path too (Notidian-118z).
+    const ADJACENT_HUB = "Notidian Integration Fixtures/run-1-Health.md";
+    const runner = buildHealthRunner({
+      hubPathResult: { ok: true, hubPath: ADJACENT_HUB },
+    });
+
+    await runHealthSurfacesScenario({
+      config: scenarioConfig(),
+      runner,
+      runId: "run-1",
+    });
+
+    const deleteArgs = runner.mock.calls
+      .map(([args]) => args)
+      .find((args) => args.join(" ").includes("notidianDeleteFolder"));
+    expect(deleteArgs).toBeDefined();
+    const codeArg = deleteArgs.find((arg) => arg.startsWith("code=")) ?? "";
+    expect(codeArg).toContain(JSON.stringify(HEALTH_ROOT));
+    expect(codeArg).toContain(JSON.stringify(ADJACENT_HUB));
   });
 });
