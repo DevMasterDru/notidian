@@ -11,11 +11,24 @@ export const parseURI = (uri: string): URI => {
       
       let refTypeChar = '';
       let refSigilConsumed = false;
+      // decodeURIComponent throws URIError on a malformed percent-escape (a
+      // dangling '%', an invalid '%ZZ', a truncated multi-byte sequence). A
+      // query is a decoration on the address, never row identity (ADR
+      // 0014/0016), so a bad escape must not crash resolution of the whole URI:
+      // fall back to the raw substring and keep parseURI total. Well-formed
+      // escapes still decode; only the malformed case is caught.
+      const safeDecodeURIComponent = (part: string): string => {
+        try {
+          return decodeURIComponent(part);
+        } catch {
+          return part;
+        }
+      };
       const parseQuery = (queryString: string) => {
         const query: { [key: string]: string } = {};
         queryString.split('&').forEach(param => {
           const [key, value] = param.split('=');
-          query[decodeURIComponent(key)] = decodeURIComponent(value);
+          query[safeDecodeURIComponent(key)] = safeDecodeURIComponent(value);
         });
         return query;
       };

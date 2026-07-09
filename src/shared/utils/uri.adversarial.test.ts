@@ -23,13 +23,13 @@ import type { URI, PathRefTypes } from "shared/types/path";
  * and the defect is tracked in a follow-up bead rather than patched blindly here
  * (the same discipline uri.test.ts applied to Notidian-6ok).
  *
- * KNOWN TOTALITY BOUNDARY (tracked as Notidian-4ncs): parseURI is total on
- * every input below EXCEPT a malformed percent-escape inside a query string,
- * where parseQuery's decodeURIComponent raises URIError. That single gap is
- * pinned as a CHARACTERIZATION block; the broad never-throws corpus deliberately
- * excludes malformed '%' so it asserts the totality that actually holds. When
- * Notidian-4ncs is fixed, flip that block to never-throws assertions and fold
- * the malformed-'%' inputs into the broad corpus.
+ * TOTALITY IS NOW COMPLETE (Notidian-4ncs, fixed): parseURI is total on EVERY
+ * input, including a malformed percent-escape inside a query string. parseQuery
+ * decodes each key/value through a URIError-safe helper that falls back to the
+ * raw substring, so a dangling or invalid '%' can no longer crash address
+ * resolution — a query is a decoration on the address, never row identity (ADR
+ * 0014/0016). The malformed-'%' inputs once pinned as a characterized boundary
+ * now live in the broad never-throws corpus alongside every other byte.
  */
 
 // The full PathRefTypes union — parseURI only ever emits a subset at runtime,
@@ -103,9 +103,9 @@ const assertWellFormedURI = (uri: URI, input: string): void => {
 };
 
 /**
- * A broad, hand-picked adversarial corpus. Deliberately excludes a malformed
- * percent-escape inside a query (the one known non-total input, characterized
- * separately). Well-formed percent-escapes (%20) are included.
+ * A broad, hand-picked adversarial corpus. Includes malformed percent-escapes
+ * inside a query (the former totality gap, Notidian-4ncs) alongside well-formed
+ * escapes (%20): parseURI is total on all of them.
  */
 const ADVERSARIAL_INPUTS: readonly string[] = [
   // Empty / separators only.
@@ -173,7 +173,7 @@ const ADVERSARIAL_INPUTS: readonly string[] = [
   "Note.md|#",
   "Note.md#|",
 
-  // Queries (?) — well-formed and structurally odd, but never a malformed '%'.
+  // Queries (?) — well-formed and structurally odd.
   "Note.md?k=v",
   "Note.md?k=v&k2=v2",
   "Note.md?k",
@@ -182,6 +182,18 @@ const ADVERSARIAL_INPUTS: readonly string[] = [
   "Note.md?a=1&&b=2",
   "Note.md?k=a%20b",
   "Note.md?k=v#h|a",
+
+  // Malformed percent-encoding inside a query — the former totality gap
+  // (Notidian-4ncs). parseQuery now falls back to the raw substring instead of
+  // raising URIError, so these belong in the broad never-throws corpus. Covers a
+  // dangling '%', an invalid '%ZZ', a malformed KEY, a truncated multi-byte
+  // sequence, multiple bad params, and a malformed query under a scheme.
+  "Note.md?k=%",
+  "Note.md?k=%ZZ",
+  "Note.md?%=v",
+  "Note.md?k=%E0%A4%A",
+  "Note.md?a=%&b=%GG",
+  "spaces://Space/Note.md?bad=%",
 
   // Scheme + authority (spaces://) shapes.
   "vault://Space/Note.md",
@@ -231,13 +243,14 @@ describe("parseURI — totality (never throws, always well-formed)", () => {
   });
 
   describe("combinatorial fuzz corpus (deterministic, no random)", () => {
-    // Cartesian product of structural fragments. Kept free of '%' so no member
-    // can accidentally hit the malformed-percent totality gap. This exercises
-    // arbitrary orderings of the scheme/authority/ref/alias/query separators —
-    // the exact interactions the hand-picked list can't enumerate.
+    // Cartesian product of structural fragments. Now includes a malformed
+    // percent query ("?q=%") and a bare '%' body so the combinatorial space
+    // exercises the former totality gap (Notidian-4ncs) in every position; it
+    // covers arbitrary orderings of the scheme/authority/ref/alias/query
+    // separators — the exact interactions the hand-picked list can't enumerate.
     const heads = ["", "vault://", "spaces://", "://", "s://$k/", "s://#t/"];
-    const bodies = ["", "a", "a/b", "Folder/Note.md", "café.md", "  ", "x.y.z"];
-    const decorations = ["", "#", "#h", "#^b", "#*f", "#;a", "|al", "?q=1", "/"];
+    const bodies = ["", "a", "a/b", "Folder/Note.md", "café.md", "  ", "x.y.z", "%"];
+    const decorations = ["", "#", "#h", "#^b", "#*f", "#;a", "|al", "?q=1", "?q=%", "/"];
     const tails = ["", "#", "|", "?", "/", "##", "||"];
 
     const fuzzInputs: string[] = [];
@@ -297,29 +310,52 @@ describe("parseURI — totality (never throws, always well-formed)", () => {
 });
 
 /**
- * CHARACTERIZATION (Notidian-c3y3 discovery → fix tracked as Notidian-4ncs):
- * parseURI is NOT total on a malformed percent-escape inside a query. parseQuery
- * runs decodeURIComponent on each key/value, which raises URIError("URI
- * malformed") for a dangling or invalid '%'. This is the single documented
- * totality gap; a future fix should make parseQuery fall back to the raw
- * substring so parseURI never throws. Pinned here so that fix is deliberate.
+ * TOTALITY RESTORED (Notidian-c3y3 discovery → Notidian-4ncs fix): parseURI is
+ * now total on a malformed percent-escape inside a query. parseQuery decodes each
+ * key/value through a URIError-safe helper that falls back to the raw substring,
+ * so a dangling or invalid '%' — in a value OR a key — yields a well-formed URI
+ * whose query preserves the raw byte, instead of raising URIError("URI
+ * malformed"). These were characterized as throwing until the fix; they are now
+ * never-throws + well-formed-shape assertions.
  */
-describe("parseURI — known totality boundary (malformed percent in query)", () => {
-  it("CHARACTERIZATION: a dangling '%' in a query value throws URIError", () => {
-    expect(() => parseURI("Note.md?k=%")).toThrow(URIError);
+describe("parseURI — malformed percent in query (totality restored, Notidian-4ncs)", () => {
+  it("a dangling '%' in a query value never throws and preserves the raw byte", () => {
+    let uri!: URI;
+    expect(() => {
+      uri = parseURI("Note.md?k=%");
+    }).not.toThrow();
+    assertWellFormedURI(uri, "Note.md?k=%");
+    expect(uri.query).toEqual({ k: "%" });
   });
 
-  it("CHARACTERIZATION: an invalid '%ZZ' escape in a query value throws URIError", () => {
-    expect(() => parseURI("Note.md?k=%ZZ")).toThrow(URIError);
+  it("an invalid '%ZZ' escape in a query value never throws and preserves it raw", () => {
+    let uri!: URI;
+    expect(() => {
+      uri = parseURI("Note.md?k=%ZZ");
+    }).not.toThrow();
+    assertWellFormedURI(uri, "Note.md?k=%ZZ");
+    expect(uri.query).toEqual({ k: "%ZZ" });
   });
 
-  it("CHARACTERIZATION: a malformed '%' in a query KEY also throws URIError", () => {
-    expect(() => parseURI("Note.md?%=v")).toThrow(URIError);
+  it("a malformed '%' in a query KEY never throws and preserves the raw key", () => {
+    let uri!: URI;
+    expect(() => {
+      uri = parseURI("Note.md?%=v");
+    }).not.toThrow();
+    assertWellFormedURI(uri, "Note.md?%=v");
+    expect(uri.query).toEqual({ "%": "v" });
+  });
+
+  it("a well-formed escape still decodes normally (the fallback is malformed-only)", () => {
+    // The safe helper only swallows URIError; a valid %20 must still decode to a
+    // space, so the fix narrows behavior to exactly the malformed case and never
+    // degrades good escapes to raw bytes.
+    expect(parseURI("Note.md?k=a%20b").query).toEqual({ k: "a b" });
   });
 
   it("a '%' OUTSIDE a query (no '?') is inert and never throws", () => {
-    // The gap is confined to parseQuery: a bare '%' in the path/authority is
-    // just a byte, so totality holds everywhere except after a '?'.
+    // A bare '%' in the path/authority is just a byte — never decoded — so
+    // totality there never depended on the fix.
     expect(() => parseURI("Folder/100%done.md")).not.toThrow();
     expect(parseURI("Folder/100%done.md").path).toBe("Folder/100%done.md");
   });
