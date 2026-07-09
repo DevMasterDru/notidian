@@ -26,7 +26,6 @@ import {
   FrontmatterSnapshotsByPath,
   discoverFrontmatterSchema,
   frontmatterForPath,
-  hasOwn,
   toValueList,
 } from "core/utils/contexts/notidianSchema";
 import {
@@ -83,14 +82,33 @@ export const computeFieldValueStats = (
   let totalValueCount = 0;
   const distinctValues: string[] = [];
   const seen = new Set<string>();
+  // Notidian-1adj: match case-insensitively across EVERY spelling that folds
+  // onto this canonical key, unioning their values — mirroring
+  // planDeleteFrontmatterProperty's `candidate.toLowerCase() == lowerKey`
+  // (notidianSchema.ts). discoverFrontmatterSchema now MERGES case-variant
+  // spellings ("state" + "State") into ONE canonical summary whose `key` is the
+  // most-frequent spelling; draftTypeProfileAdoption then passes that canonical
+  // key here. An exact-string `hasOwn(frontmatter, key)` lookup would count
+  // every row carrying only a MINORITY spelling as absent and silently drop its
+  // values from the drafted enum vocabulary, empty-encoding policy, and FK
+  // candidates — the exact data-integrity regression this must faithfully cover
+  // (the summary advertises presentCount over all spellings, so the field's
+  // stats must too).
+  const lowerKey = key.toLowerCase();
 
   for (const path of paths) {
     const frontmatter = frontmatterForPath(frontmatterByPath, path);
-    if (!hasOwn(frontmatter, key)) {
+    const matchingKeys = Object.keys(frontmatter).filter(
+      (candidate) => candidate.toLowerCase() == lowerKey
+    );
+    if (matchingKeys.length == 0) {
       absentCount++;
       continue;
     }
-    const values = toValueList(frontmatter[key])
+    // Union every matching spelling's values (a corrupt row carrying both
+    // "state:" and "State:" contributes both), preserving first-seen order.
+    const values = matchingKeys
+      .flatMap((matchingKey) => toValueList(frontmatter[matchingKey]))
       .map((value) => value.trim())
       .filter((value) => value.length > 0);
     if (values.length == 0) {

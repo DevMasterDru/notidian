@@ -129,6 +129,64 @@ describe("computeFieldValueStats", () => {
     expect(stats.presentCount).toBe(1);
     expect(stats.distinctValues).toEqual(["active"]);
   });
+
+  // Notidian-1adj: discoverFrontmatterSchema merges case-variant spellings into
+  // ONE canonical key; computeFieldValueStats must aggregate across every
+  // spelling that folds onto that key, or minority-spelling rows are miscounted
+  // as absent and their values silently dropped from the drafted enum/FK/empty
+  // stats.
+  it("aggregates case-variant spellings of one canonical key so minority-spelling rows are not counted absent", () => {
+    // 6 rows carry `state: active`, 4 carry `State: archived`. The merged
+    // canonical key is "state"; an exact-case lookup would count the 4 `State`
+    // rows absent and drop "archived". Case-folding unions all spellings.
+    const paths = Array.from({ length: 10 }, (_, i) => `R-${i}.md`);
+    const fm: Record<string, Record<string, unknown>> = {};
+    paths.forEach((p, i) => {
+      fm[p] = i < 6 ? { state: "active" } : { State: "archived" };
+    });
+    const stats = computeFieldValueStats(paths, fm, "state");
+    expect(stats.presentCount).toBe(10);
+    expect(stats.absentCount).toBe(0);
+    expect(stats.distinctValues).toEqual(["active", "archived"]);
+    expect(stats.totalValueCount).toBe(10);
+  });
+
+  it("unions both spellings from a single row carrying two of them and counts it present exactly once", () => {
+    // A corrupt row holds both `state:` and `State:`. It must count as ONE
+    // present row (presentCount never exceeds totalRows) while contributing
+    // both values.
+    const stats = computeFieldValueStats(
+      ["dup.md", "plain.md"],
+      {
+        "dup.md": { state: "active", State: "archived" },
+        "plain.md": { state: "active" },
+      },
+      "state"
+    );
+    expect(stats.presentCount).toBe(2);
+    expect(stats.absentCount).toBe(0);
+    expect(stats.distinctValues).toEqual(["active", "archived"]);
+    // dup.md contributes 2 value occurrences, plain.md contributes 1.
+    expect(stats.totalValueCount).toBe(3);
+  });
+
+  it("treats a minority-spelling empty value as empty-string, not absent", () => {
+    // The canonical key is present under a variant spelling but empty -> the
+    // row is empty-string, not absent, so the empty-encoding signal stays
+    // faithful across spellings.
+    const stats = computeFieldValueStats(
+      ["a.md", "b.md"],
+      {
+        "a.md": { State: "" },
+        "b.md": { state: "active" },
+      },
+      "state"
+    );
+    expect(stats.presentCount).toBe(1);
+    expect(stats.emptyStringCount).toBe(1);
+    expect(stats.absentCount).toBe(0);
+    expect(stats.distinctValues).toEqual(["active"]);
+  });
 });
 
 describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", () => {
@@ -423,6 +481,57 @@ describe("draftTypeProfileAdoption", () => {
       existingProfile,
     });
     expect(draft.fields).toEqual([]);
+  });
+
+  // Notidian-1adj (consumer-path regression): discoverFrontmatterSchema merges
+  // case-variant spellings into ONE canonical field. The surviving field's
+  // value stats must cover EVERY spelling's rows — pre-fix the exact-case
+  // computeFieldValueStats lookup counted minority-spelling rows absent and
+  // silently dropped their values from the drafted enum vocabulary and
+  // empty-encoding, exactly the mixed-case scenario the merge targeted.
+  it("drafts one merged field whose enum vocabulary and empty-encoding cover every case-variant spelling", () => {
+    // 10 rows `priority:` in {low, med, high} and 3 rows `Priority: urgent`.
+    const cycle = ["low", "med", "high"];
+    const paths = Array.from({ length: 13 }, (_, i) => `T-${i}.md`);
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {};
+    paths.forEach((p, i) => {
+      frontmatterByPath[p] =
+        i < 10 ? { priority: cycle[i % 3] } : { Priority: "urgent" };
+    });
+
+    const draft = draftTypeProfileAdoption({
+      database: "Ops/Tasks",
+      paths,
+      frontmatterByPath,
+    });
+
+    // Exactly ONE priority field (the merge removed the duplicate case-variant
+    // field), and its canonical casing is the most-frequent spelling.
+    const priorityFields = draft.fields.filter(
+      (f) => f.field.name.toLowerCase() == "priority"
+    );
+    expect(priorityFields).toHaveLength(1);
+    const priority = priorityFields[0];
+    expect(priority.field.name).toBe("priority");
+
+    // The minority-spelling value "urgent" survives in the drafted vocabulary.
+    expect(priority.enumCandidate?.values).toEqual([
+      "low",
+      "med",
+      "high",
+      "urgent",
+    ]);
+    expect(priority.field.enum).toEqual({
+      values: ["low", "med", "high", "urgent"],
+      strict: false,
+    });
+    // presentCount / empty-encoding cover all 13 rows, not just the 10 canonical.
+    expect(priority.enumCandidate?.presentCount).toBe(13);
+    expect(priority.emptyEncoding).toEqual({
+      absentCount: 0,
+      emptyStringCount: 0,
+      presentCount: 13,
+    });
   });
 });
 
