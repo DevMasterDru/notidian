@@ -30,16 +30,20 @@
 // while its schema-duplicate checks are case-insensitive. That asymmetry
 // means a rename/delete plan can silently fail to "see" a case-variant
 // frontmatter key sitting right next to the one it operated on — the exact
-// shape of bug the module downstream (m_fields) hit. Most sections below PIN
+// shape of bug the module downstream (m_fields) hit. Some sections below PIN
 // that observed behavior (characterization only, zero production-code
-// change) so any future change to the asymmetry is deliberate. The one
-// exception is planRenameFrontmatterProperty's per-file scan
-// (Notidian-lqt4): that specific asymmetry was promoted from a pinned
-// characterization to an actual fix -- see the
-// "planRenameFrontmatterProperty — case-variant collisions" describe block
-// below, whose bug-pinning test was rewritten to assert the FIXED, safe
-// behavior (a distinct "case-variant-frontmatter-key" issue + "case-variant"
-// fileState, never silent "neither").
+// change) so any future change to the asymmetry is deliberate. Two sections
+// instead assert a FIXED, safe behavior:
+//   * planRenameFrontmatterProperty's per-file scan (Notidian-lqt4) -- a
+//     case-variant frontmatter key is surfaced as a distinct
+//     "case-variant-frontmatter-key" issue + "case-variant" fileState, never
+//     silent "neither".
+//   * discoverFrontmatterSchema (Notidian-1adj) -- case-variant spellings of
+//     one logical key ("state" + "State") are MERGED into a single canonical
+//     summary entry (canonical casing = most-frequent spelling, tie ->
+//     first-seen) and the collision is flagged via a `caseVariants` breakdown
+//     so the schema-adoption UI can show it, instead of the old two-entry
+//     split that mis-counted each casing as "missing" on the other's rows.
 // ===========================================================================
 
 import { frontmatterPropertySource } from "core/utils/properties/allProperties";
@@ -104,11 +108,14 @@ const buildPaths = (n: number, prefix = "DB"): string[] =>
 // ---------------------------------------------------------------------------
 
 describe("discoverFrontmatterSchema — case-variant key collisions", () => {
-  it("PIN: case-variant keys across paths are NOT merged into one summary entry", () => {
+  it("FIXED (Notidian-1adj, was Notidian-buqr-class PIN): case-variant keys across paths MERGE into one canonical, flagged summary entry", () => {
     // 600 paths, 60% keyed "state" (lowercase), 40% keyed "State" (capitalized).
-    // A physical MDB column model is case-insensitive-deduped elsewhere
-    // (caseInsensitiveColumn), but discoverFrontmatterSchema aggregates by
-    // exact Object.keys() string — so these become TWO summary rows, not one.
+    // The physical MDB column model is case-insensitive-deduped elsewhere
+    // (caseInsensitiveColumn / mdb-collapse Notidian-1q8y), and two summary
+    // entries for one logical field is an aggregation bug: each casing
+    // mis-reports the OTHER casing's rows as "missing". The fix folds by
+    // key.toLowerCase() into ONE entry whose `key` is the most-frequent
+    // spelling and whose presentCount covers every row carrying any spelling.
     const paths = buildPaths(600);
     const frontmatterByPath: Record<string, Record<string, unknown>> = {};
     paths.forEach((path, i) => {
@@ -117,19 +124,121 @@ describe("discoverFrontmatterSchema — case-variant key collisions", () => {
     });
 
     const schema = discoverFrontmatterSchema({ paths, frontmatterByPath });
-    const byKey = new Map(schema.map((s) => [s.key, s]));
 
-    expect(byKey.has("state")).toBe(true);
-    expect(byKey.has("State")).toBe(true);
-    expect(byKey.get("state")!.presentCount).toBe(360); // 60% of 600
-    expect(byKey.get("State")!.presentCount).toBe(240); // 40% of 600
-    // Both entries independently report the OTHER casing's rows as "missing",
-    // even though the field is semantically present under the sibling key.
-    expect(byKey.get("state")!.missingCount).toBe(240);
-    expect(byKey.get("State")!.missingCount).toBe(360);
+    // ONE merged entry, not two.
+    expect(schema.length).toBe(1);
+    const entry = schema[0];
+    // Canonical casing = most-frequent spelling: "state" (360) beats "State"
+    // (240). No "State" entry survives as a separate row.
+    expect(entry.key).toBe("state");
+    expect(schema.some((s) => s.key === "State")).toBe(false);
+    // presentCount now counts EVERY row carrying any spelling of the field, so
+    // missingCount is 0 (the field is present on all 600 rows).
+    expect(entry.presentCount).toBe(600);
+    expect(entry.missingCount).toBe(0);
+    // CONFIRM the collision is surfaced DISTINCTLY (flagged for the adoption
+    // UI), never silently unioned: every observed spelling with its own
+    // per-spelling row count, in first-seen order ("state" seen at path 0,
+    // "State" first at path 3).
+    expect(entry.caseVariants).toEqual([
+      { spelling: "state", count: 360 },
+      { spelling: "State", count: 240 },
+    ]);
   });
 
-  it("TOTAL + no pathological slowdown: 1000+ paths with many random-case key variants", () => {
+  it("Notidian-1adj: 3+ variant spellings merge; canonical = strict most-frequent; rows with the field absent are counted missing", () => {
+    // Five distinct-count spellings across eight rows, two of which do not
+    // carry the field at all. The merged entry's canonical casing is the
+    // strict most-frequent spelling, and missingCount reflects the truly-absent
+    // rows only.
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "R/0.md": { status: "a" },
+      "R/1.md": { Status: "a" },
+      "R/2.md": { STATUS: "a" },
+      "R/3.md": { status: "a" },
+      "R/4.md": { STATUS: "a" },
+      "R/5.md": { status: "a" },
+      "R/6.md": { other: "x" }, // field absent (unrelated key)
+      "R/7.md": {}, // field absent (empty frontmatter)
+    };
+    const paths = Object.keys(frontmatterByPath);
+
+    const schema = discoverFrontmatterSchema({ paths, frontmatterByPath });
+    const merged = schema.find((s) => s.key.toLowerCase() === "status")!;
+
+    // canonical = "status" (3) over "STATUS" (2) over "Status" (1).
+    expect(merged.key).toBe("status");
+    expect(merged.presentCount).toBe(6);
+    expect(merged.missingCount).toBe(2); // R/6 (unrelated) and R/7 (empty)
+    // First-seen spelling order: status (R/0), Status (R/1), STATUS (R/2).
+    expect(merged.caseVariants).toEqual([
+      { spelling: "status", count: 3 },
+      { spelling: "Status", count: 1 },
+      { spelling: "STATUS", count: 2 },
+    ]);
+    // The unrelated single-spelling key is NOT flagged as a collision.
+    const other = schema.find((s) => s.key === "other")!;
+    expect(other.caseVariants).toBeUndefined();
+    expect(other.presentCount).toBe(1);
+  });
+
+  it("Notidian-1adj: a frequency TIE between spellings resolves to the FIRST-SEEN spelling as canonical", () => {
+    // 2 vs 2. "State" is encountered first (path 0), so it wins the canonical
+    // slot even though "state" is the more conventional casing.
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "DB/0.md": { State: "a" }, // first-seen spelling of this logical key
+      "DB/1.md": { state: "b" },
+      "DB/2.md": { State: "c" },
+      "DB/3.md": { state: "d" },
+    };
+    const paths = Object.keys(frontmatterByPath);
+
+    const schema = discoverFrontmatterSchema({ paths, frontmatterByPath });
+
+    expect(schema.length).toBe(1);
+    expect(schema[0].key).toBe("State"); // tie -> first-seen
+    expect(schema[0].presentCount).toBe(4);
+    expect(schema[0].missingCount).toBe(0);
+    expect(schema[0].caseVariants).toEqual([
+      { spelling: "State", count: 2 },
+      { spelling: "state", count: 2 },
+    ]);
+  });
+
+  it("Notidian-1adj: a single row carrying BOTH spellings counts as ONE present row (presentCount never exceeds path count)", () => {
+    // A corrupt/hand-edited row holds both "state:" and "State:". It is one
+    // present row for the merged field, but it contributes to BOTH per-spelling
+    // counts -- so the variant counts sum to more than presentCount, which is
+    // intended and lets the adoption UI flag rows with duplicate keys.
+    const frontmatterByPath: Record<string, Record<string, unknown>> = {
+      "R/0.md": { state: "a", State: "b" }, // both spellings in one row
+      "R/1.md": { state: "c" },
+      "R/2.md": { other: "x" }, // field absent
+    };
+    const paths = Object.keys(frontmatterByPath);
+
+    const schema = discoverFrontmatterSchema({ paths, frontmatterByPath });
+    const merged = schema.find((s) => s.key.toLowerCase() === "state")!;
+
+    // R/0 (both) is one present row; R/1 present; R/2 absent.
+    expect(merged.presentCount).toBe(2);
+    expect(merged.missingCount).toBe(1);
+    // Canonical: "state" occurs in 2 rows (R/0 + R/1), "State" in 1 (R/0).
+    expect(merged.key).toBe("state");
+    expect(merged.caseVariants).toEqual([
+      { spelling: "state", count: 2 },
+      { spelling: "State", count: 1 },
+    ]);
+    // Variant counts (2 + 1 = 3) exceed presentCount (2) -- the both-spellings
+    // row is double-counted across spellings, single-counted for presence.
+    const variantTotal = merged.caseVariants!.reduce(
+      (sum, v) => sum + v.count,
+      0
+    );
+    expect(variantTotal).toBeGreaterThan(merged.presentCount);
+  });
+
+  it("TOTAL + STABLE + no pathological slowdown (Notidian-1adj): 1000+ paths with many random-case key variants all fold to ONE canonical entry", () => {
     const rng = makeRng(0xc0ffee);
     const paths = buildPaths(1200);
     const CASINGS = ["status", "Status", "STATUS", "StAtUs", "sTATUS"];
@@ -145,11 +254,31 @@ describe("discoverFrontmatterSchema — case-variant key collisions", () => {
     }).not.toThrow();
     expect(Date.now() - start).toBeLessThan(3000);
 
-    // Every distinct casing that actually occurred gets its own entry, and
-    // present counts sum to the total path count (no key is double counted).
-    const totalPresent = schema.reduce((sum, s) => sum + s.presentCount, 0);
-    expect(totalPresent).toBe(paths.length);
-    expect(schema.length).toBeLessThanOrEqual(CASINGS.length);
+    // All spellings fold onto exactly ONE canonical entry -- no per-casing rows.
+    expect(schema.length).toBe(1);
+    const entry = schema[0];
+    // Each path carried exactly one spelling, so the field is present on all.
+    expect(entry.presentCount).toBe(paths.length);
+    expect(entry.missingCount).toBe(0);
+    // caseVariants covers exactly the distinct spellings that occurred, and the
+    // per-spelling counts sum to the path count (each path has one spelling).
+    expect(entry.caseVariants).toBeDefined();
+    const occurred = new Set(
+      paths.map((p) => Object.keys(frontmatterByPath[p])[0])
+    );
+    expect(new Set(entry.caseVariants!.map((v) => v.spelling))).toEqual(occurred);
+    const variantTotal = entry.caseVariants!.reduce((s, v) => s + v.count, 0);
+    expect(variantTotal).toBe(paths.length);
+    // Canonical key is the most-frequent spelling among the variants.
+    const maxCount = Math.max(...entry.caseVariants!.map((v) => v.count));
+    expect(
+      entry.caseVariants!.find((v) => v.spelling === entry.key)!.count
+    ).toBe(maxCount);
+
+    // STABLE: identical input yields identical merged output (key order,
+    // canonical choice, and caseVariants order are all deterministic).
+    const again = discoverFrontmatterSchema({ paths, frontmatterByPath });
+    expect(again).toEqual(schema);
   });
 });
 

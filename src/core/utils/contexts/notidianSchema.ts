@@ -38,12 +38,35 @@ export type NotidianSchemaIssue =
       foundKey: string;
     };
 
+// Notidian-1adj: one observed case-variant spelling of a merged logical key.
+export type FrontmatterSchemaCaseVariant = {
+  // The exact spelling as it appeared in a file's frontmatter (e.g. "State").
+  spelling: string;
+  // Number of scanned paths that carried this exact spelling. A single path
+  // that carries two spellings of the same logical key (a corrupt row with both
+  // "state:" and "State:") increments BOTH spelling counts, so the sum of the
+  // variant counts can exceed the merged entry's presentCount — that is
+  // intended, and lets the adoption UI show which rows hold duplicate keys.
+  count: number;
+};
+
 export type FrontmatterSchemaSummary = {
   key: string;
   type: string;
   presentCount: number;
   missingCount: number;
   observedTypes: string[];
+  // Notidian-1adj: present (length >= 2) ONLY when 2+ case-variant spellings of
+  // the same logical key were observed and MERGED into this single canonical
+  // summary entry (e.g. "state" + "State"), rather than emitted as separate
+  // rows. Mirrors the case-variant-collision conventions of the rename
+  // (Notidian-lqt4), delete (Notidian-1e93), and mdb-collapse (Notidian-1q8y)
+  // siblings: the collision is surfaced DISTINCTLY so the schema-adoption UI can
+  // show it, instead of being silently unioned away. `key` above is the
+  // canonical casing = most-frequent spelling (ties broken by first-seen
+  // order). Spellings are listed in first-seen order. Absent for a key observed
+  // under a single spelling (not a collision).
+  caseVariants?: FrontmatterSchemaCaseVariant[];
 };
 
 export type DiscoverFrontmatterSchemaOptions = {
@@ -347,40 +370,84 @@ export const discoverFrontmatterSchema = ({
   excludedKeys = [],
 }: DiscoverFrontmatterSchemaOptions): FrontmatterSchemaSummary[] => {
   const excluded = new Set([PathPropertyName, ...excludedKeys]);
-  const summaries = new Map<
+  // Notidian-1adj: aggregate by case-folded key so case-variant spellings of
+  // one logical field ("state" vs "State") collapse into ONE summary entry,
+  // mirroring the mdb-collapse (Notidian-1q8y) / rename (Notidian-lqt4) /
+  // delete (Notidian-1e93) siblings. The Map is keyed by key.toLowerCase() and
+  // its insertion order (first-seen group order) drives the deterministic
+  // output order, matching the original first-seen emission contract.
+  const groups = new Map<
     string,
     {
+      // Distinct paths carrying ANY spelling of this logical key. A path is
+      // counted once even if it holds two spellings at once, so presentCount
+      // never exceeds paths.length and missingCount never goes negative.
       presentCount: number;
       observedTypes: string[];
+      // Exact spelling -> number of paths carrying it, in first-seen order
+      // (Map insertion order). Drives both the canonical-casing choice and the
+      // surfaced caseVariants breakdown.
+      spellings: Map<string, number>;
     }
   >();
 
   for (const path of paths) {
     const frontmatter = frontmatterForPath(frontmatterByPath, path);
+    // Track which logical (case-folded) keys this single path touched, so a
+    // path holding both "state" and "State" adds only ONE to presentCount.
+    const touched = new Set<string>();
 
     for (const key of Object.keys(frontmatter)) {
       if (excluded.has(key)) continue;
 
-      const existing = summaries.get(key) ?? {
+      const canonical = key.toLowerCase();
+      const group = groups.get(canonical) ?? {
         presentCount: 0,
         observedTypes: [],
+        spellings: new Map<string, number>(),
       };
       const observedType = frontmatterValueType(key, frontmatter[key]);
 
-      summaries.set(key, {
-        presentCount: existing.presentCount + 1,
-        observedTypes: addUnique(existing.observedTypes, observedType),
-      });
+      group.observedTypes = addUnique(group.observedTypes, observedType);
+      group.spellings.set(key, (group.spellings.get(key) ?? 0) + 1);
+      if (!touched.has(canonical)) {
+        touched.add(canonical);
+        group.presentCount += 1;
+      }
+      groups.set(canonical, group);
     }
   }
 
-  return [...summaries.entries()].map(([key, summary]) => ({
-    key,
-    type: safeFrontmatterType(summary.observedTypes),
-    presentCount: summary.presentCount,
-    missingCount: paths.length - summary.presentCount,
-    observedTypes: summary.observedTypes,
-  }));
+  return [...groups.values()].map((group) => {
+    // Canonical casing = most-frequent spelling; ties resolve to first-seen.
+    // spellings iterates in first-seen (insertion) order, so a strict `>`
+    // keeps the earliest-seen spelling among equal counts.
+    let canonicalKey = "";
+    let bestCount = -1;
+    for (const [spelling, count] of group.spellings) {
+      if (count > bestCount) {
+        canonicalKey = spelling;
+        bestCount = count;
+      }
+    }
+
+    const caseVariants =
+      group.spellings.size >= 2
+        ? [...group.spellings.entries()].map(([spelling, count]) => ({
+            spelling,
+            count,
+          }))
+        : undefined;
+
+    return {
+      key: canonicalKey,
+      type: safeFrontmatterType(group.observedTypes),
+      presentCount: group.presentCount,
+      missingCount: paths.length - group.presentCount,
+      observedTypes: group.observedTypes,
+      ...(caseVariants ? { caseVariants } : {}),
+    };
+  });
 };
 
 export const createFrontmatterPropertyPlan = ({
