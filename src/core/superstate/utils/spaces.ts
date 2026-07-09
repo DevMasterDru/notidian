@@ -87,6 +87,15 @@ export interface TreeNode {
   index: number;
   space: string;
   sortable?: boolean;
+  // True ONLY on nodes emitted by filterTreeByQuery (a Navigator text filter is
+  // active). Marks the node as belonging to a sparse, re-indexed, ancestor-only
+  // projection whose depth/parentId are NOT the real tree's, so drag/drop rank &
+  // parent math (getProjection / dropPathsInTree) must not run against it
+  // (Notidian-21l4). Distinct from `sortable`, which independently means "this
+  // space is manually rank-ordered" and is false for any non-rank sort (name,
+  // date, ...) in the NORMAL, unfiltered tree -- so it can never be reused as the
+  // DnD-inert signal without breaking move-between-parents in sorted folders.
+  filtered?: boolean;
   type: TreeNodeType,
   path: string;
   item?: PathStateWithRank;
@@ -399,6 +408,12 @@ export const filterTreeByQuery = (
       index,
       space: parentId ?? path,
       sortable: false,
+      // Filter-active projection -> DnD is inert on every emitted node (see
+      // TreeNode.filtered / Notidian-21l4). `filtered` is the ONLY signal the
+      // drag handlers key off; `sortable:false` here is unrelated (nothing in a
+      // filtered view is rank-ordered) and must NOT be what gates DnD, or normal
+      // non-rank-sorted rows would break too.
+      filtered: true,
       type,
       path,
       item: { ...pathState, rank: pathState.rank ?? 0 } as PathStateWithRank,
