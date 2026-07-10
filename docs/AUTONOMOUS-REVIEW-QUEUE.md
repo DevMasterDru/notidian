@@ -558,6 +558,7 @@ product direction was parked to [docs/ROADMAP.md](ROADMAP.md).
 - **Notidian-dgo6 — `db.exec` NUL transport limitation** (ADR 0047) — resolved: strip NUL at the SQL value chokepoint (`da0d41b`).
 - **Notidian-ircw — `resolvePath('../…')` over-pop past root** (ADR 0048) — resolved: graceful root-clamp contract ratified (`fa9a490`).
 - **Notidian-2w0 (epic item 5) — in-table quick find** (ADR 0021, Accepted) — already shipped + merged as child Notidian-r20 (Cmd/Ctrl+F highlight + navigate); virtualization-reveal migration folds into Notidian-8h9.
+- **Notidian-wcig — `detectPropertyProfileDivergence` case-fold field identity** (ADR 0040 advisory; adversarial follow-up to Notidian-7v4c) — resolved on `autolong/run-4`: the divergence advisory built its per-row present-field set with RAW key casing while the exclusion check on the same loop and the rest of the pipeline (`discoverFrontmatterSchema` merge, `computeFieldValueStats`) fold case-variants, so a coherent database imported with inconsistent key casing (6 `{priority,status}` + 6 `{Priority,Status}`) false-positived as 4 discriminating fields / 2 disjoint components / `divergent:true`, recommending a bad split. Fold keys to lowercase for identity + a spelling-count map (`displayField`, most-frequent/ties-first-seen, matching `discoverFrontmatterSchema`) for canonical banner casing. Advisory-only, no data loss; +2 regression tests; all 9620 tests + typecheck + build green (`bb970a7`).
 
 **Parked → docs/ROADMAP.md (build only when the owner asks):**
 
