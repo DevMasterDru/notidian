@@ -4,16 +4,25 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-jko` (the two surprises were
-discovered + LOCKED as characterization by the orchestrator net `Notidian-34e`,
-`DataTransformationPipeline.test.ts`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blind-fixing either surprise.** Both live on the
-Visualization data path (`src/core/react/components/Visualization/DataTransformationPipeline.ts`)
-and one of them — the `normalizeConfig` impurity — turned out to be **load-bearing
-for the live D3 render path**, not a cosmetic foot-gun, so a naive "make it pure"
-fix would silently break charts. That is exactly the downstream-identity risk the
-bead flagged, now confirmed concrete (see "The decisive finding" below).
+**Implemented** — the recommended **Option A** (clone the `encoding` subtree so
+`normalizeConfig` is pure, make the engine self-sufficient by re-deriving Y for
+all chart types + X for pie/radar in the same change, and add the
+`validateConfig` early-guard) shipped in `02280ba` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-jko` CLOSED. The three
+locked characterization assertions were deliberately flipped in the same
+commit, paired with a single eyes-on chart check confirming the Y axis still
+renders.
+
+Originally tracked by bd `Notidian-jko` (the two surprises were discovered +
+LOCKED as characterization by the orchestrator net `Notidian-34e`,
+`DataTransformationPipeline.test.ts`). This ADR was written **instead of
+blind-fixing either surprise.** Both lived on the Visualization data path
+(`src/core/react/components/Visualization/DataTransformationPipeline.ts`) and
+one of them — the `normalizeConfig` impurity — turned out to be **load-bearing
+for the live D3 render path**, not a cosmetic foot-gun, so a naive "make it
+pure" fix would have silently broken charts. That was exactly the
+downstream-identity risk the bead flagged, confirmed concrete (see "The
+decisive finding" below) and resolved by the Option A change noted above.
 
 ## Date
 

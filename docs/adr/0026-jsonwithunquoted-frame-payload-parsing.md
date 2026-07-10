@@ -4,6 +4,14 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
+**Implemented** — the recommended options shipped in `d8f6452` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-fs6` CLOSED. Decision 1
+(1a, canonical OBJECT-returning wrapper convention) landed offline, no flag; the
+d4u STRING characterization flipped to OBJECT in the same commit. Decision 2 (2a,
+tolerant tokenizer) landed gated behind the existing default-OFF
+`hardenFrameExecution` flag, with the legacy regex preserved byte-for-byte when
+the flag is OFF — no new runtime flag was added.
+
 (Historical framing below retained as the record.) This ADR refuses to harden
 the parser blind: both open items are on the **frame-execution trust boundary**
 ([ADR 0018](0018-makemd-fork-debt-scope-and-frame-trust-boundary.md) /

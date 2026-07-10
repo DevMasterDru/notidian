@@ -6,18 +6,22 @@ Accepted.
 
 Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-2zs`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of changing `fm.ts` blind**. `stripFrontmatterFromString`'s
-regex `/---(.|\n)*---/` is greedy + unanchored and provably over-strips body
-prose; its current behavior is **explicitly pinned as characterization** in
+**Implemented** — the recommended **Option C** shipped in `a99f8c7` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-2zs` CLOSED: the dead
+`stripFrontmatterFromString` helper and its characterization test were
+**deleted outright**, so there is no locked assertion to flip — the pinned
+`fm.stripFrontmatterFromString.test.ts` (Notidian-bey) net no longer exists.
+
+Originally written **instead of changing `fm.ts` blind**. `stripFrontmatterFromString`'s
+regex `/---(.|\n)*---/` was greedy + unanchored and provably over-stripped body
+prose; its behavior was **explicitly pinned as characterization** in
 `src/adapters/obsidian/filetypes/frontmatter/fm.stripFrontmatterFromString.test.ts`
-(Notidian-bey). A non-greedy/anchored rewrite **changes what is removed from a
-note body** — but the load-bearing finding here is that **the function has zero
-production callers**, so the real question is not "what should it strip" but
-"should this helper exist at all." That is a deliberate scoping call, not pure
-logic. The build stops here until the owner picks a direction; the pinned
-characterization is **untouched** until then.
+(Notidian-bey). A non-greedy/anchored rewrite would have **changed what is
+removed from a note body** — but the load-bearing finding was that **the
+function had zero production callers**, so the real question was not "what
+should it strip" but "should this helper exist at all." That was a deliberate
+scoping call, not pure logic. That decision has since been made: Option C
+shipped as noted above.
 
 ## Date
 

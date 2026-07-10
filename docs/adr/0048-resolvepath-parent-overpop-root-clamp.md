@@ -4,30 +4,36 @@
 
 Accepted.
 
-Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c). Resolved
-to **Option B (recommended)** — keep the current graceful behavior and name the
-contract; no behavior change. `path.ts` and the locked test comments were
-upgraded to ratify the over-pop graceful root-clamp as the defined contract; no
-assertion values were flipped. Option A (explicit `if (sourceParts.length > 0)`
-guard) remains an available readability-only follow-up.
+Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-ircw` (the fix follow-up to
-the characterization landed by `Notidian-iuiw`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blindly editing `path.ts`**: the bead explicitly frames it
+**Implemented** — Resolved
+to **Option B (recommended)** — keep the current graceful behavior and name the
+contract; no behavior change — landed in `fa9a490` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-ircw` CLOSED. `path.ts`
+and the locked test comments were upgraded to ratify the over-pop graceful
+root-clamp as the defined contract; **no assertion values were flipped**
+(deliberately — Option B is a documentation-only ratification, unlike the
+assertion-flipping resolutions of most sibling ADRs in this audit family).
+Option A (explicit `if (sourceParts.length > 0)` guard) remains an available
+readability-only follow-up.
+
+Originally tracked by bd `Notidian-ircw` (the fix follow-up to
+the characterization landed by `Notidian-iuiw`). This ADR was
+written **instead of blindly editing `path.ts`**: the bead explicitly framed it
 as a **behavior question** ("this is a behavior change, so characterize-then-decide
-rather than fix blind"), and there are **LOCKED characterization assertions** in
+rather than fix blind"), and there were **LOCKED characterization assertions** in
 `resolvePath.test.ts` (the over-pop block at `:264-289` and the
-"`../` never produces a leading-slash dup" property at `:355-365`) that must be
-**deliberately re-blessed** as part of any fix — that is a decision posture, not a
+"`../` never produces a leading-slash dup" property at `:355-365`) that had to
+be **deliberately re-blessed** as part of any fix — that was a decision posture, not a
 blind edit (same pattern as ADR 0025 / 0030 / 0033 / 0042, where pinned
 characterization assertions are flipped only by a reviewed decision). **LOW
-present-risk:** the current degradation is **graceful and property-safe** — it
-never throws, never emits a leading `/` or `//` duplication, and the bare-leaf
-output it produces is *already equal* to what a POSIX `path.resolve` would yield
-(minus the leading slash the repo invariant forbids). **No code or test change is
-made on this route** — the bead stays OPEN awaiting the owner's pick, and the
-locked assertions are **not** flipped until then.
+present-risk:** the degradation was **graceful and property-safe** — it
+never threw, never emitted a leading `/` or `//` duplication, and the bare-leaf
+output it produced was *already equal* to what a POSIX `path.resolve` would yield
+(minus the leading slash the repo invariant forbids). That decision has since
+been made: Option B shipped as noted above, and — unlike most sibling ADRs in
+this audit family — **no assertion was flipped**, since the ratified contract
+matches the pre-existing behavior exactly.
 
 ## Date
 

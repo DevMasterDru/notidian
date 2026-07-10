@@ -4,23 +4,22 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Implemented as **Option A** (recommended): both comma replaces made global and the
-parser un-escape moved to after the split; the locked Notidian-a3s characterization
-assertions (in `serializers.test.ts`, `parsers.test.ts`, `lookup.test.ts`) were
-deliberately flipped to assert correct round-tripping. The original record below is
-preserved.
+**Implemented** as **Option A** (recommended): both comma replaces made global and
+the parser un-escape moved to after the split; shipped in `dbc608f` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-od7` CLOSED. The locked
+Notidian-a3s characterization assertions (in `serializers.test.ts`,
+`parsers.test.ts`, `lookup.test.ts`) were deliberately flipped to assert correct
+round-tripping. The original record below is preserved.
 
-Originally written instead of changing the serializers blind. Tracked by bd `Notidian-od7` (related-dep on the
-characterization net `Notidian-a3s`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of changing the serializers blind. The escape contract is
-**caller-dependent**: the functions back real authority surfaces (link/context
-cells, tags, aliases, lookup inlinks/outlinks/spaces), the present defective
-output is **explicitly locked as characterization, not correction** in
-`src/utils/serializers.test.ts` (Notidian-a3s), and — decisively — **fixing the
-parser reinterprets values already written into the vault** by the buggy
-serializer. So "fix the round-trip" is a data-migration / behavior call, not a
-pure-logic one. The build stops here until the owner picks a direction.
+Originally written instead of changing the serializers blind (related-dep on the
+characterization net `Notidian-a3s`). The escape contract was **caller-dependent**:
+the functions back real authority surfaces (link/context cells, tags, aliases,
+lookup inlinks/outlinks/spaces), the then-defective output was **explicitly locked
+as characterization, not correction** in `src/utils/serializers.test.ts`
+(Notidian-a3s), and — decisively — fixing the parser reinterprets values already
+written into the vault by the buggy serializer, so "fix the round-trip" was a
+data-migration / behavior call, not a pure-logic one. That decision has since been
+made: Option A shipped as noted above.
 
 ## Date
 

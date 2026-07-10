@@ -6,6 +6,14 @@ Accepted.
 
 Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
+**Implemented** — the recommended **Option B** (FULL GATE: route each insert
+field through `apiFieldWriteTarget`) shipped in `85ac93b`, with a follow-up
+data-loss fix in `83e82ce` (correcting the create-path MDB sink to
+`addRowInTable`, see the review correction below), both under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-2yh` CLOSED. The
+pinned characterization assertion was deliberately flipped as part of this
+change.
+
 **Review correction (bd `Notidian-2yh`):** the create-path MDB sink is
 `addRowInTable` (an INSERT), **not** `updateValueInContext` (an UPDATE). On a
 row-**create** the new path's MDB row does not exist yet — `newPathInSpace` writes
@@ -23,18 +31,16 @@ context fields; the later reload reconciliation (keyed on `PathPropertyName`)
 below that still says `updateValueInContext` describes the original (defective)
 prescription; the implemented sink is `addRowInTable`.
 
-Awaiting an owner decision. Tracked by bd `Notidian-2yh` (a DESIGN-OPEN /
-DECISION-typed bead discovered from `Notidian-e48`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
+Originally awaiting an owner decision. Tracked by bd `Notidian-2yh` (a DESIGN-OPEN /
+DECISION-typed bead discovered from `Notidian-e48`). This ADR was
 written **instead of blindly editing `api.ts`**: the authority-partition
-semantics on row-**create** are genuinely undecided (a defensible argument exists
-both ways), and the current no-gate behavior is **pinned as characterization** in
-`api.authority.context.test.ts` — that assertion must be **deliberately
-re-blessed** as part of any change, which is a decision posture, not a blind edit
+semantics on row-**create** were genuinely undecided (a defensible argument exists
+both ways), and the then-current no-gate behavior was **pinned as characterization** in
+`api.authority.context.test.ts` — that assertion had to be **deliberately
+re-blessed** as part of any change, which was a decision posture, not a blind edit
 (same pattern as ADR 0025 / 0030 / 0032 / 0033 / 0043, where pinned
-characterization assertions are flipped only by a reviewed decision). **No code or
-test change is made on this route** — the bead stays OPEN awaiting the owner's
-pick, and the locked assertion is **not** flipped until then.
+characterization assertions are flipped only by a reviewed decision). That
+decision has since been made: Option B shipped as noted above.
 
 ## Date
 

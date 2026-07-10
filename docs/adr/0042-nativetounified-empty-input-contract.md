@@ -4,22 +4,28 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-ywcf` (the fix follow-up to
-the characterization landed by `Notidian-8fwj`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blindly editing `stickers.ts`**: the fix *looks* like a
-one-line guard, but the bead explicitly frames it as a **behavior question**
+**Implemented** — the recommended **Option A** (guard `nativeToUnified` to
+return `""` on empty input, plus the narrow symmetric `unifiedToNative('')`
+guard, keeping the non-hex/out-of-range `RangeError` loud) shipped in
+`5e4ae69` under the use-driven-realignment doctrine (`cb2d74c`); bd
+`Notidian-ywcf` CLOSED. The locked characterization assertion in
+`stickers.test.ts` (`"THROWS TypeError on empty string"`) was deliberately
+flipped in the same commit to assert the total-codec contract.
+
+Originally tracked by bd `Notidian-ywcf` (the fix follow-up to
+the characterization landed by `Notidian-8fwj`). This ADR was
+written **instead of blindly editing `stickers.ts`**: the fix *looked* like a
+one-line guard, but the bead explicitly framed it as a **behavior question**
 (guard returning `""`/`undefined` vs. document as a caller precondition), and
-there is a **LOCKED characterization assertion** in `stickers.test.ts`
-(`"THROWS TypeError on empty string"`) that must be **deliberately re-blessed**
-as part of any fix — that is a decision posture, not a blind edit (same pattern
+there was a **LOCKED characterization assertion** in `stickers.test.ts`
+(`"THROWS TypeError on empty string"`) that had to be **deliberately re-blessed**
+as part of any fix — that was a decision posture, not a blind edit (same pattern
 as ADR 0025 / 0030 / 0033, where pinned characterization assertions are flipped
-only by a reviewed decision). **LOW present-risk:** `nativeToUnified` has **no
-non-test caller** today (verified below), so this is hardening the codec
-contract against future/external callers and making the pair total — not fixing
-a live crash. **No code or test change is made on this route** — the bead stays
-OPEN awaiting the owner's pick, and the locked assertion is **not** flipped until
-then.
+only by a reviewed decision). **LOW present-risk:** `nativeToUnified` had **no
+non-test caller** (verified below), so this hardened the codec
+contract against future/external callers and made the pair total — not a fix to
+a live crash. That decision has since been made: Option A shipped as noted
+above.
 
 ## Date
 

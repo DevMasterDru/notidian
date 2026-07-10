@@ -4,33 +4,37 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Implemented the RECOMMENDED Option B (per-value classification into a real strict
-weak ordering: dates < numbers < strings, whole-string finite-numeric predicate) in
-`src/core/react/components/Visualization/utils/sortingUtils.ts`; the `KNOWN DEFECT`
-locks in `sortingUtils.test.ts` were flipped to assert the comparator laws
-(reflexivity, antisymmetry, transitivity over the full domain) now hold, closing
-both the non-transitivity and the `"Infinity"`/`"1e999"` NaN-reflexivity defects in
-one change. Gates green (158 suites / 4470 tests, tsc 0, build clean). The original
-decision record below is retained as the rationale.
+**Implemented** the RECOMMENDED Option B (per-value classification into a real
+strict weak ordering: dates < numbers < strings, whole-string finite-numeric
+predicate) in
+`src/core/react/components/Visualization/utils/sortingUtils.ts`, shipped in
+`737f893` under the use-driven-realignment doctrine (`cb2d74c`); bd
+`Notidian-0id` CLOSED. The `KNOWN DEFECT` locks in `sortingUtils.test.ts` were
+flipped to assert the comparator laws (reflexivity, antisymmetry, transitivity
+over the full domain) now hold, closing both the non-transitivity and the
+`"Infinity"`/`"1e999"` NaN-reflexivity defects in one change. Gates green (158
+suites / 4470 tests, tsc 0, build clean). The original decision record below is
+retained as the rationale.
 
-Awaiting an owner decision. Tracked by bd `Notidian-0id` (the decision bead;
-defect first characterized by the net `Notidian-dx5`, which pre-wrote this ADR);
-queued in [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR
-was written instead of changing the comparator blind. The `Notidian-0id` decision
-pass (2026-06-15) re-grounded the ADR against current code — confirmed every cited
-call site live (`D3VisualizationEngine.tsx:205,388`, `LineChartUtility.ts:173,600`,
-the Bar/Line/Area/Radar transformers), the 52-test characterization net green, and
-the defect still locked — and **pinned the two Option-B sub-choices** (cross-bucket
-order + numeric predicate, below) so "approve B" is a complete, reviewable picture
-of the resulting visible chart order rather than a partially-deferred build. No
-duplicate ADR was created: this is the single canonical decision record. `intelligentCompare` is
-**load-bearing** (it orders chart axes and categories on the D3 render path), its
-current output is **explicitly locked as characterization, not correction** in
-`src/core/react/components/Visualization/utils/sortingUtils.test.ts`, and a fix
-changes **owner-visible** rendered ordering — so "fix the comparator" is a
-product/behavior call, not pure logic. This is the same family as ADR 0025
-(`array.ts` order comparators); both are the `Notidian-e8e` non-reflexive/
-non-transitive comparator bug class on different surfaces.
+Originally awaiting an owner decision. Tracked by bd `Notidian-0id` (the decision
+bead; defect first characterized by the net `Notidian-dx5`, which pre-wrote this
+ADR). This ADR was written instead of changing the comparator blind. The
+`Notidian-0id` decision pass (2026-06-15) re-grounded the ADR against current
+code — confirmed every cited call site live (`D3VisualizationEngine.tsx:205,388`,
+`LineChartUtility.ts:173,600`, the Bar/Line/Area/Radar transformers), the
+52-test characterization net green, and the defect still locked — and **pinned
+the two Option-B sub-choices** (cross-bucket order + numeric predicate, below)
+so "approve B" was a complete, reviewable picture of the resulting visible
+chart order rather than a partially-deferred build. No duplicate ADR was
+created: this is the single canonical decision record. `intelligentCompare` is
+**load-bearing** (it orders chart axes and categories on the D3 render path);
+its output **was explicitly locked as characterization, not correction** in
+`src/core/react/components/Visualization/utils/sortingUtils.test.ts` until the
+implementing commit flipped it, and the fix changed **owner-visible** rendered
+ordering — so "fix the comparator" was a product/behavior call, not pure logic.
+This is the same family as ADR 0025 (`array.ts` order comparators); both are the
+`Notidian-e8e` non-reflexive/non-transitive comparator bug class on different
+surfaces.
 
 ## Date
 

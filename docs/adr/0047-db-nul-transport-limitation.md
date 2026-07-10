@@ -4,20 +4,21 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Resolved by implementing the **recommended Option B** (NUL strip in
-`sanitizeSQLStatement`) as the interim fix; Option A (parameter-bound writes) is
-recorded as the eventual byte-faithful fix (roadmap / `bd remember`). The
-original Proposed body is kept below as the decision record. Tracked by bd
-`Notidian-dgo6` (DESIGN-OPEN,
-characterized — not fixed — by the real-engine net of `Notidian-0jtp`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blindly building a fix**: the bead itself says "Decision,
-not a blind fix" and offers three structurally different directions (a
+**Implemented** — resolved by implementing the **recommended Option B** (NUL
+strip in `sanitizeSQLStatement`) as the interim fix, shipped in `da0d41b` under
+the use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-dgo6` CLOSED.
+Option A (parameter-bound writes) is recorded as the eventual byte-faithful fix
+(roadmap / `bd remember`). The original Proposed body is kept below as the
+decision record.
+
+Originally tracked by bd `Notidian-dgo6` (DESIGN-OPEN,
+characterized — not fixed — by the real-engine net of `Notidian-0jtp`). This ADR was
+written **instead of blindly building a fix**: the bead itself said "Decision,
+not a blind fix" and offered three structurally different directions (a
 cross-cutting API seam change, a lossy-but-explicit sanitizer tweak, or
-accept+document), and the current failure mode is **pinned as characterization**
-in `db.realengine.roundtrip.test.ts:500-528` (sql.js 1.8.0). **No `db.ts` or
-`sanitizers.ts` change is made on this route** — the bead stays OPEN awaiting the
-owner's pick.
+accept+document), and the then-current failure mode was **pinned as characterization**
+in `db.realengine.roundtrip.test.ts:500-528` (sql.js 1.8.0). That decision has
+since been made: Option B shipped as the interim fix, as noted above.
 
 ## Date
 

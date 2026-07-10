@@ -4,20 +4,25 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-9i9i` (the fix follow-up to
-the characterization landed by `Notidian-u8yx`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blindly editing `filter.ts`**: the fix *looks* like a
-one-line guard, but the bead explicitly frames it as a **behavior question**
+**Implemented** — the recommended **Option A** (FAIL-CLOSED-EMPTY,
+`typeof v === "string" ? v : ""`, applied uniformly across
+`stringCompare`/`startsWith`/`endsWith`/`empty`/`lengthEquals`) shipped in
+`864c42c` under the use-driven-realignment doctrine (`cb2d74c`); bd
+`Notidian-9i9i` CLOSED. The locked DEFECT-PIN assertion in
+`filterFnTypes.test.ts` was deliberately flipped in the same commit.
+
+Originally tracked by bd `Notidian-9i9i` (the fix follow-up to
+the characterization landed by `Notidian-u8yx`). This ADR was
+written **instead of blindly editing `filter.ts`**: the fix *looked* like a
+one-line guard, but the bead explicitly framed it as a **behavior question**
 ("DECISION NEEDED before fix... coercing with `String(value ?? "")` changes
-observable behavior"), and there is a **LOCKED DEFECT-PIN assertion** in
-`filterFnTypes.test.ts` that asserts the matcher `toThrow(TypeError)` — that
-assertion must be **deliberately re-blessed** as part of any fix, which is a
+observable behavior"), and there was a **LOCKED DEFECT-PIN assertion** in
+`filterFnTypes.test.ts` that asserted the matcher `toThrow(TypeError)` — that
+assertion had to be **deliberately re-blessed** as part of any fix, which was a
 decision posture, not a blind edit (same pattern as ADR 0025 / 0030 / 0032 /
 0033 / 0034 / 0042, where pinned characterization assertions are flipped only by
-a reviewed decision). **No code or test change is made on this route** — the bead
-stays OPEN awaiting the owner's pick, and the locked assertion is **not** flipped
-until then.
+a reviewed decision). That decision has since been made: Option A shipped as
+noted above.
 
 ## Date
 

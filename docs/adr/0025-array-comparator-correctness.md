@@ -4,17 +4,19 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Implemented per the recommended Option B (stable, reflexive, non-mutating
-comparators) plus the folded-in `uniqCaseInsensitive` first-seen-casing fix.
+**Implemented** — the recommended Option B (stable, reflexive, non-mutating
+comparators) plus the folded-in `uniqCaseInsensitive` first-seen-casing fix
+shipped in `0e04749` under the use-driven-realignment doctrine (`cb2d74c`); bd
+`Notidian-e8e` (folds in `Notidian-9v6`) CLOSED.
 
-Awaiting an owner decision. Tracked by bd `Notidian-e8e` (folds in `Notidian-9v6`);
-queued in [docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR
-was written instead of changing the comparators blind. The two comparators are
-**load-bearing** (column ordering and space/row ordering on the core cache path),
-their current output is **explicitly locked as characterization, not correction**
-in `src/shared/utils/array.test.ts:29`, and the live callers may depend on the
-present quirks — so "fix the comparator" is a product/behavior call, not pure logic.
-The build stops here until the owner picks a direction.
+(Historical framing below retained as the record.) This ADR was written instead
+of changing the comparators blind. The two comparators are **load-bearing**
+(column ordering and space/row ordering on the core cache path); their output
+**was locked as characterization, not correction** in
+`src/shared/utils/array.test.ts:29`, and the live callers may have depended on
+the present quirks — so "fix the comparator" was a product/behavior call, not
+pure logic. Those locked assertions were flipped in the same commit that
+implemented Option B.
 
 ## Date
 

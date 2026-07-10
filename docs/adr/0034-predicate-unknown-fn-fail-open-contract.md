@@ -10,16 +10,23 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-37m`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of changing the dispatcher blind**. `filterReturnForCol` is on
-the **table-view row-visibility path**, its current fail-open output is
+**Implemented** — the recommended **Option A** (keep the dispatcher fail-open +
+document the contract, paired with a one-time validate-loud unknown-fn guard in
+`cleanPredicateType`/`validatePredicate`) shipped in `8780259` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-37m` CLOSED. Dispatcher
+behavior is unchanged — the fail-open output is now documented as an intentional
+contract rather than read as a latent defect, so the pinned characterization was
+**not** flipped (there was no defect to correct, only a decision to ratify).
+
+Originally written **instead of changing the dispatcher blind**. `filterReturnForCol`
+is on the **table-view row-visibility path**; its fail-open output was
 **explicitly pinned as characterization** in
 `src/core/utils/contexts/predicate/filter.test.ts` (Notidian-3fs, lines 526, 532,
 591), and whether a corrupt/unrecognized predicate should keep the user's rows
-**visible** or **hide** them is a **product/safety decision** (what is the worse
-failure mode for a single-user vault?), not pure logic. The build stops here until
-the owner picks a direction. The pinned characterization is **untouched** until then.
+**visible** or **hide** them was a **product/safety decision** (what is the worse
+failure mode for a single-user vault?), not pure logic. That decision has since
+been made: Option A shipped as noted above, and the pinned characterization
+stayed as-is (documented, not flipped).
 
 ## Date
 

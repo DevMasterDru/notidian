@@ -4,21 +4,25 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-k778` (a DESIGN-OPEN /
+**Implemented** — the recommended **Option A** (emit an explicit column list
+`REPLACE INTO t ("a","b") VALUES (...)` from the same `uniq+filter` list as
+CREATE) shipped in `98fc4bc` under the use-driven-realignment doctrine
+(`cb2d74c`); bd `Notidian-k778` CLOSED. Both locked assertion nets were
+deliberately flipped in the same commit.
+
+Originally tracked by bd `Notidian-k778` (a DESIGN-OPEN /
 cleanup-typed bead characterized from `Notidian-xwc6` and grounded by
-`Notidian-0jtp`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blindly editing `db.ts`**: the bead itself says
+`Notidian-0jtp`). This ADR was
+written **instead of blindly editing `db.ts`**: the bead itself said
 "Decision/cleanup, not an autonomous blind fix — flip the pinned assertion if
-changed," and the current asymmetric behavior is **pinned as characterization**
+changed," and the then-current asymmetric behavior was **pinned as characterization**
 in two places — the pure builder net (`db.sql-builders.test.ts:363-387`) and the
 real-engine ground-truth net (`db.realengine.roundtrip.test.ts:552-614`). Both
-locked assertions must be **deliberately re-blessed** as part of any change,
-which is a decision posture, not a blind edit (same pattern as ADR
+locked assertions had to be **deliberately re-blessed** as part of any change,
+which was a decision posture, not a blind edit (same pattern as ADR
 0025/0030/0032/0033/0043/0044, where pinned characterization assertions are
-flipped only by a reviewed decision). **No code or test change is made on this
-route** — the bead stays OPEN awaiting the owner's pick, and the locked
-assertions are **not** flipped until then.
+flipped only by a reviewed decision). That decision has since been made:
+Option A shipped as noted above.
 
 ## Date
 

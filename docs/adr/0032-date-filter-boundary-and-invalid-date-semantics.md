@@ -2,19 +2,21 @@
 
 ## Status
 
-Accepted.
+Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+**Implemented** — the recommended trio (A1 + B1 + C1) shipped in `d5f81df` under
+the use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-qbr` CLOSED.
 
-Tracked by bd `Notidian-qbr`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of changing the date predicates blind. The three date filter
-functions are on the **table-view row-visibility path**, their current output is
+Originally written instead of changing the date predicates blind. The three date
+filter functions are on the **table-view row-visibility path**; their output was
 **explicitly pinned as characterization** in
 `src/core/utils/contexts/predicate/filter.test.ts` (Notidian-3fs, lines 367-507),
-and the chosen boundary + malformed-input contract is a **product/UX decision**
+and the chosen boundary + malformed-input contract was a **product/UX decision**
 (what does "before/after a date" mean to the user, and should a corrupt date be
-visible?), not pure logic. The build stops here until the owner picks a direction.
+visible?), not pure logic. That decision has since been made: A1 + B1 + C1
+shipped as noted above, and the pinned assertions were flipped for A1/C1 (B1
+kept the existing fail-closed Invalid-Date behavior, so no flip was needed
+there).
 
 ## Date
 

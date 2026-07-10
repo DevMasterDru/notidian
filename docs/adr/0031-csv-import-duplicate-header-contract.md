@@ -4,16 +4,18 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Awaiting an owner decision. Tracked by bd `Notidian-5zc` (surfaced +
-characterized by the CSV import/export net `Notidian-9g8`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written instead of changing the parser blind. The contract is
+**Implemented** — the recommended **Option B** (auto-uniquify duplicate headers
+in the parser via `uniqueNameFromString`) shipped in `ff79d3e` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-5zc` (surfaced +
+characterized by the CSV import/export net `Notidian-9g8`) CLOSED.
+
+Originally written instead of changing the parser blind. The contract was
 **caller-dependent**: the parser's output feeds `planCsvImport`
 (`tableCsvImport.ts`) and `executeCsvImport` (`tableCsvImportRuntime.ts`), which
 key everything by **header NAME** — so where uniquification happens, and how
-`headers[]` stays consistent with the per-row keys, is a cross-layer contract,
-not a one-line parser fix. The build stops here until the owner picks a
-direction.
+`headers[]` stays consistent with the per-row keys, was a cross-layer contract,
+not a one-line parser fix. That decision has since been made: Option B shipped
+as noted above.
 
 ## Date
 

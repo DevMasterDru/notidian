@@ -4,19 +4,21 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Tracked by bd `Notidian-k6a5`; queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of touching `emojiBox.ts` blind**. The module's
-`createExactEmojiBox` builds raw SVG/`<span>` HTML strings by interpolating
+**Implemented** — the recommended **Option A** shipped in `c6773d6` under the
+use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-k6a5` CLOSED:
+`src/shared/utils/emojiBox.ts` was **deleted entirely**, along with every one
+of its exports (`createExactEmojiBox`, `emojiBoxStyles`,
+`calculateOptimalEmojiFontSize`, `supportsColorEmoji`).
+
+Originally written **instead of touching `emojiBox.ts` blind**. The module's
+`createExactEmojiBox` built raw SVG/`<span>` HTML strings by interpolating
 caller input (`${emoji}`, `${size}`, `class="${options?.className}"`) with **no**
 escaping/sanitization — a latent `innerHTML` injection sink under the ADR 0017 /
-Notidian-ebz threat model. But the load-bearing finding is that **every export in
-the module has zero production callers**, so the real question is not "how should
-it sanitize" but "should this defective, dead helper exist at all." That is a
-deliberate scoping call, not pure logic. Blindly test-hardening it would spend
-quota characterizing code that may be deleted; blindly deleting it could drop an
-intended-future helper. The build stops here until the owner picks; no source or
-test was changed by this ADR.
+Notidian-ebz threat model. But the load-bearing finding was that **every export
+in the module had zero production callers**, so the real question was not "how
+should it sanitize" but "should this defective, dead helper exist at all." That
+was a deliberate scoping call, not pure logic. That decision has since been
+made: Option A shipped as noted above.
 
 ## Date
 

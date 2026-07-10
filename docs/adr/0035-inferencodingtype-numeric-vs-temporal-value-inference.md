@@ -4,25 +4,26 @@
 
 Accepted.
 
-Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c). The
-recommended Option C/A hybrid is implemented in
-`src/core/react/components/Visualization/utils/inferEncodingType.ts` and the
-locked numeric `temporal` assertions were flipped to `quantitative` in the same
-commit. The rest of this ADR is kept verbatim as the decision record.
+**Implemented** — the recommended Option C/A hybrid shipped in
+`src/core/react/components/Visualization/utils/inferEncodingType.ts`, in
+`f50dd3c` under the use-driven-realignment doctrine (`cb2d74c`); bd
+`Notidian-sp5` CLOSED. The locked numeric `temporal` assertions were flipped to
+`quantitative` in the same commit. The rest of this ADR is kept verbatim as the
+decision record.
 
-Originally proposed (now decided); tracked by bd `Notidian-sp5` (discovered by the
-characterization net `Notidian-5hs`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of changing the heuristic blind**. `inferEncodingType` is on
-the **chart-encoding type path** — it decides whether a field is `quantitative`
-/ `temporal` / `nominal`, which sets the D3 scale type, axis behavior, and
-aggregation defaults — and a change flips **owner-visible** axis typing, so it is
-a heuristic-**quality** product call, not a crash. The current `temporal`
-behavior for numeric data is **explicitly locked as characterization** in
-`inferEncodingType.test.ts` (the `ADVERSARIAL` block). This is the same posture
-and bug family as ADR 0033 (`intelligentCompare` per-pair date/number
-classification) and the date-vs-number heuristic axis of ADR 0032 — a date
-heuristic that swallows numbers.
+Originally proposed (now decided); tracked by bd `Notidian-sp5` (discovered by
+the characterization net `Notidian-5hs`). This ADR was written **instead of
+changing the heuristic blind**. `inferEncodingType` is on the **chart-encoding
+type path** — it decides whether a field is `quantitative` / `temporal` /
+`nominal`, which sets the D3 scale type, axis behavior, and aggregation
+defaults — and the change flipped **owner-visible** axis typing, so it was a
+heuristic-**quality** product call, not a crash. The prior `temporal` behavior
+for numeric data **was explicitly locked as characterization** in
+`inferEncodingType.test.ts` (the `ADVERSARIAL` block) until the implementing
+commit flipped it. This is the same posture and bug family as ADR 0033
+(`intelligentCompare` per-pair date/number classification) and the
+date-vs-number heuristic axis of ADR 0032 — a date heuristic that swallows
+numbers.
 
 ## Date
 

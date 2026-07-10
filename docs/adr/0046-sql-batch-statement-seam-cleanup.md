@@ -5,9 +5,12 @@
 Accepted.
 
 Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
-Resolved to **Option C**: `Notidian-k778` / ADR 0045 was accepted and shipped
-(commit `98fc4bc`), so the Option-B array+join cleanup was folded onto that
-SQL-builder pass — `insertIntoDB`/`updateDB` now build per-row statements via
+
+**Implemented** — Resolved to **Option C**: `Notidian-k778` / ADR 0045 was
+accepted and shipped (commit `98fc4bc`), so the Option-B array+join cleanup was
+folded onto that same SQL-builder pass, shipping in its own commit `496b663`
+under the use-driven-realignment doctrine (`cb2d74c`); bd `Notidian-p5qt`
+CLOSED. `insertIntoDB`/`updateDB` now build per-row statements via
 `.flatMap(...).map(...)` joined by `serializeSQLStatements` ('; '), dropping the
 reduce-seed leading space and the `;;  ` two-table seam. The ~11 pinned cosmetic
 assertions in `db.sql-builders.test.ts` were deliberately re-blessed to the clean
@@ -15,16 +18,14 @@ shape; the real-engine net (`db.realengine.roundtrip.test.ts`) stays green.
 
 Originally awaiting an owner decision. Tracked by bd `Notidian-p5qt` (a DESIGN-OPEN /
 cosmetic-cleanup-typed bead characterized from `Notidian-xwc6` and grounded by
-the real-engine net of `Notidian-0jtp`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blindly editing `db.ts`**: the bead itself says "any fix
-must be a deliberate flip of those assertions," and the current output shape is
-**pinned as characterization** in `db.sql-builders.test.ts` (the leading space
-on every single-table statement and the `;;  ` two-table seam). The pinned
-assertions are **deliberately re-blessed** only by a reviewed decision (same
-pattern as ADR 0025/0030/0032/0033/0043/0044/0045). **No code or test change is
-made on this route** — the bead stays OPEN awaiting the owner's pick, and the
-locked assertions are **not** flipped until then.
+the real-engine net of `Notidian-0jtp`). This ADR was
+written **instead of blindly editing `db.ts`**: the bead itself said "any fix
+must be a deliberate flip of those assertions," and the then-current output
+shape was **pinned as characterization** in `db.sql-builders.test.ts` (the
+leading space on every single-table statement and the `;;  ` two-table seam).
+The pinned assertions were **deliberately re-blessed** only by a reviewed
+decision (same pattern as ADR 0025/0030/0032/0033/0043/0044/0045). That
+decision has since been made: Option C shipped as noted above.
 
 ## Date
 

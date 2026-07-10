@@ -4,7 +4,9 @@
 
 Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 
-Resolved as **Option A** (the recommendation): `AreaChartTransformer.transform`
+**Implemented** — Resolved as **Option A** (the recommendation), shipped in
+`767e3a9` under the use-driven-realignment doctrine (`cb2d74c`); bd
+`Notidian-drp` CLOSED: `AreaChartTransformer.transform`
 now early-returns the empty `AreaChartData` contract when there is no usable x
 encoding (`!xEncodings[0]?.field`), and the two locked `KNOWN DEFECT`
 `toThrow` assertions were flipped to expect that empty contract in the same
@@ -12,11 +14,11 @@ commit. The remainder of this ADR is preserved as the decision record.
 
 Originally awaiting an owner decision. Tracked by bd `Notidian-drp` (the divergence was
 discovered + **LOCKED as a `KNOWN DEFECT`** characterization by the orchestrator
-net `Notidian-kxq`, `AreaChartTransformer.test.ts`); queued in
-[docs/AUTONOMOUS-REVIEW-QUEUE.md](../AUTONOMOUS-REVIEW-QUEUE.md). This ADR was
-written **instead of blind-fixing the throw**, because the repair changes
+net `Notidian-kxq`, `AreaChartTransformer.test.ts`). This ADR was
+written **instead of blind-fixing the throw**, because the repair changed
 owner-visible chart output (an error-state render vs an empty chart) and the
-characterization deliberately pins the current throw.
+characterization deliberately pinned the then-current throw until the
+implementing commit flipped it.
 
 ## Date
 
