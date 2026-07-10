@@ -24,10 +24,12 @@
 //
 // Pure logic, no render-path import. Runs under jsdom only to match the harness
 // requested by the bead; it exercises no DOM.
+import _ from "lodash";
 import { FrameNode } from "shared/types/mframe";
 import { FrameTreeNode } from "shared/types/frameExec";
 import {
   hasKitProvenance,
+  reStampProvenanceFromSource,
   stampKitProvenance,
   stampKitProvenanceTree,
 } from "./trust";
@@ -279,5 +281,139 @@ describe("stampKitProvenanceTree: re-stamp node + all descendants", () => {
     stampKitProvenanceTree(treeNode(node));
     expect(hasKitProvenance(node)).toBe(true);
     expect(hasKitProvenance({ ...node })).toBe(false);
+  });
+});
+
+// bd Notidian-214 — reStampProvenanceFromSource keeps the render-path clone
+// (FrameInstanceContext.runRoot: _.cloneDeep(root)) sound. cloneDeep drops the
+// non-enumerable marker (same reason it is unforgeable), so a cloned kit/blessed
+// subtree loses $api unless provenance is re-applied FROM ITS SOURCE. These tests
+// pin the mechanism AND its hard invariant: only genuinely-provenanced SOURCE
+// nodes confer trust — never a persisted/forged value.
+describe("reStampProvenanceFromSource: preserve provenance across a deep clone", () => {
+  it("_.cloneDeep DROPS the marker (the exact render-path problem this fixes)", () => {
+    const node = plainNode({ id: "kit" });
+    stampKitProvenance(node);
+    const tree = treeNode(node);
+    const cloned = _.cloneDeep(tree);
+    // The source keeps trust; the clone does not — cloneDeep cannot copy the
+    // non-enumerable Symbol own-property.
+    expect(hasKitProvenance(tree.node)).toBe(true);
+    expect(hasKitProvenance(cloned.node)).toBe(false);
+  });
+
+  it("re-applies provenance to a cloned tree from a genuinely-provenanced source", () => {
+    const root = plainNode({ id: "root" });
+    const kitChild = plainNode({ id: "kit" });
+    const grandKit = plainNode({ id: "kit-g" });
+    const userChild = plainNode({ id: "user" });
+    // Source: root + userChild are stored content (untrusted); kitChild + its
+    // descendant are genuine kit code (stamped).
+    const source = treeNode(root, [
+      treeNode(kitChild, [treeNode(grandKit)]),
+      treeNode(userChild),
+    ]);
+    stampKitProvenance(kitChild);
+    stampKitProvenance(grandKit);
+
+    const clone = _.cloneDeep(source);
+    // Before re-stamp: clone lost ALL provenance.
+    expect(clone.children.every((c) => !hasKitProvenance(c.node))).toBe(true);
+
+    reStampProvenanceFromSource(clone, source);
+
+    // After: exactly the source-provenanced nodes are trusted on the clone.
+    expect(hasKitProvenance(clone.node)).toBe(false); // root: stored content
+    expect(hasKitProvenance(clone.children[0].node)).toBe(true); // kitChild
+    expect(hasKitProvenance(clone.children[0].children[0].node)).toBe(true); // grandKit
+    expect(hasKitProvenance(clone.children[1].node)).toBe(false); // userChild
+  });
+
+  it("INVARIANT: a source that is NOT genuinely provenanced never confers trust on the clone", () => {
+    // The attacker's move: a stored/forged tree (forged $kit ref, no marker).
+    // Re-stamping from it must grant NOTHING — trust derives only from a real
+    // source marker, never from ref/data.
+    const forgedRoot = plainNode({ id: "root", ref: "spaces://$kit/#*forged" });
+    const forgedChild = plainNode({
+      id: "child",
+      ref: "spaces://$kit/#*forged",
+      props: { value: "$api.probe.ping('FORGED')" },
+    });
+    const forgedSource = treeNode(forgedRoot, [treeNode(forgedChild)]);
+    const clone = _.cloneDeep(forgedSource);
+
+    reStampProvenanceFromSource(clone, forgedSource);
+
+    expect(hasKitProvenance(clone.node)).toBe(false);
+    expect(hasKitProvenance(clone.children[0].node)).toBe(false);
+  });
+
+  it("tolerates length-mismatched / missing children arrays without throwing", () => {
+    const src = treeNode(plainNode({ id: "s" }), [treeNode(plainNode({ id: "sc" }))]);
+    stampKitProvenance(src.node);
+    // clone has fewer children than source
+    const clone = treeNode(_.cloneDeep(src.node));
+    expect(() => reStampProvenanceFromSource(clone, src)).not.toThrow();
+    expect(hasKitProvenance(clone.node)).toBe(true);
+    // null/undefined args are no-ops
+    expect(() => reStampProvenanceFromSource(null, src)).not.toThrow();
+    expect(() => reStampProvenanceFromSource(clone, null)).not.toThrow();
+  });
+
+  it("re-stamps a list node's cached item TEMPLATE from the source template", () => {
+    // A `list` node caches its item template in execPropsOptions.template; the
+    // runner rebuilds per-row items from it. cloneDeep drops the marker there too,
+    // so the template must be re-stamped from source or generated kit items lose
+    // $api (and spuriously trip the withhold diagnostic).
+    const listNode = plainNode({ id: "list" });
+    const templateItem = plainNode({ id: "tmpl" });
+    stampKitProvenance(templateItem); // genuine kit item template
+    const source = {
+      ...treeNode(listNode),
+      execPropsOptions: { template: [treeNode(templateItem)] },
+    } as unknown as FrameTreeNode;
+
+    const clone = _.cloneDeep(source);
+    // cloneDeep dropped provenance on the cloned template.
+    expect(
+      hasKitProvenance(
+        (clone as any).execPropsOptions.template[0].node as FrameNode
+      )
+    ).toBe(false);
+
+    reStampProvenanceFromSource(clone, source);
+
+    expect(
+      hasKitProvenance(
+        (clone as any).execPropsOptions.template[0].node as FrameNode
+      )
+    ).toBe(true);
+  });
+
+  it("does NOT stamp a list template whose source template is unprovenanced (user list)", () => {
+    const source = {
+      ...treeNode(plainNode({ id: "list" })),
+      execPropsOptions: { template: [treeNode(plainNode({ id: "tmpl" }))] },
+    } as unknown as FrameTreeNode;
+    const clone = _.cloneDeep(source);
+    reStampProvenanceFromSource(clone, source);
+    expect(
+      hasKitProvenance(
+        (clone as any).execPropsOptions.template[0].node as FrameNode
+      )
+    ).toBe(false);
+  });
+
+  it("RELOAD DROPS TRUST: re-materializing the source from stored data (no marker) yields an untrusted clone", () => {
+    // Model a reload: the blessed/kit source object is gone; the tree is rebuilt
+    // from persisted data (JSON round-trip strips any marker). Re-stamping from
+    // that reloaded source confers no trust — re-bless is required BY DESIGN.
+    const liveKit = plainNode({ id: "kit" });
+    stampKitProvenance(liveKit);
+    const reloadedSourceNode = JSON.parse(JSON.stringify(liveKit)) as FrameNode;
+    const reloadedSource = treeNode(reloadedSourceNode);
+    const clone = _.cloneDeep(reloadedSource);
+    reStampProvenanceFromSource(clone, reloadedSource);
+    expect(hasKitProvenance(clone.node)).toBe(false);
   });
 });

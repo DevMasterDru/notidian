@@ -30,7 +30,21 @@ export type FrameExecutableContext = {
   // kit) frame nodes. Default-OFF (resolved from settings.hardenFrameExecution
   // by callers); undefined/false preserves the legacy behaviour.
   hardenFrameExecution?: boolean;
-};export type FrameRunInstance = {
+  // bd Notidian-214 (ADR 0022 read-only diagnostic): called when the boundary
+  // withholds $api from an untrusted node whose props/styles reference $api, so
+  // the render layer can surface WHICH frame/expression was no-op'd and offer a
+  // session-scoped bless. It is a pure notification sink — NEVER a trust signal.
+  onApiWithheld?: (info: ApiWithheldInfo) => void;
+};
+// bd Notidian-214: what the read-only frame-hardening diagnostic reports.
+export type ApiWithheldInfo = {
+  nodeId: string;
+  nodeName?: string;
+  // Dotted keys of the prop/style expressions that referenced $api and were
+  // therefore no-op'd (e.g. "props.value", "styles.background").
+  expressions: string[];
+};
+export type FrameRunInstance = {
   id: string;
   state: FrameState;
   prevState?: FrameState;

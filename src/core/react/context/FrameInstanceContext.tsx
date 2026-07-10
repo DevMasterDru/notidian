@@ -5,6 +5,15 @@ import {
   stateChangedForProps,
 } from "core/utils/frames/frame";
 import { executeTreeNode } from "core/utils/frames/runner";
+import {
+  reStampProvenanceFromSource,
+  stampKitProvenanceTree,
+} from "core/utils/frames/trust";
+import {
+  registerFrameBless,
+  shouldNotifyApiWithheld,
+  unregisterFrame,
+} from "core/utils/frames/frameTrustSession";
 import { renameKey } from "core/utils/objects";
 import _, { isEqual, uniqueId } from "lodash";
 import { Superstate } from "makemd-core";
@@ -20,7 +29,7 @@ import React, {
 } from "react";
 import { useSpaceManager } from "./SpaceManagerContext";
 import { defaultStyleAst } from "schemas/kits/defaultStyleAst";
-import { FrameRunInstance, FrameState } from "shared/types/frameExec";
+import { ApiWithheldInfo, FrameRunInstance, FrameState } from "shared/types/frameExec";
 import { ActionProp, FrameTreeProp } from "shared/types/mframe";
 import { Edges } from "shared/types/Pos";
 import { FramesEditorRootContext } from "./FrameEditorRootContext";
@@ -37,6 +46,11 @@ type FrameInstanceType = {
   saveState: (state: FrameState, instance: FrameRunInstance) => void;
   fastSaveState: (state: FrameState) => void;
   linkedProps: string[];
+  // bd Notidian-214 (ADR 0022 Decision 2c): user-initiated, session-scoped,
+  // NON-PERSISTED bless — stamp this frame's materialized tree in memory so the
+  // hardening boundary restores $api for the rest of the session. Dropped on
+  // reload/edit by design.
+  blessFrame: () => void;
 };
 
 // Create the context
@@ -50,6 +64,7 @@ export const FrameInstanceContext = createContext<FrameInstanceType>({
   saveState: (state: FrameState, instance: FrameRunInstance) => null,
   fastSaveState: (state: FrameState) => null,
   linkedProps: [],
+  blessFrame: () => null,
 });
 
 // Create the context provider component
@@ -104,6 +119,12 @@ export const FrameInstanceProvider: React.FC<
     () => (props.editable ? editableRoot : nonEditableRoot),
     [props.editable, editableRoot, nonEditableRoot]
   );
+  // bd Notidian-214: stable per-frame-instance key for once-per-frame-per-session
+  // diagnostic de-dup + bless registration.
+  const frameKey = useMemo(
+    () => `${path ?? "?"}::${props.id ?? "root"}`,
+    [path, props.id]
+  );
 
   const activeRunID = useRef(null);
   const currentRoot = useRef(null);
@@ -142,6 +163,8 @@ export const FrameInstanceProvider: React.FC<
         styleAst: instance.styleAst,
         // bd Notidian-vke: default-OFF frame-execution trust boundary.
         hardenFrameExecution: props.superstate.settings?.hardenFrameExecution,
+        // bd Notidian-214: read-only diagnostic when the boundary withholds $api.
+        onApiWithheld,
       }
     ).then((s) => {
       setInstance((p) => {
@@ -179,9 +202,16 @@ export const FrameInstanceProvider: React.FC<
   const runRoot = () => {
     if (root) {
       const newRoot = _.cloneDeep(root);
+      // bd Notidian-214: _.cloneDeep drops the non-enumerable kit-provenance
+      // marker (the same property that makes it unforgeable), which would strip
+      // $api from genuine kit subtrees — and from a user tree the owner blessed
+      // this session — under hardenFrameExecution. Re-apply provenance FROM the
+      // source tree so the boundary sees it. Trust still derives only from the
+      // source's genuine marker, never from any persisted value.
+      reStampProvenanceFromSource(newRoot, root);
       const runID = uniqueId();
       activeRunID.current = runID;
-      
+
       executeTreeNode(
         newRoot,
         {
@@ -205,9 +235,11 @@ export const FrameInstanceProvider: React.FC<
           styleAst: defaultStyleAst,
           // bd Notidian-vke: default-OFF frame-execution trust boundary.
           hardenFrameExecution: props.superstate.settings?.hardenFrameExecution,
+          // bd Notidian-214: read-only diagnostic when the boundary withholds $api.
+          onApiWithheld,
         }
       ).then((s) => {
-        
+
         setInstance((p) => {
           return s;
         });
@@ -215,6 +247,45 @@ export const FrameInstanceProvider: React.FC<
       });
     }
   };
+
+  // bd Notidian-214 (ADR 0022 Decision 2c) — user-initiated, session-scoped,
+  // NON-PERSISTED bless. Stamp this frame's materialized tree (source + current
+  // instance) in memory, then re-run so the hardening boundary restores $api.
+  // Nothing is persisted: a reload rebuilds `root` unstamped and an edit replaces
+  // it, so re-bless is required BY DESIGN (a silently-rewritten frame loses trust).
+  const blessFrame = () => {
+    if (root) stampKitProvenanceTree(root);
+    if (instance?.root) stampKitProvenanceTree(instance.root);
+    runRoot();
+  };
+
+  // bd Notidian-214 — read-only diagnostic sink handed to the runner. Fires when
+  // the boundary withholds $api from an untrusted node that references it. It
+  // registers this frame's bless callback (for the "Trust dynamic frame code for
+  // this session" command), logs which expression was no-op'd under enhancedLogs,
+  // and notifies ONCE per frame per session. It is a pure notification — it NEVER
+  // grants trust.
+  const onApiWithheld = (info: ApiWithheldInfo) => {
+    registerFrameBless(frameKey, blessFrame);
+    if (props.superstate.settings?.enhancedLogs) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[notidian] frame hardening withheld $api from node "${
+          info.nodeName ?? info.nodeId
+        }" (${info.expressions.join(", ")}) in frame "${frameKey}". ` +
+          `Run "Trust dynamic frame code for this session" to re-enable.`
+      );
+    }
+    if (shouldNotifyApiWithheld(frameKey)) {
+      props.superstate.ui.notify(
+        'Frame hardening disabled dynamic content ($api) in a frame. Run the command "Trust dynamic frame code for this session" to re-enable it (re-required after reload or edit).'
+      );
+    }
+  };
+
+  // bd Notidian-214: drop this frame's session bless callback + notice state on
+  // unmount so it does not leak or fire for a dead instance.
+  useEffect(() => () => unregisterFrame(frameKey), [frameKey]);
 
   useEffect(() => {
     if (
@@ -239,6 +310,7 @@ export const FrameInstanceProvider: React.FC<
       instance,
       saveState,
       fastSaveState,
+      blessFrame,
     };
   }, [props.id, linkedProps, hoverNode, instance, saveState, fastSaveState]);
 

@@ -9,6 +9,7 @@ import {
 import { HiddenPaths } from "core/react/components/UI/Modals/HiddenFiles";
 import { openTypeProfileAdoptionModalForActivePath } from "core/react/components/UI/Modals/typeProfileAdoptionAction";
 import { addPathToSpaceAtIndex } from "core/superstate/utils/spaces";
+import { blessAllSessionFrames } from "core/utils/frames/frameTrustSession";
 import { eventTypes } from "core/types/types";
 import { isPhone } from "core/utils/ui/screen";
 import MakeMDPlugin from "main";
@@ -60,6 +61,24 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
       plugin.superstate.settings.enhancedLogs =
         !plugin.superstate.settings.enhancedLogs;
       plugin.saveSettings();
+    },
+  });
+  // bd Notidian-214 / ADR 0022 Decision 2c — user-initiated, session-scoped bless.
+  // Trusts (in memory only) every frame the hardening boundary flagged as having
+  // $api withheld this session, restoring their dynamic expressions until reload/
+  // edit. Nothing is persisted — re-run after reload by design.
+  plugin.addCommand({
+    id: "notidian-trust-frame-session",
+    name: i18n.commandPalette.trustFrameForSession,
+    callback: () => {
+      const blessed = blessAllSessionFrames();
+      plugin.superstate.ui.notify(
+        blessed > 0
+          ? `Trusted ${blessed} frame${
+              blessed === 1 ? "" : "s"
+            } for this session. Reload or edit drops this trust.`
+          : "No frames are currently waiting to be trusted. Open a frame whose dynamic content was disabled, then run this command."
+      );
     },
   });
   plugin.addCommand({

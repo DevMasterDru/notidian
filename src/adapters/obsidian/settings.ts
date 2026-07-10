@@ -375,6 +375,14 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // bd Notidian-214 / ADR 0022 Decision 1a — security-hardening toggle.
+        // No onChange side effect: the shared boolean handler saves it and the
+        // frame render path reads settings.hardenFrameExecution live on next run.
+        name: 'hardenFrameExecution',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         name: 'spaceSubFolder',
         category: 'advanced',
         type: 'text',

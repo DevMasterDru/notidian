@@ -1,12 +1,12 @@
 
 import { ensureArray } from 'core/utils/strings';
 import { API } from 'makemd-core';
-import { FrameContexts, FrameExecProp, FrameExecutable, FrameExecutableContext, FrameNodeState, FrameRunInstance, FrameState, StyleAst } from "shared/types/frameExec";
+import { ApiWithheldInfo, FrameContexts, FrameExecProp, FrameExecutable, FrameExecutableContext, FrameNodeState, FrameRunInstance, FrameState, StyleAst } from "shared/types/frameExec";
 import { FrameNode, FrameTreeProp } from 'shared/types/mframe';
 import { uniq } from 'shared/utils/array';
 import { buildExecutable } from './executable';
 import { linkTreeNodes } from './linker';
-import { hasKitProvenance } from './trust';
+import { hasKitProvenance, reStampProvenanceFromSource } from './trust';
 
 export type ResultStore = { state: FrameState, newState: FrameState, slides: FrameState, prevState: FrameState, styleAsts?: StyleAst[] };
 
@@ -65,6 +65,31 @@ export const frameNodeMayUseApiInProps = (
 ): boolean => {
   if (!harden) return true;
   return isTrustedFrameNode(executable);
+};
+
+// bd Notidian-214 (ADR 0022 read-only diagnostic) — which of a node's prop/style
+// expressions REFERENCE $api and are therefore no-op'd when the boundary
+// withholds it. Actions are intentionally excluded: they are user-triggered and
+// keep $api regardless of trust. Returns dotted keys ("props.value",
+// "styles.background"); empty when the node uses no $api in its render code (so
+// withholding $api from it is a true no-op and no diagnostic should fire).
+const API_REFERENCE = /\$api\b/;
+export const apiWithheldExpressions = (executable: FrameExecutable): string[] => {
+  const node = executable?.node;
+  if (!node) return [];
+  const out: string[] = [];
+  const scan = (bag: Record<string, unknown> | undefined, kind: string) => {
+    if (!bag) return;
+    for (const key of Object.keys(bag)) {
+      const value = bag[key];
+      if (typeof value === "string" && API_REFERENCE.test(value)) {
+        out.push(`${kind}.${key}`);
+      }
+    }
+  };
+  scan(node.props as Record<string, unknown> | undefined, "props");
+  scan(node.styles as Record<string, unknown> | undefined, "styles");
+  return out;
 };
 
 // Exported for co-located characterization (runner.trustBoundary.adversarial.test.ts):
@@ -168,7 +193,7 @@ export const executeTreeNode = async (
         return {id: executionContext.runID, root: executionContext.root, exec: treeNode, state: store.state, slides: store.slides, newState: store.newState, prevState: store.prevState, contexts: executionContext.contexts, styleAst: executionContext.styleAst}
         
     }
-    let execState = await executeNode(treeNode, store, executionContext.contexts, executionContext.api, executionContext.hardenFrameExecution);
+    let execState = await executeNode(treeNode, store, executionContext.contexts, executionContext.api, executionContext.hardenFrameExecution, executionContext.onApiWithheld);
     
     if (executionContext.styleAst) {
         const style = execState.state[treeNode.id].styles
@@ -189,12 +214,21 @@ export const executeTreeNode = async (
         execState.state[treeNode.id].styles = style;
     }
     if (treeNode.node.type == 'list') {
-        
+
         let uid = 0;
         treeNode.children = ensureArray(execState.state[treeNode.id].props.value).flatMap((f, i) => treeNode.execPropsOptions.template.map((n) => {
             const [tree, m] = linkTreeNodes({ ...n, node: { ...n.node, props: {...n.node.props, _index: `${i}`, value: `${treeNode.id}.props.value[${i}]`}}}, uid)
             uid = m;
-            return buildExecutable(tree)}))
+            const item = buildExecutable(tree);
+            // bd Notidian-214: linkTreeNodes/buildExecutable spread the template
+            // node, dropping its non-enumerable provenance marker. Re-stamp the
+            // rebuilt item FROM its template source so a genuine kit list item
+            // keeps $api under hardenFrameExecution (and does not trip the
+            // withhold diagnostic). Trust still derives only from the template's
+            // genuine marker — a user list item's template is unstamped, so its
+            // items stay untrusted.
+            reStampProvenanceFromSource(item, n);
+            return item;}))
     }
     
     if (
@@ -262,10 +296,22 @@ export const executeTreeNode = async (
 
 
 
-export const executeNode = async (executable: FrameExecutable, results: ResultStore, contexts: FrameContexts, api: API, hardenFrameExecution?: boolean) => {
+export const executeNode = async (executable: FrameExecutable, results: ResultStore, contexts: FrameContexts, api: API, hardenFrameExecution?: boolean, onApiWithheld?: (info: ApiWithheldInfo) => void) => {
     // bd Notidian-vke: prop + style code is part of the always-on render, so it is
     // subject to the trust boundary. Actions are user-triggered and keep $api.
-    const propApi = frameNodeMayUseApiInProps(executable, hardenFrameExecution) ? api : undefined;
+    const mayUseApi = frameNodeMayUseApiInProps(executable, hardenFrameExecution);
+    const propApi = mayUseApi ? api : undefined;
+    // bd Notidian-214: read-only diagnostic. The boundary is ON and withheld
+    // $api from this (untrusted) node — report which prop/style expressions were
+    // no-op'd so the render layer can surface it and offer a session bless. Only
+    // fires when the node actually uses $api in render code (else the withhold is
+    // a true no-op). NEVER influences the trust decision above.
+    if (hardenFrameExecution && !mayUseApi && onApiWithheld) {
+        const expressions = apiWithheldExpressions(executable);
+        if (expressions.length > 0) {
+            onApiWithheld({ nodeId: executable.node.id, nodeName: executable.node.name, expressions });
+        }
+    }
     const propResults = await executePropsCodeBlocks(executable, results, contexts, propApi)
     const stylesResults = executeCodeBlocks(executable.node, 'styles', executable.execStyles, propResults, propApi)
     const actions = executeCodeBlocks(executable.node,'actions', executable.execActions, stylesResults, api)

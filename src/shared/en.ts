@@ -109,6 +109,7 @@ export const en = {
   },
   "commandPalette": {
     "toggleEnhancedLogs": "Toggle Enhanced Logs",
+    "trustFrameForSession": "Trust dynamic frame code for this session",
     "fixPathCharacters": "Fix Path Characters",
     "moveSpaceDataFolder": "Move Space Data Folder",
     "openFlow": "Open Flow Blocks in Selection",
@@ -1200,6 +1201,10 @@ export const en = {
     "experimental": {
       "name": "Experimental",
       "desc": "Experimental features that are subject to change and may not be optimized for performance"
+    },
+    "hardenFrameExecution": {
+      "name": "Harden Frame Execution",
+      "desc": "Withhold write access ($api) from custom/imported frames and sanitize frame text. Protects against malicious frame code; may disable dynamic expressions in frames you authored yourself. Run the \"Trust dynamic frame code for this session\" command to re-enable a frame you trust (re-required after reload or edit)."
     },
     "noteThumbnails": {
       "name": "Note Thumbnails",

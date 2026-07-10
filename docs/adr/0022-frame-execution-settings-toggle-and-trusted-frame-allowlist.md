@@ -2,16 +2,30 @@
 
 ## Status
 
-Parked — build when the owner asks. Parked to `docs/ROADMAP.md`; this ADR stays as
-grounding reference. The toggle + allowlist is genuinely-speculative product
-direction: it is gated on the owner first live-verifying `hardenFrameExecution` in
-the vault and keeping it on (still pending), and the allowlist only matters if that
-live-verify finds a real user frame the boundary breaks. The owner validates by
-USING the tool and has not asked for this. This ADR refuses to build the toggle +
-allowlist blind: the work is gated on a prior live-verify decision (see Context)
-and the allowlist mechanism is a genuine design choice with a hard security
-invariant. It frames the options and recommends one; nothing in the runtime render
-path changes here.
+Accepted — implemented (bd Notidian-214). The gate condition is satisfied: the
+owner live-verified `hardenFrameExecution` in the vault on 2026-06-20 and kept the
+flag on (default-ON since commit 36d9942), and the 2026-07-10 owner pull ("finalize
+all open features in notidian") ratified building the Recommendation. Shipped:
+**Decision 1a** (advanced-category settings toggle, tradeoff-worded) + **Decision
+2c base** (session-scoped, non-persisted, user-blessed provenance stamp via a
+"Trust dynamic frame code for this session" command + a read-only "$api withheld"
+diagnostic as the discovery surface). Ruled out as recommended: 2a (persisted
+per-space marker), 2b (data.json trusted-paths — fallback only). The optional
+**content-hash refinement** of 2c is **deferred** until re-blessing proves too
+noisy in live use (see Decision 2 / Consequences) — 2c-base must prove it is needed
+first.
+
+Implementation note (in-scope prerequisite found while building the diagnostic):
+the render path deep-clones the frame tree before execution
+(`FrameInstanceContext.runRoot` → `_.cloneDeep(root)`), and `cloneDeep` DROPS the
+non-enumerable kit-provenance marker — the same property that makes it unforgeable.
+Under `hardenFrameExecution=ON` this silently withheld `$api` from genuine default-
+kit subtrees (list/calendar/ui) in the live render, and would have made the new
+diagnostic false-positive on every kit frame. Fixed with a provenance-preserving
+re-stamp from the source tree (`trust.ts` `reStampProvenanceFromSource`, also
+applied to a `list` node's cached item template) — trust still derives ONLY from
+the source's genuine marker, never from any persisted value, so the vke invariant
+holds.
 
 ## Date
 

@@ -73,3 +73,49 @@ export const stampKitProvenanceTree = (tree: FrameTreeNode): FrameTreeNode => {
   (tree.children ?? []).forEach((child) => stampKitProvenanceTree(child));
   return tree;
 };
+
+// bd Notidian-214 — provenance-preserving clone support.
+//
+// The render path deep-clones the frame tree before execution
+// (FrameInstanceContext.runRoot: _.cloneDeep(root)). By the SAME mechanism that
+// makes the marker unforgeable — a non-enumerable Symbol never rides a copy —
+// cloneDeep DROPS the marker, so a cloned kit subtree (or a user tree the owner
+// blessed IN MEMORY) would lose $api under hardenFrameExecution even though its
+// ORIGIN is genuinely trusted. This walks a freshly-cloned tree in parallel with
+// its SOURCE and re-applies provenance node-by-node.
+//
+// SECURITY: trust still derives ONLY from the source object's genuine provenance
+// (set by kit resolution in ast.ts, or by an explicit in-memory user bless). A
+// source node that is not itself provenanced NEVER confers trust on its clone —
+// no persisted/attacker-controllable value (ref, mdb, frontmatter, data.json) is
+// consulted here. cloneDeep preserves child order/count, so the structural
+// walk is exact; length-mismatched/missing children are tolerated.
+export const reStampProvenanceFromSource = (
+  clone: FrameTreeNode | undefined | null,
+  source: FrameTreeNode | undefined | null
+): void => {
+  if (!clone || !source) return;
+  if (hasKitProvenance(source.node)) stampKitProvenance(clone.node);
+  const cloneChildren = clone.children ?? [];
+  const sourceChildren = source.children ?? [];
+  const childCount = Math.min(cloneChildren.length, sourceChildren.length);
+  for (let i = 0; i < childCount; i++) {
+    reStampProvenanceFromSource(cloneChildren[i], sourceChildren[i]);
+  }
+  // bd Notidian-214: a `list` node caches its item template in
+  // execPropsOptions.template; the runner rebuilds one materialized item per row
+  // FROM that template (executable.ts / runner.ts), spreading the template node
+  // (which drops the marker). Re-stamp the CLONED template from the source
+  // template so a kit list's generated items inherit genuine provenance — else a
+  // default kit list would lose $api AND spuriously trip the withhold diagnostic.
+  const cloneTemplate = (clone as { execPropsOptions?: { template?: FrameTreeNode[] } })
+    .execPropsOptions?.template;
+  const sourceTemplate = (source as { execPropsOptions?: { template?: FrameTreeNode[] } })
+    .execPropsOptions?.template;
+  if (cloneTemplate && sourceTemplate) {
+    const templateCount = Math.min(cloneTemplate.length, sourceTemplate.length);
+    for (let i = 0; i < templateCount; i++) {
+      reStampProvenanceFromSource(cloneTemplate[i], sourceTemplate[i]);
+    }
+  }
+};
