@@ -32,6 +32,7 @@ import {
   reStampProvenanceFromSource,
   stampKitProvenance,
   stampKitProvenanceTree,
+  trustedKitFrameSchemaIds,
 } from "./trust";
 
 // The legacy (forgeable) "trusted" ref prefix. Used ONLY to prove it confers no
@@ -415,5 +416,47 @@ describe("reStampProvenanceFromSource: preserve provenance across a deep clone",
     const clone = _.cloneDeep(reloadedSource);
     reStampProvenanceFromSource(clone, reloadedSource);
     expect(hasKitProvenance(clone.node)).toBe(false);
+  });
+});
+
+// bd Notidian-214 — the DIRECT kit render path. The list/board/cards/etc. view
+// presets render a kit frame as the ROOT via FrameRootContext.setRoot(
+// superstate.kitFrames.get(ref)) — a path that never runs ast.ts expandNode, so
+// nothing stamps the kit frame's OWN inline $api nodes. initializeKits stamps the
+// built executables, but MUST stamp ONLY genuinely plugin-shipped frames
+// (superstate.kit), never a vault-stored kit.mdb (readAllKits reads a vault folder
+// an attacker / AI agent can write to). trustedKitFrameSchemaIds encodes exactly
+// which schema ids are safe to stamp.
+describe("trustedKitFrameSchemaIds: only plugin-shipped, un-overridden kit frames", () => {
+  const f = (id: string) => ({ schema: { id } });
+
+  it("trusts a plugin frame that is NOT present in the selected (vault) kit", () => {
+    const selected = [f("userMain")];
+    const plugin = [f("cardsListItem"), f("taskListItem")];
+    const trusted = trustedKitFrameSchemaIds(selected, plugin);
+    expect(trusted.has("cardsListItem")).toBe(true);
+    expect(trusted.has("taskListItem")).toBe(true);
+    expect(trusted.has("userMain")).toBe(false);
+  });
+
+  it("does NOT trust a plugin id OVERRIDDEN by a same-id vault kit frame (vke invariant)", () => {
+    // An attacker vault kit.mdb ships a frame whose schema.id forges a default kit
+    // id; the merge keeps the vault frame and drops the plugin one. Its built
+    // executable must stay UNtrusted.
+    const selected = [f("cardsListItem")]; // vault override of a default kit id
+    const plugin = [f("cardsListItem"), f("taskListItem")];
+    const trusted = trustedKitFrameSchemaIds(selected, plugin);
+    expect(trusted.has("cardsListItem")).toBe(false); // override is untrusted
+    expect(trusted.has("taskListItem")).toBe(true); // genuine plugin frame
+  });
+
+  it("trusts nothing when there are no plugin frames", () => {
+    expect(trustedKitFrameSchemaIds([f("a"), f("b")], []).size).toBe(0);
+  });
+
+  it("a vault-only frame id is never trusted", () => {
+    const trusted = trustedKitFrameSchemaIds([f("evil")], [f("listItem")]);
+    expect(trusted.has("evil")).toBe(false);
+    expect(trusted.has("listItem")).toBe(true);
   });
 });

@@ -119,11 +119,16 @@ export const FrameInstanceProvider: React.FC<
     () => (props.editable ? editableRoot : nonEditableRoot),
     [props.editable, editableRoot, nonEditableRoot]
   );
-  // bd Notidian-214: stable per-frame-instance key for once-per-frame-per-session
-  // diagnostic de-dup + bless registration.
-  const frameKey = useMemo(
-    () => `${path ?? "?"}::${props.id ?? "root"}`,
-    [path, props.id]
+  // bd Notidian-214: the frame IDENTITY (its path) de-dupes the once-per-frame
+  // diagnostic notice. A list renders one FrameInstance PER ROW that all share
+  // this path, so keying the notice on identity (not the per-row instance) shows
+  // ONE notice for the whole view, not one per visible row.
+  const frameId = useMemo(() => path ?? "?", [path]);
+  // bd Notidian-214: the per-INSTANCE key registers this row's bless callback, so
+  // blessing the chosen frame re-runs every one of its rows.
+  const instanceKey = useMemo(
+    () => `${frameId}::${props.id ?? "root"}`,
+    [frameId, props.id]
   );
 
   const activeRunID = useRef(null);
@@ -266,26 +271,29 @@ export const FrameInstanceProvider: React.FC<
   // and notifies ONCE per frame per session. It is a pure notification — it NEVER
   // grants trust.
   const onApiWithheld = (info: ApiWithheldInfo) => {
-    registerFrameBless(frameKey, blessFrame);
+    registerFrameBless(frameId, instanceKey, blessFrame);
     if (props.superstate.settings?.enhancedLogs) {
       // eslint-disable-next-line no-console
       console.warn(
         `[notidian] frame hardening withheld $api from node "${
           info.nodeName ?? info.nodeId
-        }" (${info.expressions.join(", ")}) in frame "${frameKey}". ` +
+        }" (${info.expressions.join(", ")}) in frame "${frameId}". ` +
           `Run "Trust dynamic frame code for this session" to re-enable.`
       );
     }
-    if (shouldNotifyApiWithheld(frameKey)) {
+    // Notify once per FRAME IDENTITY (not per row) and NAME the frame, so the user
+    // makes an attributed, per-frame trust choice (ADR 0022 2c).
+    if (shouldNotifyApiWithheld(frameId)) {
       props.superstate.ui.notify(
-        'Frame hardening disabled dynamic content ($api) in a frame. Run the command "Trust dynamic frame code for this session" to re-enable it (re-required after reload or edit).'
+        `Frame hardening disabled dynamic content ($api) in the frame "${frameId}". Run the command "Trust dynamic frame code for this session" and choose this frame to re-enable it (re-required after reload or edit).`
       );
     }
   };
 
-  // bd Notidian-214: drop this frame's session bless callback + notice state on
-  // unmount so it does not leak or fire for a dead instance.
-  useEffect(() => () => unregisterFrame(frameKey), [frameKey]);
+  // bd Notidian-214: drop this INSTANCE's session bless callback on unmount so it
+  // does not leak or fire for a dead instance. The frame-identity notice flag is
+  // deliberately NOT cleared here (remount/pagination must not re-arm the toast).
+  useEffect(() => () => unregisterFrame(instanceKey), [instanceKey]);
 
   useEffect(() => {
     if (

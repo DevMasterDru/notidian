@@ -119,3 +119,35 @@ export const reStampProvenanceFromSource = (
     }
   }
 };
+
+// bd Notidian-214 — DIRECT kit render-path provenance.
+//
+// The list/board/cards/catalog/... view presets render a kit frame as the ROOT
+// via FrameRootContext.setRoot(superstate.kitFrames.get(ref)) — a path that NEVER
+// runs through ast.ts expandNode, which is the ONLY place that stamps kit
+// provenance. So a kit frame's OWN inline $api nodes (cardsListItem cover image,
+// taskListItem toggle/due-date, iconNode color, ...) reach the boundary UNstamped:
+// under hardenFrameExecution they silently lose $api AND false-positive the
+// withhold diagnostic once per row. initializeKits fixes this by stamping the
+// built kit executables — but it must stamp ONLY genuinely plugin-shipped frames
+// (superstate.kit). readAllKits() reads a vault kit.mdb folder that an attacker /
+// AI agent can write to (ADR 0018 threat model), and a vault frame can forge a
+// default kit id; the merge keeps the vault frame under that id. Stamping every
+// kitFrame would therefore re-grant $api to attacker-controlled stored content —
+// reopening the vke RCE.
+//
+// Given the pre-merge selected (vault) kit frames and the plugin-shipped frames,
+// this returns the schema ids whose built kitFrame is safe to stamp trusted: a
+// plugin frame NOT overridden by a same-id vault frame. Trust still derives ONLY
+// from plugin provenance, never from a persisted/attacker-controllable value.
+export const trustedKitFrameSchemaIds = (
+  selectedFrames: ReadonlyArray<{ schema: { id: string } }>,
+  pluginFrames: ReadonlyArray<{ schema: { id: string } }>
+): Set<string> => {
+  const overridden = new Set(selectedFrames.map((f) => f.schema.id));
+  const trusted = new Set<string>();
+  for (const f of pluginFrames) {
+    if (!overridden.has(f.schema.id)) trusted.add(f.schema.id);
+  }
+  return trusted;
+};

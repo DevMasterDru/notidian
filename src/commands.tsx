@@ -9,7 +9,12 @@ import {
 import { HiddenPaths } from "core/react/components/UI/Modals/HiddenFiles";
 import { openTypeProfileAdoptionModalForActivePath } from "core/react/components/UI/Modals/typeProfileAdoptionAction";
 import { addPathToSpaceAtIndex } from "core/superstate/utils/spaces";
-import { blessAllSessionFrames } from "core/utils/frames/frameTrustSession";
+import {
+  blessFrameById,
+  dispatchFrameTrust,
+  pendingBlessFrameIds,
+} from "core/utils/frames/frameTrustSession";
+import { defaultMenu } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { eventTypes } from "core/types/types";
 import { isPhone } from "core/utils/ui/screen";
 import MakeMDPlugin from "main";
@@ -64,21 +69,55 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
     },
   });
   // bd Notidian-214 / ADR 0022 Decision 2c — user-initiated, session-scoped bless.
-  // Trusts (in memory only) every frame the hardening boundary flagged as having
-  // $api withheld this session, restoring their dynamic expressions until reload/
-  // edit. Nothing is persisted — re-run after reload by design.
+  // Trusts (in memory only) a frame the hardening boundary flagged as having $api
+  // withheld this session, restoring its dynamic expressions until reload/edit.
+  // Nothing is persisted — re-run after reload by design.
+  //
+  // The consent surface is PER FRAME, never blanket: with one flagged frame it
+  // blesses that named frame; with several it opens a picker so the user trusts
+  // exactly the frame they chose. This closes the confused-deputy hole where a
+  // single gesture would grant session-$api to every flagged frame (including an
+  // AI-planted one the user never reviewed), which ADR 0022 explicitly rules out.
   plugin.addCommand({
     id: "notidian-trust-frame-session",
     name: i18n.commandPalette.trustFrameForSession,
     callback: () => {
-      const blessed = blessAllSessionFrames();
-      plugin.superstate.ui.notify(
-        blessed > 0
-          ? `Trusted ${blessed} frame${
-              blessed === 1 ? "" : "s"
-            } for this session. Reload or edit drops this trust.`
-          : "No frames are currently waiting to be trusted. Open a frame whose dynamic content was disabled, then run this command."
-      );
+      const ui = plugin.superstate.ui;
+      const blessOne = (frameId: string) => {
+        const n = blessFrameById(frameId);
+        ui.notify(
+          n > 0
+            ? `Trusted the frame "${frameId}" for this session (${n} instance${
+                n === 1 ? "" : "s"
+              }). Reload or edit drops this trust.`
+            : `The frame "${frameId}" is no longer active — nothing was trusted.`
+        );
+      };
+      dispatchFrameTrust(pendingBlessFrameIds(), {
+        onEmpty: () =>
+          ui.notify(
+            "No frames are currently waiting to be trusted. Open a frame whose dynamic content was disabled, then run this command."
+          ),
+        onSingle: blessOne,
+        onMultiple: (frameIds) => {
+          // Several frames flagged: NEVER auto-bless all of them. Present a picker
+          // naming each so the user trusts exactly one reviewed frame.
+          const container = plugin.app.workspace.getLeaf()?.containerEl;
+          const win = windowFromDocument(container?.ownerDocument ?? document);
+          const rect = container?.getBoundingClientRect() ?? {
+            x: 100,
+            y: 100,
+            width: 0,
+            height: 0,
+          };
+          const options = frameIds.map((frameId) => ({
+            name: frameId,
+            icon: "ui//shield-check",
+            onClick: () => blessOne(frameId),
+          }));
+          ui.openMenu(rect, defaultMenu(ui, options), win, "top");
+        },
+      });
     },
   });
   plugin.addCommand({

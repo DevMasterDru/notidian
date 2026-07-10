@@ -9,6 +9,7 @@ import { defaultSpaceSort, saveSpaceCache, saveSpaceMetadataValue } from "core/s
 import { builtinSpaces } from "core/types/space";
 import { formulas } from "core/utils/formula/formulas";
 import { buildRootFromMDBFrame } from "core/utils/frames/ast";
+import { stampKitProvenanceTree, trustedKitFrameSchemaIds } from "core/utils/frames/trust";
 import { pathByJoins } from "core/utils/spaces/query";
 import { folderForTagSpace, pathIsSpace } from "core/utils/spaces/space";
 import { spacePathFromName, tagSpacePathFromTag } from "core/utils/strings";
@@ -332,12 +333,28 @@ public api: API;
             })
         }
         this.selectedKit = this.kits.get(this.settings.selectedKit) ?? this.kits.get('default');
-        this.selectedKit.frames = [...this.selectedKit.frames, ...this.kit.map(f => (rootToFrame(f))).filter(f => !this.selectedKit.frames.some(g => g.schema.id == f.schema.id))]
+        // bd Notidian-214: capture which frames are genuinely plugin-shipped
+        // (this.kit) BEFORE merging them into selectedKit.frames, so the direct kit
+        // render path can stamp ONLY those as trusted — never a vault kit.mdb frame
+        // that forges a default kit id (readAllKits reads an attacker-writable vault
+        // folder; the vke invariant requires plugin provenance only).
+        const pluginFrames = this.kit.map(f => rootToFrame(f));
+        const trustedSchemaIds = trustedKitFrameSchemaIds(this.selectedKit.frames, pluginFrames);
+        this.selectedKit.frames = [...this.selectedKit.frames, ...pluginFrames.filter(f => !this.selectedKit.frames.some(g => g.schema.id == f.schema.id))]
         for (const v of this.selectedKit.frames) {
             const kitID = mdbSchemaToFrameSchema(v.schema).def.id;
             const frame = await buildRootFromMDBFrame(this, v, {...defaultFrameEditorProps, screenType: this.ui.getScreenType()})
+            // bd Notidian-214: the direct kit render path (FrameRootContext renders
+            // this executable as the ROOT) skips ast.ts expandNode — the only place
+            // that stamps kit provenance. Stamp the plugin-shipped executables here
+            // so their OWN inline $api nodes (cover image, toggle, color, ...) keep
+            // $api under hardenFrameExecution and do not false-positive the withhold
+            // diagnostic once per row. Vault-stored kit frames are NOT stamped.
+            if (frame && trustedSchemaIds.has(v.schema.id)) {
+                stampKitProvenanceTree(frame);
+            }
             this.kitFrames.set(kitID, frame)
-            
+
         }
         this.dispatchEvent("frameStateUpdated", {path: `spaces://$kit`})
     }

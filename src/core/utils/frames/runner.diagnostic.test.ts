@@ -223,3 +223,52 @@ describe("bless restores $api on the render-path clone (runRoot mirror)", () => 
     expect(out.state["spoof"].props.value).toBeUndefined();
   });
 });
+
+// bd Notidian-214 — the DIRECT kit render path (FrameRootContext renders
+// superstate.kitFrames.get(ref) as the ROOT) skips ast.ts expandNode, so
+// initializeKits is the only place that can stamp a built kit frame's OWN inline
+// $api nodes. This pins that a kit executable stamped there keeps $api through the
+// render-path clone+re-stamp — and does NOT trip the withhold diagnostic (the
+// false-positive-per-row that the built-in cards/task/cover/... layouts hit).
+describe("direct kit render path: a stamped kit executable keeps $api (Notidian-214)", () => {
+  const runLikeRoot = async (
+    source: FrameExecutable,
+    api: API,
+    onApiWithheld: (info: unknown) => void
+  ) => {
+    const clone = _.cloneDeep(source) as FrameExecutable;
+    reStampProvenanceFromSource(clone, source);
+    return executeNode(clone, freshStore(), {}, api, true, onApiWithheld as never);
+  };
+
+  it("kit listItem stamped in initializeKits keeps $api, no diagnostic", async () => {
+    const { api, calls } = makeSpyApi();
+    // A built kit listItem executable with an inline $api cover expression, as
+    // shipped by src/schemas/kits/list.ts (cardsListItem imageNode value).
+    const kitItem = makeNode("cardsCover", "spaces://$kit/#*cardsListItem", {
+      props: { value: "$api.probe.ping('kit-cover')" },
+      styles: { background: "$api.probe.ping('kit-color')" },
+    });
+    // initializeKits stamps the built kit executable tree (plugin provenance).
+    stampKitProvenanceTree(kitItem);
+
+    const seen: unknown[] = [];
+    const out = await runLikeRoot(kitItem, api, () => seen.push(1));
+    expect(calls).toContain("kit-cover");
+    expect(out.state["cardsCover"].props.value).toBe("pong:kit-cover");
+    expect(seen).toHaveLength(0); // no false-positive per-row diagnostic
+  });
+
+  it("WITHOUT the initializeKits stamp the same kit node false-positives + loses $api", async () => {
+    const { api, calls } = makeSpyApi();
+    // Same kit node, but NOT stamped (the pre-fix direct-kit-render behaviour).
+    const unstamped = makeNode("cardsCover", "spaces://$kit/#*cardsListItem", {
+      props: { value: "$api.probe.ping('kit-cover')" },
+    });
+    const seen: unknown[] = [];
+    const out = await runLikeRoot(unstamped, api, () => seen.push(1));
+    expect(calls).not.toContain("kit-cover"); // $api silently withheld
+    expect(out.state["cardsCover"].props.value).toBeUndefined();
+    expect(seen).toHaveLength(1); // the false-positive diagnostic this fix removes
+  });
+});
