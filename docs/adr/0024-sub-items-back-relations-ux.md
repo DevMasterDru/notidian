@@ -2,6 +2,15 @@
 
 ## Status
 
+**Superseded as the governing sub-items contract by
+[ADR 0050](0050-subitems-notion-parity.md)** (Historical). ADR 0050 — the
+Notion-parity contract (Accepted 2026-06-20) — **builds on and subsumes** this
+decision: it re-ratifies the one-way + computed-children model recorded here and
+extends it with display/filter modes, per-view collapse persistence, progress
+rollups, and non-destructive parent delete. This record is retained for the
+decision trail; the acceptance below still describes the shipped **creation UX**
+(`Notidian-f0pj.1`), which ADR 0050 did not reverse.
+
 **Accepted — owner pulled for build on 2026-06-20.** The recommendations below are
 ratified as the contract: **A1** (per-view parent column), **B1** (one-way,
 child-owns; "Add sub-item" pre-fills the child's parent link), **C2** (passive
