@@ -70,20 +70,19 @@ npm run build                  # clean
 
 ## Active work streams (resolve live — `bd ready`)
 
-- **Notion-parity UX** (owner-pulled 2026-06-20) — epic `Notidian-f0pj`, packet
-  [docs/streams/notion-parity-ux.md](docs/streams/notion-parity-ux.md): two binding,
-  independent session issues (`Notidian-f0pj.1` sub-items creation UX · ADR 0024;
-  `Notidian-f0pj.2` rollup partial indicator · ADR 0029 D2), both `runner:sonnet`.
-  A fresh session: `bd ready` → claim the top stream issue → read its body + the
-  packet → execute within scope → verify → `bd close` with evidence → commit.
+Work state is **never copied here** — which streams are active, which sessions are
+open/blocked/closed, and who runs them all drift, so read them live: `bd ready` /
+`bd show <id>` for the graph, and the slim orientation packets in
+[docs/streams/](docs/streams/) for each stream's scope + typed pointers. A fresh
+session: `bd ready` → claim the top ready issue → read its body + the matching
+packet → execute within scope → verify → `bd close` with evidence → commit.
 
-- **Filename template mirror** (sessionized 2026-06-30) — epic `Notidian-pay5.1`,
-  packet [docs/streams/filename-template-mirror.md](docs/streams/filename-template-mirror.md):
-  three dependency-chained sessions (`Notidian-pay5.1.1` template engine + ADR;
-  `Notidian-pay5.1.2` auto-rename watcher; `Notidian-pay5.1.3` config UI + first-time
-  adoption), all `runner:opus`. Unblocks `Notidian-mx0k` (key-match FK relations).
+Stream packets on file (durable epic pointers only — open vs shipped lives in bd):
 
-Status is never copied here — `bd ready`/`bd show <id>` is the live source.
+- [docs/streams/data-integrity-program.md](docs/streams/data-integrity-program.md) — epic `Notidian-loan`
+- [docs/streams/correctness-audit-fixes.md](docs/streams/correctness-audit-fixes.md) — epic `Notidian-vonm`
+- [docs/streams/notion-parity-ux.md](docs/streams/notion-parity-ux.md) — epic `Notidian-f0pj`
+- [docs/streams/filename-template-mirror.md](docs/streams/filename-template-mirror.md) — epic `Notidian-pay5.1`
 
 ## Current Architecture
 

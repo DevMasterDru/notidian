@@ -2,6 +2,10 @@
 
 ## Status
 
+**Accepted (historical).** Later **consolidated by ADR 0041** and its dormant
+apparatus **removed outright by ADR 0049** — the quick-find highlight engine no
+longer ships. Retained for the decision trail (see the ADR index Historical Records).
+
 **Accepted** — the design described here was approved and **already shipped**.
 
 This ADR documents a decision the codebase has already implemented; it is recorded

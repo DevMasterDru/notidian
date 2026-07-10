@@ -2,6 +2,11 @@
 
 ## Status
 
+**Superseded by ADR 0058.** ADR 0058 (Accepted 2026-07-02) resequences this design
+as Data Integrity Program Wave 4 rather than a standalone build — do **not** build
+from the original 3-phase plan below (it reproduces the D1 stored-copy-drift bug).
+Epic `Notidian-v341` closed superseded-by-sequencing. Retained for the decision trail.
+
 **Proposed** — design ratified by owner 2026-06-30; awaiting sessionized build.
 Replaces the reverted grouping island header (mx0k.2) with a general-purpose
 mechanism.
