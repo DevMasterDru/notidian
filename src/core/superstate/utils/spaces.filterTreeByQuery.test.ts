@@ -229,6 +229,23 @@ describe("filterTreeByQuery (Notidian-nrjb)", () => {
     expect(bothParent.childrenCount).toBe(2);
   });
 
+  it("childrenCount is the TOTAL flattened-descendant count, not just direct children, so the CSS --childrenCount guide line spans the whole subtree", () => {
+    // The CSS guide line is sized `childrenCount * rowHeight` (SpaceTreeItem),
+    // so it must span EVERY rendered row nested under a node -- matching the
+    // non-filter tree, where spaceToTreeNode receives the whole accumulated
+    // subtree length. A direct-child count would draw the line short for any
+    // ancestor with grandchildren. "alpha" renders the full chain
+    // / -> Projects -> Projects/Notidian -> Projects/Notidian/Alpha.md, where a
+    // direct-child count would be 1 for each of the three ancestors; the total
+    // flattened-descendant count instead decreases down the chain (3, 2, 1, 0).
+    const result = filterTreeByQuery(makeSuperstate(), rootSpaces(), "alpha");
+    const byPath = new Map(result.map((n) => [n.path, n]));
+    expect(byPath.get("/").childrenCount).toBe(3); // Projects + Notidian + Alpha
+    expect(byPath.get("Projects").childrenCount).toBe(2); // Notidian + Alpha
+    expect(byPath.get("Projects/Notidian").childrenCount).toBe(1); // Alpha
+    expect(byPath.get("Projects/Notidian/Alpha.md").childrenCount).toBe(0);
+  });
+
   it("dedupes a shared ancestor when multiple matches converge on it", () => {
     // ".md" matches every file, so Alpha.md AND Beta.md both force-include
     // Projects/Notidian as an ancestor -- it must appear exactly once.

@@ -379,16 +379,25 @@ export const filterTreeByQuery = (
   // missed, in segment order, so the emitted set always equals renderablePaths.
   segmentOrdered.forEach(emitSubtree);
 
-  // Children-count is the number of INCLUDED, RENDERABLE (i.e. currently
-  // visible in this filtered result) direct-or-re-parented children, not the
-  // real total -- correct for sizing the CSS child-count guideline against
-  // what is actually rendered (a child re-parented past a hidden ancestor
-  // counts toward the ancestor it actually renders under).
+  // Children-count is the TOTAL number of INCLUDED, RENDERABLE flattened
+  // DESCENDANTS a node renders above (every row nested under it in this
+  // filtered result), not just its direct children -- so it matches the
+  // NON-filter tree, where spaceToTreeNode receives `tree.length` (the whole
+  // accumulated subtree). The CSS `--childrenCount` guide line is sized as
+  // `childrenCount * rowHeight` (SpaceTreeItem), i.e. it must span every row of
+  // the subtree below the node; a direct-child count draws the line short for
+  // any space with grandchildren. Each path therefore increments EVERY rendered
+  // ancestor up its re-parented chain (ancestorOf already re-parents past
+  // hidden/ghost hops), bounded by a per-walk visited-set against any malformed
+  // cycle (the forest is acyclic by construction).
   const childCounts = new Map<string, number>();
   sortedPaths.forEach((path) => {
-    const ancestor = nearestRenderableAncestor(path);
-    if (ancestor) {
+    const visited = new Set<string>();
+    let ancestor = ancestorOf(path);
+    while (ancestor && !visited.has(ancestor)) {
+      visited.add(ancestor);
       childCounts.set(ancestor, (childCounts.get(ancestor) ?? 0) + 1);
+      ancestor = ancestorOf(ancestor);
     }
   });
 

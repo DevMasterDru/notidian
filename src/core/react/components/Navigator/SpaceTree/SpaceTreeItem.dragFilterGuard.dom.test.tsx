@@ -39,8 +39,18 @@ jest.mock("shared/components/PathSticker", () => ({
   PathStickerView: () => <div data-testid="sticker" />,
   PathStickerContainer: () => <div data-testid="sticker-container" />,
 }));
+// The collapse caret is a leaf, but its onToggle IS in scope for the
+// filtered-caret no-op guard below, so wire the mock's click through to the
+// real onToggle prop (the real CollapseToggle also just forwards a click to
+// onToggle). A file/space node renders no group caret, so this mock is inert
+// for the DnD tests and only exercised by the filtered-group caret test.
 jest.mock("core/react/components/UI/Toggles/CollapseToggle", () => ({
-  CollapseToggle: () => <div data-testid="collapse-toggle" />,
+  CollapseToggle: (props: any) => (
+    <button
+      data-testid="collapse-toggle"
+      onClick={(e) => props.onToggle && props.onToggle(!props.collapsed, e)}
+    />
+  ),
 }));
 jest.mock("core/react/components/UI/Menus/navigator/pathContextMenu", () => ({
   showPathContextMenu: jest.fn(),
@@ -71,6 +81,7 @@ const makePathState = (): any => ({
 
 const makeSuperstate = () => {
   const dragStarted = jest.fn();
+  const saveSettings = jest.fn();
   const superstate: any = {
     settings: {
       spacesStickers: false,
@@ -79,7 +90,11 @@ const makeSuperstate = () => {
       expandFolderOnClick: false,
       overrideNativeMenu: false,
       spaceRowHeight: 29,
+      // Persisted collapse state a caret toggle would rewrite (see handleCollapse
+      // in SpaceTreeView). The filtered-caret guard must leave this untouched.
+      expandedSpaces: [] as string[],
     },
+    saveSettings,
     pathsIndex: new Map([[PATH, makePathState()]]),
     spacesIndex: new Map(),
     ui: {
@@ -96,7 +111,7 @@ const makeSuperstate = () => {
       removeListener: jest.fn(),
     },
   };
-  return { superstate, uiDragStarted: dragStarted };
+  return { superstate, uiDragStarted: dragStarted, saveSettings };
 };
 
 // A TreeNode shaped like what the tree flattener produces. Two INDEPENDENT axes:
@@ -104,17 +119,24 @@ const makeSuperstate = () => {
 //    the DnD-inert signal the guard keys off.
 //  - `sortable`: whether the space is manually rank-ordered; false for any
 //    non-rank sort in the NORMAL tree. It must NOT affect the DnD guard.
-const makeData = (opts: { sortable?: boolean; filtered?: boolean } = {}): any => {
+type DataOpts = {
+  sortable?: boolean;
+  filtered?: boolean;
+  type?: "file" | "space" | "group";
+  childrenCount?: number;
+};
+
+const makeData = (opts: DataOpts = {}): any => {
   const node: any = {
     id: PATH,
     parentId: "space",
     depth: 1,
     index: 0,
     space: "space",
-    type: "file",
+    type: opts.type ?? "file",
     path: PATH,
     item: { path: PATH, rank: 0 },
-    childrenCount: 0,
+    childrenCount: opts.childrenCount ?? 0,
     collapsed: false,
     rank: 0,
   };
@@ -123,18 +145,28 @@ const makeData = (opts: { sortable?: boolean; filtered?: boolean } = {}): any =>
   return node;
 };
 
-const makeProps = (dataOpts: { sortable?: boolean; filtered?: boolean } = {}) => {
-  const { superstate, uiDragStarted } = makeSuperstate();
+const makeProps = (dataOpts: DataOpts = {}) => {
+  const { superstate, uiDragStarted, saveSettings } = makeSuperstate();
   const dragStarted = jest.fn();
   const dragOver = jest.fn();
   const dragEnded = jest.fn();
+  // Mirror handleCollapse (SpaceTreeView): a real caret toggle rewrites
+  // settings.expandedSpaces AND calls saveSettings(). If the filtered-caret
+  // guard fails, this fires and mutates persisted state.
+  const onCollapse = jest.fn((node: any) => {
+    superstate.settings.expandedSpaces = [
+      ...superstate.settings.expandedSpaces,
+      node.id,
+    ];
+    superstate.saveSettings();
+  });
   const props: any = {
     id: PATH,
     disabled: false,
-    childCount: 0,
+    childCount: dataOpts.childrenCount ?? 0,
     clone: false,
     collapsed: false,
-    depth: 1,
+    depth: dataOpts.type === "group" ? 0 : 1,
     ghost: false,
     active: false,
     selected: false,
@@ -144,13 +176,13 @@ const makeProps = (dataOpts: { sortable?: boolean; filtered?: boolean } = {}) =>
     data: makeData(dataOpts),
     superstate,
     style: {},
-    onCollapse: jest.fn(),
+    onCollapse,
     dragStarted,
     dragOver,
     dragEnded,
     dragActive: false,
   };
-  return { props, dragStarted, dragOver, dragEnded, uiDragStarted };
+  return { props, dragStarted, dragOver, dragEnded, uiDragStarted, superstate, saveSettings, onCollapse };
 };
 
 describe("TreeItem DnD guard under active filter (Notidian-21l4)", () => {
@@ -256,5 +288,100 @@ describe("TreeItem DnD guard under active filter (Notidian-21l4)", () => {
 
     expect(dragStarted).toHaveBeenCalledWith(PATH);
     expect(uiDragStarted).toHaveBeenCalledTimes(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // NATIVE DRAG-GHOST (Notidian-uc8y): app-level DnD was already inert on a
+  // filtered row (handlers early-return above), but the row still advertised
+  // draggable=true, so the OS painted a native drag-ghost on grab. The row must
+  // set draggable={!data.filtered} so the native affordance is off too.
+  // ---------------------------------------------------------------------------
+  it("filtered row is NOT natively draggable (no OS drag-ghost)", () => {
+    const { props } = makeProps({ filtered: true, sortable: false });
+    const wrapper = renderItem(props);
+    // React renders `draggable` as an enumerated attribute ("true"/"false").
+    expect(wrapper.getAttribute("draggable")).toBe("false");
+  });
+
+  it("an unfiltered row stays natively draggable (draggable=true)", () => {
+    const { props } = makeProps({ sortable: true });
+    const wrapper = renderItem(props);
+    expect(wrapper.getAttribute("draggable")).toBe("true");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// INERT COLLAPSE CARET (Notidian-uc8y): filterTreeByQuery emits a depth-0 group
+// node with a CollapseToggle whenever it has children, but the filtered tree
+// IGNORES expandedSpaces (it always shows matches expanded). Clicking that
+// caret looked inert yet still ran handleCollapse -> rewrote
+// settings.expandedSpaces + saveSettings(). The guard makes the caret a no-op
+// on a filtered node while leaving the normal-tree caret fully functional.
+// ---------------------------------------------------------------------------
+describe("TreeItem collapse-caret guard under active filter (Notidian-uc8y)", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  const renderItem = (props: any) => {
+    act(() => {
+      root.render(<TreeItem {...props} />);
+    });
+    const wrapper = container.querySelector(".mk-tree-wrapper") as HTMLElement;
+    expect(wrapper).not.toBeNull();
+    return wrapper;
+  };
+
+  const clickCaret = () => {
+    const caret = container.querySelector(
+      '[data-testid="collapse-toggle"]'
+    ) as HTMLElement;
+    expect(caret).not.toBeNull();
+    act(() => {
+      caret.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
+
+  it("filtered group caret click is a NO-OP: onCollapse never fires, expandedSpaces + saveSettings untouched", () => {
+    const { props, onCollapse, superstate, saveSettings } = makeProps({
+      type: "group",
+      childrenCount: 2,
+      filtered: true,
+      sortable: false,
+    });
+    renderItem(props);
+
+    clickCaret();
+
+    expect(onCollapse).not.toHaveBeenCalled();
+    expect(saveSettings).not.toHaveBeenCalled();
+    expect(superstate.settings.expandedSpaces).toEqual([]);
+  });
+
+  it("CONTROL: an UNFILTERED group caret click still toggles collapse (onCollapse + saveSettings + expandedSpaces mutate)", () => {
+    const { props, onCollapse, superstate, saveSettings } = makeProps({
+      type: "group",
+      childrenCount: 2,
+      // filtered unset -> normal tree; the caret must keep working.
+      sortable: true,
+    });
+    renderItem(props);
+
+    clickCaret();
+
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+    expect(onCollapse.mock.calls[0][0].id).toBe(PATH);
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(superstate.settings.expandedSpaces).toContain(PATH);
   });
 });

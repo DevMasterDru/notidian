@@ -136,10 +136,10 @@ export const TreeItem = (props: TreeItemProps) => {
     if (isFolder) {
       if (superstate.settings.expandFolderOnClick) {
         if (collapsed) {
-          onCollapse(data, true);
+          guardedCollapse(data, true);
         } else if (selected) {
           // Only collapse if already selected, so first click selects, second click collapses
-          onCollapse(data, false);
+          guardedCollapse(data, false);
         }
       }
     }
@@ -161,6 +161,19 @@ export const TreeItem = (props: TreeItemProps) => {
     setSelectedPaths([path]);
   };
 
+  // A filtered node belongs to filterTreeByQuery's sparse, ancestor-only
+  // projection (spaces.ts), which deliberately IGNORES the persisted
+  // expandedSpaces collapse state (a text filter shows all matches expanded,
+  // Notidian-nrjb). Its caret therefore has no visible effect on the filtered
+  // tree -- but handleCollapse (SpaceTreeView) still rewrites
+  // settings.expandedSpaces + saveSettings() on every toggle, so an
+  // apparently-inert click silently mutates persisted collapse state. Mirror
+  // the DnD `if (data.filtered) return` guards: collapse is a no-op while
+  // filtered.
+  const guardedCollapse = (node: TreeNode, open: boolean) => {
+    if (data.filtered) return;
+    onCollapse?.(node, open);
+  };
   const onDragStarted = (e: React.DragEvent<HTMLDivElement>) => {
     // DnD is inert while a Navigator text filter is active. filterTreeByQuery
     // (spaces.ts) tags every synthetic node it emits with `filtered:true` against
@@ -327,7 +340,12 @@ export const TreeItem = (props: TreeItemProps) => {
     onDragOver: onDragOver,
   };
   const innerProps = {
-    draggable: true,
+    // A filtered node's app-level DnD is already inert (onDragStarted /
+    // onDragEnded early-return on data.filtered, Notidian-21l4), but the row
+    // still advertised draggable=true, so the OS painted a native drag-ghost on
+    // grab. Turn the native affordance off too for full visual inertness while a
+    // text filter is active.
+    draggable: !data.filtered,
     onDragStart: onDragStarted,
     onDrop: onDragEnded,
   };
@@ -420,7 +438,7 @@ export const TreeItem = (props: TreeItemProps) => {
                 collapsed={collapsed}
                 onToggle={(c, e) => {
                   e.preventDefault();
-                  onCollapse(data, false);
+                  guardedCollapse(data, false);
                   e.stopPropagation();
                 }}
               ></CollapseToggle>
@@ -446,7 +464,7 @@ export const TreeItem = (props: TreeItemProps) => {
                 collapsed={collapsed}
                 onToggle={(c, e) => {
                   e.preventDefault();
-                  onCollapse(data, false);
+                  guardedCollapse(data, false);
                   e.stopPropagation();
                 }}
               ></CollapseToggle>
