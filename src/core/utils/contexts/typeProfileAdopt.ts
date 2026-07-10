@@ -71,52 +71,87 @@ export type FieldValueStats = {
   totalValueCount: number;
 };
 
-export const computeFieldValueStats = (
+// One row's frontmatter folded to a lowercase-key -> unioned-values bucket.
+// A key is PRESENT in the map iff the row carries at least one spelling that
+// folds onto it — even when every such spelling is empty — so the map preserves
+// the present-but-empty vs. absent distinction downstream: a bucket that exists
+// but is empty means "present but empty"; a missing entry means "absent".
+type RowValueMap = Map<string, string[]>;
+
+// Notidian-5mgs: fold a row's keys into ONE lowercase-key -> values map in a
+// single O(keys) pass, so per-field stats become O(1) map lookups instead of an
+// O(keys) `Object.keys(...).filter(...)` rescan repeated for every field. The
+// former per-field lookup made the adoption draft O(rows*fields*keys) — ~O(rows
+// *fields^2) on a wide database (a field per key); this fold makes it net
+// O(rows*(keys+fields)).
+//
+// Notidian-1adj (semantics preserved EXACTLY): each bucket is the case-fold
+// UNION of every spelling that folds onto its lowercase key. discoverFrontmatter-
+// Schema merges case-variant spellings ("state" + "State") into ONE canonical
+// summary whose `key` is the most-frequent spelling; the stats reader below
+// looks that canonical key up here. Folding to lowercase is what keeps a row
+// carrying only a MINORITY spelling from being counted absent and its values
+// dropped from the drafted enum vocabulary, empty-encoding policy, and FK
+// candidates (the summary advertises presentCount over all spellings, so the
+// field's stats must too). Values are appended in the row's own key order, then
+// each spelling's value order — byte-for-byte the sequence the former
+// `filter(...).flatMap(toValueList)` produced, so distinct-value first-seen
+// order is unchanged.
+//
+// Exclusion is enforced UPSTREAM: discoverFrontmatterSchema folds its excluded-
+// key set case-insensitively (Notidian-1adj), so a logical field whose case-
+// folded name matches an excluded key emits no summary and its canonical key
+// never reaches the reader — this fold therefore only ever unions spellings of a
+// NON-excluded field, never re-admits an excluded key's case-variant values.
+const foldRowValues = (frontmatter: Record<string, unknown>): RowValueMap => {
+  const rowMap: RowValueMap = new Map();
+  for (const candidate of Object.keys(frontmatter)) {
+    const lowerKey = candidate.toLowerCase();
+    let bucket = rowMap.get(lowerKey);
+    if (bucket === undefined) {
+      bucket = [];
+      rowMap.set(lowerKey, bucket);
+    }
+    // Append (never overwrite): a corrupt row carrying both "state:" and
+    // "State:" contributes BOTH spellings' values into the one bucket.
+    for (const value of toValueList(frontmatter[candidate])) {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) bucket.push(trimmed);
+    }
+  }
+  return rowMap;
+};
+
+// Build the per-row folded maps ONCE for a set of rows; every field's stats then
+// read from these in O(rows) with O(1) per-row lookups (Notidian-5mgs).
+const buildRowValueMaps = (
   paths: string[],
-  frontmatterByPath: FrontmatterSnapshotsByPath,
+  frontmatterByPath: FrontmatterSnapshotsByPath
+): RowValueMap[] =>
+  paths.map((path) =>
+    foldRowValues(frontmatterForPath(frontmatterByPath, path))
+  );
+
+// Derive one field's stats from the pre-folded per-row maps: O(1) lookup per
+// row, no per-field key rescan.
+const fieldValueStatsFromRowMaps = (
+  rowMaps: RowValueMap[],
   key: string
 ): FieldValueStats => {
+  const lowerKey = key.toLowerCase();
   let presentCount = 0;
   let emptyStringCount = 0;
   let absentCount = 0;
   let totalValueCount = 0;
   const distinctValues: string[] = [];
   const seen = new Set<string>();
-  // Notidian-1adj: match case-insensitively across EVERY spelling that folds
-  // onto this canonical key, unioning their values — mirroring
-  // planDeleteFrontmatterProperty's `candidate.toLowerCase() == lowerKey`
-  // (notidianSchema.ts). discoverFrontmatterSchema now MERGES case-variant
-  // spellings ("state" + "State") into ONE canonical summary whose `key` is the
-  // most-frequent spelling; draftTypeProfileAdoption then passes that canonical
-  // key here. An exact-string `hasOwn(frontmatter, key)` lookup would count
-  // every row carrying only a MINORITY spelling as absent and silently drop its
-  // values from the drafted enum vocabulary, empty-encoding policy, and FK
-  // candidates — the exact data-integrity regression this must faithfully cover
-  // (the summary advertises presentCount over all spellings, so the field's
-  // stats must too).
-  //
-  // Exclusion is enforced UPSTREAM: discoverFrontmatterSchema folds its
-  // excluded-key set case-insensitively (Notidian-1adj), so a logical field
-  // whose case-folded name matches an excluded key emits no summary and never
-  // reaches here — this case-fold therefore only ever unions spellings of a
-  // NON-excluded field, never re-admits an excluded key's case-variant values.
-  const lowerKey = key.toLowerCase();
 
-  for (const path of paths) {
-    const frontmatter = frontmatterForPath(frontmatterByPath, path);
-    const matchingKeys = Object.keys(frontmatter).filter(
-      (candidate) => candidate.toLowerCase() == lowerKey
-    );
-    if (matchingKeys.length == 0) {
+  for (const rowMap of rowMaps) {
+    const values = rowMap.get(lowerKey);
+    if (values === undefined) {
       absentCount++;
       continue;
     }
-    // Union every matching spelling's values (a corrupt row carrying both
-    // "state:" and "State:" contributes both), preserving first-seen order.
-    const values = matchingKeys
-      .flatMap((matchingKey) => toValueList(frontmatter[matchingKey]))
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0);
     if (values.length == 0) {
       emptyStringCount++;
       continue;
@@ -132,7 +167,7 @@ export const computeFieldValueStats = (
 
   return {
     key,
-    totalRows: paths.length,
+    totalRows: rowMaps.length,
     presentCount,
     emptyStringCount,
     absentCount,
@@ -140,6 +175,13 @@ export const computeFieldValueStats = (
     totalValueCount,
   };
 };
+
+export const computeFieldValueStats = (
+  paths: string[],
+  frontmatterByPath: FrontmatterSnapshotsByPath,
+  key: string
+): FieldValueStats =>
+  fieldValueStatsFromRowMaps(buildRowValueMaps(paths, frontmatterByPath), key);
 
 // ---------------------------------------------------------------------------
 // D2 — enum candidate: the "bounded-cardinality heuristic" (ADR-0056 D9).
@@ -582,11 +624,16 @@ export const draftTypeProfileAdoption = ({
     (existingProfile?.fields ?? []).map((field) => field.name.toLowerCase())
   );
 
+  // Notidian-5mgs: fold every row ONCE (O(rows*keys)), then read each field's
+  // stats from the shared maps in O(rows) — instead of rescanning every row's
+  // keys per field. Net O(rows*(keys+fields)) rather than O(rows*fields*keys).
+  const rowValueMaps = buildRowValueMaps(paths, frontmatterByPath);
+
   const fields: TypeProfileFieldDraft[] = [];
   for (const summary of summaries) {
     if (existingNames.has(summary.key.toLowerCase())) continue;
 
-    const stats = computeFieldValueStats(paths, frontmatterByPath, summary.key);
+    const stats = fieldValueStatsFromRowMaps(rowValueMaps, summary.key);
     const kind = typeProfileKindForType(summary.type);
     const enumCandidate = ENUM_ELIGIBLE_KINDS.has(kind)
       ? deriveEnumCandidate(stats)

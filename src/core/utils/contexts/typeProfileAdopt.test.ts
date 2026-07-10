@@ -187,6 +187,27 @@ describe("computeFieldValueStats", () => {
     expect(stats.absentCount).toBe(0);
     expect(stats.distinctValues).toEqual(["active"]);
   });
+
+  // Notidian-5mgs: the O(rows*(keys+fields)) refactor folds each row's keys into
+  // ONE lowercase-key -> values bucket in a single pass. This guards that bucket
+  // from DROPPING or OVERWRITING variant values when 3+ spellings of one field
+  // co-occur in a single row — a naive `map.set(lowerKey, values)` per spelling
+  // would keep only the LAST spelling's values, silently losing the earlier
+  // ones from the drafted vocabulary.
+  it("unions 3+ case-variant spellings within one row without dropping or overwriting any", () => {
+    const stats = computeFieldValueStats(
+      ["multi.md"],
+      { "multi.md": { state: "a", State: "b", STATE: "c" } },
+      "state"
+    );
+    // Still exactly ONE present row (presentCount never exceeds totalRows)...
+    expect(stats.presentCount).toBe(1);
+    expect(stats.absentCount).toBe(0);
+    // ...but every variant value survives, in first-seen (row key) order — none
+    // overwritten by a later-folding spelling.
+    expect(stats.distinctValues).toEqual(["a", "b", "c"]);
+    expect(stats.totalValueCount).toBe(3);
+  });
 });
 
 describe("deriveEnumCandidate (ADR-0056 D2/D9 bounded-cardinality heuristic)", () => {
