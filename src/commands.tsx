@@ -73,11 +73,15 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
   // withheld this session, restoring its dynamic expressions until reload/edit.
   // Nothing is persisted — re-run after reload by design.
   //
-  // The consent surface is PER FRAME, never blanket: with one flagged frame it
-  // blesses that named frame; with several it opens a picker so the user trusts
-  // exactly the frame they chose. This closes the confused-deputy hole where a
-  // single gesture would grant session-$api to every flagged frame (including an
-  // AI-planted one the user never reviewed), which ADR 0022 explicitly rules out.
+  // The consent surface is PER FRAME, never blanket, and ALWAYS a named pick —
+  // even when exactly one frame is pending (bd Notidian-kcgt). The pending set is
+  // TIME-VARYING (instances unregister on unmount), so "one pending" does not
+  // imply "the frame whose notice the user saw": between the notice and this
+  // gesture that frame may have unmounted and a DIFFERENT frame (possibly an
+  // AI-planted one the user never reviewed, ADR 0018 threat model) may have
+  // flagged itself — an unconfirmed auto-bless would hand it session $api and
+  // re-run its code immediately. Clicking the NAMED frame is the attributed
+  // consent ADR 0022 2c requires; one gesture can never trust an unchosen frame.
   plugin.addCommand({
     id: "notidian-trust-frame-session",
     name: i18n.commandPalette.trustFrameForSession,
@@ -98,10 +102,9 @@ export const attachCommands = (plugin: MakeMDPlugin) => {
           ui.notify(
             "No frames are currently waiting to be trusted. Open a frame whose dynamic content was disabled, then run this command."
           ),
-        onSingle: blessOne,
-        onMultiple: (frameIds) => {
-          // Several frames flagged: NEVER auto-bless all of them. Present a picker
-          // naming each so the user trusts exactly one reviewed frame.
+        onPick: (frameIds) => {
+          // NEVER auto-bless — present a picker naming each pending frame so the
+          // user trusts exactly one reviewed, named frame per click.
           const container = plugin.app.workspace.getLeaf()?.containerEl;
           const win = windowFromDocument(container?.ownerDocument ?? document);
           const rect = container?.getBoundingClientRect() ?? {

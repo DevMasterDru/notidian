@@ -10,18 +10,68 @@
 //     everything", so one command gesture can never trust a frame the user did not
 //     choose (finding 3, confused deputy);
 //   - a blessed frame whose code changes (withholds $api again) re-arms its notice;
-//   - reset (what a plugin RELOAD does for free) drops every trust bit.
+//   - reset (what a plugin RELOAD does for free) drops every trust bit;
+//   - bd Notidian-kcgt: a bless is SESSION-scoped, not MOUNT-scoped — the bless
+//     records an in-memory code fingerprint, and a freshly rebuilt tree regains
+//     the stamp iff its code-bearing fields are byte-identical
+//     (restampSessionBless). An EDIT changes the fingerprint and a RELOAD clears
+//     the registry, so both still drop trust by design;
+//   - bd Notidian-kcgt: the trust command NEVER auto-blesses, even with exactly
+//     one pending frame — the pending set is time-varying (instances unregister
+//     on unmount), so "one pending" does not imply "the frame whose notice the
+//     user saw". dispatchFrameTrust always routes to a NAMED picker.
+import { FrameTreeNode } from "shared/types/frameExec";
+import { FrameNode } from "shared/types/mframe";
 import {
   blessFrameById,
   dispatchFrameTrust,
+  fingerprintFrameTree,
   isSoundFrameId,
   pendingBlessCount,
   pendingBlessFrameIds,
   registerFrameBless,
   resetFrameTrustSession,
+  restampSessionBless,
+  sessionBlessFingerprint,
   shouldNotifyApiWithheld,
   unregisterFrame,
 } from "./frameTrustSession";
+import { hasKitProvenance, stampKitProvenanceTree } from "./trust";
+
+// A minimal materialized tree with code-bearing fields, as the render path holds
+// it (FrameTreeNode). Rebuilding with the same parts models a REMOUNT (fresh
+// objects, identical code); changing any code-bearing part models an EDIT.
+const makeTree = (
+  id: string,
+  parts: {
+    props?: Record<string, string>;
+    styles?: Record<string, string>;
+    actions?: Record<string, string>;
+    types?: Record<string, string>;
+    type?: string;
+  } = {},
+  children: FrameTreeNode[] = []
+): FrameTreeNode => {
+  const node: FrameNode = {
+    id,
+    schemaId: "s1",
+    name: id,
+    type: parts.type ?? "text",
+    rank: 0,
+    props: parts.props ?? {},
+    styles: parts.styles ?? {},
+    actions: parts.actions ?? {},
+    types: parts.types ?? {},
+  } as FrameNode;
+  return {
+    id,
+    node,
+    isRef: false,
+    children,
+    editorProps: { editMode: 0 },
+    parent: null,
+  } as FrameTreeNode;
+};
 
 beforeEach(() => resetFrameTrustSession());
 
@@ -168,37 +218,42 @@ describe("re-arm after a blessed frame's code changes (finding 3, part 3)", () =
   });
 });
 
-describe("dispatchFrameTrust: 0 / 1 / many routing (the security branch)", () => {
+// bd Notidian-kcgt (milestone-gate must-fix): the former "exactly 1 pending ->
+// bless it directly" route was UNSOUND because the pending set is time-varying:
+// instances unregister on unmount, so between the notice the user saw (frame X)
+// and the command gesture, X may have unmounted and a DIFFERENT frame Y (possibly
+// AI/attacker-authored, ADR 0018) may have flagged itself — pendingBlessFrameIds()
+// == [Y] would then auto-bless Y and re-run its $api code on a gesture the user
+// meant for X. The invariant ("one gesture must never trust a frame the user did
+// not choose") therefore requires a NAMED pick for ANY pending count >= 1.
+describe("dispatchFrameTrust: ALWAYS a named pick, never an auto-bless (Notidian-kcgt)", () => {
   it("0 pending -> onEmpty only", () => {
     const seen: string[] = [];
     dispatchFrameTrust([], {
       onEmpty: () => seen.push("empty"),
-      onSingle: () => seen.push("single"),
-      onMultiple: () => seen.push("multi"),
+      onPick: () => seen.push("pick"),
     });
     expect(seen).toEqual(["empty"]);
   });
 
-  it("exactly 1 pending -> onSingle(frame), never onMultiple", () => {
+  it("INVARIANT: exactly 1 pending STILL routes to the named picker (time-shifted pending set)", () => {
     const seen: string[] = [];
-    dispatchFrameTrust(["spaces://A"], {
+    // The user saw frame X's notice; X unmounted; attacker frame Y flagged itself.
+    // The one-pending gesture must present Y BY NAME, never bless it unconfirmed.
+    dispatchFrameTrust(["spaces://Y-attacker"], {
       onEmpty: () => seen.push("empty"),
-      onSingle: (f) => seen.push(`single:${f}`),
-      onMultiple: () => seen.push("multi"),
+      onPick: (fs) => seen.push(`pick:${fs.join(",")}`),
     });
-    expect(seen).toEqual(["single:spaces://A"]);
+    expect(seen).toEqual(["pick:spaces://Y-attacker"]);
   });
 
-  it("INVARIANT: >1 pending -> onMultiple (a picker), NEVER an auto-bless", () => {
+  it("INVARIANT: >1 pending -> onPick (a picker), NEVER an auto-bless", () => {
     const seen: string[] = [];
-    let singleCalled = false;
     dispatchFrameTrust(["spaces://A", "spaces://B"], {
       onEmpty: () => seen.push("empty"),
-      onSingle: () => (singleCalled = true),
-      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+      onPick: (fs) => seen.push(`pick:${fs.join(",")}`),
     });
-    expect(seen).toEqual(["multi:spaces://A,spaces://B"]);
-    expect(singleCalled).toBe(false); // never blesses directly when ambiguous
+    expect(seen).toEqual(["pick:spaces://A,spaces://B"]);
   });
 });
 
@@ -254,36 +309,32 @@ describe("unsound frame identities ('?' / empty / null) are never trustable (Not
     expect(blessFrameById(null as unknown as string)).toBe(0);
   });
 
-  it("dispatchFrameTrust NEVER auto-blesses an unidentified frame: ['?'] -> onEmpty", () => {
+  it("dispatchFrameTrust NEVER offers an unidentified frame: ['?'] -> onEmpty", () => {
     const seen: string[] = [];
     dispatchFrameTrust(["?"], {
       onEmpty: () => seen.push("empty"),
-      onSingle: (f) => seen.push(`single:${f}`),
-      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+      onPick: (fs) => seen.push(`pick:${fs.join(",")}`),
     });
     expect(seen).toEqual(["empty"]);
   });
 
-  it("dispatchFrameTrust filters unsound ids before 0/1/many routing", () => {
+  it("dispatchFrameTrust filters unsound ids before routing to the picker", () => {
     const seen: string[] = [];
     dispatchFrameTrust(["?", "spaces://A"], {
       onEmpty: () => seen.push("empty"),
-      onSingle: (f) => seen.push(`single:${f}`),
-      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+      onPick: (fs) => seen.push(`pick:${fs.join(",")}`),
     });
-    // "?" must not force the ambiguous->picker route (nor ever be pickable):
-    // only the ONE sound, named frame is offered, via the single route.
-    expect(seen).toEqual(["single:spaces://A"]);
+    // "?" is never pickable: only the sound, named frame is offered.
+    expect(seen).toEqual(["pick:spaces://A"]);
   });
 
   it("dispatchFrameTrust with several sound ids + an unsound one pickers ONLY the sound ones", () => {
     const seen: string[] = [];
     dispatchFrameTrust(["spaces://A", "?", "spaces://B"], {
       onEmpty: () => seen.push("empty"),
-      onSingle: (f) => seen.push(`single:${f}`),
-      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+      onPick: (fs) => seen.push(`pick:${fs.join(",")}`),
     });
-    expect(seen).toEqual(["multi:spaces://A,spaces://B"]);
+    expect(seen).toEqual(["pick:spaces://A,spaces://B"]);
   });
 
   it("sound frames registered ALONGSIDE an unsound one stay independently blessable", () => {
@@ -297,16 +348,165 @@ describe("unsound frame identities ('?' / empty / null) are never trustable (Not
 });
 
 describe("RELOAD/reset drops ALL session state (trust must be re-granted)", () => {
-  it("clears pending, offers, notices, and blessed set", () => {
+  it("clears pending, offers, notices, blessed set, and fingerprints", () => {
     registerFrameBless("spaces://A", "spaces://A::r0", () => undefined);
-    registerFrameBless("spaces://B", "spaces://B::r0", () => undefined);
+    registerFrameBless("spaces://B", "spaces://B::r0", () => undefined, "fp-B");
     shouldNotifyApiWithheld("spaces://A");
     blessFrameById("spaces://B");
     expect(pendingBlessCount()).toBe(2);
+    expect(sessionBlessFingerprint("spaces://B")).toBe("fp-B");
     resetFrameTrustSession();
     expect(pendingBlessCount()).toBe(0);
     expect(pendingBlessFrameIds()).toEqual([]);
     expect(blessFrameById("spaces://A")).toBe(0);
+    expect(sessionBlessFingerprint("spaces://B")).toBeUndefined();
     expect(shouldNotifyApiWithheld("spaces://A")).toBe(true);
+  });
+});
+
+// bd Notidian-kcgt — the code fingerprint that makes the bless SESSION-scoped.
+// It must be a pure function of the tree's CODE-BEARING fields (id, type, props,
+// types, styles, actions, child order), independent of object identity and key
+// insertion order — a remount rebuilds fresh objects from the same stored code
+// and must fingerprint identically, while ANY code edit must change it.
+describe("fingerprintFrameTree: deterministic over code, blind to object identity (Notidian-kcgt)", () => {
+  it("two independently built trees with identical code fingerprint identically", () => {
+    const a = makeTree("u1", { props: { value: "$api.path.label(x)" } }, [
+      makeTree("c1", { styles: { color: "'red'" } }),
+    ]);
+    const b = makeTree("u1", { props: { value: "$api.path.label(x)" } }, [
+      makeTree("c1", { styles: { color: "'red'" } }),
+    ]);
+    expect(a).not.toBe(b);
+    expect(fingerprintFrameTree(a)).toBe(fingerprintFrameTree(b));
+  });
+
+  it("is insensitive to prop-key insertion order (same code, different build order)", () => {
+    const a = makeTree("u1", { props: { alpha: "1", beta: "2" } });
+    const b = makeTree("u1", {});
+    // rebuild b's props in the opposite insertion order
+    b.node.props = { beta: "2", alpha: "1" };
+    expect(fingerprintFrameTree(a)).toBe(fingerprintFrameTree(b));
+  });
+
+  it.each([
+    ["prop code", (t: FrameTreeNode) => (t.node.props.value = "$api.other()")],
+    ["style code", (t: FrameTreeNode) => (t.node.styles.background = "$api.x()")],
+    ["action code", (t: FrameTreeNode) => (t.node.actions.onClick = "$api.y()")],
+    ["node type", (t: FrameTreeNode) => (t.node.type = "flow")],
+    ["prop type (affects codegen)", (t: FrameTreeNode) => (t.node.types.value = "object")],
+  ])("changes when %s changes (an edit ALWAYS drops the match)", (_what, mutate) => {
+    const base = () => makeTree("u1", { props: { value: "$api.path.label(x)" } });
+    const edited = base();
+    mutate(edited);
+    expect(fingerprintFrameTree(base())).not.toBe(fingerprintFrameTree(edited));
+  });
+
+  it("changes when a CHILD's code changes (whole-tree coverage)", () => {
+    const a = makeTree("u1", {}, [makeTree("c1", { props: { value: "1" } })]);
+    const b = makeTree("u1", {}, [makeTree("c1", { props: { value: "2" } })]);
+    expect(fingerprintFrameTree(a)).not.toBe(fingerprintFrameTree(b));
+  });
+
+  it("empty / null trees fingerprint to '' (never blessable)", () => {
+    expect(fingerprintFrameTree(null)).toBe("");
+    expect(fingerprintFrameTree(undefined)).toBe("");
+  });
+});
+
+// bd Notidian-kcgt (milestone-gate must-fix): the bless was MOUNT-scoped — the
+// stamp lived only on the in-memory tree, which every view remount rebuilds
+// unstamped, so clicking away and back silently dropped trust and mis-fired the
+// "code changed" re-arm. restampSessionBless is the fix: at run time a freshly
+// materialized tree regains the stamp IFF (identity, code) both match what the
+// user blessed THIS SESSION. Edit => fingerprint mismatch => refuse (and the
+// withhold path re-arms); reload => registry reset => refuse. Never persisted.
+describe("restampSessionBless: session-scoped, not mount-scoped (Notidian-kcgt)", () => {
+  const frameId = "spaces://My Space/#*main";
+  const CODE = "$api.probe.ping('user-frame')";
+  const buildFresh = (code: string = CODE) =>
+    makeTree("u1", { props: { value: code } }, [
+      makeTree("c1", { styles: { color: "'red'" } }),
+    ]);
+
+  const blessLikeTheCommand = (tree: FrameTreeNode) => {
+    // what onApiWithheld + the command do: register with the tree's fingerprint,
+    // then the user blesses the named frame (stamping the live tree).
+    registerFrameBless(
+      frameId,
+      `${frameId}::r0`,
+      () => stampKitProvenanceTree(tree),
+      fingerprintFrameTree(tree)
+    );
+    expect(blessFrameById(frameId)).toBe(1);
+    expect(hasKitProvenance(tree.node)).toBe(true);
+  };
+
+  it("REMOUNT with identical code: the fresh tree is restamped (trust survives the session)", () => {
+    blessLikeTheCommand(buildFresh());
+    // remount: a brand-new, unstamped tree built from the SAME stored code
+    const remounted = buildFresh();
+    expect(hasKitProvenance(remounted.node)).toBe(false);
+    expect(restampSessionBless(frameId, remounted)).toBe(true);
+    expect(hasKitProvenance(remounted.node)).toBe(true);
+    // children are stamped too (whole-tree bless, list templates included by ref)
+    expect(hasKitProvenance(remounted.children[0].node)).toBe(true);
+    // and the bless bookkeeping is untouched — no spurious "code changed" re-arm
+    expect(sessionBlessFingerprint(frameId)).toBe(fingerprintFrameTree(remounted));
+    expect(pendingBlessFrameIds()).toEqual([]);
+  });
+
+  it("EDITED code on remount: refuses the stamp (the withhold path then re-arms the notice)", () => {
+    blessLikeTheCommand(buildFresh());
+    const edited = buildFresh("$api.probe.ping('REWRITTEN')");
+    expect(restampSessionBless(frameId, edited)).toBe(false);
+    expect(hasKitProvenance(edited.node)).toBe(false);
+    // the edited frame withholds $api -> shouldNotifyApiWithheld drops the stale
+    // bless and re-arms, so the user is re-warned about the NEW code
+    expect(shouldNotifyApiWithheld(frameId)).toBe(true);
+    expect(sessionBlessFingerprint(frameId)).toBeUndefined();
+  });
+
+  it("RELOAD (registry reset) drops the fingerprint: identical code is NOT restamped", () => {
+    blessLikeTheCommand(buildFresh());
+    resetFrameTrustSession();
+    const afterReload = buildFresh();
+    expect(restampSessionBless(frameId, afterReload)).toBe(false);
+    expect(hasKitProvenance(afterReload.node)).toBe(false);
+  });
+
+  it("ADVERSARIAL: a DIFFERENT frame identity with byte-identical code never inherits the bless", () => {
+    blessLikeTheCommand(buildFresh());
+    const impostor = buildFresh(); // same code, planted at another path
+    expect(restampSessionBless("spaces://Attacker/#*main", impostor)).toBe(false);
+    expect(hasKitProvenance(impostor.node)).toBe(false);
+  });
+
+  it("never restamps for an unsound identity, an unblessed frame, or a missing tree", () => {
+    expect(restampSessionBless("?", buildFresh())).toBe(false);
+    expect(restampSessionBless(null, buildFresh())).toBe(false);
+    expect(restampSessionBless("spaces://never-blessed", buildFresh())).toBe(false);
+    blessLikeTheCommand(buildFresh());
+    expect(restampSessionBless(frameId, null)).toBe(false);
+  });
+
+  it("a bless registered WITHOUT a fingerprint stays mount-scoped (fail-safe), but still re-arms on withhold", () => {
+    const tree = buildFresh();
+    registerFrameBless(frameId, `${frameId}::r0`, () =>
+      stampKitProvenanceTree(tree)
+    ); // legacy 3-arg call: no fingerprint
+    expect(blessFrameById(frameId)).toBe(1);
+    // no fingerprint recorded -> a remount can never silently restamp...
+    expect(restampSessionBless(frameId, buildFresh())).toBe(false);
+    // ...but the blessed bit still exists, so a later withhold re-arms honestly
+    expect(shouldNotifyApiWithheld(frameId)).toBe(true);
+  });
+
+  it("bless records the fingerprint of the instance it actually stamped", () => {
+    const tree = buildFresh();
+    const fp = fingerprintFrameTree(tree);
+    registerFrameBless(frameId, `${frameId}::r0`, () => undefined, fp);
+    blessFrameById(frameId);
+    expect(sessionBlessFingerprint(frameId)).toBe(fp);
   });
 });

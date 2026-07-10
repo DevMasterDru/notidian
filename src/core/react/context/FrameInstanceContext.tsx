@@ -10,8 +10,10 @@ import {
   stampKitProvenanceTree,
 } from "core/utils/frames/trust";
 import {
+  fingerprintFrameTree,
   isSoundFrameId,
   registerFrameBless,
+  restampSessionBless,
   shouldNotifyApiWithheld,
   unregisterFrame,
 } from "core/utils/frames/frameTrustSession";
@@ -224,6 +226,15 @@ export const FrameInstanceProvider: React.FC<
 
   const runRoot = () => {
     if (root) {
+      // bd Notidian-kcgt: a view remount rebuilds `root` UNSTAMPED (both root
+      // providers build a fresh tree), which made the session bless mount-scoped
+      // — clicking away and back silently dropped trust and mis-fired the "code
+      // changed" re-arm. Re-extend the bless HERE, before execution: the stamp is
+      // re-applied IFF this identity was blessed this session AND the rebuilt
+      // tree's code-bearing fields fingerprint byte-identically to the code the
+      // user blessed (in-memory registry only — an edit changes the fingerprint
+      // and a reload clears the registry, so both still drop trust by design).
+      restampSessionBless(frameId, root);
       const newRoot = _.cloneDeep(root);
       // bd Notidian-214: _.cloneDeep drops the non-enumerable kit-provenance
       // marker (the same property that makes it unforgeable), which would strip
@@ -274,12 +285,28 @@ export const FrameInstanceProvider: React.FC<
   // bd Notidian-214 (ADR 0022 Decision 2c) — user-initiated, session-scoped,
   // NON-PERSISTED bless. Stamp this frame's materialized tree (source + current
   // instance) in memory, then re-run so the hardening boundary restores $api.
-  // Nothing is persisted: a reload rebuilds `root` unstamped and an edit replaces
-  // it, so re-bless is required BY DESIGN (a silently-rewritten frame loses trust).
+  // Nothing is persisted: blessFrameById records an in-memory code fingerprint
+  // so runRoot can re-extend the stamp to an IDENTICAL rebuild for the rest of
+  // the session (bd Notidian-kcgt), while an EDIT (different fingerprint) or a
+  // RELOAD (registry reset) still drops trust BY DESIGN — a silently-rewritten
+  // frame loses trust.
   const blessFrame = () => {
     if (root) stampKitProvenanceTree(root);
     if (instance?.root) stampKitProvenanceTree(instance.root);
     runRoot();
+  };
+
+  // bd Notidian-kcgt: fingerprint of the CURRENT source tree's code-bearing
+  // fields, memoized per root object (recomputing on every withhold of a 50-row
+  // list would be wasted work — the fingerprint is pure in the tree).
+  const rootFingerprintRef = useRef<{ tree: unknown; fp: string }>(null);
+  const rootFingerprint = () => {
+    if (!root) return "";
+    if (rootFingerprintRef.current?.tree === root)
+      return rootFingerprintRef.current.fp;
+    const fp = fingerprintFrameTree(root);
+    rootFingerprintRef.current = { tree: root, fp };
+    return fp;
   };
 
   // bd Notidian-214 — read-only diagnostic sink handed to the runner. Fires when
@@ -294,7 +321,9 @@ export const FrameInstanceProvider: React.FC<
     // frame the user cannot review ride the consent surface (frameTrustSession
     // refuses unsound ids too; this is the first of two layers).
     if (isSoundFrameId(frameId)) {
-      registerFrameBless(frameId, instanceKey, blessFrame);
+      // bd Notidian-kcgt: the fingerprint registered here is what blessFrameById
+      // records on the user's bless, binding the session trust to THIS code.
+      registerFrameBless(frameId, instanceKey, blessFrame, rootFingerprint());
     }
     if (props.superstate.settings?.enhancedLogs) {
       // eslint-disable-next-line no-console

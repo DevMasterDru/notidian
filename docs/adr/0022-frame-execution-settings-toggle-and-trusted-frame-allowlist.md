@@ -27,6 +27,24 @@ applied to a `list` node's cached item template) — trust still derives ONLY fr
 the source's genuine marker, never from any persisted value, so the vke invariant
 holds.
 
+Amendment (milestone-gate must-fixes, bd `Notidian-pg6g` + `Notidian-kcgt`): the
+first 2c-base build had two behavior gaps against this ADR's own contract. (1) The
+bless was accidentally **mount**-scoped, not session-scoped: the stamp lived only
+on the in-memory tree, which every view remount rebuilds unstamped, so clicking
+away and back silently dropped trust and mis-fired the "code changed" re-arm.
+Fixed by recording an **in-memory, never-persisted** fingerprint of the blessed
+tree's code-bearing fields (`frameTrustSession.fingerprintFrameTree`), keyed by
+frame identity; `runRoot` re-extends the stamp to a rebuilt tree only on an exact
+identity + fingerprint match (`restampSessionBless`). An edit changes the
+fingerprint and a reload clears the registry, so "session-scoped; reload or edit
+drops trust" now holds exactly as decided — this is NOT the deferred content-hash
+refinement, which is about *persisting* a hash in `data.json` to survive reloads
+and remains deferred. (2) The trust command auto-blessed a single pending frame
+without a named confirmation; the pending set is time-varying (instances
+unregister on unmount), so "one pending" need not be the frame whose notice the
+user saw — the command now ALWAYS routes through the named picker, even for one
+pending frame.
+
 ## Date
 
 2026-06-15

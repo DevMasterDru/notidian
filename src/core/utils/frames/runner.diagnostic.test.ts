@@ -25,6 +25,17 @@ import {
   stampKitProvenance,
   stampKitProvenanceTree,
 } from "./trust";
+import {
+  blessFrameById,
+  fingerprintFrameTree,
+  pendingBlessFrameIds,
+  registerFrameBless,
+  resetFrameTrustSession,
+  restampSessionBless,
+  sessionBlessFingerprint,
+  shouldNotifyApiWithheld,
+  unregisterFrame,
+} from "./frameTrustSession";
 
 const FORGED_KIT_REF_PREFIX = "spaces://$kit/";
 
@@ -270,5 +281,134 @@ describe("direct kit render path: a stamped kit executable keeps $api (Notidian-
     expect(calls).not.toContain("kit-cover"); // $api silently withheld
     expect(out.state["cardsCover"].props.value).toBeUndefined();
     expect(seen).toHaveLength(1); // the false-positive diagnostic this fix removes
+  });
+});
+
+// bd Notidian-kcgt (milestone-gate must-fix on Notidian-214): the bless was
+// MOUNT-scoped — the stamp lived only on the in-memory tree, and every view
+// remount (click a note, click back) rebuilt a FRESH unstamped tree, so the
+// "session" trust silently died and the module-level blessed bit mis-fired the
+// "code changed" re-arm. This pins the full runner-level contract of the fix:
+// runRoot now calls restampSessionBless(frameId, root) before executing, so a
+// remounted tree whose code-bearing fields are byte-identical to the blessed
+// code regains $api with NO withhold and NO re-toast — while an EDIT (different
+// code) or a RELOAD (registry reset) still drops trust exactly as ADR 0022 2c
+// promises. Nothing is persisted at any point.
+describe("session bless survives a REMOUNT of identical code; edit/reload still drop it (Notidian-kcgt)", () => {
+  const frameId = "spaces://My Space/#*main";
+
+  beforeEach(() => resetFrameTrustSession());
+
+  const runLikeRoot = async (
+    source: FrameExecutable,
+    api: API,
+    onApiWithheld: (info: unknown) => void
+  ) => {
+    // what runRoot now does: re-extend a session bless to identical code FIRST,
+    // then clone + re-stamp from source, then execute.
+    restampSessionBless(frameId, source);
+    const clone = _.cloneDeep(source) as FrameExecutable;
+    reStampProvenanceFromSource(clone, source);
+    return executeNode(clone, freshStore(), {}, api, true, onApiWithheld as never);
+  };
+
+  const buildFresh = (code: string) =>
+    makeNode("u1", "spaces://My Space/#*main", { props: { value: code } });
+
+  it("bless -> unmount -> REMOUNT (fresh tree, same code): $api works, no withhold, no re-toast", async () => {
+    const { api, calls } = makeSpyApi();
+    const CODE = "$api.probe.ping('user-frame')";
+
+    // Mount 1: discover + notify + user blesses the named frame.
+    const mount1 = buildFresh(CODE);
+    const withholds1: unknown[] = [];
+    await runLikeRoot(mount1, api, (i) => {
+      registerFrameBless(
+        frameId,
+        `${frameId}::r0::m1`,
+        () => stampKitProvenanceTree(mount1),
+        fingerprintFrameTree(mount1)
+      );
+      withholds1.push(i);
+    });
+    expect(withholds1).toHaveLength(1);
+    expect(shouldNotifyApiWithheld(frameId)).toBe(true); // the one notice
+    expect(blessFrameById(frameId)).toBe(1);
+
+    // Unmount (the row's callback is dropped; the bless bookkeeping survives).
+    unregisterFrame(`${frameId}::r0::m1`);
+
+    // Mount 2: a brand-new, unstamped tree built from the SAME stored code.
+    const mount2 = buildFresh(CODE);
+    const withholds2: unknown[] = [];
+    const out = await runLikeRoot(mount2, api, (i) => withholds2.push(i));
+
+    // Trust survived the remount: $api ran, nothing was withheld, and the
+    // "code changed" heuristic did NOT mis-fire (bless intact, no re-offer).
+    expect(calls).toContain("user-frame");
+    expect(out.state["u1"].props.value).toBe("pong:user-frame");
+    expect(withholds2).toHaveLength(0);
+    expect(sessionBlessFingerprint(frameId)).toBeDefined();
+    expect(pendingBlessFrameIds()).toEqual([]);
+  });
+
+  it("EDIT: a remounted tree with DIFFERENT code is withheld and the notice re-arms", async () => {
+    const { api, calls } = makeSpyApi();
+
+    // bless v1
+    const v1 = buildFresh("$api.probe.ping('v1')");
+    await runLikeRoot(v1, api, () => {
+      registerFrameBless(
+        frameId,
+        `${frameId}::r0`,
+        () => stampKitProvenanceTree(v1),
+        fingerprintFrameTree(v1)
+      );
+    });
+    shouldNotifyApiWithheld(frameId);
+    blessFrameById(frameId);
+    unregisterFrame(`${frameId}::r0`);
+
+    // attacker/edit rewrites the frame; the rebuilt tree has different code
+    const v2 = buildFresh("$api.probe.ping('REWRITTEN')");
+    const withholds: unknown[] = [];
+    const out = await runLikeRoot(v2, api, (i) => {
+      registerFrameBless(
+        frameId,
+        `${frameId}::r0`,
+        () => undefined,
+        fingerprintFrameTree(v2)
+      );
+      withholds.push(i);
+    });
+
+    // the NEW code never ran with $api...
+    expect(calls).not.toContain("REWRITTEN");
+    expect(out.state["u1"].props.value).toBeUndefined();
+    expect(withholds).toHaveLength(1);
+    // ...and the user is re-warned + the frame is re-offered for an informed bless
+    expect(shouldNotifyApiWithheld(frameId)).toBe(true);
+    expect(pendingBlessFrameIds()).toEqual([frameId]);
+  });
+
+  it("RELOAD: after the registry resets, identical code is withheld again (re-bless required)", async () => {
+    const { api, calls } = makeSpyApi();
+    const CODE = "$api.probe.ping('after-reload')";
+    const v1 = buildFresh(CODE);
+    registerFrameBless(
+      frameId,
+      `${frameId}::r0`,
+      () => stampKitProvenanceTree(v1),
+      fingerprintFrameTree(v1)
+    );
+    blessFrameById(frameId);
+
+    resetFrameTrustSession(); // the plugin reload (fresh module state)
+
+    const remounted = buildFresh(CODE);
+    const withholds: unknown[] = [];
+    await runLikeRoot(remounted, api, (i) => withholds.push(i));
+    expect(calls).not.toContain("after-reload");
+    expect(withholds).toHaveLength(1); // trust must be re-granted by design
   });
 });
