@@ -23,20 +23,32 @@ self-commissions**: no mission → ask the owner which mission to run. Quota-dra
 ```
 Workflow({ scriptPath: "~/.claude/skills/long-autonomous-mode/engine.js", args: {
   mission: { name: "<owner-named mission>", beads: ["Notidian-…"] /* or epicId */ },
-  implementModel: "sonnet",   // T0/T1 worker tier (see model tiering below)
+  planModel: "opus", gateModel: "opus",     // plan + all gates/reviews (NEVER Fable — see tiering)
+  implementModel: "sonnet",                 // T0/T1 worker tier
+  t2ImplementModel: "opus",                 // T2: authority-boundary / data-loss / render-path
+  securityReviewModel: "opus",              // authority-security lens
+  // Codex fallback is default-ON (ADR-0067); set codexFallback:false to disable.
 }})
 ```
 
 **This repo's binding (the specifics the engine consumes):**
 
 - **Branch:** `autonomous/notion-parity-2026-06-12` (branch-first if ever on `main`).
-- **Model tiering (owner-ratified 2026-07-10, replaces the former all-Opus
-  override):** plan gate, all review lenses, the milestone gate, and **T2**
-  (authority-boundary / data-loss / render-path) implementation run on the
-  **strongest available tier** (Opus/Fable per Atlas `Configs/Model Routing.md`,
-  resolved live); **T0/T1 implementation may run Sonnet-tier**. Every subagent
-  carries the max-reasoning directive *"deeply contemplate with maximum reasoning
-  and unlimited effort… decide and act without asking for approval."*
+- **Model tiering (owner-ratified 2026-07-10):** **Fable is reserved for the
+  interactive orchestrator session — never an engine knob.** Setting
+  `planModel`/`gateModel` to Fable fans the flagship across the engine's ~10
+  mechanical roles and exhausts its session limit (Model Routing hard-rule #1;
+  it killed `run-6` at setup on 2026-07-10). Plan gate, all review lenses, the
+  milestone gate, the authority-security lens, and **T2** (authority-boundary /
+  data-loss / render-path) implementation run on **Opus**; **T0/T1
+  implementation runs Sonnet** — resolved live against Atlas
+  `Configs/Model Routing.md`. **Codex fallback (Atlas Method ADR-0067,
+  default-ON):** any fallback-eligible verdict role (plan gate, review lenses,
+  security lens, live-verify, secret scan, rollup) that returns null retries on
+  Codex via a Haiku proxy (`fable`/`opus`→`gpt-5.6-sol`,
+  `sonnet`/`haiku`→`gpt-5.6-luna`); disable with `codexFallback:false`. Every
+  subagent carries the max-reasoning directive *"deeply contemplate with maximum
+  reasoning and unlimited effort… decide and act without asking for approval."*
 - **Live-verify harness (the milestone gate drives this):** `npm run deploy:vault`
   (build → install to the Atlas Vault → byte-hash parity → plugin reload →
   `dev:errors`), then the `obsidian` CLI dev commands (`dev:dom`, `dev:screenshot`,
