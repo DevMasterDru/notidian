@@ -84,7 +84,12 @@ const cols = [
   { name: "Name", schemaId: "files", type: "text", table: "" },
 ] as any;
 
-const data = [{ _index: "0", [PathPropertyName]: HUB_ROW_PATH, Name: "hub" }];
+// Default fixture row carries the .md file path; pass HUB_ROW_FOLDER instead to
+// exercise the LIVE representation (Notidian-gtqf): the files context table
+// indexes a hub row by its child SPACE path without ".md".
+const makeData = (rowPath: string) => [
+  { _index: "0", [PathPropertyName]: rowPath, Name: "hub" },
+];
 
 const predicate = {
   filters: [], sort: [], groupBy: [], colsOrder: [], colsHidden: [],
@@ -92,8 +97,9 @@ const predicate = {
   view: "table", listItem: "", tableDirection: "ltr", frozenColumnCount: 0,
 } as any;
 
-const makeContextValue = () =>
-  ({
+const makeContextValue = (rowPath: string = HUB_ROW_PATH) => {
+  const data = makeData(rowPath);
+  return {
     tableData: { schema: { id: "files" }, rows: data, cols },
     dbSchema: { id: "files", primary: "true" },
     contextTable: {},
@@ -117,7 +123,8 @@ const makeContextValue = () =>
     collapsedSubItems: new Set<string>(),
     toggleSubItemCollapse: jest.fn(),
     subItemAddRows: null,
-  } as any);
+  } as any;
+};
 
 // `hubIndexed` seeds spacesIndex so HUB_ROW_FOLDER's configured note IS the
 // row's file (a genuine hub row). Omit it for the "ordinary row" case.
@@ -154,14 +161,14 @@ const makeSuperstate = (opts: {
 let container: HTMLDivElement;
 let root: Root;
 
-const render = async (superstate: any) => {
+const render = async (superstate: any, rowPath: string = HUB_ROW_PATH) => {
   await act(async () => {
     root.render(
       <SpaceContext.Provider
         value={{ spaceInfo: { path: "Test/Space" }, spaceState: { path: "Test/Space" } }}
       >
         <PathContext.Provider value={{ readMode: false }}>
-          <ContextEditorContext.Provider value={makeContextValue()}>
+          <ContextEditorContext.Provider value={makeContextValue(rowPath)}>
             <TableView superstate={superstate} />
           </ContextEditorContext.Provider>
         </PathContext.Provider>
@@ -248,5 +255,50 @@ describe("TableView hub-row indicator wiring (Notidian-b0fm)", () => {
       button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(superstate.ui.openPath).toHaveBeenCalledWith(HUB_ROW_FOLDER, false);
+  });
+
+  // Live representation (Notidian-gtqf): in the real vault the files context
+  // table indexes a hub row by its child SPACE path WITHOUT ".md" (verified
+  // live: Knowledge, Gidi/Hardware). The indicator must fire for that
+  // representation too — the shipped .md-only gate rendered on zero rows.
+  it("live space-path row (extensionless) + both flags ON: exactly one indicator renders", async () => {
+    await render(
+      makeSuperstate({
+        enableHubRowIndicator: true,
+        enableNestedHubRows: true,
+        hubIndexed: true,
+      }),
+      HUB_ROW_FOLDER
+    );
+    expect(container.querySelectorAll(".mk-hub-row-indicator").length).toBe(1);
+  });
+
+  it("live space-path row: clicking the indicator opens the space itself", async () => {
+    const superstate = makeSuperstate({
+      enableHubRowIndicator: true,
+      enableNestedHubRows: true,
+      hubIndexed: true,
+    });
+    await render(superstate, HUB_ROW_FOLDER);
+    const button = container.querySelector(
+      ".mk-hub-row-indicator"
+    ) as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(superstate.ui.openPath).toHaveBeenCalledWith(HUB_ROW_FOLDER, false);
+  });
+
+  it("live space-path row that is NOT an indexed space: no indicator", async () => {
+    await render(
+      makeSuperstate({
+        enableHubRowIndicator: true,
+        enableNestedHubRows: true,
+        hubIndexed: false,
+      }),
+      HUB_ROW_FOLDER
+    );
+    expect(container.querySelector(".mk-hub-row-indicator")).toBeNull();
   });
 });

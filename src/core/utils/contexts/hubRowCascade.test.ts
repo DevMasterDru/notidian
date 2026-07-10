@@ -1,5 +1,6 @@
 import {
   hubRowChildFolderPath,
+  hubRowOpenTarget,
   isHubRowPath,
   planHubRowDeleteCascade,
   planHubRowRenameCascade,
@@ -80,9 +81,52 @@ describe("isHubRowPath", () => {
     expect(isHubRowPath(HUB_ROW_PATH, notePathForFolder)).toBe(false);
   });
 
-  it("false for a non-markdown path", () => {
+  // Space-path representation (Notidian-gtqf, live-verify of b0fm): the files
+  // context table indexes a hub row by its child SPACE path WITHOUT ".md"
+  // (e.g. "Knowledge/Social Dynamics — Pickup") while plain rows carry ".md".
+  // An extensionless row is a hub row iff that folder's configured note is the
+  // ADJACENT same-named file — the exact same configured-note test as the
+  // .md branch, never a bare name-collision guess.
+  it("true for an extensionless space path whose configured note is the adjacent same-named file", () => {
+    const notePathForFolder = (folder: string) =>
+      folder === HUB_ROW_FOLDER ? HUB_ROW_PATH : null;
+    expect(isHubRowPath(HUB_ROW_FOLDER, notePathForFolder)).toBe(true);
+  });
+
+  it("false for an extensionless path that is not an indexed space (no configured note)", () => {
+    const notePathForFolder = (): string | null => null;
+    expect(isHubRowPath(HUB_ROW_FOLDER, notePathForFolder)).toBe(false);
+  });
+
+  it("false for an extensionless space whose note lives INSIDE the folder (inside-mode)", () => {
+    const notePathForFolder = (folder: string) =>
+      folder === HUB_ROW_FOLDER ? "Knowledge/Gidi/Gidi.md" : null;
+    expect(isHubRowPath(HUB_ROW_FOLDER, notePathForFolder)).toBe(false);
+  });
+
+  it("false for an extensionless space whose configured note is an unrelated file", () => {
+    const notePathForFolder = (folder: string) =>
+      folder === HUB_ROW_FOLDER ? "Somewhere/Else.md" : null;
+    expect(isHubRowPath(HUB_ROW_FOLDER, notePathForFolder)).toBe(false);
+  });
+
+  it("false for empty/falsy extensionless input", () => {
     const notePathForFolder = () => HUB_ROW_PATH;
-    expect(isHubRowPath("Knowledge/Gidi", notePathForFolder)).toBe(false);
+    expect(isHubRowPath("", notePathForFolder)).toBe(false);
+  });
+});
+
+describe("hubRowOpenTarget", () => {
+  it("resolves a .md hub-row path to its sibling folder", () => {
+    expect(hubRowOpenTarget(HUB_ROW_PATH)).toBe(HUB_ROW_FOLDER);
+  });
+
+  it("resolves an extensionless space path to itself", () => {
+    expect(hubRowOpenTarget(HUB_ROW_FOLDER)).toBe(HUB_ROW_FOLDER);
+  });
+
+  it("null for empty input", () => {
+    expect(hubRowOpenTarget("")).toBeNull();
   });
 });
 
@@ -105,6 +149,18 @@ describe("shouldRenderHubRowIndicator", () => {
         { enableHubRowIndicator: true, enableNestedHubRows: true },
         HUB_ROW_PATH,
         isHub
+      )
+    ).toBe(true);
+  });
+
+  it("true for the live space-path row representation (extensionless, adjacent note) with both flags on", () => {
+    const notePathForFolder = (folder: string) =>
+      folder === HUB_ROW_FOLDER ? HUB_ROW_PATH : null;
+    expect(
+      shouldRenderHubRowIndicator(
+        { enableHubRowIndicator: true, enableNestedHubRows: true },
+        HUB_ROW_FOLDER,
+        notePathForFolder
       )
     ).toBe(true);
   });

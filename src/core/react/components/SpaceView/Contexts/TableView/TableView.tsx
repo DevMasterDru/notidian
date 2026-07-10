@@ -215,7 +215,7 @@ import {
 import { RowHealthBadge } from "./RowHealthBadge";
 import { HubRowIndicator } from "core/react/components/UI/Toggles/HubRowIndicator";
 import {
-  hubRowChildFolderPath,
+  hubRowOpenTarget,
   shouldRenderHubRowIndicator,
 } from "core/utils/contexts/hubRowCascade";
 import {
@@ -4180,7 +4180,10 @@ export const TableView = (props: { superstate: Superstate }) => {
                       superstate={props.superstate}
                       showHubRowIndicator={rowIsHub}
                       onOpenHub={() => {
-                        const folder = hubRowChildFolderPath(rowPath);
+                        // Notidian-gtqf: a hub row may be indexed by its .md
+                        // file path OR by its child space path (extensionless);
+                        // hubRowOpenTarget resolves both to the folder to open.
+                        const folder = hubRowOpenTarget(rowPath);
                         if (folder) {
                           props.superstate.ui.openPath(folder, false);
                         }

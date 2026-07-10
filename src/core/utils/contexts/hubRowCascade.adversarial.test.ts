@@ -156,7 +156,15 @@ describe("SAFETY: isHubRowPath is true IFF the folder's configured note is exact
     // sibling hub folder to consult.
     expect(isHubRowPath("Knowledge/.md", reads(HUB_ROW_PATH))).toBe(false);
     expect(isHubRowPath(".md", reads(HUB_ROW_PATH))).toBe(false);
-    expect(isHubRowPath("Knowledge/Gidi", reads(HUB_ROW_PATH))).toBe(false);
+  });
+
+  // Space-path representation (Notidian-gtqf): an extensionless row is a hub
+  // row IFF the folder's configured note is the ADJACENT same-named file —
+  // exact match only, same IFF discipline as the .md branch above.
+  it.each(ALL_NOTE_READS)("extensionless read=%p", (ret) => {
+    expect(isHubRowPath(HUB_ROW_FOLDER, reads(ret))).toBe(
+      ret === HUB_ROW_FOLDER + ".md"
+    );
   });
 });
 

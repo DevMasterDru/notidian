@@ -46,8 +46,25 @@ export const isHubRowPath = (
   notePathForFolder: (folderPath: string) => string | null | undefined
 ): boolean => {
   const folder = hubRowChildFolderPath(path);
-  if (!folder) return false;
-  return isConfiguredHubFolder(folder, path, notePathForFolder);
+  if (folder) return isConfiguredHubFolder(folder, path, notePathForFolder);
+  // Space-path representation (Notidian-gtqf): the files context table indexes
+  // a hub row by its child SPACE path WITHOUT ".md" (plain rows keep the
+  // extension). Such a row is a hub row iff that folder's configured note is
+  // the ADJACENT same-named file — the exact same configured-note test as the
+  // .md branch above, never a bare name-collision guess. Inside-mode notes
+  // (folder/folder.md) intentionally stay outside the b0fm contract.
+  if (!path || path.toLowerCase().endsWith(".md")) return false;
+  return notePathForFolder(path) === path + ".md";
+};
+
+// Click-target resolution for the hub-row indicator: a .md hub row opens its
+// sibling folder; a space-path (extensionless) hub row IS the folder. Pure,
+// total — callers only invoke it for rows that already passed isHubRowPath.
+export const hubRowOpenTarget = (path: string): string | null => {
+  const folder = hubRowChildFolderPath(path);
+  if (folder) return folder;
+  if (!path || path.toLowerCase().endsWith(".md")) return null;
+  return path;
 };
 
 // Render gate for the hub-row indicator affordance (Notidian-b0fm). The
