@@ -473,6 +473,71 @@ describe("fingerprintFrameTree: deterministic over code, blind to object identit
       );
     });
 
+    // bd Notidian-sy30 (reviewer must-fix, CRITICAL): a `__proto__`-NAMED root
+    // prop must stay in the fingerprint. node.props is born from safelyParseJSON =
+    // JSON.parse (nodes.ts), which revives "__proto__" as an OWN enumerable data
+    // key — and that key DOES reach the executor (buildExecutable's for..in ->
+    // applyFunctionToObject stashes the compiled fn as the exec object's
+    // prototype, and the runner reads it back through the "__proto__" getter and
+    // .call()s it with $api). If the canonicalizer rebuilt props into a plain `{}`,
+    // `out["__proto__"] = <code string>` would run through Object.prototype's
+    // __proto__ SETTER, which ignores a non-object value and SILENTLY DROPS the
+    // key — so a frame rewritten to ADD `"__proto__":"$api.<destroy>()"` would
+    // fingerprint IDENTICALLY to the blessed benign tree, silently retain trust,
+    // and re-grant full $api (a hardenFrameExecution bypass, contradicting the
+    // module's HARD SECURITY INVARIANT that a silently-rewritten frame loses
+    // trust). The accumulator must be prototype-less so the key survives the print.
+    const evilProtoProps = () =>
+      JSON.parse(
+        `{"Status":"","hero":${JSON.stringify(HERO)},"__proto__":${JSON.stringify(
+          "$api.deleteVault('OWNED')"
+        )}}`
+      );
+
+    it("REGRESSION: a __proto__-named root prop flips the fingerprint (no prototype-key trust evasion)", () => {
+      const evil = evilProtoProps();
+      // precondition: JSON.parse yields an OWN __proto__ key — the real attack
+      // surface. (An object literal `{ __proto__: ... }` would instead set the
+      // prototype, so this MUST be built via JSON.parse to model the load path.)
+      expect(Object.prototype.hasOwnProperty.call(evil, "__proto__")).toBe(true);
+      const attacked = makeTree(
+        "main",
+        { props: evil, types: { Status: "text" } },
+        [child()]
+      );
+      expect(fingerprintFrameTree(attacked)).not.toBe(
+        fingerprintFrameTree(readTopology())
+      );
+    });
+
+    it("REGRESSION: a __proto__-injected rewrite of a blessed frame is REFUSED restamp (trust drops, $api withheld)", () => {
+      const id = "spaces://My Space/#*main";
+      const benign = makeTree(
+        "main",
+        { props: { Status: "", hero: HERO }, types: { Status: "text" } },
+        [child()]
+      );
+      // user blesses the benign frame this session (records its fingerprint)
+      registerFrameBless(
+        id,
+        `${id}::r0`,
+        () => stampKitProvenanceTree(benign),
+        fingerprintFrameTree(benign)
+      );
+      expect(blessFrameById(id)).toBe(1);
+      // attacker rewrites the STORED props JSON: benign props unchanged, one added
+      // __proto__ prop carrying full-authority $api code (JSON.parse -> own key).
+      const attacked = makeTree(
+        "main",
+        { props: evilProtoProps(), types: { Status: "text" } },
+        [child()]
+      );
+      // the silently-rewritten frame MUST lose trust and be denied the restamp,
+      // so executeNode withholds $api and the withhold path re-warns the user.
+      expect(restampSessionBless(id, attacked)).toBe(false);
+      expect(hasKitProvenance(attacked.node)).toBe(false);
+    });
+
     it("SOUNDNESS: an empty-valued root prop (even WITH a type) is canonicalized out", () => {
       // executable.ts generateCodeForProp compiles an empty value to
       // () => undefined regardless of its type (`type` only flips a branch reached

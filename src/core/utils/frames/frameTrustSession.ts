@@ -105,7 +105,23 @@ export const fingerprintFrameTree = (
     if (injected.length > 0) {
       const drop = new Set(injected);
       const without = (o: Record<string, unknown>): Record<string, unknown> => {
-        const out: Record<string, unknown> = {};
+        // SECURITY: the accumulator MUST be prototype-less (Object.create(null)),
+        // never a plain `{}`. node.props comes from safelyParseJSON = JSON.parse
+        // (nodes.ts), which revives a `"__proto__"` prop as an OWN enumerable key
+        // — and that key reaches the executor with full $api (buildExecutable's
+        // for..in stashes its compiled fn as the exec object's prototype; the
+        // runner reads it back via the "__proto__" getter and .call()s it). On a
+        // plain `{}`, `out["__proto__"] = <code string>` runs through
+        // Object.prototype's __proto__ SETTER, which ignores a non-object value
+        // and SILENTLY DROPS the key — so a frame rewritten to add
+        // `"__proto__":"$api.<destroy>()"` would fingerprint identically to the
+        // blessed benign tree, retain trust, and re-grant $api (a
+        // hardenFrameExecution bypass; Notidian-sy30). A null-prototype object has
+        // no such setter, so `out["__proto__"] = value` creates an OWN data
+        // property that Object.keys/stableSerialize include — the rewrite flips
+        // the print and trust drops, honouring the module's HARD SECURITY
+        // INVARIANT. Same reasoning shields `constructor`/`prototype` keys.
+        const out: Record<string, unknown> = Object.create(null);
         for (const k of Object.keys(o)) if (!drop.has(k)) out[k] = o[k];
         return out;
       };
