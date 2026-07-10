@@ -394,9 +394,21 @@ describe("fingerprintFrameTree: deterministic over code, blind to object identit
     ["style code", (t: FrameTreeNode) => (t.node.styles.background = "$api.x()")],
     ["action code", (t: FrameTreeNode) => (t.node.actions.onClick = "$api.y()")],
     ["node type", (t: FrameTreeNode) => (t.node.type = "flow")],
-    ["prop type (affects codegen)", (t: FrameTreeNode) => (t.node.types.value = "object")],
+    // bd Notidian-9xbn: a prop TYPE (which reroutes generateCodeForProp's
+    // statement-vs-expression codegen for a multi-line value) is fingerprinted on
+    // CHILD nodes, so a child prop-type edit still drops the match. It is NOT
+    // fingerprinted on the ROOT node — the root's types are a topology-time
+    // linkProps injection, never stored node code (see the root-type tradeoff
+    // tests below) — so the codegen-relevant type signal is pinned on a child.
+    [
+      "a CHILD prop type (affects codegen)",
+      (t: FrameTreeNode) => (t.children[0].node.types.value = "object"),
+    ],
   ])("changes when %s changes (an edit ALWAYS drops the match)", (_what, mutate) => {
-    const base = () => makeTree("u1", { props: { value: "$api.path.label(x)" } });
+    const base = () =>
+      makeTree("u1", { props: { value: "$api.path.label(x)" } }, [
+        makeTree("c1", { props: { value: "1" }, types: { value: "text" } }),
+      ]);
     const edited = base();
     mutate(edited);
     expect(fingerprintFrameTree(base())).not.toBe(fingerprintFrameTree(edited));
@@ -564,6 +576,90 @@ describe("fingerprintFrameTree: deterministic over code, blind to object identit
       const a = makeTree("main", {}, [makeTree("c1", { props: { x: "" } })]);
       const b = makeTree("main", {}, [makeTree("c1", { props: {} })]);
       expect(fingerprintFrameTree(a)).not.toBe(fingerprintFrameTree(b));
+    });
+
+    // bd Notidian-9xbn (milestone-gate must-fix, escalated from the sy30 residual):
+    // the sy30 empty-value heuristic drops an injected context-column binding only
+    // when its PROP value is "". If a stored, NON-EMPTY (code-bearing) ROOT prop's
+    // NAME collides with a context column, linkProps still stamps that column's TYPE
+    // onto root.node.types[K] (the stored prop overrides only the VALUE, not the
+    // type), and the two topologies inject DIFFERENT column sets — so the injected
+    // type survives on one path and is absent on the other. props AGREE (identical
+    // stored code) but types diverge -> the fingerprint diverged -> the bless
+    // self-destructed on the topology switch (a FALSE "code changed"). The fix drops
+    // the ENTIRE root types map from the print (root types are never stored node
+    // code — nodeToFrame persists no types column; they are always derived from
+    // node.type via nodeToTypes at load, or injected by linkProps), closing this.
+    it("a non-empty ROOT prop colliding with an editable-only context column fingerprints EQUAL (Notidian-9xbn)", () => {
+      // read: the "hero" context column is NOT in frame.cols, so no type is injected
+      // for it; the stored code-bearing prop `hero` survives untyped on the root.
+      const readPath = makeTree(
+        "main",
+        { props: { Status: "", hero: HERO }, types: { Status: "text" } },
+        [child()]
+      );
+      // editable: [...tableData.cols, ...props.cols] injects the "hero" context
+      // column (type "text") AND Priority/Tags — so linkProps stamps types.hero =
+      // "text" even though the stored prop `hero` overrode only its VALUE. This is
+      // exactly the residual the empty-value heuristic could not reach.
+      const editablePath = makeTree(
+        "main",
+        {
+          props: { Status: "", Priority: "", Tags: "", hero: HERO },
+          types: {
+            Status: "text",
+            Priority: "number",
+            Tags: "tags",
+            hero: "text",
+          },
+        },
+        [child()]
+      );
+      expect(fingerprintFrameTree(editablePath)).toBe(
+        fingerprintFrameTree(readPath)
+      );
+    });
+
+    // bd Notidian-9xbn: the flip side of closing the residual — a ROOT prop's TYPE
+    // is no longer in the print, so changing ONLY a root prop's type (VALUE and
+    // every other code-bearing field byte-identical) does NOT flip the fingerprint.
+    // SOUND, not a trust bypass: (1) node types are NEVER persisted (nodeToFrame
+    // drops them) — any col-type on a materialized ROOT is a topology-time linkProps
+    // injection, not stored node code; (2) the reviewed CODE (the value string) is
+    // fully fingerprinted and unchanged here, so no new expression reaches $api;
+    // (3) type only reroutes generateCodeForProp's statement-vs-expression wrapping
+    // for a MULTI-LINE value (executable.ts), never grants capability.
+    it("a ROOT prop-TYPE-only change does NOT flip (root types are topology-injected, not stored code — Notidian-9xbn)", () => {
+      const typedText = makeTree(
+        "main",
+        { props: { hero: HERO }, types: { hero: "text" } },
+        [child()]
+      );
+      const typedObject = makeTree(
+        "main",
+        { props: { hero: HERO }, types: { hero: "object" } },
+        [child()]
+      );
+      expect(fingerprintFrameTree(typedText)).toBe(
+        fingerprintFrameTree(typedObject)
+      );
+    });
+
+    // ...but the reviewed CODE is still fully pinned: changing a ROOT prop's VALUE
+    // flips the print even though its type is dropped (a real edit ALWAYS drops
+    // trust — no false-accept was introduced by dropping root types).
+    it("a ROOT prop VALUE change still flips even though its type is dropped (no false-accept, Notidian-9xbn)", () => {
+      const before = makeTree(
+        "main",
+        { props: { hero: HERO }, types: { hero: "text" } },
+        [child()]
+      );
+      const after = makeTree(
+        "main",
+        { props: { hero: "$api.evil()" }, types: { hero: "text" } },
+        [child()]
+      );
+      expect(fingerprintFrameTree(before)).not.toBe(fingerprintFrameTree(after));
     });
   });
 });

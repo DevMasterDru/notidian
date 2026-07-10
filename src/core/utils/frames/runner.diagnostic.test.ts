@@ -441,12 +441,18 @@ describe("session bless survives an editable<->read topology switch (Notidian-sy
     cols: Array<[string, string]>,
     code = STORED
   ): FrameTreeNode => {
-    const props: Record<string, string> = { hero: code };
+    // linkProps folds injected context columns in FIRST, then the stored root
+    // props/types override (ast.ts: `{...injectedCols, ...root.node.props}`), so a
+    // stored prop whose NAME collides with a context column keeps the stored VALUE
+    // but inherits the injected TYPE. Model that order faithfully: inject cols, then
+    // let the stored `hero` prop win its value (bd Notidian-9xbn collision repro).
+    const props: Record<string, string> = {};
     const types: Record<string, string> = {};
     for (const [name, type] of cols) {
       props[name] = "";
       types[name] = type;
     }
+    props.hero = code;
     const node: FrameNode = {
       id: "main",
       schemaId: "s1",
@@ -548,5 +554,34 @@ describe("session bless survives an editable<->read topology switch (Notidian-sy
     const readRebuild = materialize(READ_COLS);
     expect(restampSessionBless(frameId, readRebuild)).toBe(false);
     expect(hasKitProvenance(readRebuild.node)).toBe(false);
+  });
+
+  // bd Notidian-9xbn (milestone-gate must-fix): the residual the sy30 empty-value
+  // heuristic could not reach. A context column whose NAME equals the stored
+  // code-bearing root prop `hero` is injected only on the editable path; the stored
+  // prop overrides the VALUE ("" -> code) on both, but the injected TYPE survives on
+  // editable and is absent on read. props agree, types diverged -> the bless used to
+  // self-destruct on the switch for this exotic frame. Dropping root types from the
+  // print closes it: the bless SURVIVES the editable<->read switch here too.
+  it("bless survives the switch even when a context column NAME collides with the stored prop (Notidian-9xbn)", () => {
+    const COLLIDING_COLS: Array<[string, string]> = [
+      ["Status", "text"],
+      ["hero", "text"], // collides with the stored, code-bearing `hero` prop
+    ];
+    blessTopology(materialize(COLLIDING_COLS));
+    const readRebuild = materialize(READ_COLS); // read: no "hero" column injected
+    expect(hasKitProvenance(readRebuild.node)).toBe(false);
+    expect(restampSessionBless(frameId, readRebuild)).toBe(true);
+    expect(hasKitProvenance(readRebuild.node)).toBe(true);
+  });
+
+  it("a real code EDIT still drops the bless under a name-colliding column (no false-accept, Notidian-9xbn)", () => {
+    const COLLIDING_COLS: Array<[string, string]> = [["hero", "text"]];
+    blessTopology(materialize(COLLIDING_COLS));
+    // same identity, read topology, code-bearing `hero` rewritten -> must NOT restamp
+    const edited = materialize(READ_COLS, "$api.probe.ping('REWRITTEN')");
+    expect(restampSessionBless(frameId, edited)).toBe(false);
+    expect(hasKitProvenance(edited.node)).toBe(false);
+    expect(shouldNotifyApiWithheld(frameId)).toBe(true);
   });
 });

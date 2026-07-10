@@ -63,31 +63,47 @@ const stableSerialize = (v: unknown): string => {
 };
 
 // bd Notidian-kcgt — fingerprint of a materialized frame tree's CODE-BEARING
-// fields: per node [id, type, props, types, styles, actions], children in order.
-// (`types` is included because generateCodeForProp keys codegen off it.) A `list`
-// node's item template is `execPropsOptions.template === children` BY REFERENCE
-// on a source tree (executable.ts), so walking children covers templates too.
-// The FULL serialized string is the fingerprint — exact equality, no hash, so
-// there is no collision surface for an attacker to aim at.
+// fields: per node [id, type, props, types, styles, actions], children in order,
+// EXCEPT the ROOT node's props/types are canonicalized (below). A `list` node's
+// item template is `execPropsOptions.template === children` BY REFERENCE on a
+// source tree (executable.ts), so walking children covers templates too. The FULL
+// serialized string is the fingerprint — exact equality, no hash, so there is no
+// collision surface for an attacker to aim at.
 //
-// bd Notidian-sy30 — the fingerprint must be RENDER-TOPOLOGY-INDEPENDENT. Both
-// render paths converge on buildRoot -> linkProps (ast.ts), which folds each
-// context-column field into the ROOT node's props (value ALWAYS "") and types
-// (the column type), mutating root.node ONLY — children are byte-identical across
-// paths. But the two paths inject DIFFERENT column sets (the editable space view
-// passes [...tableData.cols, ...props.cols]; the read surface passes frame.cols
-// only), so the SAME stored code materialized two ways used to fingerprint
-// differently — restampSessionBless refused the other topology and the withhold
-// path then deleted the bless and re-armed a FALSE "code changed" notice. Fix:
-// on the ROOT node only, canonicalize those injected bindings OUT — drop every
-// prop whose value is "" and drop the SAME keys from types. This is SOUND: an
-// empty-valued prop compiles to `() => undefined` regardless of its type
-// (executable.ts generateCodeForProp — `type` only flips a branch reachable when
-// the value is multi-line, which an empty value can never be), so a dropped
-// binding never carries executable code and never hides a code change. Every
-// non-empty, code-bearing root prop/style/action and the ENTIRE child subtree
-// stay in the print, so a real stored edit (incl. an added/changed root-prop
-// expression) still flips it and drops trust.
+// bd Notidian-sy30 / Notidian-9xbn — the fingerprint must be RENDER-TOPOLOGY-
+// INDEPENDENT: the SAME stored code materialized via either render path must
+// fingerprint IDENTICALLY, else a session bless self-destructs when the frame
+// re-renders via the other topology and the withhold path re-arms a FALSE "code
+// changed" notice. Both paths converge on buildRoot -> linkProps (ast.ts), which
+// folds each context-column field into the ROOT node's props (value ALWAYS "") and
+// types (the column type), mutating root.node ONLY — children are byte-identical
+// across paths. But the two paths inject DIFFERENT column sets (editable =
+// [...tableData.cols, ...props.cols]; read = frame.cols) AND type the root
+// differently (read = nodeToTypes(node.type); editable = the table cols wholesale),
+// so the root's materialized props/types are topology-dependent noise. Canonicalize
+// the ROOT node before serialization:
+//   (1) drop every prop whose value is "" — the linkProps-injected empty bindings
+//       (sy30). SOUND: an empty value compiles to () => undefined regardless of its
+//       type (executable.ts generateCodeForProp — `type` only flips a branch reached
+//       when the value is multi-line, which an empty value can never be), so a
+//       dropped empty binding carries no executable code and hides no code change.
+//   (2) drop the ENTIRE root `types` map (Notidian-9xbn). Node types are NEVER
+//       persisted (nodeToFrame writes no types column; nodes.ts derives them from
+//       node.type via nodeToTypes at load), so every type on a MATERIALIZED root is
+//       either that node-type-derived default (already captured by `type` in the
+//       print) or a linkProps-injected column type — and the injected SET differs by
+//       topology. A stored, NON-EMPTY (code-bearing) root prop whose NAME collides
+//       with a context column keeps the injected type on the editable path but not
+//       the read path (the residual step (1) cannot reach, since that prop's value
+//       is non-empty). Dropping root types closes that divergence with NO false-
+//       accept: the stored CODE lives in props VALUES / styles / actions / node type
+//       / child subtree, all still fully serialized, so a real edit still flips the
+//       print. The type's ONLY codegen effect is rerouting statement-vs-expression
+//       wrapping for a multi-line value (generateCodeForProp), and the value string
+//       it wraps is fingerprinted unchanged, so no new expression reaches $api.
+// Every non-empty, code-bearing ROOT prop/style/action and the ENTIRE child subtree
+// (children keep FULL types) stay in the print, so a real stored edit still drops
+// trust.
 export const fingerprintFrameTree = (
   tree: FrameTreeNode | null | undefined,
   // Internal recursion flag — linkProps mutates the ROOT node only, so only the
@@ -99,34 +115,33 @@ export const fingerprintFrameTree = (
   if (!tree?.node) return "";
   const n = tree.node;
   let props: Record<string, unknown> = n.props ?? {};
-  let types: Record<string, unknown> = n.types ?? {};
+  // The ROOT node's `types` are topology-injected noise (Notidian-9xbn) — dropped
+  // from the print entirely. Every CHILD keeps its full `types` (children are
+  // byte-identical across render paths, so their types carry no topology skew).
+  const types: Record<string, unknown> = isRoot ? {} : n.types ?? {};
   if (isRoot) {
     const injected = Object.keys(props).filter((k) => props[k] === "");
     if (injected.length > 0) {
       const drop = new Set(injected);
-      const without = (o: Record<string, unknown>): Record<string, unknown> => {
-        // SECURITY: the accumulator MUST be prototype-less (Object.create(null)),
-        // never a plain `{}`. node.props comes from safelyParseJSON = JSON.parse
-        // (nodes.ts), which revives a `"__proto__"` prop as an OWN enumerable key
-        // — and that key reaches the executor with full $api (buildExecutable's
-        // for..in stashes its compiled fn as the exec object's prototype; the
-        // runner reads it back via the "__proto__" getter and .call()s it). On a
-        // plain `{}`, `out["__proto__"] = <code string>` runs through
-        // Object.prototype's __proto__ SETTER, which ignores a non-object value
-        // and SILENTLY DROPS the key — so a frame rewritten to add
-        // `"__proto__":"$api.<destroy>()"` would fingerprint identically to the
-        // blessed benign tree, retain trust, and re-grant $api (a
-        // hardenFrameExecution bypass; Notidian-sy30). A null-prototype object has
-        // no such setter, so `out["__proto__"] = value` creates an OWN data
-        // property that Object.keys/stableSerialize include — the rewrite flips
-        // the print and trust drops, honouring the module's HARD SECURITY
-        // INVARIANT. Same reasoning shields `constructor`/`prototype` keys.
-        const out: Record<string, unknown> = Object.create(null);
-        for (const k of Object.keys(o)) if (!drop.has(k)) out[k] = o[k];
-        return out;
-      };
-      props = without(props);
-      types = without(types);
+      // SECURITY: the accumulator MUST be prototype-less (Object.create(null)),
+      // never a plain `{}`. node.props comes from safelyParseJSON = JSON.parse
+      // (nodes.ts), which revives a `"__proto__"` prop as an OWN enumerable key
+      // — and that key reaches the executor with full $api (buildExecutable's
+      // for..in stashes its compiled fn as the exec object's prototype; the
+      // runner reads it back via the "__proto__" getter and .call()s it). On a
+      // plain `{}`, `out["__proto__"] = <code string>` runs through
+      // Object.prototype's __proto__ SETTER, which ignores a non-object value
+      // and SILENTLY DROPS the key — so a frame rewritten to add
+      // `"__proto__":"$api.<destroy>()"` would fingerprint identically to the
+      // blessed benign tree, retain trust, and re-grant $api (a
+      // hardenFrameExecution bypass; Notidian-sy30). A null-prototype object has
+      // no such setter, so `out["__proto__"] = value` creates an OWN data
+      // property that Object.keys/stableSerialize include — the rewrite flips
+      // the print and trust drops, honouring the module's HARD SECURITY
+      // INVARIANT. Same reasoning shields `constructor`/`prototype` keys.
+      const out: Record<string, unknown> = Object.create(null);
+      for (const k of Object.keys(props)) if (!drop.has(k)) out[k] = props[k];
+      props = out;
     }
   }
   const self = [
