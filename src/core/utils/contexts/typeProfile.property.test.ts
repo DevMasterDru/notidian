@@ -548,3 +548,313 @@ describe("typeProfile v3 — table->hub mirror is idempotent", () => {
     expect(observedChange).toBe(true);
   });
 });
+
+// ===========================================================================
+// (5) ROUND-TRIP + MIRROR over HOSTILE FIELD-NAME KEYS (characterization)
+//
+// The seeded generators above draw field-name KEYS from a safe pool on purpose
+// — hostile keys were "the adversarial file's concern". But the adversarial net
+// (typeProfile.adversarial.test.ts) only proves the PARSER is total/shape-safe
+// on hostile keys; it never runs them through THIS file's two round-trip
+// contracts. serializeProfileToFrontmatter builds `fields` (and each
+// `kind_fields.<kind>`) sub-map via plain assignment `map[field.name] = def`,
+// while the OUTER kind map is built via Object.fromEntries. Those two
+// constructions have DIFFERENT semantics for the one key JS treats specially:
+//   - `map["__proto__"] = def` invokes the Object.prototype `__proto__` ACCESSOR
+//     (a setter), so it does NOT create an own data property.
+//   - Object.fromEntries([["__proto__", def]]) uses CreateDataProperty, so it
+//     DOES create an own `__proto__` data key.
+// So a `__proto__`-named FIELD can diverge from a re-parse while every other
+// hostile key round-trips. This block drives the exact hostile keys the
+// adversarial parser net enumerates (`__proto__`, `constructor`, `prototype`,
+// `toString`, `''`) through parse -> serializeProfileToFrontmatter -> parse and
+// through the mirror, and PINS where each agrees with a re-parse and where it
+// genuinely cannot. Per bead Notidian-megy this is characterization only: the
+// `__proto__` divergence and the empty-name add-column quirk are DOCUMENTED,
+// not fixed — pinning actual behavior guards it against silent drift.
+// ===========================================================================
+
+// Ordinary string keys that merely LOOK dangerous: no accessor lives on
+// Object.prototype for them and the parser never falsy-skips them, so they
+// behave like any other name and are a full round-trip fixpoint.
+const ROUND_TRIP_SAFE_HOSTILE = ["constructor", "prototype", "toString"] as const;
+
+// Force an OWN enumerable `key` — Object.fromEntries uses CreateDataProperty, so
+// even "__proto__" becomes a real own data key rather than tripping the object-
+// literal prototype setter. This reproduces how Obsidian's metadata cache /
+// JSON.parse surface a hostile YAML key as own data (an object LITERAL
+// `{ __proto__: x }` instead mutates the prototype and is NOT what a hub note
+// carries once it has round-tripped through the cache).
+const ownKeyMap = (key: string, def: unknown): Record<string, unknown> =>
+  Object.fromEntries([[key, def]]);
+
+const parseOrThrow = (fm: Record<string, unknown>): NotidianTypeProfile => {
+  const profile = parseTypeProfile(fm);
+  if (!profile)
+    throw new Error("marked frontmatter must parse to a non-null profile");
+  return profile;
+};
+
+const fieldNames = (list: TypeProfileField[]): string[] =>
+  list.map((f) => f.name);
+
+describe("typeProfile v3 — round-trip over HOSTILE top-level field-name keys", () => {
+  it("constructor / prototype / toString field names are a full round-trip FIXPOINT", () => {
+    for (const key of ROUND_TRIP_SAFE_HOSTILE) {
+      const fm = {
+        schema_type: typeProfileSchemaType,
+        fields: ownKeyMap(key, { kind: "select", options: ["a", "b"] }),
+      };
+      const profile = parseOrThrow(fm);
+      // The parser faithfully surfaces the hostile-named field.
+      expect(fieldNames(profile.fields)).toEqual([key]);
+
+      // serializeProfileToFrontmatter re-creates the key as an OWN data property
+      // (these keys have no accessor), so a re-parse reproduces the field...
+      const ser = serializeProfileToFrontmatter(profile);
+      expect(Object.keys(ser.fields as Record<string, unknown>)).toEqual([key]);
+
+      const rt = roundTrip(profile);
+      expect(rt.fields).toEqual(profile.fields);
+      // ...and a SECOND application changes nothing — hostile key and all: the
+      // serialize/parse pair reaches the same stable normal form as safe keys.
+      expect(roundTrip(rt)).toEqual(rt);
+    }
+  });
+
+  it("'' (empty) field name is dropped at PARSE — never materializes, so the round-trip is vacuously a fixpoint", () => {
+    const fm = {
+      schema_type: typeProfileSchemaType,
+      // A own empty-string key alongside a real field.
+      fields: { "": { kind: "text" }, real: { kind: "number" } },
+    };
+    const profile = parseOrThrow(fm);
+    // parseFieldsMap does `if (!name) continue` — the empty-named entry is gone.
+    expect(fieldNames(profile.fields)).toEqual(["real"]);
+    // Nothing to lose on the way back: the round-trip stays a fixpoint.
+    const rt = roundTrip(profile);
+    expect(rt.fields).toEqual(profile.fields);
+    expect(roundTrip(rt)).toEqual(rt);
+  });
+
+  it("__proto__ field name parses but is DROPPED on re-serialize — documented out-of-round-trip-scope (accessor, not CreateDataProperty)", () => {
+    const objectProtoBefore = Object.getPrototypeOf({});
+    const fm = {
+      schema_type: typeProfileSchemaType,
+      fields: ownKeyMap("__proto__", { kind: "text" }),
+    };
+    const profile = parseOrThrow(fm);
+    // The PARSER surfaces a __proto__-named field (the source carried it as an
+    // own key), so it exists post-parse just like any other field.
+    expect(fieldNames(profile.fields)).toEqual(["__proto__"]);
+
+    // But serializeFieldsMap does `map["__proto__"] = def`, which hits the
+    // Object.prototype accessor SETTER rather than defining an own data
+    // property, so the serialized `fields` map has NO own __proto__ key...
+    const ser = serializeProfileToFrontmatter(profile);
+    expect(Object.keys(ser.fields as Record<string, unknown>)).toEqual([]);
+
+    // ...and a re-parse therefore cannot see the field: it is silently dropped.
+    // This is the pinned divergence — __proto__ field names are out of
+    // round-trip scope (Notidian-megy).
+    const rt = roundTrip(profile);
+    expect(rt.fields).toEqual([]);
+
+    // The divergence is BOUNDED: it drops the one field, it does not throw,
+    // does not corrupt a sibling, and does not pollute the global prototype.
+    expect(Object.getPrototypeOf({})).toBe(objectProtoBefore);
+    expect(({} as Record<string, unknown>).kind).toBeUndefined();
+  });
+
+  it("a __proto__ field is dropped in ISOLATION — a safe sibling in the same map still round-trips", () => {
+    const fm = {
+      schema_type: typeProfileSchemaType,
+      fields: ownKeyMap("__proto__", { kind: "text" }),
+    };
+    // Add a second, safe field AFTER the hostile one (own-key order preserved).
+    (fm.fields as Record<string, unknown>).keep = { kind: "number" };
+    const profile = parseOrThrow(fm);
+    expect(fieldNames(profile.fields)).toEqual(["__proto__", "keep"]);
+
+    const rt = roundTrip(profile);
+    // Only __proto__ is lost; `keep` survives intact.
+    expect(fieldNames(rt.fields)).toEqual(["keep"]);
+    expect(rt.fields[0]).toEqual(profile.fields[1]);
+  });
+});
+
+describe("typeProfile v3 — round-trip over HOSTILE kind_fields keys", () => {
+  it("inner FIELD names behave exactly like top-level field names", () => {
+    // Safe keys round-trip inside a kind sub-map.
+    for (const key of ROUND_TRIP_SAFE_HOSTILE) {
+      const fm = {
+        schema_type: typeProfileSchemaType,
+        fields: { anchor: { kind: "text" } },
+        kind_fields: { task: ownKeyMap(key, { kind: "number" }) },
+      };
+      const profile = parseOrThrow(fm);
+      expect(fieldNames(profile.kindFields.task ?? [])).toEqual([key]);
+      const rt = roundTrip(profile);
+      expect(rt.kindFields).toEqual(profile.kindFields);
+      expect(rt.fields).toEqual(profile.fields);
+    }
+
+    // __proto__ inner field: parses into the kind sub-map, dropped on re-serialize.
+    {
+      const fm = {
+        schema_type: typeProfileSchemaType,
+        fields: { anchor: { kind: "text" } },
+        kind_fields: { task: ownKeyMap("__proto__", { kind: "number" }) },
+      };
+      const profile = parseOrThrow(fm);
+      expect(fieldNames(profile.kindFields.task ?? [])).toEqual(["__proto__"]);
+      const rt = roundTrip(profile);
+      expect(fieldNames(rt.kindFields.task ?? [])).toEqual([]);
+      // The anchor (a safe common field) is the only survivor of the union.
+      expect(fieldNames(rt.fields)).toEqual(["anchor"]);
+    }
+
+    // '' inner field: dropped at parse by the same falsy-name skip.
+    {
+      const fm = {
+        schema_type: typeProfileSchemaType,
+        fields: { anchor: { kind: "text" } },
+        kind_fields: { task: { "": { kind: "number" }, real: { kind: "text" } } },
+      };
+      const profile = parseOrThrow(fm);
+      expect(fieldNames(profile.kindFields.task ?? [])).toEqual(["real"]);
+      const rt = roundTrip(profile);
+      expect(rt.kindFields).toEqual(profile.kindFields);
+    }
+  });
+
+  it("KIND discriminator names: safe hostile keys AND '' survive+round-trip; __proto__ is dropped at PARSE", () => {
+    // Note the asymmetry with FIELD names: the parser only falsy-skips FIELD
+    // names, so an empty-string KIND discriminator is KEPT and round-trips.
+    for (const key of [...ROUND_TRIP_SAFE_HOSTILE, ""]) {
+      const fm = {
+        schema_type: typeProfileSchemaType,
+        kind_fields: ownKeyMap(key, { real: { kind: "text" } }),
+      };
+      const profile = parseOrThrow(fm);
+      expect(Object.keys(profile.kindFields)).toContain(key);
+      const rt = roundTrip(profile);
+      expect(Object.keys(rt.kindFields)).toContain(key);
+      expect(fieldNames(rt.kindFields[key] ?? [])).toEqual(["real"]);
+    }
+
+    // __proto__ KIND name: the parser itself does `kindFields[kindName] = ...`,
+    // and for "__proto__" that plain assignment hits the accessor, so the kind
+    // never materializes — the whole sub-schema (incl. its "real" field) is gone.
+    const fm = {
+      schema_type: typeProfileSchemaType,
+      fields: { anchor: { kind: "text" } },
+      kind_fields: ownKeyMap("__proto__", { real: { kind: "text" } }),
+    };
+    const profile = parseOrThrow(fm);
+    expect(Object.keys(profile.kindFields)).toEqual([]);
+    expect(fieldNames(profile.fields)).toEqual(["anchor"]);
+  });
+});
+
+describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
+  // add-option and rename (both directions) are idempotent for EVERY hostile
+  // key; add-column is idempotent for every hostile key EXCEPT '' (pinned
+  // separately below). Determinism holds universally.
+  const idempotentChanges = (key: string): TypeProfileSchemaChange[] => [
+    { kind: "add-option", name: key, option: "opt" },
+    { kind: "rename-key", oldName: "existing", newName: key },
+    { kind: "rename-key", oldName: key, newName: "renamed" },
+  ];
+
+  it("planFieldsMirror: deterministic + idempotent over hostile field-name keys", () => {
+    for (const key of [...ROUND_TRIP_SAFE_HOSTILE, "__proto__", ""]) {
+      const fields = Object.fromEntries([
+        [key, { kind: "select", options: ["a"] }],
+        ["existing", { kind: "text" }],
+      ]);
+      const changes: TypeProfileSchemaChange[] = [
+        ...idempotentChanges(key),
+        // add-column is idempotent for a non-empty hostile key; the '' case is
+        // the pinned quirk exercised in its own test.
+        ...(key ? [{ kind: "add-column" as const, name: key, type: "text" }] : []),
+      ];
+      for (const change of changes) {
+        const plan1 = planFieldsMirror(fields, change);
+        // Deterministic: recomputing on the same input yields an equal plan
+        // (toEqual compares own __proto__ data keys, which the computed-key
+        // spread `{ ...fields, [key]: def }` DOES create — CreateDataProperty).
+        expect(planFieldsMirror(fields, change)).toEqual(plan1);
+        // Idempotent: applying the plan's fields then re-planning is a no-op.
+        expect(planFieldsMirror(plan1.fields, change).changed).toBe(false);
+      }
+    }
+  });
+
+  it("planTypeProfileMirror: deterministic + idempotent with hostile keys inside a kind sub-map", () => {
+    for (const key of [...ROUND_TRIP_SAFE_HOSTILE, "__proto__", ""]) {
+      const fm = {
+        schema_type: typeProfileSchemaType,
+        fields: { common: { kind: "text" } },
+        kind_fields: {
+          task: Object.fromEntries([
+            [key, { kind: "select", options: ["a"] }],
+            ["existing", { kind: "text" }],
+          ]),
+        },
+      } as Record<string, unknown>;
+      const changes: TypeProfileSchemaChange[] = [
+        ...idempotentChanges(key),
+        ...(key ? [{ kind: "add-column" as const, name: key, type: "text" }] : []),
+      ];
+      for (const change of changes) {
+        const plan1 = planTypeProfileMirror(fm, change);
+        expect(planTypeProfileMirror(fm, change)).toEqual(plan1);
+        const applied = {
+          ...fm,
+          fields: plan1.fields ?? plan1.currentFields,
+          kind_fields: plan1.kindFields ?? plan1.currentKindFields,
+        };
+        expect(planTypeProfileMirror(applied, change).changed).toBe(false);
+      }
+    }
+  });
+
+  it("empty ('') column name breaks add-column idempotence — PINNED quirk, not fixed", () => {
+    // Root cause: an empty string is FALSY, so findKey/findMapkey's truthiness
+    // guard `if (findKey(name))` never treats the existing empty-string key as
+    // "found", and add-column re-adds (overwrites) it on every pass. Harmless in
+    // practice — an empty column name can never originate from a materialized
+    // field, since parseFieldsMap falsy-skips it — but pinned so the behavior
+    // cannot drift silently. See follow-up bead.
+    const change: TypeProfileSchemaChange = {
+      kind: "add-column",
+      name: "",
+      type: "text",
+    };
+
+    const fields = Object.fromEntries([
+      ["", { kind: "select", options: ["a"] }],
+      ["existing", { kind: "text" }],
+    ]);
+    const p1 = planFieldsMirror(fields, change);
+    expect(p1.changed).toBe(true);
+    // NOT idempotent: re-planning the applied state fires again.
+    expect(planFieldsMirror(p1.fields, change).changed).toBe(true);
+    // Deterministic even so.
+    expect(planFieldsMirror(fields, change)).toEqual(p1);
+
+    const fm = {
+      schema_type: typeProfileSchemaType,
+      fields,
+    } as Record<string, unknown>;
+    const w1 = planTypeProfileMirror(fm, change);
+    expect(w1.changed).toBe(true);
+    const applied = {
+      ...fm,
+      fields: w1.fields ?? w1.currentFields,
+      kind_fields: w1.kindFields ?? w1.currentKindFields,
+    };
+    expect(planTypeProfileMirror(applied, change).changed).toBe(true);
+  });
+});
