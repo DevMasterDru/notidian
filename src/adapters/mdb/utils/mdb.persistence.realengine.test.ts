@@ -874,3 +874,122 @@ describe("Notidian-buqr: m_fields cannot keep case-variant rows the physical tab
     }
   });
 });
+
+// ===========================================================================
+// Notidian-rcvg — replaceDB's m_fields ROW fold and physical COLUMN fold must
+// pick a DETERMINISTIC, MUTUALLY-CONSISTENT survivor on an already case-colliding
+// (name,schemaId) pair (real engine).
+//
+// THE RESIDUAL DEFECT (after Notidian-buqr closed the count divergence). Both folds
+// are FIRST-SEEN passes: uniqByKey over m_fields.rows and uniqCaseInsensitive over
+// the data table's cols. They run over two INDEPENDENTLY-built arrays (mdbTablesTo-
+// DBTables derives the data cols from `tables[c].cols`; the m_fields rows are
+// assembled separately by callers — e.g. `SELECT * FROM m_fields` with no ORDER BY,
+// or mergeFrameFields concatenation). So the survivor is purely input-order-
+// dependent: (a) the SAME schema can persist "Status" from one save-path assembly
+// and "status" from another (churning the field's declared type/format on an option
+// vs text case-variant), and (b) the two folds can keep DIFFERENT casings, leaving
+// m_fields' field name mismatched with its physical column. The fix pre-sorts BOTH
+// folds with stableCanonicalByKey (authority-neutral name-string tie-break — NOT a
+// source/authority preference, ADR 0001/0014/0017), so the same survivor and casing
+// win every time. These drive the REAL sql.js engine and FAIL before the fix.
+// ===========================================================================
+
+describe("Notidian-rcvg: replaceDB folds a case-colliding schema to a DETERMINISTIC, fold-consistent survivor (real engine)", () => {
+  const RSCHEMA = "files";
+
+  // Build a DB directly from an explicit m_fields ROW order and an explicit data-
+  // table COL order, so the test can drive the two INDEPENDENT folds with DIFFERENT
+  // orders — exactly the inconsistent-builder-ordering the bead describes.
+  const buildDB = (mFieldsNames: string[], dataCols: string[]): Database => {
+    const db = new SQL.Database();
+    replaceDB(db, {
+      m_schema: {
+        uniques: ["id"],
+        cols: ["id", "name", "type", "def", "predicate", "primary"],
+        rows: [{ id: RSCHEMA, name: "Files", type: "db", def: "", predicate: "", primary: "true" }],
+      },
+      m_fields: {
+        uniques: fieldSchema.uniques,
+        cols: fieldSchema.cols,
+        rows: mFieldsNames.map((n) => fieldRow(n, RSCHEMA)) as any,
+      },
+      [RSCHEMA]: { uniques: [], cols: dataCols, rows: [] },
+    });
+    return db;
+  };
+  const physCols = (db: Database): string[] =>
+    (db.exec(`PRAGMA table_info(${JSON.stringify(RSCHEMA)})`)[0]?.values ?? []).map(
+      (r) => r[1] as string
+    );
+  const fieldNames = (db: Database): string[] =>
+    readFields(db)
+      .filter((f) => f.schemaId == RSCHEMA)
+      .map((f) => f.name);
+
+  it("persists the SAME casing regardless of the input order of a case-colliding (name,schemaId) pair (deterministic survivor)", () => {
+    const a = buildDB(["Status", "status"], ["Status", "status"]);
+    const b = buildDB(["status", "Status"], ["status", "Status"]);
+    try {
+      // The persisted casing must NOT depend on which variant happened to be first.
+      expect(fieldNames(a)).toEqual(fieldNames(b));
+      expect(physCols(a)).toEqual(physCols(b));
+      // Both assemblies collapse to a single field that agrees with its table.
+      expect(fieldNames(a)).toEqual(physCols(a));
+      expect(fieldNames(b)).toEqual(physCols(b));
+      expect(fieldNames(a)).toEqual(["Status"]);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it("m_fields survivor casing equals the physical column casing even when the m_fields-row order DIFFERS from the data-table col order (fold-consistency)", () => {
+    // The two folds fed OPPOSITE orders: first-seen-per-array kept "status" in
+    // m_fields but "Status" as the physical column — a persisted mismatch. The
+    // pre-sort makes both keep the same casing.
+    const db = buildDB(["status", "Status"], ["Status", "status"]);
+    try {
+      expect(fieldNames(db)).toEqual(physCols(db)); // no cross-fold casing drift
+      expect(fieldNames(db).length).toBe(1); // the case-variant collapsed
+      expect(fieldNames(db)).toEqual(["Status"]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("a richer option row and a leaner text row that case-collide resolve to a STABLE survivor, not the input-order-first one", () => {
+    // The churn the bead calls out: a text row shadowing a richer option row (or
+    // vice-versa) whenever it lands first. The survivor is now the name-rank winner,
+    // identical across assemblies — never a source/authority preference.
+    const rich = (): SpaceProperty =>
+      ({ ...fieldRow("Priority", RSCHEMA), type: "option", value: JSON.stringify({ options: [{ name: "High", value: "high" }] }) } as any);
+    const lean = (): SpaceProperty => ({ ...fieldRow("priority", RSCHEMA), type: "text" } as any);
+
+    const one = new SQL.Database();
+    const two = new SQL.Database();
+    try {
+      // Assembly 1: rich ("Priority") first. Assembly 2: lean ("priority") first.
+      replaceDB(one, {
+        m_schema: { uniques: ["id"], cols: ["id", "name", "type", "def", "predicate", "primary"], rows: [{ id: RSCHEMA, name: "Files", type: "db", def: "", predicate: "", primary: "true" }] },
+        m_fields: { uniques: fieldSchema.uniques, cols: fieldSchema.cols, rows: [rich(), lean()] as any },
+        [RSCHEMA]: { uniques: [], cols: ["Priority", "priority"], rows: [] },
+      });
+      replaceDB(two, {
+        m_schema: { uniques: ["id"], cols: ["id", "name", "type", "def", "predicate", "primary"], rows: [{ id: RSCHEMA, name: "Files", type: "db", def: "", predicate: "", primary: "true" }] },
+        m_fields: { uniques: fieldSchema.uniques, cols: fieldSchema.cols, rows: [lean(), rich()] as any },
+        [RSCHEMA]: { uniques: [], cols: ["priority", "Priority"], rows: [] },
+      });
+      const survivorOf = (db: Database) =>
+        readFields(db).filter((f) => f.schemaId == RSCHEMA).map((f) => ({ name: f.name, type: (f as any).type }));
+      // Same survivor (name AND type) whichever assembly order was used.
+      expect(survivorOf(one)).toEqual(survivorOf(two));
+      expect(survivorOf(one).length).toBe(1);
+      // "Priority" ('P') < "priority" ('p') -> the name-rank winner, deterministically.
+      expect(survivorOf(one)[0].name).toBe("Priority");
+    } finally {
+      one.close();
+      two.close();
+    }
+  });
+});

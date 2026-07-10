@@ -53,6 +53,48 @@ export const uniqByKey = <T>(items: T[], keyFn: (item: T) => string): T[] => {
     return seen.has(k) ? false : (seen.add(k), true);
   });
 };
+// Deterministic, order-preserving PRE-SORT for a first-seen fold (Notidian-rcvg).
+// A first-seen dedup (uniqCaseInsensitive / uniqByKey) keeps whichever member of a
+// `keyFn` group appears FIRST — so its survivor depends on the incoming array order.
+// replaceDB runs TWO such folds — the m_fields ROW fold and the physical COLUMN fold
+// — over independently-built (and thus potentially differently-ordered) arrays, so
+// left order-dependent they can keep DIFFERENT casings for one field (drifting the
+// persisted field name from its physical column) and can churn a field's kept
+// definition (a text vs option case-variant) across save-path assemblies.
+// stableCanonicalByKey reorders `items` so that, WITHIN each `keyFn` group, the
+// member with the lexicographically-smallest `rankFn` comes first, while each group
+// stays at the index of its FIRST occurrence — so items with DISTINCT keys keep
+// their original relative order (a collision-free array is returned unchanged) and
+// only the WITHIN-group winner becomes deterministic. Feeding this to a first-seen
+// fold makes the survivor a pure function of the group's CONTENTS, identical across
+// any input permutation and across two folds sharing the same key+rank. The tie-
+// break is a plain name-string comparison — authority-neutral, NEVER a source/owner
+// preference — so it can't flip a field across the frontmatter<->notidian authority
+// boundary (ADR 0001/0014/0017); that source-weighted design was reverted once.
+export const stableCanonicalByKey = <T>(
+  items: T[],
+  keyFn: (item: T) => string,
+  rankFn: (item: T) => string
+): T[] => {
+  const firstIndex = new Map<string, number>();
+  items.forEach((item, i) => {
+    const k = keyFn(item);
+    if (!firstIndex.has(k)) firstIndex.set(k, i);
+  });
+  return items
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => {
+      const fa = firstIndex.get(keyFn(a.item)) as number;
+      const fb = firstIndex.get(keyFn(b.item)) as number;
+      if (fa !== fb) return fa - fb; // group position = its FIRST occurrence
+      const ra = rankFn(a.item);
+      const rb = rankFn(b.item);
+      if (ra < rb) return -1; // within a group: deterministic name-rank winner first
+      if (ra > rb) return 1;
+      return a.i - b.i; // exact rank tie (true duplicate): stable by input index
+    })
+    .map((e) => e.item);
+};
 export const uniqueNameFromString = (name: string, cols: string[]) => {
   let newName = name;
   if (cols.includes(newName)) {

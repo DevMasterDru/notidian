@@ -5,6 +5,7 @@ import {
   onlyUniquePropCaseInsensitive,
   orderArrayByArrayWithKey,
   orderStringArrayByArray,
+  stableCanonicalByKey,
   uniq,
   uniqByKey,
   uniqCaseInsensitive,
@@ -333,6 +334,159 @@ describe("uniqByKey", () => {
 
   it("returns [] for an empty array", () => {
     expect(uniqByKey([] as { name: string }[], (r) => r.name)).toEqual([]);
+  });
+});
+
+// =========================================================================
+// stableCanonicalByKey  (deterministic, order-preserving pre-sort for a
+//   first-seen fold — Notidian-rcvg)
+//
+// A first-seen dedup (uniqCaseInsensitive / uniqByKey) keeps whichever member of
+// a collision group appears FIRST, so its survivor depends on the incoming array
+// order. replaceDB runs TWO such folds — the m_fields ROW fold and the physical
+// COLUMN fold — over independently-built (and thus differently-ordered) arrays;
+// left order-dependent they can keep DIFFERENT casings for one field and churn a
+// field's kept definition across save-path assemblies. stableCanonicalByKey makes
+// each fold's survivor a pure function of the group's CONTENTS (not its order) via
+// an authority-neutral name-string tie-break, so both folds agree and the survivor
+// is stable across any input permutation.
+// =========================================================================
+describe("stableCanonicalByKey", () => {
+  const lower = (s: string) => s.toLowerCase();
+  const idFn = (s: string) => s;
+  const rowKey = (r: { name: string; schemaId: string }) =>
+    JSON.stringify([r.schemaId, r.name.toLowerCase()]);
+  const rowRank = (r: { name: string }) => r.name;
+
+  it("is the identity (order-preserving) when there are no key collisions", () => {
+    expect(
+      stableCanonicalByKey(["File", "Created", "Status"], lower, idFn)
+    ).toEqual(["File", "Created", "Status"]);
+  });
+
+  it("moves the lexicographically-smallest member of a collision group to the front of that group", () => {
+    // "Status" ('S' 0x53) < "status" ('s' 0x73): the SAME member wins regardless
+    // of input order — this is what makes the downstream first-seen fold determinate.
+    expect(stableCanonicalByKey(["status", "Status"], lower, idFn)).toEqual([
+      "Status",
+      "status",
+    ]);
+    expect(stableCanonicalByKey(["Status", "status"], lower, idFn)).toEqual([
+      "Status",
+      "status",
+    ]);
+  });
+
+  it("keeps each collision group at the position of its FIRST occurrence (non-colliding order preserved)", () => {
+    // The status-group first appears at index 0, Created at index 1: the group
+    // stays put; only its INTERNAL order becomes deterministic. After a first-seen
+    // fold the surviving distinct columns keep their original relative positions.
+    expect(
+      stableCanonicalByKey(["status", "Created", "Status"], lower, idFn)
+    ).toEqual(["Status", "status", "Created"]);
+  });
+
+  it("is order-INDEPENDENT: every permutation of the same multiset yields the same fold survivor set", () => {
+    const survivor = (arr: string[]) =>
+      new Set(uniqCaseInsensitive(stableCanonicalByKey(arr, lower, idFn)));
+    const expected = new Set(["File", "Status", "Created"]);
+    for (const p of [
+      ["File", "Status", "status", "Created"],
+      ["status", "File", "Created", "Status"],
+      ["Created", "status", "Status", "File"],
+      ["Status", "Created", "File", "status"],
+    ]) {
+      expect(survivor(p)).toEqual(expected);
+    }
+  });
+
+  it("cross-fold parity: uniqCaseInsensitive over cols and uniqByKey over rows keep the SAME casing even from OPPOSITE input orders", () => {
+    // The exact drift the bead names: builders assembled the m_fields rows and the
+    // data-table cols in opposite orders. Pre-sorting BOTH with stableCanonicalByKey
+    // makes the two independent folds pick the identical survivor casing.
+    const cols = ["Status", "status"];
+    const rows = ["status", "Status"].map((name) => ({ name, schemaId: "s" }));
+    const colSurvivor = uniqCaseInsensitive(
+      stableCanonicalByKey(cols, lower, idFn)
+    );
+    const rowSurvivor = uniqByKey(
+      stableCanonicalByKey(rows, rowKey, rowRank),
+      rowKey
+    ).map((r) => r.name);
+    expect(rowSurvivor).toEqual(colSurvivor);
+    expect(rowSurvivor).toEqual(["Status"]);
+  });
+
+  it("is authority-neutral: the tie-break reads ONLY the rank string, never a source/owner field", () => {
+    // The LATER case-variant carries source:"notidian". A source-weighted winner
+    // (the reverted design that crossed the ADR 0001/0014/0017 boundary) would let
+    // it win. stableCanonicalByKey ranks by NAME only, so the lexicographically-
+    // smallest name's row survives WHOLE — here the frontmatter-canonical row.
+    const rows = [
+      { name: "title", schemaId: "s", source: "notidian", type: "flex" },
+      { name: "Title", schemaId: "s", source: "", type: "text" },
+    ];
+    const out = uniqByKey(
+      stableCanonicalByKey(
+        rows,
+        (r) => JSON.stringify([r.schemaId, r.name.toLowerCase()]),
+        (r) => r.name
+      ),
+      (r) => JSON.stringify([r.schemaId, r.name.toLowerCase()])
+    );
+    expect(out).toEqual([
+      { name: "Title", schemaId: "s", source: "", type: "text" },
+    ]);
+  });
+
+  it("scopes the group by the full key: same name on different schemaIds is never merged", () => {
+    const rows = [
+      { name: "name", schemaId: "b" },
+      { name: "Name", schemaId: "a" },
+      { name: "NAME", schemaId: "a" },
+    ];
+    const out = uniqByKey(stableCanonicalByKey(rows, rowKey, rowRank), rowKey);
+    // Within a/{Name,NAME} the name-rank winner is "NAME" ('A' 0x41 < 'a' 0x61, so
+    // "NAME" < "Name") — deterministic, not input-order-first. b/name is a distinct
+    // group (different schemaId), never merged.
+    expect(out).toEqual([
+      { name: "name", schemaId: "b" },
+      { name: "NAME", schemaId: "a" },
+    ]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = ["status", "Status", "File"];
+    stableCanonicalByKey(input, lower, idFn);
+    expect(input).toEqual(["status", "Status", "File"]);
+  });
+
+  it("returns [] for an empty array", () => {
+    expect(stableCanonicalByKey([] as string[], lower, idFn)).toEqual([]);
+  });
+
+  it("property: output is a permutation of the input and the fold survivor is permutation-invariant", () => {
+    const rng = makeRng(0x5ca1ab1e);
+    const pool = ["a", "A", "b", "B", "Cc", "cC", "d", "D"];
+    for (let run = 0; run < PROPERTY_RUNS; run++) {
+      const len = randInt(rng, 0, 12);
+      const arr = Array.from(
+        { length: len },
+        () => pool[randInt(rng, 0, pool.length - 1)]
+      );
+      const canon = stableCanonicalByKey(arr, lower, idFn);
+      // same multiset (a permutation)
+      expect([...canon].sort()).toEqual([...arr].sort());
+      // shuffle and re-canonicalize: the folded survivor set is identical
+      const shuffled = [...arr];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = randInt(rng, 0, i);
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      expect(
+        new Set(uniqCaseInsensitive(stableCanonicalByKey(shuffled, lower, idFn)))
+      ).toEqual(new Set(uniqCaseInsensitive(canon)));
+    }
   });
 });
 

@@ -2,8 +2,8 @@ import { getParentPathFromString } from "utils/path";
 
 import { MDBFileTypeAdapter } from "adapters/mdb/mdbAdapter";
 import JSZip from "jszip";
-import { DBRows, DBTable, DBTables, SpaceTables } from "shared/types/mdb";
-import { uniqByKey, uniqCaseInsensitive } from "shared/utils/array";
+import { DBRow, DBRows, DBTable, DBTables, SpaceTables } from "shared/types/mdb";
+import { stableCanonicalByKey, uniqByKey, uniqCaseInsensitive } from "shared/utils/array";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database, QueryExecResult, SqlJsStatic } from "sql.js";
@@ -458,15 +458,28 @@ export const replaceDB = (db: Database, tables: DBTables) => {
       // persisted field list and the physical table stay in permanent agreement.
       // Whole rows survive verbatim — no field merge, no source/authority tie-break
       // (that would risk crossing the frontmatter<->notidian boundary, ADR
-      // 0001/0014/0017) — so the survivor's own name IS the first-seen casing the
-      // liveCols fold keeps for the same input order.
+      // 0001/0014/0017).
+      //
+      // Notidian-rcvg: BOTH folds — this m_fields-ROW fold and the liveCols COLUMN
+      // fold below — are first-seen passes, but over two INDEPENDENTLY-built arrays
+      // (mdbTablesToDBTables derives the data cols from `tables[c].cols`; the
+      // m_fields rows are assembled separately by callers — e.g. `SELECT * FROM
+      // m_fields` with no ORDER BY, or mergeFrameFields concatenation). So a raw
+      // first-seen survivor is input-ORDER-dependent: the same schema can persist
+      // "Status" from one save-path assembly and "status" from another, and the two
+      // folds can even keep DIFFERENT casings, drifting the persisted field name
+      // from its physical column. stableCanonicalByKey pre-sorts BOTH folds by an
+      // authority-neutral name-string tie-break (NOT a source/authority preference),
+      // so the SAME survivor and casing win every time, whatever the input order.
+      const mFieldRowKey = (r: DBRow) =>
+        JSON.stringify([r?.schemaId ?? "", String(r?.name ?? "").toLowerCase()]);
       const liveRows =
         t === "m_fields"
-          ? uniqByKey(tables[t].rows ?? [], (r) =>
-              JSON.stringify([
-                (r as { schemaId?: unknown })?.schemaId ?? "",
-                String((r as { name?: unknown })?.name ?? "").toLowerCase(),
-              ])
+          ? uniqByKey(
+              stableCanonicalByKey(tables[t].rows ?? [], mFieldRowKey, (r) =>
+                String(r?.name ?? "")
+              ),
+              mFieldRowKey
             )
           : tables[t].rows ?? [];
       // ADR 0045 (Option A) / Notidian-k778: derive ONE de-duped, falsy-filtered
@@ -476,7 +489,18 @@ export const replaceDB = (db: Database, tables: DBTables) => {
       // Notidian-1q8y: the dedup is case-INSENSITIVE (first-seen casing wins)
       // because SQLite folds identifier case — "Status" and "status" in one
       // CREATE TABLE throw `duplicate column name` and fail the whole save.
-      const liveCols = uniqCaseInsensitive(tableFields.filter((f) => f));
+      // Notidian-rcvg: the same stableCanonicalByKey pre-sort feeds this fold, so
+      // the surviving COLUMN casing matches the m_fields-row survivor above (they
+      // share the name-string tie-break) regardless of either array's input order.
+      // A collision-free cols list is returned unchanged, so column order is
+      // preserved for the normal (non-corrupt) case.
+      const liveCols = uniqCaseInsensitive(
+        stableCanonicalByKey(
+          tableFields.filter((f) => f),
+          (f) => f.toLowerCase(),
+          (f) => f
+        )
+      );
       if (liveCols.length === 0) {
         // Notidian-jn8p: SQLite has no zero-column tables, so there is no
         // CREATE to pair with the DROP below. Never DROP without recreating:
