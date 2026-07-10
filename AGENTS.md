@@ -1,41 +1,51 @@
 # Notidian Agent Guardrails
 
-## Long Autonomous Mode (standing authorization)
+## Long Autonomous Mode (standing authorization — mission-gated)
 
-The repository owner has authorized an **autonomous, multi-agent implementation
-drive** on the `autonomous/notion-parity-2026-06-12` branch — the **Long Autonomous
-Mode**. It is **active**: a session enters it when the owner says "long autonomous
-mode" / "autonomous mode" / "drain quota" / "go" / "continue". Once active, the
-rules here override the conservative default in the Beads block; **do not request
-approval or consent** for in-scope work (a *current, explicit* owner instruction in
-the live session still wins).
+The repository owner has authorized **Mission-Gated Autonomous Development** on the
+`autonomous/notion-parity-2026-06-12` branch. A session enters it when the owner
+says "long autonomous mode" / "autonomous mode" / "run the mission" / "go" /
+"continue" **and a commissioned mission exists** (owner-named scope: a bead list or
+epic). Once active, the rules here override the conservative default in the Beads
+block; **do not request approval or consent** for in-mission work (a *current,
+explicit* owner instruction in the live session still wins). **The drive never
+self-commissions**: no mission → ask the owner which mission to run. Quota-draining
+/ self-generated tail work is retired (ADR-0065, owner ruling 2026-07-10).
 
-**Doctrine lives canonically, not here** (resolve live, never copy) — the practice
-(the three routes implement-clear-correct · kill-switch-ship · park-speculative;
-use-driven validation; the diverse-lens review loop; *never* decision-ADRs-that-wait)
-is the **Long Autonomous Mode** method:
+**Doctrine lives canonically, not here** (resolve live, never copy):
 
+- Decision + rationale: Atlas Method repo `docs/decisions/0065-mission-gated-autonomous-development.md` (amends `0022-long-autonomous-mode-use-driven.md` — use-driven validation + the route triage remain)
 - Method note: Atlas Vault `Agent Context/Methods/Long Autonomous Mode.md`
-- Decision + rationale: Atlas Method repo `docs/decisions/0022-long-autonomous-mode-use-driven.md`
-- Engine + how-to: the global `long-autonomous-mode` skill (`~/.agents/skills/long-autonomous-mode/`)
+- Engine + how-to: the global `long-autonomous-mode` skill (`~/.claude/skills/long-autonomous-mode/`; canonical source: Atlas Method repo `skills/`)
 
-**How to run it (this repo).** Use the global, self-configuring engine — it reads
-the binding below and is the **sole** path (the former local
-`.claude/workflows/autonomous-beads.js` predecessor was retired once the global
-engine was validated on Notidian — bead `Notidian-wj6b`):
+**How to run it (this repo):**
 
 ```
-Workflow({ scriptPath: "~/.claude/skills/long-autonomous-mode/engine.js", args: { model: "opus" } })
+Workflow({ scriptPath: "~/.claude/skills/long-autonomous-mode/engine.js", args: {
+  mission: { name: "<owner-named mission>", beads: ["Notidian-…"] /* or epicId */ },
+  implementModel: "sonnet",   // T0/T1 worker tier (see model tiering below)
+}})
 ```
 
 **This repo's binding (the specifics the engine consumes):**
 
 - **Branch:** `autonomous/notion-parity-2026-06-12` (branch-first if ever on `main`).
-- **Model override:** all implementer/reviewer/fix subagents run on **Claude Opus**
-  (explicit owner directive — overrides Atlas `Configs/Model Routing.md`), each
-  carrying the max-reasoning directive *"deeply contemplate with maximum reasoning
+- **Model tiering (owner-ratified 2026-07-10, replaces the former all-Opus
+  override):** plan gate, all review lenses, the milestone gate, and **T2**
+  (authority-boundary / data-loss / render-path) implementation run on the
+  **strongest available tier** (Opus/Fable per Atlas `Configs/Model Routing.md`,
+  resolved live); **T0/T1 implementation may run Sonnet-tier**. Every subagent
+  carries the max-reasoning directive *"deeply contemplate with maximum reasoning
   and unlimited effort… decide and act without asking for approval."*
-- **Surfaces:** review-queue `docs/AUTONOMOUS-REVIEW-QUEUE.md`; roadmap `docs/ROADMAP.md`.
+- **Live-verify harness (the milestone gate drives this):** `npm run deploy:vault`
+  (build → install to the Atlas Vault → byte-hash parity → plugin reload →
+  `dev:errors`), then the `obsidian` CLI dev commands (`dev:dom`, `dev:screenshot`,
+  `dev:errors`, `eval`) to drive every affected user-visible flow in the running
+  app with runtime evidence. Requires Obsidian open; unreachable ⇒ the flows become
+  manual asks on the run's rollup bead. Committed ≠ deployed — never claim a render
+  change verified without deploying first.
+- **Surfaces:** review-queue `docs/AUTONOMOUS-REVIEW-QUEUE.md` (a renderer of
+  rollup beads, never the record); roadmap `docs/ROADMAP.md`.
 
 **Quality bar (non-negotiable, gate before every commit):**
 
