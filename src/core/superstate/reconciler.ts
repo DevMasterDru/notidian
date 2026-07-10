@@ -268,21 +268,39 @@ export class Reconciler {
   private handlePathEvent(path: string): void {
     if (!path || !path.toLowerCase().endsWith(".md")) return;
 
-    // A hub note IS a hub note for at most one space; if this path is one,
-    // its Type Profile may have just changed -- full sweep of that folder
-    // (ADR-0057 D2's "schema change" trigger), never an incremental
-    // per-row revalidation of the hub note itself (it is not a data row).
-    const owningDb = this.dbForNotePath(path);
-    if (owningDb) {
-      this.scheduleDbSweep(owningDb);
-      return;
-    }
-
-    const spaces = this.superstate.pathsIndex.get(path)?.spaces ?? [];
-    for (const dbPath of spaces) {
-      if (this.resolveDbSchema(dbPath)) {
-        this.scheduleRowRevalidate(dbPath, path);
+    try {
+      // A hub note IS a hub note for at most one space; if this path is one,
+      // its Type Profile may have just changed -- full sweep of that folder
+      // (ADR-0057 D2's "schema change" trigger), never an incremental
+      // per-row revalidation of the hub note itself (it is not a data row).
+      const owningDb = this.dbForNotePath(path);
+      if (owningDb) {
+        this.scheduleDbSweep(owningDb);
+        return;
       }
+
+      const spaces = this.superstate.pathsIndex.get(path)?.spaces ?? [];
+      for (const dbPath of spaces) {
+        if (this.resolveDbSchema(dbPath)) {
+          this.scheduleRowRevalidate(dbPath, path);
+        }
+      }
+    } catch (error) {
+      // Fault-isolation parity with the sweep path (reconciler.adversarial
+      // coverage item (a): every row is per-row try/catch'd) and with
+      // flushRowRevalidations below. A corrupt/proxy pathsIndex whose getter
+      // throws -- Map.get cannot throw in production, so this is
+      // defensive-depth only (Notidian-erb0) -- must be contained by the
+      // reconciler ITSELF, not left to escape the synchronous handler and rely
+      // solely on the makemd EventDispatcher's per-listener guard. Log and
+      // swallow so one bad event never aborts the handler; the affected folder
+      // self-heals at the next full sweep. Closing this closes the
+      // sweep(per-row fault-isolated)-vs-event(unguarded) asymmetry the
+      // Notidian-dj93 property net pinned.
+      console.error(
+        `Notidian reconciler: handlePathEvent failed for '${path}'`,
+        error
+      );
     }
   }
 

@@ -524,17 +524,16 @@ describe("Reconciler property net (Notidian-dj93)", () => {
       }
     });
 
-    // PINNED asymmetry (characterization; follow-up bead filed): the sweep path
+    // FIXED (Notidian-erb0 — was a PINNED asymmetry): the sweep path
     // fault-isolates EVERY row (a per-row try/catch — reconciler.adversarial's
-    // coverage item (a)), but the SYNCHRONOUS event handler (`handlePathEvent`)
-    // reads `pathsIndex.get(path)?.spaces` UNGUARDED. Against a real Map index
-    // that never throws; but a corrupt/proxy pathsIndex whose getter throws
-    // makes the handler throw straight out — contained in production ONLY by the
-    // EventDispatcher's own per-listener try/catch (it console.errors and
-    // continues), never by the reconciler itself. This is defensive-depth-only
-    // (Map.get can't throw) and low severity, but a real isolation asymmetry vs
-    // the sweep path — pinned here, deferred to a follow-up bead, not "fixed".
-    it("PINS: a corrupt pathsIndex.get during event handling throws out of the reconciler's own handler (contained only by the production dispatcher)", async () => {
+    // coverage item (a)), and `handlePathEvent` now does the same. A
+    // corrupt/proxy pathsIndex whose getter throws is caught + logged INSIDE
+    // the reconciler's own synchronous handler, so it no longer relies on the
+    // makemd EventDispatcher's per-listener try/catch as its ONLY containment.
+    // Still defensive-depth-only (Map.get can't throw in production) and low
+    // severity, but the isolation is now symmetric with the sweep path —
+    // closing the sweep(fault-isolated)-vs-event(unguarded) asymmetry.
+    it("swallows + logs a corrupt pathsIndex.get during event handling inside its own handler (self-isolated, not merely caught by the dispatcher)", async () => {
       const DB = "Adv/DB0";
       const notePath = `${DB}/hub.md`;
       const ROW = `${DB}/row0.md`;
@@ -558,15 +557,26 @@ describe("Reconciler property net (Notidian-dj93)", () => {
       const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
       try {
         reconciler.start();
-        // The production EventDispatcher swallows the handler's throw (never
-        // rejects to the caller) but logs it — proving the throw escaped the
-        // reconciler's synchronous handler rather than being isolated inside it.
+        // The event dispatch still resolves (never rejects to the caller)...
         await expect(
           superstate.eventsDispatcher.dispatchEvent("pathStateUpdated", {
             path: ROW,
           })
         ).resolves.not.toThrow();
+        // ...but now because the RECONCILER's own handler caught and logged the
+        // throw, not because the dispatcher swallowed one that escaped.
         expect(errorSpy).toHaveBeenCalled();
+        // Proof of self-isolation: the dispatcher's per-listener guard (which
+        // logs `Error in listener for event ...`) was NEVER triggered, because
+        // the handler never threw out to it. Against the pre-fix code this
+        // assertion fails — the throw escaped and the dispatcher was the only
+        // thing that caught it.
+        const dispatcherCaught = errorSpy.mock.calls.some(
+          (args) =>
+            typeof args[0] === "string" &&
+            args[0].startsWith("Error in listener for event")
+        );
+        expect(dispatcherCaught).toBe(false);
       } finally {
         reconciler.stop();
         errorSpy.mockRestore();
