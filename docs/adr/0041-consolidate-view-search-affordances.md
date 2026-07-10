@@ -236,9 +236,12 @@ owner's active theme (`TableView.css`); (3) another global hotkey handler consum
   the control), a blind A2 deletion throws away the parity behavior and the tested
   engine.
 
-No code changed; `FilterBar.tsx`, `QuickFindBar.tsx`, `SearchBar.tsx`,
-`tableQuickFind.ts`, and the `Cmd/F` binding are **untouched** until the owner
-picks.
+(Historical framing — retained as the record of why this was routed to a
+decision instead of a blind build.) At ADR-write time no code had changed;
+`FilterBar.tsx`, `QuickFindBar.tsx`, `SearchBar.tsx`, `tableQuickFind.ts`, and
+the `Cmd/F` binding were untouched pending the owner's pick. The owner made
+that pick and Option A shipped — see Status above and the Cross-links bead
+pointer below.
 
 ## Consequences
 
@@ -257,8 +260,10 @@ picks.
 
 ## Cross-links
 
-- **Bead:** `Notidian-z8q` (this decision; stays OPEN awaiting the owner pick) +
-  the child live-repro action.
+- **Bead:** `Notidian-z8q` (CLOSED — Option A implemented per owner-directed
+  realignment, commit `5cabcf7`; see Status above). The child live-repro action
+  is now moot: [ADR 0049](0049-remove-dormant-quick-find.md) later removed the
+  dormant quick-find apparatus outright.
 - **Quick-find as shipped:** [ADR 0021](0021-in-table-quick-find.md)
   (Accepted — records the already-shipped design); bd `Notidian-r20` (CLOSED).
 - **Filter-search engine:** `ContextEditorContext.tsx:691-712` (`searchString` /

@@ -263,7 +263,9 @@ the first task of the follow-up implementation bead.
 ## Cross-links
 
 - Epic: bd `Notidian-2w0` (Notion-parity roadmap), item (2).
-- This decision: bd `Notidian-e29` (stays OPEN awaiting the owner's pick).
+- This decision: bd `Notidian-e29` (CLOSED — parked to ROADMAP 2026-06-16, then
+  owner-pulled and implemented 2026-06-27 via bd `Notidian-2w0.1`; see Status
+  above).
 - Shipped template storage/helpers: `src/core/superstate/utils/spaces.ts`
   (`newTemplateInSpace`, `saveSpaceTemplate`, `setTemplateInSpace`,
   `setTemplateNameInSpace`), `src/core/spaceManager/filesystemAdapter/filesystemAdapter.ts`

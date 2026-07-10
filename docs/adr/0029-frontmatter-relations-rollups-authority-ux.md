@@ -338,7 +338,9 @@ very large table profiles slow; E2 is rejected as a stored-derived-value regress
 ## Cross-links
 
 - Epic: bd `Notidian-2w0` (Notion-parity roadmap), item (1).
-- This decision: bd `Notidian-tni` (stays OPEN awaiting the owner's pick).
+- This decision: bd `Notidian-tni` (CLOSED — parked to ROADMAP 2026-06-16, then
+  owner-pulled 2026-06-20; the D2 indicator shipped via bd `Notidian-f0pj.2`;
+  see Status above).
 - Shipped engine/runtime: `Notidian-9ln` (capstone), `Notidian-8pl` (runtime + cell +
   column type + config menu), `Notidian-e1u` (shared link resolver), `Notidian-ahk`
   (back-relations).

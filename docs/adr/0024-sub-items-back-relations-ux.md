@@ -258,7 +258,9 @@ capability and is split to its own follow-up.
 ## Cross-links
 
 - Epic: bd `Notidian-2w0` (Notion-parity roadmap), item (3).
-- This decision: bd `Notidian-2uz` (stays OPEN awaiting the owner's pick).
+- This decision: bd `Notidian-2uz` (CLOSED — parked to ROADMAP 2026-06-16, then
+  owner-pulled 2026-06-20 and shipped via bd `Notidian-f0pj.1`; see Status
+  above). ADR 0050 now supersedes this as the governing sub-items contract.
 - Shipped engine/render: `Notidian-gg9`, `Notidian-pv4`, `Notidian-s9m`,
   `Notidian-ahk`, `Notidian-9ln`, `Notidian-e1u` (link resolver).
 - Code: `src/core/utils/contexts/tableRowTree.ts`,
