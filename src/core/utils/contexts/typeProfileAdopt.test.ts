@@ -847,6 +847,82 @@ describe("detectPropertyProfileDivergence (ADR-0040 Database Boundary Test)", ()
     expect(result.divergent).toBe(false);
   });
 
+  // Notidian-wcig: case-variant field IDENTITY. One coherent database whose
+  // rows were imported with inconsistent key casing — 6 lowercase
+  // {priority,status} + 6 {Priority,Status} — is a SINGLE answer-shape. The rest
+  // of the adoption pipeline (discoverFrontmatterSchema merge,
+  // computeFieldValueStats) folds those spellings into one logical field, and
+  // the exclusion check on the same loop already folds; this advisory must fold
+  // identically. Pre-fix it built the present-field set with RAW casing:
+  // union-find saw 4 distinct discriminating fields -> 2 disjoint components ->
+  // divergent:true, recommending a bad split of a coherent database. Folding
+  // collapses each logical field to one discriminator populated on every row, so
+  // both become shared core and no divergence remains.
+  it("folds case-variant field spellings to one logical field (no bogus split)", () => {
+    const paths = Array.from({ length: 12 }, (_, i) => `C-${i}.md`);
+    const cyclePri = ["high", "med", "low"];
+    const cycleStatus = ["open", "done", "blocked"];
+    const frontmatter: Record<string, Record<string, unknown>> = {};
+    paths.forEach((p, i) => {
+      frontmatter[p] =
+        i < 6
+          ? { priority: cyclePri[i % 3], status: cycleStatus[i % 3] }
+          : { Priority: cyclePri[i % 3], Status: cycleStatus[i % 3] };
+    });
+
+    const result = detectPropertyProfileDivergence({
+      paths,
+      frontmatterByPath: frontmatter,
+    });
+
+    // Both fields collapse to the shared universal core (present on every one of
+    // the 12 rows); no discriminating field survives, so no boundary violation.
+    expect(result.divergent).toBe(false);
+    expect(result.groups).toEqual([]);
+    // Folded to one entry per logical field, sorted. The banner casing is a real
+    // observed spelling (most-frequent, ties first-seen: the lowercase rows come
+    // first, so the lowercase spelling wins the 6-6 tie) — matching the casing
+    // discoverFrontmatterSchema would name the drafted field.
+    expect(result.sharedCoreFields).toEqual(["priority", "status"]);
+  });
+
+  // Notidian-wcig: the banner casing map. Genuine two-answer-shape divergence,
+  // but the tool cluster's `platform` key is spelled inconsistently across rows.
+  // The advisory must MERGE the spellings into one characteristic field (canonical
+  // = most-frequent casing), never surface `platform` AND `Platform` as two.
+  it("collapses a case-variant discriminating cluster to one field per column in the banner", () => {
+    const paths = [
+      "D-t1.md",
+      "D-t2.md",
+      "D-t3.md",
+      "D-m1.md",
+      "D-m2.md",
+      "D-m3.md",
+    ];
+    const frontmatter: Record<string, Record<string, unknown>> = {
+      "D-t1.md": { platform: "web", url: "https://a", account: "x1" },
+      "D-t2.md": { platform: "ios", url: "https://b", account: "x2" },
+      "D-t3.md": { Platform: "web", url: "https://c", account: "x1" },
+      "D-m1.md": { location: "shelf-a", safety: "flammable", sourcing: "v1" },
+      "D-m2.md": { location: "shelf-b", safety: "inert", sourcing: "v2" },
+      "D-m3.md": { location: "shelf-a", safety: "flammable", sourcing: "v1" },
+    };
+    const result = detectPropertyProfileDivergence({
+      paths,
+      frontmatterByPath: frontmatter,
+    });
+    expect(result.divergent).toBe(true);
+    const clusters = result.groups
+      .map((g) => g.characteristicFields)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    // `platform`/`Platform` collapsed to ONE field (canonical = lowercase, the
+    // 2-of-3 majority spelling); no duplicate case-variant column in the banner.
+    expect(clusters).toEqual([
+      ["account", "platform", "url"],
+      ["location", "safety", "sourcing"],
+    ]);
+  });
+
   it("is surfaced on the whole-database draft without changing the field union", () => {
     const draft = draftTypeProfileAdoption({
       database: "Vault/Tools & Materials",

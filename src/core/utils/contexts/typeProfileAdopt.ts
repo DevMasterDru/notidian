@@ -430,18 +430,56 @@ export const detectPropertyProfileDivergence = ({
   // Per-row present-field set: keys the row genuinely ANSWERS with — the same
   // present/empty notion computeFieldValueStats uses, so a key declared with an
   // empty ("" / [] / all-blank) value does NOT count as populated.
+  //
+  // Notidian-wcig: fold each key to lowercase for FIELD IDENTITY. The rest of
+  // the pipeline (discoverFrontmatterSchema merge, computeFieldValueStats) and
+  // the exclusion check on this very loop already collapse case-variant
+  // spellings ("priority"/"Priority") into ONE logical field. If this present-
+  // set kept RAW casing, a coherent database whose rows were imported with
+  // inconsistent key casing would split into as many discriminating "fields" as
+  // spellings — union-find then sees disjoint components and false-flags a
+  // boundary violation, recommending a bad split of a coherent database. Folding
+  // collapses each logical field to one discriminator. `spellingCounts` records
+  // every observed spelling so `displayField` can recover a canonical casing for
+  // the advisory banner (see below).
+  const spellingCounts = new Map<string, Map<string, number>>();
   const presentFieldsByRow: Array<Set<string>> = paths.map((path) => {
     const frontmatter = frontmatterForPath(frontmatterByPath, path);
     const present = new Set<string>();
     for (const key of Object.keys(frontmatter)) {
-      if (excluded.has(key.toLowerCase())) continue;
+      const canonical = key.toLowerCase();
+      if (excluded.has(canonical)) continue;
       const values = toValueList(frontmatter[key])
         .map((value) => value.trim())
         .filter((value) => value.length > 0);
-      if (values.length > 0) present.add(key);
+      if (values.length == 0) continue;
+      present.add(canonical);
+      const spellings =
+        spellingCounts.get(canonical) ?? new Map<string, number>();
+      spellings.set(key, (spellings.get(key) ?? 0) + 1);
+      spellingCounts.set(canonical, spellings);
     }
     return present;
   });
+
+  // Recover a display spelling for a case-folded field: most-frequent spelling
+  // wins, ties resolve to the earliest-seen (strict `>` over the first-seen Map
+  // order) — the exact canonical-casing rule discoverFrontmatterSchema uses to
+  // NAME the drafted field, so the advisory banner shows the same casing the
+  // draft will produce rather than a synthetic all-lowercase key.
+  const displayField = (canonical: string): string => {
+    const spellings = spellingCounts.get(canonical);
+    if (!spellings) return canonical;
+    let best = canonical;
+    let bestCount = -1;
+    for (const [spelling, count] of spellings) {
+      if (count > bestCount) {
+        best = spelling;
+        bestCount = count;
+      }
+    }
+    return best;
+  };
 
   // Field -> row-indices that populate it.
   const rowsByField = new Map<string, number[]>();
@@ -453,6 +491,10 @@ export const detectPropertyProfileDivergence = ({
     }
   });
 
+  // `rowsByField` / `discriminatingFields` are keyed by the case-folded
+  // canonical field (see the present-set build). `displayField` maps each back
+  // to a real observed spelling only where it crosses the API boundary as
+  // banner text.
   const coreThreshold = rowCount * CORE_PREVALENCE;
   const sharedCoreFields: string[] = [];
   const discriminatingFields: string[] = [];
@@ -465,10 +507,11 @@ export const detectPropertyProfileDivergence = ({
     // else: a rare/near-singleton field — noise, not an answer-shape signal.
   }
   sharedCoreFields.sort();
+  const sharedCoreFieldNames = sharedCoreFields.map(displayField);
 
   const noDivergence: PropertyProfileDivergence = {
     divergent: false,
-    sharedCoreFields,
+    sharedCoreFields: sharedCoreFieldNames,
     groups: [],
   };
   if (rowCount < DIVERGENCE_MIN_ROWS) return noDivergence;
@@ -542,7 +585,7 @@ export const detectPropertyProfileDivergence = ({
     if (fields.length < GROUP_MIN_CHARACTERISTIC_FIELDS) continue;
     qualifyingGroups.push({
       rowCount: rows.length,
-      characteristicFields: fields,
+      characteristicFields: fields.map(displayField),
       exampleRows: [...rows]
         .sort((a, b) => a - b)
         .slice(0, GROUP_EXAMPLE_ROW_CAP)
@@ -565,7 +608,7 @@ export const detectPropertyProfileDivergence = ({
 
   return {
     divergent: true,
-    sharedCoreFields,
+    sharedCoreFields: sharedCoreFieldNames,
     groups: qualifyingGroups,
   };
 };
