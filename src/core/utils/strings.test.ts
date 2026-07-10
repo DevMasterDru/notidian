@@ -640,6 +640,11 @@ describe("wrapQuotes / removeQuotes — round-trip properties", () => {
     "\n", // a lone real newline
     'q"\nq"', // combined embedded quote + newline
     "just;a;value;with;semis", // interior semicolons must NOT trip the ';' strip
+    "a\\b", // a lone literal backslash (Notidian-qp1k: now escaped, so injective)
+    "foo\\nbar", // LITERAL backslash+n — distinct from the real newline above
+    "C:\\notes", // a Windows-style path (literal backslash+n) in frame text
+    "\\\\server\\share", // a UNC path: leading + interior literal backslashes
+    "back\\\\slashes", // an already-doubled backslash pair round-trips too
   ];
 
   it("removeQuotes(wrapQuotes(s)) === s for every representative value", () => {
@@ -691,20 +696,41 @@ describe("wrapQuotes / removeQuotes — round-trip properties", () => {
     expect(removeQuotes(wrapQuotes(original) as string)).toBe(original);
   });
 
-  it("KNOWN LIMITATION: a LITERAL backslash-n (not a real newline) does NOT round-trip", () => {
-    // wrapQuotes only escapes REAL newlines (its /\n/ matches the newline char)
-    // and never escapes raw backslashes, so a value literally containing the two
-    // chars backslash+n is left untouched by wrapQuotes and is then
-    // INDISTINGUISHABLE from an escaped real newline on decode. This
-    // non-injectivity is pre-existing (wrapQuotes has never escaped backslashes)
-    // and out of scope for the Notidian-shrl fix; documented here so the boundary
-    // is explicit rather than a silent surprise.
+  it("ROOT FIX (Notidian-qp1k): a LITERAL backslash-n now round-trips EXACTLY", () => {
+    // wrapQuotes escapes the raw backslash FIRST (\ -> \\), so a value literally
+    // containing the two chars backslash+n encodes as \\n — DISTINCT from a real
+    // newline (which still encodes as \n). removeQuotes' single-pass decode
+    // consumes the escaped backslash as a unit and restores the literal, so the
+    // value the Notidian-shrl fix used to corrupt (e.g. a Windows path 'C:\notes'
+    // in a frame text prop) is now preserved byte-for-byte. This CLOSES the
+    // non-injectivity rather than merely swapping which preimage is corrupted.
     const literalBackslashN = "foo\\nbar"; // 8 chars: f o o \ n b a r (NOT a newline)
     const wrapped = wrapQuotes(literalBackslashN);
-    expect(wrapped).toBe(`"foo\\nbar"`); // wrapQuotes left the literal \n alone
+    // backslash escaped -> \\n, so the encoded form now has a DOUBLED backslash.
+    expect(wrapped).toBe(`"foo\\\\nbar"`);
     const back = removeQuotes(wrapped as string);
-    expect(back).toBe("foo\nbar"); // decoded to a REAL newline
-    expect(back).not.toBe(literalBackslashN);
+    expect(back).toBe(literalBackslashN); // exact round-trip: in === out
+    // ...and the literal-backslash-n encoding is now DISTINCT from the
+    // real-newline encoding (the two preimages no longer collide).
+    expect(wrapQuotes("foo\nbar")).toBe(`"foo\\nbar"`);
+    expect(wrapQuotes("foo\nbar")).not.toBe(wrapped);
+  });
+
+  it("COMPAT (Notidian-qp1k): legacy pre-fix payloads with UNescaped backslashes decode one-shorter (documented, not migrated)", () => {
+    // Frame payloads serialized by the OLD wrapQuotes (which never escaped `\`)
+    // stored raw backslashes. Decoding such LEGACY data with the new single-pass
+    // reverser collapses a literal double-backslash to one, and a legacy raw "\n"
+    // still decodes to a newline (unchanged from before). There is no clean
+    // old/new discriminator and backslash-bearing frame text is rare, so this
+    // bounded one-time edge is ACCEPTED (pinned here) rather than data-migrated.
+    //
+    // Legacy-encoded UNC path (old wrapQuotes left the two backslashes raw):
+    //   stored bytes: " \ \ s e r v e r "  -> decodes to  \ s e r v e r
+    expect(removeQuotes(`"\\\\server"`)).toBe("\\server"); // one backslash shorter
+    // Legacy-encoded Windows path (old wrapQuotes left the backslash raw):
+    //   stored bytes: " C : \ n o t e s "  -> the raw \n decodes to a newline
+    //   (this specific corruption is PRE-EXISTING — the old decode did it too).
+    expect(removeQuotes(`"C:\\notes"`)).toBe("C:\notes");
   });
 });
 
