@@ -20,6 +20,11 @@ queueing more and pivots to safe work — so this list stays reviewable.
 
 ## Infra-blocked bd bookkeeping (implementation complete + verified + committed; `bd close` could not run)
 
+> **Resolved 2026-07-10.** The bd write path recovered after run-3; both entries
+> below are now properly closed in bd with evidence-bearing reasons
+> (`Notidian-loan.3` closed 2026-07-05, `Notidian-21l4` closed 2026-07-09 on
+> `autolong/run-4`). Kept for the historical record of the blocker signatures.
+
 ### Notidian-loan.3 — S3: Schema adoption command (draft v3 from live rows, confirm-gated)
 
 **2026-07-05.** Fully implemented, gated, and committed on `autolong/run-3`
@@ -178,6 +183,10 @@ prove the OFF path is byte-identical legacy behavior and the ON path's pure/DOM
 logic; only the owner's in-vault use confirms the live placement/behavior.
 
 ### Notidian-b0fm — Nested-database row indicator wired into the TableView gutter
+
+> **Owner-ask record:** rollup bead `Notidian-7suf` (ADR-0059) — this doc entry
+> is the renderer; the rollup bead is the record and closes only when the
+> enable/live-verify decision is recorded.
 
 **2026-07-09 (`autolong/run-4`).** z21a follow-up: the standalone, already-tested
 `HubRowIndicator` component (landed unwired in Notidian-z21a) is now wired into the
