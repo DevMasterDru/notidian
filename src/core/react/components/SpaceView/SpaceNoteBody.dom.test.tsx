@@ -72,11 +72,17 @@ import { SpaceNoteBody } from "./SpaceNoteBody";
 
 // --- Scaffolding ------------------------------------------------------------
 
-const makeSuperstate = (collapsibleNoteBody: boolean) =>
+const makeSuperstate = (
+  collapsibleNoteBody: boolean,
+  // Notidian-50hn: default ON (full collapse). Existing call sites pass 1 arg
+  // and get the full-collapse contract, matching the shipped default.
+  spaceNoteBodyFullCollapse = true
+) =>
   ({
     settings: {
       enableFolderNote: true,
       collapsibleNoteBody,
+      spaceNoteBodyFullCollapse,
     },
     spaceManager: {
       pathExists: jest.fn(async () => true),
@@ -235,6 +241,77 @@ describe("flag ON — collapsible header + chevron (Notidian-8sl)", () => {
       key: "noteBodyCollapsed",
       value: false, // collapsed → next state is expanded (false)
     });
+  });
+});
+
+// --- Notidian-50hn: full collapse (default) vs keep-mounted kill-switch -----
+
+describe("full collapse — collapsing hides 100% of note text (Notidian-50hn)", () => {
+  it("default (full-collapse ON) + collapsed → ZERO note-content nodes", async () => {
+    // The owner directive: the collapsed database-only view must contain none of
+    // the note's DOM — not merely a hidden/height-shrunk remnant.
+    await render(
+      makeSuperstate(true, /* spaceNoteBodyFullCollapse */ true),
+      makeSpaceState({ noteBodyCollapsed: true })
+    );
+    expect(container.querySelector('[data-testid="note-view"]')).toBeNull();
+    expect(container.querySelector(".mk-space-note-body")).toBeNull();
+    // No hidden remnant either — the class is only ever emitted in the OFF path.
+    expect(container.querySelector(".mk-space-note-body--hidden")).toBeNull();
+    // No resize handle over a collapsed region.
+    expect(container.querySelector(".mk-space-note-resize")).toBeNull();
+    // The wrapper still reflects the collapsed state (chevron + persistence).
+    expect(
+      container
+        .querySelector(".mk-space-note")!
+        .classList.contains("mk-space-note--collapsed")
+    ).toBe(true);
+  });
+
+  it("expand from full-collapse restores the full note content", async () => {
+    await render(
+      makeSuperstate(true, true),
+      makeSpaceState() // expanded
+    );
+    const note = container.querySelector('[data-testid="note-view"]');
+    expect(note).not.toBeNull();
+    expect(
+      container.querySelector(".mk-space-note-body [data-testid='note-view']")
+    ).not.toBeNull();
+    // Expanded shows the resize handle (a visible, sizable body).
+    expect(container.querySelector(".mk-space-note-resize")).not.toBeNull();
+    expect(container.querySelector(".mk-space-note-body--hidden")).toBeNull();
+  });
+
+  it("kill-switch (full-collapse OFF) + collapsed → body kept MOUNTED but hidden", async () => {
+    // The non-destructive fallback: note nodes remain in the DOM (editor stays
+    // alive) but the body carries the --hidden class so CSS removes it visually.
+    await render(
+      makeSuperstate(true, /* spaceNoteBodyFullCollapse */ false),
+      makeSpaceState({ noteBodyCollapsed: true })
+    );
+    const body = container.querySelector(".mk-space-note-body");
+    expect(body).not.toBeNull();
+    expect(body!.classList.contains("mk-space-note-body--hidden")).toBe(true);
+    // The note content is still mounted (kept alive) under the hidden body.
+    expect(container.querySelector('[data-testid="note-view"]')).not.toBeNull();
+    // Still no resize handle — you cannot drag a hidden body.
+    expect(container.querySelector(".mk-space-note-resize")).toBeNull();
+    // Wrapper is still marked collapsed.
+    expect(
+      container
+        .querySelector(".mk-space-note")!
+        .classList.contains("mk-space-note--collapsed")
+    ).toBe(true);
+  });
+
+  it("kill-switch OFF + expanded is byte-identical to the default expanded body (no --hidden)", async () => {
+    await render(makeSuperstate(true, false), makeSpaceState());
+    const body = container.querySelector(".mk-space-note-body");
+    expect(body).not.toBeNull();
+    expect(body!.classList.contains("mk-space-note-body--hidden")).toBe(false);
+    expect(container.querySelector('[data-testid="note-view"]')).not.toBeNull();
+    expect(container.querySelector(".mk-space-note-resize")).not.toBeNull();
   });
 });
 

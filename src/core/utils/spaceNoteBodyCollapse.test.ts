@@ -11,8 +11,10 @@ import { MakeMDSettings } from "shared/types/settings";
 import { SpaceDefinition } from "shared/types/spaceDef";
 import {
   isCollapsibleNoteBodyEnabled,
+  isNoteBodyHidden,
   nextNoteBodyCollapsed,
   resolveNoteBodyCollapsed,
+  resolveNoteBodyFullCollapse,
   shouldRenderNoteContent,
 } from "./spaceNoteBodyCollapse";
 
@@ -84,6 +86,74 @@ describe("shouldRenderNoteContent — content mounts unless actively collapsed",
 
   it("does NOT render when active and collapsed (genuine unmount)", () => {
     expect(shouldRenderNoteContent(true, true)).toBe(false);
+  });
+
+  it("defaults fullCollapse=true so a 2-arg call is the full-collapse contract", () => {
+    // Existing call sites pass 2 args; the added 3rd param must default to the
+    // owner-directed full-collapse (unmount) so nothing changes for them.
+    expect(shouldRenderNoteContent(true, true)).toBe(false);
+    expect(shouldRenderNoteContent(true, true, undefined)).toBe(false);
+  });
+});
+
+describe("shouldRenderNoteContent — full-collapse vs kill-switch (Notidian-50hn)", () => {
+  it("full-collapse ON + collapsed → NOT mounted (zero note nodes, database-only)", () => {
+    expect(shouldRenderNoteContent(true, true, true)).toBe(false);
+  });
+
+  it("kill-switch OFF + collapsed → still mounted (kept alive, hidden via CSS)", () => {
+    expect(shouldRenderNoteContent(true, true, false)).toBe(true);
+  });
+
+  it("expanded is always mounted regardless of the full-collapse flag", () => {
+    expect(shouldRenderNoteContent(true, false, true)).toBe(true);
+    expect(shouldRenderNoteContent(true, false, false)).toBe(true);
+  });
+
+  it("inactive feature always mounts, ignoring the full-collapse flag", () => {
+    expect(shouldRenderNoteContent(false, true, true)).toBe(true);
+    expect(shouldRenderNoteContent(false, true, false)).toBe(true);
+  });
+});
+
+describe("isNoteBodyHidden — mounted-but-hidden only in the kill-switch collapsed state (Notidian-50hn)", () => {
+  it("is true ONLY when active + collapsed + full-collapse OFF", () => {
+    expect(isNoteBodyHidden(true, true, false)).toBe(true);
+  });
+
+  it("is false in the default full-collapse path (body is unmounted, not hidden)", () => {
+    expect(isNoteBodyHidden(true, true, true)).toBe(false);
+  });
+
+  it("is false when expanded (nothing to hide)", () => {
+    expect(isNoteBodyHidden(true, false, false)).toBe(false);
+    expect(isNoteBodyHidden(true, false, true)).toBe(false);
+  });
+
+  it("is false when the feature is inactive (legacy always-visible)", () => {
+    expect(isNoteBodyHidden(false, true, false)).toBe(false);
+  });
+
+  it("always returns a strict boolean", () => {
+    expect(typeof isNoteBodyHidden(true, true, false)).toBe("boolean");
+  });
+});
+
+describe("resolveNoteBodyFullCollapse — only explicit false disables the contract (Notidian-50hn)", () => {
+  it("undefined (pre-upgrade data.json) resolves to full-collapse ON (safe default)", () => {
+    expect(resolveNoteBodyFullCollapse(undefined)).toBe(true);
+  });
+
+  it("true resolves to ON", () => {
+    expect(resolveNoteBodyFullCollapse(true)).toBe(true);
+  });
+
+  it("only an explicit false engages the kill-switch", () => {
+    expect(resolveNoteBodyFullCollapse(false)).toBe(false);
+  });
+
+  it("always returns a strict boolean", () => {
+    expect(typeof resolveNoteBodyFullCollapse(undefined)).toBe("boolean");
   });
 });
 
@@ -186,6 +256,26 @@ describe("flag gating (default-ON, kill-switch retained) — Notidian-8sl", () =
     // body, so it ships enabled and the owner verifies it by USE. The flag is
     // retained purely as a kill-switch.
     expect(DEFAULT_SETTINGS.collapsibleNoteBody).toBe(true);
+  });
+
+  it("spaceNoteBodyFullCollapse defaults to true (owner directive — Notidian-50hn)", () => {
+    // Owner directive 2026-07-10: collapsing the folder note must hide ALL its
+    // text for a database-only view. The default UNMOUNTS the note on collapse;
+    // the flag is retained as a non-destructive kill-switch (keep-mounted-hidden).
+    expect(DEFAULT_SETTINGS.spaceNoteBodyFullCollapse).toBe(true);
+    // The default value drives the full-collapse contract end to end.
+    const active = isCollapsibleNoteBodyEnabled(
+      DEFAULT_SETTINGS.collapsibleNoteBody,
+      /* hasSpace */ true
+    );
+    const full = resolveNoteBodyFullCollapse(
+      DEFAULT_SETTINGS.spaceNoteBodyFullCollapse
+    );
+    // Active + collapsed + default full-collapse → note is NOT mounted.
+    expect(shouldRenderNoteContent(active, /* collapsed */ true, full)).toBe(
+      false
+    );
+    expect(isNoteBodyHidden(active, /* collapsed */ true, full)).toBe(false);
   });
 
   it("the kill-switch (OFF) fully disables the feature — legacy rendering", () => {

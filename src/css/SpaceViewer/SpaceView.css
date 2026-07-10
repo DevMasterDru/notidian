@@ -350,6 +350,16 @@ margin-left: calc((max(100%, var(--max-width)) - var(--max-width)) /2) !importan
   min-width: 0;
 }
 
+/* Notidian-50hn — kill-switch (settings.spaceNoteBodyFullCollapse=false) path
+   ONLY. The DEFAULT (full collapse) unmounts the body entirely, so this class is
+   never emitted then and the default collapsed DOM is byte-identical to before
+   (header only). With the kill-switch OFF the body stays MOUNTED to preserve the
+   embedded editor's state, so we hide it here — the note nodes exist but render
+   nothing, still yielding a database-only view. */
+.mk-space-note-body--hidden {
+  display: none !important;
+}
+
 /* Drag handle to resize the note body (double-click resets to shrink-to-fit). A
    subtle centered grip that reveals on hover; the ns-resize cursor signals the
    vertical drag. Only ever present in the flag-ON (collapsible) DOM, so it needs

@@ -1353,6 +1353,10 @@ export const en = {
       "name": "Collapsible Note Body (Experimental)",
       "desc": "Add a collapse toggle to the note body above the database and shrink it to fit its text instead of a fixed full-height block. Off keeps the current layout"
     },
+    "spaceNoteBodyFullCollapse": {
+      "name": "Fully Collapse Note Body",
+      "desc": "When you collapse the note above a database, remove all of its text (callout, headings, dataview) for a database-only view. Off keeps the note loaded but hidden while collapsed"
+    },
     "folderNoteName": {
       "name": "Folder Note Name",
       "desc": "Name of the folder note, keep blank to use the same name as the folder"

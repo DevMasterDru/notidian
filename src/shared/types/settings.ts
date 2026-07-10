@@ -25,6 +25,15 @@ export interface MakeMDSettings {
   // not a fixed full-height block). Per-space collapsed state persists in the
   // SpaceDefinition (noteBodyCollapsed). OFF == byte-identical legacy rendering.
   collapsibleNoteBody: boolean;
+  // Notidian-50hn (default ON, flag-gated core render-path change — owner
+  // directive 2026-07-10): the collapse control on a space's folder-note region
+  // must hide 100% of the note text (callout + headings + dataview) so the page
+  // becomes a database-only view. ON UNMOUNTS the entire note subtree on collapse
+  // (zero note nodes). OFF is a non-destructive kill-switch: the body stays
+  // MOUNTED but CSS-hidden (keeps the embedded editor/scroll state alive) — use
+  // it only if a live remount ever misbehaves. Collapse state itself keeps
+  // persisting as noteBodyCollapsed (Notidian view state, ADR 0001/0014).
+  spaceNoteBodyFullCollapse: boolean;
   sidebarTabs: boolean;
   vaultSelector: boolean;
   showRibbon: boolean;

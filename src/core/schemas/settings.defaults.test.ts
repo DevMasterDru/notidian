@@ -68,6 +68,7 @@ const REQUIRED_SETTING_KEYS = {
   enableDataHealthSurfaces: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
+  spaceNoteBodyFullCollapse: true,
   folderIndentationLines: true,
   revealActiveFile: true,
   spacesStickers: true,
@@ -175,6 +176,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "subItemsSetup", // Notidian-xqxc
   "subItemAddRow", // Notidian-gr8t
   "collapsibleNoteBody", // Notidian-8sl
+  "spaceNoteBodyFullCollapse", // Notidian-50hn
   "filenameTemplateEnforcement", // Notidian-pay5 / ADR 0054
   "enableNestedHubRows", // Notidian-z21a / Atlas Method ADR-0042 D1
   "enableDataHealthSurfaces", // Notidian-loan.5 / ADR-0057

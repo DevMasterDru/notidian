@@ -68,6 +68,14 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // never matches, so the rendered region is byte-identical to the pre-feature
   // behavior — the kill switch truly restores legacy rendering.
   collapsibleNoteBody: true,
+  // Notidian-50hn: default ON — owner directive (2026-07-10): collapsing a
+  // space's folder-note region must hide ALL note text, leaving a database-only
+  // view. ON UNMOUNTS the whole note subtree on collapse (no callout/heading/
+  // dataview remnant). KILL-SWITCH: set false to keep the body MOUNTED but
+  // CSS-hidden on collapse (non-destructive fallback that preserves the embedded
+  // editor's state) — the note nodes then remain in the DOM, hidden. The
+  // per-space collapsed flag persists independently as noteBodyCollapsed.
+  spaceNoteBodyFullCollapse: true,
   folderIndentationLines: true,
   revealActiveFile: false,
   spacesStickers: true,

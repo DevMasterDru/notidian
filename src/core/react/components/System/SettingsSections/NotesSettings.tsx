@@ -370,6 +370,27 @@ export const NotesSettings = ({ superstate }: SettingsProps) => {
         <div className="mk-setting-item">
           <div className="mk-setting-item-info">
             <div className="mk-setting-item-name">
+              {i18n.settings.spaceNoteBodyFullCollapse.name}
+            </div>
+            <div className="mk-setting-item-description">
+              {i18n.settings.spaceNoteBodyFullCollapse.desc}
+            </div>
+          </div>
+          <div className="mk-setting-item-control">
+            <input
+              type="checkbox"
+              checked={superstate.settings.spaceNoteBodyFullCollapse}
+              onChange={(e) => {
+                superstate.settings.spaceNoteBodyFullCollapse = e.target.checked;
+                immediateSave();
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="mk-setting-item">
+          <div className="mk-setting-item-info">
+            <div className="mk-setting-item-name">
               {i18n.settings.folderNoteName.name}
             </div>
             <div className="mk-setting-item-description">

@@ -5,8 +5,10 @@ import { saveSpaceMetadataValue } from "core/superstate/utils/spaces";
 import { isNoteBodyEmpty } from "core/utils/spaceNoteBody";
 import {
   isCollapsibleNoteBodyEnabled,
+  isNoteBodyHidden,
   nextNoteBodyCollapsed,
   resolveNoteBodyCollapsed,
+  resolveNoteBodyFullCollapse,
   shouldRenderNoteContent,
 } from "core/utils/spaceNoteBodyCollapse";
 import {
@@ -46,6 +48,11 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
   );
   const collapsed =
     collapsible && resolveNoteBodyCollapsed(spaceState?.metadata);
+  // Notidian-50hn: full-collapse (default ON) UNMOUNTS the note on collapse so
+  // 100% of its text is gone; the kill-switch (OFF) keeps it mounted-but-hidden.
+  const fullCollapse = resolveNoteBodyFullCollapse(
+    props.superstate.settings.spaceNoteBodyFullCollapse
+  );
 
   useEffect(() => {
     let active = true;
@@ -161,7 +168,18 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
     );
   };
 
-  const renderNote = shouldRenderNoteContent(collapsible, collapsed);
+  // Whether to MOUNT the note body. Default full-collapse unmounts it while
+  // collapsed (zero note nodes — the owner-directed database-only view); the
+  // kill-switch keeps it mounted but hidden (see noteBodyHidden below).
+  const renderNote = shouldRenderNoteContent(
+    collapsible,
+    collapsed,
+    fullCollapse
+  );
+  const noteBodyHidden = isNoteBodyHidden(collapsible, collapsed, fullCollapse);
+  // The resize handle is only meaningful for a VISIBLE, expanded body — never
+  // over a collapsed (hidden or unmounted) region.
+  const showResize = collapsible && !collapsed;
 
   // A fixed height (live drag value, else persisted) makes the body scroll on
   // overflow; null => shrink-to-fit (auto, the Notidian-xazq default).
@@ -202,7 +220,13 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
       </div>
       {renderNote && (
         <>
-          <div className="mk-space-note-body" ref={bodyRef} style={bodyStyle}>
+          <div
+            className={`mk-space-note-body${
+              noteBodyHidden ? " mk-space-note-body--hidden" : ""
+            }`}
+            ref={bodyRef}
+            style={bodyStyle}
+          >
             <NoteView
               superstate={props.superstate}
               path={spaceState.path}
@@ -211,17 +235,19 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
               readOnly={readMode}
             ></NoteView>
           </div>
-          <div
-            className="mk-space-note-resize"
-            onPointerDown={onResizePointerDown}
-            onPointerMove={onResizePointerMove}
-            onPointerUp={onResizePointerUp}
-            onDoubleClick={onResizeReset}
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize note body — drag to set height, double-click to fit content"
-            title="Drag to resize · double-click to fit content"
-          ></div>
+          {showResize && (
+            <div
+              className="mk-space-note-resize"
+              onPointerDown={onResizePointerDown}
+              onPointerMove={onResizePointerMove}
+              onPointerUp={onResizePointerUp}
+              onDoubleClick={onResizeReset}
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize note body — drag to set height, double-click to fit content"
+              title="Drag to resize · double-click to fit content"
+            ></div>
+          )}
         </>
       )}
     </div>

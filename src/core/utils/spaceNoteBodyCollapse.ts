@@ -62,16 +62,59 @@ export const nextNoteBodyCollapsed = (collapsed: boolean): boolean =>
   Boolean(collapsed);
 
 /**
- * Should the NoteView (the actual note content) be rendered right now?
+ * Should the NoteView (the actual note content) be MOUNTED in the DOM right now?
  *
- * - Feature inactive  → always render (legacy behavior, unchanged).
- * - Feature active    → render only when NOT collapsed.
+ * - Feature inactive              → always mount (legacy behavior, unchanged).
+ * - Active, expanded              → mount (the note is shown normally).
+ * - Active, collapsed, FULL       → do NOT mount (genuine unmount → zero note
+ *                                   nodes → true "database-only" view). DEFAULT.
+ * - Active, collapsed, kill-switch → mount but hidden (see `isNoteBodyHidden`);
+ *                                   the OFF fallback keeps the editor alive.
  *
- * This is the single predicate the component uses to decide whether to mount the
- * note editor, so collapse genuinely unmounts the content rather than merely
- * hiding it.
+ * `fullCollapse` (Notidian-50hn, settings.spaceNoteBodyFullCollapse, default ON)
+ * is the owner-directed contract: collapsing the folder note must hide 100% of
+ * its text — no callout/heading/dataview remnant. The default UNMOUNTS the whole
+ * subtree so nothing can leak. The kill-switch (OFF) reverts to a non-destructive
+ * keep-mounted-then-CSS-hide, for the case where a live remount ever misbehaves.
+ * It defaults to `true` so any 2-arg caller (and a pre-upgrade data.json that
+ * lacks the key) gets the full-collapse contract.
  */
 export const shouldRenderNoteContent = (
   active: boolean,
-  collapsed: boolean
-): boolean => (active ? !collapsed : true);
+  collapsed: boolean,
+  fullCollapse = true
+): boolean => {
+  if (!active) return true;
+  if (!collapsed) return true;
+  // Collapsed: full-collapse unmounts; kill-switch keeps it mounted (hidden).
+  return !fullCollapse;
+};
+
+/**
+ * Is the note body MOUNTED-BUT-HIDDEN (the kill-switch collapsed state)?
+ *
+ * True only when the feature is active, the note is collapsed, and full-collapse
+ * is OFF: the body div is rendered (`shouldRenderNoteContent` → true) but must be
+ * visually hidden via CSS (`.mk-space-note-body--hidden`). In the default
+ * (full-collapse ON) path the body is never mounted while collapsed, so this is
+ * false and no CSS hide is needed — the DOM is byte-identical to the pre-50hn
+ * collapsed markup (header only). This predicate is the single source of truth
+ * for the `--hidden` class so the component stays a thin shell over a proven core.
+ */
+export const isNoteBodyHidden = (
+  active: boolean,
+  collapsed: boolean,
+  fullCollapse = true
+): boolean => active && collapsed && !fullCollapse;
+
+/**
+ * Resolve the full-collapse setting to a strict boolean.
+ *
+ * `undefined` (pre-upgrade data.json) and any non-`false` value resolve to the
+ * DEFAULT (full collapse ON) — only an explicit `false` engages the kill-switch.
+ * This mirrors how the runtime read must never silently drop to the destructive-
+ * -disabled state just because the key is absent from an older settings file.
+ */
+export const resolveNoteBodyFullCollapse = (
+  settingEnabled: boolean | undefined
+): boolean => settingEnabled !== false;
