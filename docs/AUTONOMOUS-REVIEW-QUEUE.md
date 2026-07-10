@@ -565,7 +565,7 @@ product direction was parked to [docs/ROADMAP.md](ROADMAP.md).
 - **Notidian-5io — date reminders + recurring events** (ADR 0020) — parked → roadmap.
 - **Notidian-214 — frame-execution settings toggle + trusted-frame allowlist** (ADR 0022) — parked → roadmap (gated on the `hardenFrameExecution` flag-gated item above).
 - **Notidian-n2t — Type Profile hub-deletion notice** (ADR 0023) — parked → roadmap (ADR recommends decline).
-- **Notidian-2uz — sub-items + back-relations creation UX** (ADR 0024) — parked → roadmap (engine already shipped).
+- **Notidian-2uz — sub-items + back-relations creation UX** (ADR 0024) — ~~parked → roadmap~~ **superseded by the owner's 2026-06-20 pull**: ADR 0024 Accepted + shipped (`Notidian-f0pj.1`), governing contract now ADR 0050.
 - **Notidian-e29 — per-database row-create templates in the table** (ADR 0028) — parked → roadmap.
-- **Notidian-tni — frontmatter-link relations + rollups UX polish** (ADR 0029) — parked → roadmap (engine already shipped).
+- **Notidian-tni — frontmatter-link relations + rollups UX polish** (ADR 0029) — ~~parked → roadmap~~ **superseded by the owner's 2026-06-20 pull**: ADR 0029 Accepted (A1/B1/C1/D2/E1 ratified); D2 indicator shipped (`Notidian-f0pj.2`), key-match FK relations shipped (`Notidian-mx0k.1`).
 - **Notidian-jlb5 — control-byte source guard** (ADR 0039) — parked → roadmap (repo currently clean; regression insurance only).
