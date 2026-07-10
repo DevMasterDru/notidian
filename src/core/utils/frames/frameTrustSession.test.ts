@@ -14,6 +14,7 @@
 import {
   blessFrameById,
   dispatchFrameTrust,
+  isSoundFrameId,
   pendingBlessCount,
   pendingBlessFrameIds,
   registerFrameBless,
@@ -198,6 +199,100 @@ describe("dispatchFrameTrust: 0 / 1 / many routing (the security branch)", () =>
     });
     expect(seen).toEqual(["multi:spaces://A,spaces://B"]);
     expect(singleCalled).toBe(false); // never blesses directly when ambiguous
+  });
+});
+
+// bd Notidian-pg6g (milestone-gate regression on Notidian-214): the render path
+// used to fall back to the SHARED identity "?" whenever no FrameRootContext was
+// mounted — which was EVERY editable space main frame. Two different spaces'
+// frames (the user's own and an AI/attacker-planted one) then aliased to ONE
+// identity, so pendingBlessFrameIds() returned exactly one id, the command
+// auto-blessed it WITHOUT a picker, and blessFrameById("?") stamped whichever
+// frame registered LAST — full session $api for a frame the user never reviewed.
+// The registry must therefore REFUSE unsound identities at every entry point:
+// they can be neither registered, offered, picked, nor blessed.
+describe("unsound frame identities ('?' / empty / null) are never trustable (Notidian-pg6g)", () => {
+  it("isSoundFrameId: null / undefined / '' / '?' are unsound; real paths are sound", () => {
+    expect(isSoundFrameId(null)).toBe(false);
+    expect(isSoundFrameId(undefined)).toBe(false);
+    expect(isSoundFrameId("")).toBe(false);
+    expect(isSoundFrameId("?")).toBe(false);
+    expect(isSoundFrameId("spaces://A")).toBe(true);
+    expect(isSoundFrameId("Projects/Notes#*main")).toBe(true);
+  });
+
+  it("registerFrameBless REFUSES the '?' fallback identity — nothing becomes pending", () => {
+    registerFrameBless("?", "?::", () => undefined);
+    expect(pendingBlessCount()).toBe(0);
+    expect(pendingBlessFrameIds()).toEqual([]);
+  });
+
+  it("registerFrameBless refuses empty/null identities too", () => {
+    registerFrameBless("", "::r0", () => undefined);
+    registerFrameBless(null as unknown as string, "null::r0", () => undefined);
+    expect(pendingBlessCount()).toBe(0);
+    expect(pendingBlessFrameIds()).toEqual([]);
+  });
+
+  it("REGRESSION: two DIFFERENT frames aliased to '?' can never ride one bless gesture", () => {
+    const calls: string[] = [];
+    // space X's frame (the one the user saw the notice for)...
+    registerFrameBless("?", "?::", () => calls.push("user-frame"));
+    // ...then space Y's frame (attacker-planted) registers under the SAME
+    // aliased key, replacing X's callback in the old code.
+    registerFrameBless("?", "?::", () => calls.push("attacker-frame"));
+    // The single-pending auto-bless route must see NOTHING pending...
+    expect(pendingBlessFrameIds()).toEqual([]);
+    // ...and a direct bless of the aliased identity must stamp NOTHING.
+    expect(blessFrameById("?")).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  it("blessFrameById refuses unsound identities outright", () => {
+    expect(blessFrameById("?")).toBe(0);
+    expect(blessFrameById("")).toBe(0);
+    expect(blessFrameById(null as unknown as string)).toBe(0);
+  });
+
+  it("dispatchFrameTrust NEVER auto-blesses an unidentified frame: ['?'] -> onEmpty", () => {
+    const seen: string[] = [];
+    dispatchFrameTrust(["?"], {
+      onEmpty: () => seen.push("empty"),
+      onSingle: (f) => seen.push(`single:${f}`),
+      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+    });
+    expect(seen).toEqual(["empty"]);
+  });
+
+  it("dispatchFrameTrust filters unsound ids before 0/1/many routing", () => {
+    const seen: string[] = [];
+    dispatchFrameTrust(["?", "spaces://A"], {
+      onEmpty: () => seen.push("empty"),
+      onSingle: (f) => seen.push(`single:${f}`),
+      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+    });
+    // "?" must not force the ambiguous->picker route (nor ever be pickable):
+    // only the ONE sound, named frame is offered, via the single route.
+    expect(seen).toEqual(["single:spaces://A"]);
+  });
+
+  it("dispatchFrameTrust with several sound ids + an unsound one pickers ONLY the sound ones", () => {
+    const seen: string[] = [];
+    dispatchFrameTrust(["spaces://A", "?", "spaces://B"], {
+      onEmpty: () => seen.push("empty"),
+      onSingle: (f) => seen.push(`single:${f}`),
+      onMultiple: (fs) => seen.push(`multi:${fs.join(",")}`),
+    });
+    expect(seen).toEqual(["multi:spaces://A,spaces://B"]);
+  });
+
+  it("sound frames registered ALONGSIDE an unsound one stay independently blessable", () => {
+    const calls: string[] = [];
+    registerFrameBless("?", "?::", () => calls.push("aliased"));
+    registerFrameBless("spaces://A", "spaces://A::r0", () => calls.push("A"));
+    expect(pendingBlessFrameIds()).toEqual(["spaces://A"]);
+    expect(blessFrameById("spaces://A")).toBe(1);
+    expect(calls).toEqual(["A"]);
   });
 });
 

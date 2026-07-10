@@ -10,6 +10,7 @@ import {
   stampKitProvenanceTree,
 } from "core/utils/frames/trust";
 import {
+  isSoundFrameId,
   registerFrameBless,
   shouldNotifyApiWithheld,
   unregisterFrame,
@@ -38,6 +39,11 @@ import { FrameRootContext } from "./FrameRootContext";
 // Define the context type
 type FrameInstanceType = {
   id: string;
+  // bd Notidian-pg6g: the frame TRUST identity (its path) this instance derived
+  // from FrameRootContext, or null when the mount topology provides none. Never a
+  // shared sentinel like "?" — that aliased DIFFERENT frames to one identity in
+  // the session bless registry (the ADR 0022 2c confused deputy).
+  frameId: string | null;
   hoverNode: { id: string; node: string; direction: Edges };
   setHoverNode: (node: { id: string; node: string; direction: Edges }) => void;
   selectableNodeBounds: MutableRefObject<Record<string, Box>>;
@@ -56,6 +62,7 @@ type FrameInstanceType = {
 // Create the context
 export const FrameInstanceContext = createContext<FrameInstanceType>({
   id: "",
+  frameId: null,
   hoverNode: { id: null, node: "", direction: null },
   setHoverNode: (node: { node: string; direction: Edges }) => null,
   selectableNodeBounds: { current: {} },
@@ -120,15 +127,26 @@ export const FrameInstanceProvider: React.FC<
     [props.editable, editableRoot, nonEditableRoot]
   );
   // bd Notidian-214: the frame IDENTITY (its path) de-dupes the once-per-frame
-  // diagnostic notice. A list renders one FrameInstance PER ROW that all share
-  // this path, so keying the notice on identity (not the per-row instance) shows
-  // ONE notice for the whole view, not one per visible row.
-  const frameId = useMemo(() => path ?? "?", [path]);
-  // bd Notidian-214: the per-INSTANCE key registers this row's bless callback, so
-  // blessing the chosen frame re-runs every one of its rows.
+  // diagnostic notice AND keys the per-frame bless consent. A list renders one
+  // FrameInstance PER ROW that all share this path, so keying the notice on
+  // identity (not the per-row instance) shows ONE notice for the whole view.
+  //
+  // bd Notidian-pg6g: every render topology must provide this via
+  // FrameRootContext (FrameRootProvider on the read/kit paths; the editor branch
+  // of FrameContainerView provides it directly). When absent (an unforeseen
+  // mount) the identity is null — NEVER a shared "?" fallback, which aliased
+  // EVERY editable space's main frame to one identity so a single bless gesture
+  // could trust a frame the user never reviewed (ADR 0022 2c confused deputy).
+  const frameId = useMemo(() => path ?? null, [path]);
+  // bd Notidian-214/pg6g: the per-INSTANCE key registers this row's bless
+  // callback, so blessing the chosen frame re-runs every one of its rows. The
+  // per-mount unique suffix guarantees two live instances can never collide in
+  // the registry (a shared key silently REPLACED the other instance's callback
+  // and dropped it on the first unmount).
+  const instanceUid = useRef(uniqueId("frame-instance-")).current;
   const instanceKey = useMemo(
-    () => `${frameId}::${props.id ?? "root"}`,
-    [frameId, props.id]
+    () => `${frameId ?? "?"}::${props.id ?? "root"}::${instanceUid}`,
+    [frameId, props.id, instanceUid]
   );
 
   const activeRunID = useRef(null);
@@ -271,21 +289,38 @@ export const FrameInstanceProvider: React.FC<
   // and notifies ONCE per frame per session. It is a pure notification — it NEVER
   // grants trust.
   const onApiWithheld = (info: ApiWithheldInfo) => {
-    registerFrameBless(frameId, instanceKey, blessFrame);
+    // bd Notidian-pg6g: only a SOUND identity may register a bless callback — an
+    // unidentified frame is un-attributable, so offering it for trust would let a
+    // frame the user cannot review ride the consent surface (frameTrustSession
+    // refuses unsound ids too; this is the first of two layers).
+    if (isSoundFrameId(frameId)) {
+      registerFrameBless(frameId, instanceKey, blessFrame);
+    }
     if (props.superstate.settings?.enhancedLogs) {
       // eslint-disable-next-line no-console
       console.warn(
         `[notidian] frame hardening withheld $api from node "${
           info.nodeName ?? info.nodeId
-        }" (${info.expressions.join(", ")}) in frame "${frameId}". ` +
-          `Run "Trust dynamic frame code for this session" to re-enable.`
+        }" (${info.expressions.join(", ")}) in frame "${
+          frameId ?? "(unidentified frame)"
+        }". Run "Trust dynamic frame code for this session" to re-enable.`
       );
     }
     // Notify once per FRAME IDENTITY (not per row) and NAME the frame, so the user
     // makes an attributed, per-frame trust choice (ADR 0022 2c).
-    if (shouldNotifyApiWithheld(frameId)) {
+    if (isSoundFrameId(frameId)) {
+      if (shouldNotifyApiWithheld(frameId)) {
+        props.superstate.ui.notify(
+          `Frame hardening disabled dynamic content ($api) in the frame "${frameId}". Run the command "Trust dynamic frame code for this session" and choose this frame to re-enable it (re-required after reload or edit).`
+        );
+      }
+    } else if (shouldNotifyApiWithheld("?")) {
+      // Unidentified frames cannot be offered for trust (no attributable
+      // identity), so say so honestly instead of pointing at a command that
+      // will not list them. De-duped once per session under the "?" notice key
+      // (a NOTICE key only — never a trust identity; registration above refused).
       props.superstate.ui.notify(
-        `Frame hardening disabled dynamic content ($api) in the frame "${frameId}". Run the command "Trust dynamic frame code for this session" and choose this frame to re-enable it (re-required after reload or edit).`
+        `Frame hardening disabled dynamic content ($api) in a frame that could not be identified, so it cannot be trusted this session. If this persists after a reload, please report it.`
       );
     }
   };
@@ -310,6 +345,7 @@ export const FrameInstanceProvider: React.FC<
   const contextValue = useMemo(() => {
     return {
       id: props.id,
+      frameId,
       linkedProps,
       hoverNode,
       setHoverNode,
@@ -320,7 +356,15 @@ export const FrameInstanceProvider: React.FC<
       fastSaveState,
       blessFrame,
     };
-  }, [props.id, linkedProps, hoverNode, instance, saveState, fastSaveState]);
+  }, [
+    props.id,
+    frameId,
+    linkedProps,
+    hoverNode,
+    instance,
+    saveState,
+    fastSaveState,
+  ]);
 
   return (
     <FrameInstanceContext.Provider value={contextValue}>

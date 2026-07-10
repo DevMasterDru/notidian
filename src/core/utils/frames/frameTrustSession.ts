@@ -25,6 +25,18 @@
 
 type BlessFn = () => void;
 
+// bd Notidian-pg6g: a frame identity is SOUND only when it is a real, non-empty
+// path. "?" was the legacy render-path fallback used whenever no FrameRootContext
+// was mounted — which was EVERY editable space's main frame — so DIFFERENT frames
+// aliased to one shared identity and a single bless gesture could trust a frame
+// the user never reviewed (the exact ADR 0022 2c confused deputy). Unsound
+// identities are refused at every entry point below: they can be neither
+// registered, offered, picked, nor blessed.
+export const isSoundFrameId = (
+  frameId: string | null | undefined
+): frameId is string =>
+  typeof frameId === "string" && frameId.length > 0 && frameId !== "?";
+
 // Notice de-dup, keyed on FRAME IDENTITY (path). It intentionally SURVIVES
 // instance unmount / remount / pagination — clearing it on unmount would re-arm
 // the toast on every re-open of a multi-row view. It re-arms ONLY on reload
@@ -52,6 +64,9 @@ export const registerFrameBless = (
   instanceKey: string,
   bless: BlessFn
 ): void => {
+  // Notidian-pg6g: an unsound identity is un-attributable — registering it would
+  // let frames from different sources alias into one blessable entry.
+  if (!isSoundFrameId(frameId)) return;
   pendingBless.set(instanceKey, bless);
   instanceFrameId.set(instanceKey, frameId);
 };
@@ -87,6 +102,9 @@ export const unregisterFrame = (instanceKey: string): void => {
 export const pendingBlessFrameIds = (): string[] => {
   const ids = new Set<string>();
   for (const frameId of instanceFrameId.values()) {
+    // Notidian-pg6g: defense in depth — an unsound identity must never be
+    // offered even if one somehow entered the registry.
+    if (!isSoundFrameId(frameId)) continue;
     if (!blessedFrames.has(frameId)) ids.add(frameId);
   }
   return [...ids];
@@ -100,6 +118,10 @@ export const pendingBlessCount = (): number => pendingBless.size;
 // This is the ONLY bless entry point — there is deliberately no "bless everything",
 // so a single user gesture can never trust a frame the user did not choose.
 export const blessFrameById = (frameId: string): number => {
+  // Notidian-pg6g: never stamp trust on an un-attributable identity — under the
+  // legacy "?" alias this blessed whichever frame registered LAST, i.e. possibly
+  // one the user never reviewed.
+  if (!isSoundFrameId(frameId)) return 0;
   let blessed = 0;
   for (const [instanceKey, id] of instanceFrameId.entries()) {
     if (id !== frameId) continue;
@@ -129,12 +151,16 @@ export const dispatchFrameTrust = (
     onMultiple: (frameIds: string[]) => void;
   }
 ): void => {
-  if (frameIds.length === 0) {
+  // Notidian-pg6g: an unidentified frame is never auto-blessable and never
+  // pickable — filter unsound ids BEFORE the 0/1/many routing so "?" can neither
+  // ride the single-pending auto-bless nor appear in the picker.
+  const ids = frameIds.filter(isSoundFrameId);
+  if (ids.length === 0) {
     handlers.onEmpty();
-  } else if (frameIds.length === 1) {
-    handlers.onSingle(frameIds[0]);
+  } else if (ids.length === 1) {
+    handlers.onSingle(ids[0]);
   } else {
-    handlers.onMultiple(frameIds);
+    handlers.onMultiple(ids);
   }
 };
 
