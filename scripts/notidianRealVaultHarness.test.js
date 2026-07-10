@@ -7,6 +7,9 @@ const {
   runSchemaAdoptionScenario,
   runReconcilerScenario,
   runHealthSurfacesScenario,
+  runViewDurabilityScenario,
+  readMdbSnapshotFromDisk,
+  assertViewDurabilityPreserved,
   validateHarnessConfig,
 } = require("./notidianRealVaultHarness");
 
@@ -22,6 +25,8 @@ const baseConfig = {
   pollIntervalMs: 0,
   cleanupSettleMs: 0,
   obsidianBin: "obsidian",
+  vaultFsPath: "/Users/druker/Atlas Vault",
+  sqliteBin: "sqlite3",
 };
 
 const cleanLegacyArtifactSnapshot = JSON.stringify({
@@ -53,6 +58,7 @@ describe("notidian real vault harness", () => {
       includeSchemaAdoption: false,
       includeReconciler: false,
       includeHealthSurfaces: false,
+      includeViewDurability: false,
       pluginId: "notidian-dev",
       fixtureRoot: "Notidian Smoke Fixtures",
       timeoutMs: 2500,
@@ -60,6 +66,8 @@ describe("notidian real vault harness", () => {
       pollIntervalMs: 250,
       cleanupSettleMs: 1500,
       obsidianBin: "obsidian-dev",
+      vaultFsPath: "/Users/druker/Atlas Vault",
+      sqliteBin: "sqlite3",
     });
 
     expect(parseHarnessArgs([], { NOTIDIAN_REAL_VAULT: "Test Vault" }).vault)
@@ -838,6 +846,62 @@ describe("notidian real vault harness", () => {
     expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
       .toMatchObject({ includeHealthSurfaces: false });
   });
+
+  it("parses --view-durability", () => {
+    expect(
+      parseHarnessArgs(
+        ["vault=Atlas Vault", "--allow-write", "--view-durability"],
+        {}
+      )
+    ).toMatchObject({
+      vault: "Atlas Vault",
+      allowWrite: true,
+      includeViewDurability: true,
+    });
+    expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
+      .toMatchObject({ includeViewDurability: false });
+  });
+
+  it("parses --vault-fs-path / --sqlite-bin overrides and their env fallbacks", () => {
+    expect(
+      parseHarnessArgs(
+        [
+          "vault=Atlas Vault",
+          "--allow-write",
+          "--vault-fs-path=/tmp/Some Vault",
+          "--sqlite-bin=/opt/homebrew/bin/sqlite3",
+        ],
+        {}
+      )
+    ).toMatchObject({
+      vaultFsPath: "/tmp/Some Vault",
+      sqliteBin: "/opt/homebrew/bin/sqlite3",
+    });
+
+    expect(
+      parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {
+        NOTIDIAN_VAULT_PATH: "/tmp/Env Vault",
+        NOTIDIAN_SQLITE_BIN: "sqlite3-env",
+      })
+    ).toMatchObject({
+      vaultFsPath: "/tmp/Env Vault",
+      sqliteBin: "sqlite3-env",
+    });
+
+    // CLI flag wins over the env fallback.
+    expect(
+      parseHarnessArgs(
+        ["vault=Atlas Vault", "--allow-write", "--vault-fs-path=/tmp/CLI Vault"],
+        { NOTIDIAN_VAULT_PATH: "/tmp/Env Vault" }
+      )
+    ).toMatchObject({ vaultFsPath: "/tmp/CLI Vault" });
+
+    expect(parseHarnessArgs(["vault=Atlas Vault", "--allow-write"], {}))
+      .toMatchObject({
+        vaultFsPath: "/Users/druker/Atlas Vault",
+        sqliteBin: "sqlite3",
+      });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1601,5 +1665,426 @@ describe("runHealthSurfacesScenario", () => {
     const codeArg = deleteArgs.find((arg) => arg.startsWith("code=")) ?? "";
     expect(codeArg).toContain(JSON.stringify(HEALTH_ROOT));
     expect(codeArg).toContain(JSON.stringify(ADJACENT_HUB));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readMdbSnapshotFromDisk + assertViewDurabilityPreserved (Notidian-peh7):
+// the ground-truth reader and its verdict, exercised as pure functions.
+//
+// The happy-path read is driven against a tiny POSIX-shell stand-in for the
+// `sqlite3` CLI (written to a temp file for the duration of this describe
+// block) rather than the real system binary -- same portability discipline
+// src/adapters/mdb/utils/mdb.persistence.realengine.test.ts already applies
+// (that suite drives sql.js, never a native sqlite3 process, so `npm test`
+// never depends on what happens to be installed on the machine running it).
+// The missing-file and exception branches need no shim at all: they are
+// pure fs / process-spawn-failure paths.
+// ---------------------------------------------------------------------------
+describe("readMdbSnapshotFromDisk", () => {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+
+  const SHIM_SCHEMA_JSON =
+    '[{"id":"main","type":"frame","name":"main","def":"","predicate":""},\n' +
+    '{"id":"filesView","type":"view","name":"All","def":"{\\"db\\":\\"files\\"}","predicate":"{\\"colsHidden\\":[]}"}]';
+  const SHIM_FIELDS_JSON =
+    '[{"name":"File","schemaId":"files","type":"file","value":"","source":"","attrs":"","hidden":"","unique":"","primary":"true"}]';
+
+  let shimPath;
+  let realMdbPath;
+  let tmpDir;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "notidian-sqlite-shim-"));
+    shimPath = path.join(tmpDir, "sqlite3-shim.sh");
+    fs.writeFileSync(
+      shimPath,
+      [
+        "#!/bin/sh",
+        '# Test-only sqlite3(-json) stand-in -- see the describe block header.',
+        'case "$3" in',
+        "  *m_schema*) cat <<'JSON'",
+        SHIM_SCHEMA_JSON,
+        "JSON",
+        "    ;;",
+        "  *m_fields*) cat <<'JSON'",
+        SHIM_FIELDS_JSON,
+        "JSON",
+        "    ;;",
+        "  *) echo '[]' ;;",
+        "esac",
+        "",
+      ].join("\n")
+    );
+    fs.chmodSync(shimPath, 0o755);
+    realMdbPath = path.join(tmpDir, "views.mdb");
+    fs.writeFileSync(realMdbPath, ""); // existence is all readMdbSnapshotFromDisk checks up front.
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("parses -json schema + fields output from the sqlite3 CLI", () => {
+    const result = readMdbSnapshotFromDisk({
+      mdbPath: realMdbPath,
+      sqliteBin: shimPath,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.mdbPath).toBe(realMdbPath);
+    expect(result.schema).toEqual([
+      { id: "main", type: "frame", name: "main", def: "", predicate: "" },
+      {
+        id: "filesView",
+        type: "view",
+        name: "All",
+        def: '{"db":"files"}',
+        predicate: '{"colsHidden":[]}',
+      },
+    ]);
+    expect(result.fields).toEqual([
+      {
+        name: "File",
+        schemaId: "files",
+        type: "file",
+        value: "",
+        source: "",
+        attrs: "",
+        hidden: "",
+        unique: "",
+        primary: "true",
+      },
+    ]);
+  });
+
+  it("reports missing-mdb-file without ever spawning sqlite3", () => {
+    const missingPath = path.join(tmpDir, "does-not-exist.mdb");
+
+    const result = readMdbSnapshotFromDisk({
+      mdbPath: missingPath,
+      // A binary that would throw if actually invoked -- proves the
+      // fs.existsSync guard short-circuits before any spawn.
+      sqliteBin: path.join(tmpDir, "definitely-not-a-real-binary"),
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "missing-mdb-file",
+      mdbPath: missingPath,
+    });
+  });
+
+  it("reports an exception when the sqlite3 binary cannot be spawned", () => {
+    const result = readMdbSnapshotFromDisk({
+      mdbPath: realMdbPath,
+      sqliteBin: path.join(tmpDir, "definitely-not-a-real-binary"),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("exception");
+    expect(result.mdbPath).toBe(realMdbPath);
+    expect(result.message).toBeTruthy();
+  });
+});
+
+describe("assertViewDurabilityPreserved", () => {
+  const SNAPSHOT = {
+    schema: [
+      { id: "filesView", predicate: "PRED_A" },
+      { id: "viewDurabilityViewB", predicate: "PRED_B" },
+      { id: "main", predicate: "" },
+    ],
+    fields: [
+      { name: "colA1", schemaId: "filesView" },
+      { name: "colA2", schemaId: "filesView" },
+      { name: "colB1", schemaId: "viewDurabilityViewB" },
+    ],
+  };
+
+  it("does not throw when before/after are byte-identical", () => {
+    expect(() =>
+      assertViewDurabilityPreserved({ before: SNAPSHOT, after: SNAPSHOT })
+    ).not.toThrow();
+  });
+
+  it("throws when a view's predicate (hidden/width/order) was reset", () => {
+    const after = {
+      ...SNAPSHOT,
+      schema: SNAPSHOT.schema.map((row) =>
+        row.id == "filesView" ? { ...row, predicate: "" } : row
+      ),
+    };
+
+    expect(() =>
+      assertViewDurabilityPreserved({ before: SNAPSHOT, after })
+    ).toThrow(/Notidian-2y21 invariant broken.*filesView predicate reset/s);
+  });
+
+  it("throws when a sibling view's m_fields rows were wiped", () => {
+    const after = {
+      ...SNAPSHOT,
+      fields: SNAPSHOT.fields.filter((row) => row.schemaId != "viewDurabilityViewB"),
+    };
+
+    expect(() =>
+      assertViewDurabilityPreserved({ before: SNAPSHOT, after })
+    ).toThrow(/viewDurabilityViewB m_fields reset/);
+  });
+
+  it("throws when a view's schema row is entirely missing after the trigger", () => {
+    const after = {
+      ...SNAPSHOT,
+      schema: SNAPSHOT.schema.filter((row) => row.id != "viewDurabilityViewB"),
+    };
+
+    expect(() =>
+      assertViewDurabilityPreserved({ before: SNAPSHOT, after })
+    ).toThrow(/viewDurabilityViewB predicate reset/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runViewDurabilityScenario (Notidian-peh7): drives fixture setup (2 views,
+// each independently hidden/resized/reordered + given its own sibling
+// field rows), the trigger sequence (single-frame save -> row write ->
+// reload), and the mdb before/after diff, in order.
+//
+// readMdbSnapshot is injected (this describe block never spawns a real or
+// shimmed sqlite3 process) -- the CLI-facing sequencing is what this test
+// pins; readMdbSnapshotFromDisk's own parsing is pinned separately above,
+// and assertViewDurabilityPreserved's own verdict logic is pinned above
+// that -- each seam gets exactly one owner.
+// ---------------------------------------------------------------------------
+describe("runViewDurabilityScenario", () => {
+  const ROOT = "Notidian Integration Fixtures/run-1-ViewDurability";
+  const ROW_PATH = `${ROOT}/View Durability Row.md`;
+
+  const DURABLE_SNAPSHOT = {
+    ok: true,
+    mdbPath: "/fake/vault/.notidian/views.mdb",
+    schema: [
+      { id: "filesView", predicate: "PRED_A" },
+      { id: "viewDurabilityViewB", predicate: "PRED_B" },
+      { id: "main", predicate: "" },
+    ],
+    fields: [
+      { name: "colA1", schemaId: "filesView" },
+      { name: "colA2", schemaId: "filesView" },
+      { name: "colB1", schemaId: "viewDurabilityViewB" },
+    ],
+  };
+
+  const buildViewDurabilityRunner = ({
+    tableSetupResult = { ok: true },
+    createViewResult = { ok: true },
+    savePredicateResult = { ok: true },
+    seedColsResult = { ok: true },
+    triggerFrameResult = { ok: true },
+    devErrorsOutput = "No errors captured.",
+    deleteOk = true,
+  } = {}) => {
+    let statusCallCount = 0;
+    const statusSequence = ["todo", "in-progress"];
+    let saveFrameCallCount = 0;
+
+    const runner = jest.fn(async (args) => {
+      const command = args[1];
+      if (command == "create") return "Created: row";
+      if (command == "property:set") return "Set status: in-progress";
+      if (command == "plugin:reload") return "Reloaded: notidian";
+      if (command == "dev:errors") return devErrorsOutput;
+      if (command != "eval") return "";
+
+      const codeArg = args.find((arg) => arg.startsWith("code=")) ?? "";
+      if (codeArg.includes("notidianEnsureFixtureFolder")) {
+        return JSON.stringify({ ok: true, created: [] });
+      }
+      if (codeArg.includes("notidianTableUiSetup")) {
+        return JSON.stringify(tableSetupResult);
+      }
+      if (codeArg.includes("notidianViewDurabilityCreateView")) {
+        return JSON.stringify(createViewResult);
+      }
+      if (codeArg.includes("notidianViewDurabilitySavePredicate")) {
+        return JSON.stringify(savePredicateResult);
+      }
+      if (codeArg.includes("notidianViewDurabilitySaveFrame")) {
+        // The scenario makes exactly 3 of these calls, in order: seed View
+        // A's cols, seed View B's cols, then the TRIGGER save on `main`.
+        saveFrameCallCount++;
+        const result = saveFrameCallCount <= 2 ? seedColsResult : triggerFrameResult;
+        return JSON.stringify(result);
+      }
+      if (codeArg.includes("notidianDeleteFolder")) {
+        return JSON.stringify(
+          deleteOk ? { ok: true } : { ok: false, reason: "exception" }
+        );
+      }
+      if (codeArg.includes('"status"') && codeArg.includes(JSON.stringify(ROW_PATH))) {
+        const value = statusSequence[statusCallCount] ?? statusSequence.at(-1);
+        statusCallCount++;
+        return `=> ${value}`;
+      }
+      return "";
+    });
+    return runner;
+  };
+
+  const scenarioConfig = (overrides = {}) => ({
+    ...baseConfig,
+    timeoutMs: 500,
+    pollIntervalMs: 0,
+    ...overrides,
+  });
+
+  const buildReadMdbSnapshot = ({ before = DURABLE_SNAPSHOT, after = DURABLE_SNAPSHOT } = {}) => {
+    let callCount = 0;
+    return jest.fn(() => {
+      callCount++;
+      return callCount == 1 ? before : after;
+    });
+  };
+
+  it("drives fixture setup, the trigger sequence, and the mdb diff in order", async () => {
+    const runner = buildViewDurabilityRunner();
+    const readMdbSnapshot = buildReadMdbSnapshot();
+
+    const result = await runViewDurabilityScenario({
+      config: scenarioConfig(),
+      runner,
+      runId: "run-1",
+      readMdbSnapshot,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      folder: ROOT,
+      rowPath: ROW_PATH,
+      mdbPath: expect.any(String),
+      before: DURABLE_SNAPSHOT,
+      after: DURABLE_SNAPSHOT,
+    });
+
+    const commandSequence = runner.mock.calls.map(([args]) => args[1]);
+    expect(commandSequence).toEqual([
+      "eval", // ensure fixture folder
+      "create", // fixture row
+      "eval", // waitForMetadataValue(status=todo)
+      "eval", // table view setup (filesView + main)
+      "eval", // create View B
+      "eval", // save predicate on View A
+      "eval", // save predicate on View B
+      "eval", // seed View A cols (colA1, colA2)
+      "eval", // seed View B cols (colB1)
+      "eval", // TRIGGER: single-frame save on `main`
+      "property:set", // TRIGGER: row write
+      "eval", // waitForMetadataValue(status=in-progress)
+      "plugin:reload", // TRIGGER: reload
+      "dev:errors",
+      "eval", // cleanup (delete folder)
+    ]);
+
+    expect(readMdbSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws a durability-regression error when the AFTER snapshot diverges, and still cleans up", async () => {
+    const regressed = {
+      ...DURABLE_SNAPSHOT,
+      fields: DURABLE_SNAPSHOT.fields.filter((row) => row.schemaId != "viewDurabilityViewB"),
+    };
+    const runner = buildViewDurabilityRunner();
+    const readMdbSnapshot = buildReadMdbSnapshot({ after: regressed });
+
+    await expect(
+      runViewDurabilityScenario({
+        config: scenarioConfig(),
+        runner,
+        runId: "run-1",
+        readMdbSnapshot,
+      })
+    ).rejects.toThrow(/View-customization durability regression.*viewDurabilityViewB m_fields reset/s);
+
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(true);
+  });
+
+  it("throws when the BEFORE mdb snapshot cannot be read", async () => {
+    const runner = buildViewDurabilityRunner();
+    const readMdbSnapshot = jest.fn(() => ({ ok: false, reason: "missing-mdb-file" }));
+
+    await expect(
+      runViewDurabilityScenario({
+        config: scenarioConfig(),
+        runner,
+        runId: "run-1",
+        readMdbSnapshot,
+      })
+    ).rejects.toThrow("View durability BEFORE mdb snapshot failed: missing-mdb-file");
+
+    expect(readMdbSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws when the trigger frame save fails", async () => {
+    const runner = buildViewDurabilityRunner({
+      triggerFrameResult: { ok: false, reason: "exception", message: "boom" },
+    });
+    const readMdbSnapshot = buildReadMdbSnapshot();
+
+    await expect(
+      runViewDurabilityScenario({
+        config: scenarioConfig(),
+        runner,
+        runId: "run-1",
+        readMdbSnapshot,
+      })
+    ).rejects.toThrow(/trigger: main frame save failed/);
+  });
+
+  it("throws when Obsidian captured developer errors during the trigger sequence", async () => {
+    const runner = buildViewDurabilityRunner({ devErrorsOutput: "TypeError: boom" });
+    const readMdbSnapshot = buildReadMdbSnapshot();
+
+    await expect(
+      runViewDurabilityScenario({
+        config: scenarioConfig(),
+        runner,
+        runId: "run-1",
+        readMdbSnapshot,
+      })
+    ).rejects.toThrow("Obsidian captured developer errors during the view durability scenario");
+  });
+
+  it("skips cleanup when --keep-fixture is set", async () => {
+    const runner = buildViewDurabilityRunner();
+    const readMdbSnapshot = buildReadMdbSnapshot();
+
+    await runViewDurabilityScenario({
+      config: scenarioConfig({ keepFixture: true }),
+      runner,
+      runId: "run-1",
+      readMdbSnapshot,
+    });
+
+    expect(
+      runner.mock.calls.some(([args]) => args.join(" ").includes("notidianDeleteFolder"))
+    ).toBe(false);
+  });
+
+  it("surfaces a cleanup failure when the scenario itself succeeded", async () => {
+    const runner = buildViewDurabilityRunner({ deleteOk: false });
+    const readMdbSnapshot = buildReadMdbSnapshot();
+
+    await expect(
+      runViewDurabilityScenario({
+        config: scenarioConfig(),
+        runner,
+        runId: "run-1",
+        readMdbSnapshot,
+      })
+    ).rejects.toThrow("View durability fixture cleanup failed");
   });
 });

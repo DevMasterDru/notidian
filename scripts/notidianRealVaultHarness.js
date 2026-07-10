@@ -1,4 +1,5 @@
-const { spawn } = require("child_process");
+const { spawn, execFileSync } = require("child_process");
+const fs = require("fs");
 
 const DEFAULT_FIXTURE_ROOT = "Sandbox/Notidian/Integration Fixtures";
 const DEFAULT_PLUGIN_ID = "notidian";
@@ -21,6 +22,11 @@ const DEFAULT_TABLE_UI_MULTI_PASTE_BETA_STATUS = "multi-beta-status";
 const DEFAULT_TABLE_UI_MULTI_PASTE_BETA_RATING = "47";
 const DEFAULT_FRAME_LIST_VIEW_ID = "filesView";
 const DEFAULT_CONTEXT_SCHEMA_ID = "files";
+const DEFAULT_SQLITE_BIN = "sqlite3";
+// Same default + override convention as scripts/notidianDeployToVault.js
+// (ADR 0051) -- deliberately NOT cross-required from that script, so this
+// harness keeps zero non-CLI runtime dependencies beyond the `sqlite3` binary.
+const DEFAULT_VAULT_FS_PATH = "/Users/druker/Atlas Vault";
 
 const normalizeCliValue = (value) => {
   const trimmed = String(value ?? "")
@@ -49,6 +55,7 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     includeSchemaAdoption: false,
     includeReconciler: false,
     includeHealthSurfaces: false,
+    includeViewDurability: false,
     pluginId: DEFAULT_PLUGIN_ID,
     fixtureRoot: DEFAULT_FIXTURE_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -56,6 +63,8 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
     cleanupSettleMs: DEFAULT_CLEANUP_SETTLE_MS,
     obsidianBin: env.OBSIDIAN_BIN ?? "obsidian",
+    vaultFsPath: env.NOTIDIAN_VAULT_PATH || DEFAULT_VAULT_FS_PATH,
+    sqliteBin: env.NOTIDIAN_SQLITE_BIN || DEFAULT_SQLITE_BIN,
   };
 
   for (const arg of argv) {
@@ -83,6 +92,10 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
       config.includeHealthSurfaces = true;
       continue;
     }
+    if (arg == "--view-durability") {
+      config.includeViewDurability = true;
+      continue;
+    }
     const separator = arg.indexOf("=");
     if (separator < 0) continue;
 
@@ -97,6 +110,12 @@ const parseHarnessArgs = (argv = process.argv.slice(2), env = process.env) => {
         break;
       case "fixture-root":
         config.fixtureRoot = value;
+        break;
+      case "vault-fs-path":
+        config.vaultFsPath = value;
+        break;
+      case "sqlite-bin":
+        config.sqliteBin = value;
         break;
       case "timeout-ms":
         config.timeoutMs = parseIntegerOption(value, config.timeoutMs);
@@ -4816,6 +4835,439 @@ const runHealthSurfacesScenario = async ({ config, runner, runId }) => {
   return { ok: true, folder: root, hubPath, emptyRowPath, brokenRowPath };
 };
 
+// ---------------------------------------------------------------------------
+// --view-durability / runViewDurabilityScenario (Notidian-peh7): live-verify
+// the Notidian-2y21 fix -- view customizations (hidden props / column widths /
+// column order, all persisted in Predicate JSON inside m_schema.predicate)
+// AND sibling column definitions (m_fields rows, keyed by schemaId) must
+// survive (a) a genuine single-frame save (mdbFrame-fragment write --
+// mdbFrameToDBTables -> mergeFrameFields -> replaceDB, the historically
+// destructive reset vector), (b) an AI/api-style row write (ADR-0044
+// authority gate: a row write must never touch m_schema), and (c) a plugin
+// reload -- across TWO independently-customized views in the SAME space
+// (the bead's own "2+ views" bar).
+//
+// Ground truth is read directly off the on-disk `.notidian/views.mdb` SQLite
+// file via the `sqlite3` CLI (-json mode), NOT the plugin's own self-report,
+// so a regression can never be masked by a stale in-memory cache -- this is
+// the literal "capture the space's .notidian/*.mdb m_schema.predicate +
+// m_fields rows per schemaId BEFORE/AFTER" the bead's own checklist asks for.
+// The fixture shape (a `main` frame + two views, each with its own header
+// predicate AND its own view-scoped field rows: colA1/colA2 on View A,
+// colB1 on View B) deliberately mirrors
+// src/adapters/mdb/utils/mdb.persistence.realengine.test.ts's own
+// seedFramesWithSiblingViews fixture, but exercised at the LIVE engine layer
+// instead of the offline sql.js engine.
+// ---------------------------------------------------------------------------
+
+const VIEW_DURABILITY_VIEW_A_ID = DEFAULT_FRAME_LIST_VIEW_ID; // "filesView" -- the folder's default table view.
+const VIEW_DURABILITY_VIEW_B_ID = "viewDurabilityViewB";
+const VIEW_DURABILITY_MAIN_FRAME_ID = "main";
+const VIEW_DURABILITY_ROW_TITLE = "View Durability Row";
+
+const viewDurabilityTablePredicate = ({
+  colsOrder,
+  colsHidden,
+  colsSize,
+  frozenColumnCount,
+}) => ({
+  view: "table",
+  filters: [],
+  listView: "",
+  listItem: "",
+  listGroup: "",
+  listGroupProps: {},
+  listViewProps: {},
+  listItemProps: {},
+  sort: [],
+  groupBy: [],
+  colsOrder,
+  colsHidden,
+  colsSize,
+  colsCalc: {},
+  frozenColumnCount,
+  limit: 0,
+});
+
+// Distinct per-view customizations -- a cross-view mixup (View A's edits
+// landing on View B or vice versa) fails this scenario just as loudly as a
+// wipe would.
+const VIEW_DURABILITY_PREDICATE_A = viewDurabilityTablePredicate({
+  colsOrder: ["File", "status", "rating", "stage", "Created"],
+  colsHidden: ["rating"],
+  colsSize: { status: 222 },
+  frozenColumnCount: 1,
+});
+const VIEW_DURABILITY_PREDICATE_B = viewDurabilityTablePredicate({
+  colsOrder: ["File", "rating", "stage", "status", "Created"],
+  colsHidden: ["status"],
+  colsSize: { rating: 180 },
+  frozenColumnCount: 0,
+});
+
+const viewDurabilityRowContent = () =>
+  [
+    "---",
+    "status: todo",
+    "rating: 3",
+    "stage: draft",
+    "---",
+    `# ${VIEW_DURABILITY_ROW_TITLE}`,
+    "",
+  ].join("\n");
+
+// A second real view in the same space, created the same way the "+ Add
+// view" UI action does (spaceManager.createFrame).
+const viewDurabilityCreateViewEvalCode = ({ pluginId, folder, viewId, viewName, predicate }) =>
+  `(async () => {
+    const marker = "notidianViewDurabilityCreateView";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.superstate?.spaceManager) return finish({ ok: false, reason: "missing-plugin" });
+      const folder = ${JSON.stringify(folder)};
+      await plugin.superstate.spaceManager.createFrame(folder, {
+        id: ${JSON.stringify(viewId)},
+        name: ${JSON.stringify(viewName)},
+        type: "view",
+        def: JSON.stringify({ db: ${JSON.stringify(DEFAULT_CONTEXT_SCHEMA_ID)}, icon: "ui//table" }),
+        predicate: JSON.stringify(${JSON.stringify(predicate)}),
+      });
+      await plugin.superstate.reloadSpace(
+        plugin.superstate.spaceManager.spaceInfoForPath(folder),
+        null,
+        true
+      );
+      return finish({ ok: true });
+    } catch (error) {
+      return finish({ ok: false, reason: "exception", message: String(error?.message ?? error) });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// The REAL savePredicate write path (ContextEditorContext.tsx's savePredicate
+// -> FramesMDBContext's saveSchema -> spaceManager.saveFrameSchema -> the
+// 'schema' fragment), driven directly -- exactly what the bead's own
+// "eval on the plugin's savePredicate/predicate paths is acceptable
+// machine-driving" line authorizes. This ONLY ever touches m_schema.
+const viewDurabilitySavePredicateEvalCode = ({ pluginId, folder, viewId, predicate }) =>
+  `(async () => {
+    const marker = "notidianViewDurabilitySavePredicate";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.superstate?.spaceManager) return finish({ ok: false, reason: "missing-plugin" });
+      await plugin.superstate.spaceManager.saveFrameSchema(
+        ${JSON.stringify(folder)},
+        ${JSON.stringify(viewId)},
+        (prev) => ({ ...(prev || {}), predicate: JSON.stringify(${JSON.stringify(predicate)}) })
+      );
+      return finish({ ok: true });
+    } catch (error) {
+      return finish({ ok: false, reason: "exception", message: String(error?.message ?? error) });
+    }
+  })()`.replace(/\s+/g, " ");
+
+// A genuine single-frame save (spaceManager.saveFrame -> the mdbFrame
+// fragment -> mdbFrameToDBTables + mergeFrameFields + replaceDB). Reads the
+// CURRENT frame first (so the write is a real echo/edit, never a
+// hand-fabricated shape) and overwrites its `cols` with the given column
+// names. Reused for BOTH: (1) seeding each view's own sibling field rows
+// during setup, and (2) the scenario's TRIGGER step (re-saving `main`) --
+// the exact write Notidian-2y21 pinned as the historically destructive path.
+const viewDurabilitySaveFrameColsEvalCode = ({ pluginId, folder, schemaId, colNames }) =>
+  `(async () => {
+    const marker = "notidianViewDurabilitySaveFrame";
+    const finish = (payload) => JSON.stringify({ marker, ...payload });
+    try {
+      const plugin = app.plugins.plugins[${JSON.stringify(pluginId)}];
+      if (!plugin?.superstate?.spaceManager) return finish({ ok: false, reason: "missing-plugin" });
+      const folder = ${JSON.stringify(folder)};
+      const schemaId = ${JSON.stringify(schemaId)};
+      const prevFrame = await plugin.superstate.spaceManager.readFrame(folder, schemaId);
+      const cols = ${JSON.stringify(colNames)}.map((name) => ({
+        name,
+        schemaId,
+        type: "text",
+        value: "",
+        source: "",
+        attrs: "",
+        hidden: "",
+        unique: "",
+        primary: "",
+      }));
+      await plugin.superstate.spaceManager.saveFrame(folder, {
+        ...prevFrame,
+        cols,
+        rows: prevFrame?.rows ?? [],
+      });
+      return finish({ ok: true, prevColNames: (prevFrame?.cols ?? []).map((c) => c.name) });
+    } catch (error) {
+      return finish({ ok: false, reason: "exception", message: String(error?.message ?? error) });
+    }
+  })()`.replace(/\s+/g, " ");
+
+const viewDurabilityMdbPath = ({ vaultFsPath, folder }) =>
+  `${vaultFsPath}/${folder}/.notidian/views.mdb`;
+
+// Pure, injectable ground-truth reader: shells out to the REAL `sqlite3` CLI
+// (-json mode) against the on-disk frames mdb. Never mocked in production --
+// the whole point is bytes independent of the plugin's own self-report.
+// Column selection mirrors mdb.persistence.realengine.test.ts's own
+// `readFields` helper (`SELECT * FROM "m_fields"`) so this stays
+// column-order-agnostic and immune to `unique`/`primary` being SQL keywords.
+const readMdbSnapshotFromDisk = ({ mdbPath, sqliteBin }) => {
+  if (!fs.existsSync(mdbPath)) {
+    return { ok: false, reason: "missing-mdb-file", mdbPath };
+  }
+  try {
+    const schema = JSON.parse(
+      execFileSync(
+        sqliteBin,
+        ["-json", mdbPath, 'SELECT * FROM "m_schema" ORDER BY id;'],
+        { encoding: "utf8" }
+      ) || "[]"
+    );
+    const fields = JSON.parse(
+      execFileSync(
+        sqliteBin,
+        ["-json", mdbPath, 'SELECT * FROM "m_fields" ORDER BY schemaId, name;'],
+        { encoding: "utf8" }
+      ) || "[]"
+    );
+    return { ok: true, mdbPath, schema, fields };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "exception",
+      mdbPath,
+      message: String(error?.message ?? error),
+    };
+  }
+};
+
+const viewDurabilitySchemaRow = (snapshot, id) =>
+  (snapshot?.schema ?? []).find((row) => row.id == id) ?? null;
+
+const viewDurabilityFieldsFor = (snapshot, schemaId) =>
+  (snapshot?.fields ?? []).filter((row) => row.schemaId == schemaId);
+
+// The scenario's whole verdict: BOTH views' predicates (colsHidden/colsSize/
+// colsOrder/frozenColumnCount, the owner-visible layout) AND both views' own
+// m_fields rows (the sibling columns mergeFrameFields exists to protect) must
+// be byte-identical before vs. after the trigger sequence.
+const assertViewDurabilityPreserved = ({ before, after }) => {
+  const mismatches = [];
+  for (const viewId of [VIEW_DURABILITY_VIEW_A_ID, VIEW_DURABILITY_VIEW_B_ID]) {
+    const beforeRow = viewDurabilitySchemaRow(before, viewId);
+    const afterRow = viewDurabilitySchemaRow(after, viewId);
+    if (!beforeRow || !afterRow || beforeRow.predicate !== afterRow.predicate) {
+      mismatches.push(
+        `${viewId} predicate reset: before=${JSON.stringify(
+          beforeRow?.predicate
+        )} after=${JSON.stringify(afterRow?.predicate)}`
+      );
+    }
+    const beforeFields = JSON.stringify(viewDurabilityFieldsFor(before, viewId));
+    const afterFields = JSON.stringify(viewDurabilityFieldsFor(after, viewId));
+    if (beforeFields !== afterFields) {
+      mismatches.push(
+        `${viewId} m_fields reset: before=${beforeFields} after=${afterFields}`
+      );
+    }
+  }
+  if (mismatches.length > 0) {
+    throw new Error(
+      `View-customization durability regression (Notidian-2y21 invariant broken): ${mismatches.join("; ")}`
+    );
+  }
+};
+
+const assertViewDurabilityEvalOk = (label, result) => {
+  if (result?.ok) return;
+  throw new Error(
+    `Notidian view durability ${label} failed: ${formatUiFailure(result)}`
+  );
+};
+
+const runViewDurabilityScenario = async ({
+  config,
+  runner,
+  runId,
+  readMdbSnapshot = readMdbSnapshotFromDisk,
+}) => {
+  const root = joinVaultPath(config.fixtureRoot, `${runId}-ViewDurability`);
+  const rowPath = `${root}/${VIEW_DURABILITY_ROW_TITLE}.md`;
+  const mdbPath = viewDurabilityMdbPath({ vaultFsPath: config.vaultFsPath, folder: root });
+  let scenarioError = null;
+  let before = null;
+  let after = null;
+
+  try {
+    await runObsidian(config, runner, "eval", {
+      code: ensureFixtureFolderEvalCode({ folder: root }),
+    });
+
+    await runObsidian(config, runner, "create", {
+      path: rowPath,
+      content: viewDurabilityRowContent(),
+      overwrite: true,
+    });
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: rowPath,
+      property: "status",
+      expected: "todo",
+    });
+
+    // Establishes the folder's default view (filesView) + `main` frame --
+    // same helper the --ui scenario uses.
+    const setupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: tableViewSetupEvalCode({ pluginId: config.pluginId, folder: root }),
+      })
+    );
+    assertUiEvalOk("view durability table setup", setupResult);
+
+    // A SECOND real view in the same space -- the bead's own "2+ views" bar.
+    const createViewResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: viewDurabilityCreateViewEvalCode({
+          pluginId: config.pluginId,
+          folder: root,
+          viewId: VIEW_DURABILITY_VIEW_B_ID,
+          viewName: "View B",
+          predicate: viewDurabilityTablePredicate({
+            colsOrder: [],
+            colsHidden: [],
+            colsSize: {},
+            frozenColumnCount: 0,
+          }),
+        }),
+      })
+    );
+    assertViewDurabilityEvalOk("create View B", createViewResult);
+
+    // Hide a property, resize a column, reorder columns -- on BOTH views, via
+    // the REAL savePredicate write path, with DISTINCT customizations per
+    // view so a cross-view mixup fails this scenario too.
+    for (const [viewId, predicate] of [
+      [VIEW_DURABILITY_VIEW_A_ID, VIEW_DURABILITY_PREDICATE_A],
+      [VIEW_DURABILITY_VIEW_B_ID, VIEW_DURABILITY_PREDICATE_B],
+    ]) {
+      const result = parseJsonEvalResult(
+        await runObsidian(config, runner, "eval", {
+          code: viewDurabilitySavePredicateEvalCode({
+            pluginId: config.pluginId,
+            folder: root,
+            viewId,
+            predicate,
+          }),
+        })
+      );
+      assertViewDurabilityEvalOk(`save predicate (${viewId})`, result);
+    }
+
+    // Give each view its OWN sibling field rows (view-scoped columns) via a
+    // real single-frame save -- establishes the exact sibling-wipe risk
+    // mergeFrameFields guards against, mirroring the offline regression
+    // fixture's colA1/colA2/colB1 shape.
+    for (const [schemaId, colNames] of [
+      [VIEW_DURABILITY_VIEW_A_ID, ["colA1", "colA2"]],
+      [VIEW_DURABILITY_VIEW_B_ID, ["colB1"]],
+    ]) {
+      const result = parseJsonEvalResult(
+        await runObsidian(config, runner, "eval", {
+          code: viewDurabilitySaveFrameColsEvalCode({
+            pluginId: config.pluginId,
+            folder: root,
+            schemaId,
+            colNames,
+          }),
+        })
+      );
+      assertViewDurabilityEvalOk(`seed cols (${schemaId})`, result);
+    }
+
+    before = readMdbSnapshot({ mdbPath, sqliteBin: config.sqliteBin });
+    if (!before?.ok) {
+      throw new Error(
+        `View durability BEFORE mdb snapshot failed: ${before?.reason ?? "unknown"} (${before?.message ?? ""})`
+      );
+    }
+
+    // TRIGGER 1: a genuine single-frame save on `main` -- the historically
+    // destructive reset vector (Notidian-2y21 Path C). `main` never carries
+    // its own cols in this fixture, so echoing [] back still exercises the
+    // real mdbFrameToDBTables -> mergeFrameFields -> replaceDB pipeline.
+    const mainSaveResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: viewDurabilitySaveFrameColsEvalCode({
+          pluginId: config.pluginId,
+          folder: root,
+          schemaId: VIEW_DURABILITY_MAIN_FRAME_ID,
+          colNames: [],
+        }),
+      })
+    );
+    assertViewDurabilityEvalOk("trigger: main frame save", mainSaveResult);
+
+    // TRIGGER 2: an AI/api-style row write (ADR-0044 authority gate) -- must
+    // never touch m_schema.
+    await runObsidian(config, runner, "property:set", {
+      path: rowPath,
+      name: "status",
+      value: "in-progress",
+      type: "text",
+    });
+    await waitForMetadataValue({
+      config,
+      runner,
+      path: rowPath,
+      property: "status",
+      expected: "in-progress",
+    });
+
+    // TRIGGER 3: plugin reload -- the exact "AI ships work" surface
+    // Notidian-2y21 was filed against.
+    await runObsidian(config, runner, "plugin:reload", { id: config.pluginId });
+
+    const devErrors = await runObsidian(config, runner, "dev:errors");
+    if (!cleanDevErrors(devErrors)) {
+      throw new Error(
+        `Obsidian captured developer errors during the view durability scenario:\n${devErrors}`
+      );
+    }
+
+    after = readMdbSnapshot({ mdbPath, sqliteBin: config.sqliteBin });
+    if (!after?.ok) {
+      throw new Error(
+        `View durability AFTER mdb snapshot failed: ${after?.reason ?? "unknown"} (${after?.message ?? ""})`
+      );
+    }
+
+    assertViewDurabilityPreserved({ before, after });
+  } catch (error) {
+    scenarioError = error;
+  }
+
+  if (!config.keepFixture) {
+    const cleanupResult = parseJsonEvalResult(
+      await runObsidian(config, runner, "eval", {
+        code: deleteFolderEvalCode({ folder: root }),
+      })
+    );
+    if (!scenarioError && !cleanupResult?.ok) {
+      scenarioError = new Error(
+        `View durability fixture cleanup failed: ${cleanupResult?.reason ?? "unknown"}`
+      );
+    }
+  }
+
+  if (scenarioError) throw scenarioError;
+  return { ok: true, folder: root, rowPath, mdbPath, before, after };
+};
+
 const runRealVaultSmokeHarness = async (config, runner) => {
   const errors = validateHarnessConfig(config);
   if (errors.length > 0) {
@@ -4925,6 +5377,14 @@ const runRealVaultSmokeHarness = async (config, runner) => {
       });
     }
 
+    if (config.includeViewDurability) {
+      await runViewDurabilityScenario({
+        config,
+        runner: execute,
+        runId: paths.runId,
+      });
+    }
+
     const devErrors = await runObsidian(config, execute, "dev:errors");
     if (!cleanDevErrors(devErrors)) {
       throw new Error(`Obsidian captured developer errors:\n${devErrors}`);
@@ -4995,11 +5455,14 @@ const usage = () => [
   "  --adopt-schema           Also exercise the schema-adoption preview/confirm modal.",
   "  --reconciler             Also exercise the Data Integrity reconciler engine (ADR-0057).",
   "  --health                 Also exercise the Data Integrity health surfaces (badges/chip/panel/autofix, ADR-0057 D3/D4).",
+  "  --view-durability        Also exercise view-customization durability across a frame save / row write / reload (Notidian-2y21, Notidian-peh7).",
   "  --plugin-id=<id>         Defaults to notidian.",
   `  --fixture-root=<folder>  Defaults to ${DEFAULT_FIXTURE_ROOT}.`,
   `  --timeout-ms=<ms>        Defaults to ${DEFAULT_TIMEOUT_MS}.`,
   `  --command-timeout-ms=<ms> Defaults to ${DEFAULT_COMMAND_TIMEOUT_MS}.`,
   `  --cleanup-settle-ms=<ms> Defaults to ${DEFAULT_CLEANUP_SETTLE_MS}.`,
+  `  --vault-fs-path=<path>   Absolute vault path for direct .notidian/*.mdb reads (--view-durability only). Defaults to ${DEFAULT_VAULT_FS_PATH} or NOTIDIAN_VAULT_PATH.`,
+  `  --sqlite-bin=<bin>       sqlite3 binary for direct .notidian/*.mdb reads (--view-durability only). Defaults to ${DEFAULT_SQLITE_BIN} or NOTIDIAN_SQLITE_BIN.`,
 ].join("\n");
 
 const main = async (argv = process.argv.slice(2), env = process.env) => {
@@ -5037,5 +5500,8 @@ module.exports = {
   runSchemaAdoptionScenario,
   runReconcilerScenario,
   runHealthSurfacesScenario,
+  runViewDurabilityScenario,
+  readMdbSnapshotFromDisk,
+  assertViewDurabilityPreserved,
   validateHarnessConfig,
 };
