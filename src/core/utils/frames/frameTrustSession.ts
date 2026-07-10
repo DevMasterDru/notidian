@@ -69,20 +69,61 @@ const stableSerialize = (v: unknown): string => {
 // on a source tree (executable.ts), so walking children covers templates too.
 // The FULL serialized string is the fingerprint — exact equality, no hash, so
 // there is no collision surface for an attacker to aim at.
+//
+// bd Notidian-sy30 — the fingerprint must be RENDER-TOPOLOGY-INDEPENDENT. Both
+// render paths converge on buildRoot -> linkProps (ast.ts), which folds each
+// context-column field into the ROOT node's props (value ALWAYS "") and types
+// (the column type), mutating root.node ONLY — children are byte-identical across
+// paths. But the two paths inject DIFFERENT column sets (the editable space view
+// passes [...tableData.cols, ...props.cols]; the read surface passes frame.cols
+// only), so the SAME stored code materialized two ways used to fingerprint
+// differently — restampSessionBless refused the other topology and the withhold
+// path then deleted the bless and re-armed a FALSE "code changed" notice. Fix:
+// on the ROOT node only, canonicalize those injected bindings OUT — drop every
+// prop whose value is "" and drop the SAME keys from types. This is SOUND: an
+// empty-valued prop compiles to `() => undefined` regardless of its type
+// (executable.ts generateCodeForProp — `type` only flips a branch reachable when
+// the value is multi-line, which an empty value can never be), so a dropped
+// binding never carries executable code and never hides a code change. Every
+// non-empty, code-bearing root prop/style/action and the ENTIRE child subtree
+// stay in the print, so a real stored edit (incl. an added/changed root-prop
+// expression) still flips it and drops trust.
 export const fingerprintFrameTree = (
-  tree: FrameTreeNode | null | undefined
+  tree: FrameTreeNode | null | undefined,
+  // Internal recursion flag — linkProps mutates the ROOT node only, so only the
+  // top-level call canonicalizes. NOTE: children are walked via an explicit arrow
+  // below, never `.map(fingerprintFrameTree)`, so Array.map's index argument can
+  // never leak in as `isRoot` and canonicalize a non-root node.
+  isRoot = true
 ): string => {
   if (!tree?.node) return "";
   const n = tree.node;
+  let props: Record<string, unknown> = n.props ?? {};
+  let types: Record<string, unknown> = n.types ?? {};
+  if (isRoot) {
+    const injected = Object.keys(props).filter((k) => props[k] === "");
+    if (injected.length > 0) {
+      const drop = new Set(injected);
+      const without = (o: Record<string, unknown>): Record<string, unknown> => {
+        const out: Record<string, unknown> = {};
+        for (const k of Object.keys(o)) if (!drop.has(k)) out[k] = o[k];
+        return out;
+      };
+      props = without(props);
+      types = without(types);
+    }
+  }
   const self = [
     JSON.stringify(n.id ?? ""),
     JSON.stringify(n.type ?? ""),
-    stableSerialize(n.props ?? {}),
-    stableSerialize(n.types ?? {}),
+    stableSerialize(props),
+    stableSerialize(types),
     stableSerialize(n.styles ?? {}),
     stableSerialize(n.actions ?? {}),
   ].join("|");
-  const children = (tree.children ?? []).map(fingerprintFrameTree).join(",");
+  const children = (tree.children ?? [])
+    .map((child) => fingerprintFrameTree(child, false))
+    .join(",");
   return `${self}(${children})`;
 };
 

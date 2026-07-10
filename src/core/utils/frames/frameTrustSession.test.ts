@@ -412,6 +412,95 @@ describe("fingerprintFrameTree: deterministic over code, blind to object identit
     expect(fingerprintFrameTree(null)).toBe("");
     expect(fingerprintFrameTree(undefined)).toBe("");
   });
+
+  // bd Notidian-sy30 — RENDER-TOPOLOGY INDEPENDENCE. Both render paths converge
+  // on buildRoot -> linkProps (ast.ts), which folds each context-column field
+  // into the ROOT node's props (value ALWAYS "") and types (the column type),
+  // mutating root.node ONLY (children are byte-identical across paths). The
+  // editable space view passes fields = [...tableData.cols, ...props.cols]; the
+  // read surface passes frame.cols only. The SAME stored code must therefore
+  // fingerprint IDENTICALLY however many context columns the path injected — else
+  // a session bless self-destructs when the frame renders via the other topology
+  // and a false "code changed" notice mis-fires (Notidian-pg6g unified identity).
+  describe("is independent of linkProps-injected context columns (Notidian-sy30)", () => {
+    const HERO = "$api.path.label($contexts.$space.note)";
+    // stored code shared by both topologies: one code-bearing root prop + a child.
+    const child = () =>
+      makeTree("c1", { props: { value: "'card'" }, styles: { color: "'red'" } });
+    // read path: frame.cols only (1 context column injected as "" + its type).
+    const readTopology = (hero = HERO) =>
+      makeTree(
+        "main",
+        { props: { Status: "", hero }, types: { Status: "text" } },
+        [child()]
+      );
+    // editable path: [...tableData.cols, ...props.cols] (3 context columns).
+    const editableTopology = (hero = HERO) =>
+      makeTree(
+        "main",
+        {
+          props: { Status: "", Priority: "", Tags: "", hero },
+          types: { Status: "text", Priority: "number", Tags: "tags" },
+        },
+        [child()]
+      );
+
+    it("editable and read topologies of identical stored code fingerprint EQUAL", () => {
+      expect(fingerprintFrameTree(editableTopology())).toBe(
+        fingerprintFrameTree(readTopology())
+      );
+    });
+
+    it("a real stored-code edit (ROOT prop) makes them UNEQUAL (edit still drops trust)", () => {
+      // the guard the bead calls out: edit-drops-trust must hold for ROOT props,
+      // not only children — a changed code-bearing root prop flips the print.
+      expect(
+        fingerprintFrameTree(editableTopology("$api.evil()"))
+      ).not.toBe(fingerprintFrameTree(readTopology()));
+    });
+
+    it("ADDING a non-empty root prop flips the fingerprint (nothing smuggled past the canonicalizer)", () => {
+      const withExtra = makeTree(
+        "main",
+        {
+          props: { Status: "", hero: HERO, danger: "$api.write()" },
+          types: { Status: "text" },
+        },
+        [child()]
+      );
+      expect(fingerprintFrameTree(withExtra)).not.toBe(
+        fingerprintFrameTree(readTopology())
+      );
+    });
+
+    it("SOUNDNESS: an empty-valued root prop (even WITH a type) is canonicalized out", () => {
+      // executable.ts generateCodeForProp compiles an empty value to
+      // () => undefined regardless of its type (`type` only flips a branch reached
+      // when the value is multi-line), so an empty prop carries NO executable code
+      // and must not perturb the fingerprint — an attacker can neither smuggle
+      // behaviour nor evade a code-change through an empty-valued, typed root prop.
+      const withEmptyTyped = makeTree(
+        "main",
+        {
+          props: { Status: "", hero: HERO, ghost: "" },
+          types: { Status: "text", ghost: "object" },
+        },
+        [child()]
+      );
+      expect(fingerprintFrameTree(withEmptyTyped)).toBe(
+        fingerprintFrameTree(readTopology())
+      );
+    });
+
+    it("canonicalization is ROOT-only: an empty prop on a CHILD is still fingerprinted", () => {
+      // linkProps never mutates children, so they keep FULL serialization — an
+      // empty child prop stays in the print (a spurious drop-trust is fail-safe;
+      // a missed code change is not). This pins that the fix does NOT recurse.
+      const a = makeTree("main", {}, [makeTree("c1", { props: { x: "" } })]);
+      const b = makeTree("main", {}, [makeTree("c1", { props: {} })]);
+      expect(fingerprintFrameTree(a)).not.toBe(fingerprintFrameTree(b));
+    });
+  });
 });
 
 // bd Notidian-kcgt (milestone-gate must-fix): the bless was MOUNT-scoped — the

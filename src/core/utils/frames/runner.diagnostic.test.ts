@@ -21,6 +21,7 @@ import {
   ResultStore,
 } from "./runner";
 import {
+  hasKitProvenance,
   reStampProvenanceFromSource,
   stampKitProvenance,
   stampKitProvenanceTree,
@@ -410,5 +411,142 @@ describe("session bless survives a REMOUNT of identical code; edit/reload still 
     await runLikeRoot(remounted, api, (i) => withholds.push(i));
     expect(calls).not.toContain("after-reload");
     expect(withholds).toHaveLength(1); // trust must be re-granted by design
+  });
+});
+
+// bd Notidian-sy30 (milestone-gate blocker on Notidian-kcgt): the session-bless
+// fingerprint used to be render-topology-DEPENDENT. Both render paths converge on
+// buildRoot -> linkProps (ast.ts), which folds each context-column field into the
+// ROOT node's props ("") and types (col type); the editable space view injects
+// [...tableData.cols, ...props.cols] while the read surface (buildRootFromMDBFrame
+// / SpaceFragmentView note embed) injects frame.cols only. So the SAME stored
+// frame identity (path, unified by Notidian-pg6g) materialized two ways produced
+// two fingerprints — restampSessionBless refused the other topology and the
+// withhold path then DELETED the bless and re-armed a FALSE "code changed" notice
+// on the most common surface (space main frames, default-ON hardenFrameExecution).
+// fingerprintFrameTree now canonicalizes those injected empty-valued ROOT bindings
+// out, so a bless SURVIVES the editable<->read switch both directions, while a real
+// stored-code edit, an impostor at another path, and a reload still drop it.
+describe("session bless survives an editable<->read topology switch (Notidian-sy30)", () => {
+  const frameId = "spaces://My Space/#*main";
+  const STORED = "$api.probe.ping('user-frame')";
+
+  beforeEach(() => resetFrameTrustSession());
+
+  // Materialize a root the way a render path holds it AFTER linkProps: the stored,
+  // code-bearing root prop `hero`, plus `cols` context columns injected as
+  // empty-valued, typed root props/types (exactly what differs by topology). The
+  // child subtree is byte-identical across paths (linkProps never mutates it).
+  const materialize = (
+    cols: Array<[string, string]>,
+    code = STORED
+  ): FrameTreeNode => {
+    const props: Record<string, string> = { hero: code };
+    const types: Record<string, string> = {};
+    for (const [name, type] of cols) {
+      props[name] = "";
+      types[name] = type;
+    }
+    const node: FrameNode = {
+      id: "main",
+      schemaId: "s1",
+      name: "main",
+      type: "group",
+      rank: 0,
+      props,
+      styles: {},
+      actions: {},
+      types,
+    };
+    const child: FrameTreeNode = {
+      id: "c1",
+      node: {
+        id: "c1",
+        schemaId: "s1",
+        name: "c1",
+        type: "text",
+        rank: 0,
+        props: { value: "'card'" },
+        styles: {},
+        actions: {},
+        types: {},
+      },
+      isRef: false,
+      children: [],
+      editorProps: { editMode: 0 },
+      parent: null,
+    };
+    return {
+      id: "main",
+      node,
+      isRef: false,
+      children: [child],
+      editorProps: { editMode: 0 },
+      parent: null,
+    };
+  };
+
+  // the editable space view injects the full context table (many cols); the read
+  // surface injects frame.cols only — the SAME stored `hero` code either way.
+  const EDITABLE_COLS: Array<[string, string]> = [
+    ["Status", "text"],
+    ["Priority", "number"],
+    ["Tags", "tags"],
+  ];
+  const READ_COLS: Array<[string, string]> = [["Status", "text"]];
+
+  const blessTopology = (tree: FrameTreeNode) => {
+    registerFrameBless(
+      frameId,
+      `${frameId}::r0`,
+      () => stampKitProvenanceTree(tree),
+      fingerprintFrameTree(tree)
+    );
+    expect(blessFrameById(frameId)).toBe(1);
+    expect(hasKitProvenance(tree.node)).toBe(true);
+  };
+
+  it("bless on the EDITABLE topology -> the READ rebuild is restamped (bless survives)", () => {
+    blessTopology(materialize(EDITABLE_COLS));
+    const readRebuild = materialize(READ_COLS); // same stored code, read topology
+    expect(hasKitProvenance(readRebuild.node)).toBe(false);
+    expect(restampSessionBless(frameId, readRebuild)).toBe(true);
+    expect(hasKitProvenance(readRebuild.node)).toBe(true);
+  });
+
+  it("bless on the READ topology -> the EDITABLE rebuild is restamped (both directions)", () => {
+    blessTopology(materialize(READ_COLS));
+    const editableRebuild = materialize(EDITABLE_COLS);
+    expect(restampSessionBless(frameId, editableRebuild)).toBe(true);
+    expect(hasKitProvenance(editableRebuild.node)).toBe(true);
+  });
+
+  it("a real stored-code EDIT still drops the bless across the switch + re-arms honestly", () => {
+    blessTopology(materialize(EDITABLE_COLS));
+    // same identity, read topology, but the code-bearing root prop was rewritten
+    const editedRead = materialize(READ_COLS, "$api.probe.ping('REWRITTEN')");
+    expect(restampSessionBless(frameId, editedRead)).toBe(false);
+    expect(hasKitProvenance(editedRead.node)).toBe(false);
+    // the withhold path then re-arms the notice + re-offers the frame for a fresh,
+    // informed bless (honest "code changed").
+    expect(shouldNotifyApiWithheld(frameId)).toBe(true);
+    expect(sessionBlessFingerprint(frameId)).toBeUndefined();
+    // trust dropped -> the frame is OFFER-able again for a fresh, informed bless
+    expect(pendingBlessFrameIds()).toEqual([frameId]);
+  });
+
+  it("an identical-code impostor at ANOTHER path is still refused (identity keyed on path, pg6g)", () => {
+    blessTopology(materialize(EDITABLE_COLS));
+    const impostor = materialize(READ_COLS); // byte-identical stored code, other path
+    expect(restampSessionBless("spaces://Attacker/#*main", impostor)).toBe(false);
+    expect(hasKitProvenance(impostor.node)).toBe(false);
+  });
+
+  it("after a RELOAD (registry reset) the topology-switched rebuild is refused too", () => {
+    blessTopology(materialize(EDITABLE_COLS));
+    resetFrameTrustSession(); // the plugin reload (fresh module state)
+    const readRebuild = materialize(READ_COLS);
+    expect(restampSessionBless(frameId, readRebuild)).toBe(false);
+    expect(hasKitProvenance(readRebuild.node)).toBe(false);
   });
 });
