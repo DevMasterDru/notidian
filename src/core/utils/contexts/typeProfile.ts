@@ -854,7 +854,11 @@ export const planFieldsMirror = (
     Object.keys(fields).find((key) => key.toLowerCase() == name.toLowerCase());
 
   if (change.kind == "add-column") {
-    if (findKey(change.name)) return { changed: false, fields };
+    // `findKey` returns `string | undefined`; an existing key can itself be ''
+    // (falsy), so the guard must be `!== undefined`, not truthiness — otherwise
+    // an existing empty-named column is never seen as present and add-column
+    // re-adds/overwrites it on every pass (non-idempotent). Notidian-ujj8.
+    if (findKey(change.name) !== undefined) return { changed: false, fields };
     return {
       changed: true,
       fields: {
@@ -866,7 +870,10 @@ export const planFieldsMirror = (
 
   if (change.kind == "rename-key") {
     const oldKey = findKey(change.oldName);
-    if (!oldKey || findKey(change.newName)) return { changed: false, fields };
+    // Same falsy-key trap: an '' source or an existing '' target must be honored
+    // (compare against undefined, not truthiness). Notidian-ujj8.
+    if (oldKey === undefined || findKey(change.newName) !== undefined)
+      return { changed: false, fields };
     const renamed: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(fields)) {
       renamed[key == oldKey ? change.newName : key] = value;
@@ -875,7 +882,7 @@ export const planFieldsMirror = (
   }
 
   const fieldKey = findKey(change.name);
-  if (!fieldKey) return { changed: false, fields };
+  if (fieldKey === undefined) return { changed: false, fields };
   const fieldDef = fields[fieldKey];
   if (!fieldDef || typeof fieldDef != "object" || Array.isArray(fieldDef))
     return { changed: false, fields };
@@ -956,7 +963,9 @@ export const planTypeProfileMirror = (
       const kindMap = normalizeRawFields(kindDef);
       if (!kindMap) continue;
       const key = findMapKey(kindMap, name);
-      if (key) return { kind: kindName, map: kindMap, key };
+      // '' is a valid (falsy) key — test for presence with `!== undefined` so an
+      // empty-named kind field is honored. Notidian-ujj8.
+      if (key !== undefined) return { kind: kindName, map: kindMap, key };
     }
     return null;
   };
@@ -964,7 +973,7 @@ export const planTypeProfileMirror = (
   if (change.kind == "add-column") {
     // A brand-new table column has no kind — it mirrors to common `fields`.
     // No-op if it already exists anywhere (common or kind-owned).
-    if (findMapKey(fields, change.name) || findOwningKind(change.name))
+    if (findMapKey(fields, change.name) !== undefined || findOwningKind(change.name))
       return { changed: false, ...base };
     return {
       changed: true,
@@ -978,7 +987,7 @@ export const planTypeProfileMirror = (
 
   if (change.kind == "rename-key") {
     // Avoid collisions: no-op if the new name already exists anywhere.
-    if (findMapKey(fields, change.newName) || findOwningKind(change.newName))
+    if (findMapKey(fields, change.newName) !== undefined || findOwningKind(change.newName))
       return { changed: false, ...base };
     const fieldsKey = findMapKey(fields, change.oldName);
     // A name can appear in BOTH common fields and one or more kinds. The rename
@@ -990,11 +999,13 @@ export const planTypeProfileMirror = (
       const kindMap = normalizeRawFields(kindDef);
       if (!kindMap) continue;
       const key = findMapKey(kindMap, change.oldName);
-      if (key) owningKinds.push({ kind: kindName, map: kindMap, key });
+      if (key !== undefined) owningKinds.push({ kind: kindName, map: kindMap, key });
     }
-    if (!fieldsKey && owningKinds.length == 0) return { changed: false, ...base };
+    if (fieldsKey === undefined && owningKinds.length == 0)
+      return { changed: false, ...base };
     const out: TypeProfileMirrorWrite = { changed: true, ...base };
-    if (fieldsKey) out.fields = renameMapKey(fields, fieldsKey, change.newName);
+    if (fieldsKey !== undefined)
+      out.fields = renameMapKey(fields, fieldsKey, change.newName);
     if (owningKinds.length > 0) {
       const nextKindFields = { ...kindFields };
       for (const owner of owningKinds)
@@ -1010,7 +1021,7 @@ export const planTypeProfileMirror = (
 
   // add-option
   const fieldsKey = findMapKey(fields, change.name);
-  if (fieldsKey) {
+  if (fieldsKey !== undefined) {
     const next = addOptionToDef(fields, fieldsKey, change.option);
     return next ? { changed: true, fields: next, ...base } : { changed: false, ...base };
   }

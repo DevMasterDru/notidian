@@ -758,9 +758,10 @@ describe("typeProfile v3 — round-trip over HOSTILE kind_fields keys", () => {
 });
 
 describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
-  // add-option and rename (both directions) are idempotent for EVERY hostile
-  // key; add-column is idempotent for every hostile key EXCEPT '' (pinned
-  // separately below). Determinism holds universally.
+  // add-option, rename (both directions), AND add-column are idempotent for
+  // EVERY hostile key including '' — Notidian-ujj8 flipped the former ''
+  // add-column quirk (findKey/findMapKey/findOwningKind now test `!== undefined`,
+  // honoring an existing empty key). Determinism holds universally.
   const idempotentChanges = (key: string): TypeProfileSchemaChange[] => [
     { kind: "add-option", name: key, option: "opt" },
     { kind: "rename-key", oldName: "existing", newName: key },
@@ -775,9 +776,9 @@ describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
       ]);
       const changes: TypeProfileSchemaChange[] = [
         ...idempotentChanges(key),
-        // add-column is idempotent for a non-empty hostile key; the '' case is
-        // the pinned quirk exercised in its own test.
-        ...(key ? [{ kind: "add-column" as const, name: key, type: "text" }] : []),
+        // add-column is idempotent for every hostile key including '' (an
+        // existing empty key is now honored — see the '' idempotence test below).
+        { kind: "add-column" as const, name: key, type: "text" },
       ];
       for (const change of changes) {
         const plan1 = planFieldsMirror(fields, change);
@@ -805,7 +806,7 @@ describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
       } as Record<string, unknown>;
       const changes: TypeProfileSchemaChange[] = [
         ...idempotentChanges(key),
-        ...(key ? [{ kind: "add-column" as const, name: key, type: "text" }] : []),
+        { kind: "add-column" as const, name: key, type: "text" },
       ];
       for (const change of changes) {
         const plan1 = planTypeProfileMirror(fm, change);
@@ -820,13 +821,16 @@ describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
     }
   });
 
-  it("empty ('') column name breaks add-column idempotence — PINNED quirk, not fixed", () => {
-    // Root cause: an empty string is FALSY, so findKey/findMapkey's truthiness
-    // guard `if (findKey(name))` never treats the existing empty-string key as
-    // "found", and add-column re-adds (overwrites) it on every pass. Harmless in
-    // practice — an empty column name can never originate from a materialized
-    // field, since parseFieldsMap falsy-skips it — but pinned so the behavior
-    // cannot drift silently. See follow-up bead.
+  it("empty ('') column name is idempotent for add-column — Notidian-ujj8 fix", () => {
+    // Was a PINNED non-idempotence quirk (Notidian-megy): an empty string is
+    // FALSY, so the old truthiness guard `if (findKey(name))` never treated an
+    // existing empty-string key as "found", and add-column re-added (overwrote)
+    // it on every pass. Notidian-ujj8 changed the guards to `findKey(name) !==
+    // undefined` (and the sibling findMapKey/findOwningKind guards), so an
+    // existing empty key is now honored and add-column is a proper no-op.
+    // Still harmless in practice — parseFieldsMap falsy-skips an empty name, so
+    // an empty column can never materialize — but the mirror is now idempotent
+    // as defense-in-depth against an echo-loop.
     const change: TypeProfileSchemaChange = {
       kind: "add-column",
       name: "",
@@ -838,10 +842,12 @@ describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
       ["existing", { kind: "text" }],
     ]);
     const p1 = planFieldsMirror(fields, change);
-    expect(p1.changed).toBe(true);
-    // NOT idempotent: re-planning the applied state fires again.
-    expect(planFieldsMirror(p1.fields, change).changed).toBe(true);
-    // Deterministic even so.
+    // The empty key already exists → no-op (not a re-add/overwrite).
+    expect(p1.changed).toBe(false);
+    expect(p1.fields).toEqual(fields);
+    // Idempotent: re-planning the (unchanged) state is still a no-op.
+    expect(planFieldsMirror(p1.fields, change).changed).toBe(false);
+    // Deterministic.
     expect(planFieldsMirror(fields, change)).toEqual(p1);
 
     const fm = {
@@ -849,12 +855,12 @@ describe("typeProfile v3 — mirror over HOSTILE field-name keys", () => {
       fields,
     } as Record<string, unknown>;
     const w1 = planTypeProfileMirror(fm, change);
-    expect(w1.changed).toBe(true);
+    expect(w1.changed).toBe(false);
     const applied = {
       ...fm,
       fields: w1.fields ?? w1.currentFields,
       kind_fields: w1.kindFields ?? w1.currentKindFields,
     };
-    expect(planTypeProfileMirror(applied, change).changed).toBe(true);
+    expect(planTypeProfileMirror(applied, change).changed).toBe(false);
   });
 });
