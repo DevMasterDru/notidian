@@ -534,31 +534,27 @@ product direction was parked to [docs/ROADMAP.md](ROADMAP.md).
 - **Notidian-sxs1 — Surface the per-item "Item Properties" picker beyond the plain list** (follow-up to 543) — the render half was already live + view-agnostic (default-ON `listItemPropertyPicker`); this widened the FilterBar menu-trigger from a coarse `predicate.view=="list"` gate to a precise `shouldShowListItemPropertyPicker(predicate)` keyed on the active `listItem` frame, so the picker now surfaces on the three fieldsView layouts that render `_properties` (Cards / Board / Details) and is correctly hidden where it would be a dead control (plain list / cover / image / flow). Pure helper + jsdom-free unit tests; inherits 543's kill-switch and use-driven verification.
 - **Notidian-8sl — Collapsible + shrink-to-fit space note body** (ADR 0001/0014/0017) — shipped default-ON `collapsibleNoteBody`; kill-switch retained (`b1a5adc`).
 
-**Shipped (offline-provable fixes / ratified contracts):**
+**Decision-ADRs — clear-correct, auto-resolved into shipped fixes (status lives in
+the [ADR index](adr/README.md), not copied here):**
 
-- **Notidian-e8e — array.ts order comparators** (ADR 0025) — resolved: stable, reflexive, non-mutating comparators + first-seen `uniqCaseInsensitive` casing (`0e04749`).
-- **Notidian-fs6 — `jsonWithUnquoted` frame-payload parsing** (ADR 0026) — resolved: canonical object wrapper convention + tolerant tokenizer (`d8f6452`).
-- **Notidian-nir — bd embedded-dolt export/stats blind + JSONL-mirror policy** (ADR 0027) — resolved: policy ratified (file upstream + retest; `.beads/issues.jsonl` empty by design); daily bd work unaffected (`3bd558b`).
-- **Notidian-od7 — multi-display-string comma escaping** (ADR 0030) — resolved: global comma escape/un-escape, un-escape after split (`dbc608f`).
-- **Notidian-5zc — CSV import duplicate-header contract** (ADR 0031) — resolved: auto-uniquify duplicate headers in the parser, lossless (`ff79d3e`).
-- **Notidian-qbr — date-filter boundary + Invalid-Date semantics** (ADR 0032) — resolved: day-granular both-inclusive filters + year-aware `isSameDay` (`d5f81df`).
-- **Notidian-0id — `intelligentCompare` non-transitivity** (ADR 0033) — resolved: real strict weak ordering (`737f893`).
-- **Notidian-37m — `filterReturnForCol` fail-open for unknown `fn`** (ADR 0034) — resolved: fail-open dispatcher ratified + validate-loud unknown-fn guard (`8780259`).
-- **Notidian-sp5 — `inferEncodingType` numeric-vs-temporal** (ADR 0035) — resolved: numeric value-only data infers quantitative, not temporal (`f50dd3c`).
-- **Notidian-2zs — `stripFrontmatterFromString` greedy regex** (ADR 0036) — resolved: dead over-greedy helper deleted (`a99f8c7`).
-- **Notidian-jko — `DataTransformationPipeline.normalizeConfig` impurity** (ADR 0037) — resolved: pure normalizeConfig + self-sufficient engine + guarded validateConfig (`02280ba`).
-- **Notidian-drp — `AreaChartTransformer` missing-x throw** (ADR 0038) — resolved: returns empty contract on missing-x, no throw (`767e3a9`).
-- **Notidian-k6a5 — `emojiBox.ts` dead unsanitized injection sink** (ADR 0040) — resolved: dead sink deleted (`c6773d6`).
-- **Notidian-z8q — consolidate view search affordances** (ADR 0041) — resolved: one view search affordance + Cmd/F focus-on-mount (`5cabcf7`, `cc850ef`).
-- **Notidian-ywcf — `nativeToUnified('')` empty-input contract** (ADR 0042) — resolved: emoji codec pair made total on empty input (`5e4ae69`).
-- **Notidian-9i9i — TEXT-matcher non-string operand** (ADR 0043) — resolved: fail-closed-empty TEXT matchers on non-string cell values (`864c42c`).
-- **Notidian-2yh — `api.context.insert` per-field authority gate** (ADR 0044) — resolved: per-field authority gate + INSERT (not update) at the MDB sink (`85ac93b`, `83e82ce`).
-- **Notidian-k778 — `replaceDB` CREATE/REPLACE column alignment** (ADR 0045) — resolved: explicit-column REPLACE, correct by construction (`98fc4bc`).
-- **Notidian-p5qt — `insertIntoDB`/`updateDB` batched-statement seam** (ADR 0046) — resolved: SQL seam cleaned (array + join) (`496b663`).
-- **Notidian-dgo6 — `db.exec` NUL transport limitation** (ADR 0047) — resolved: strip NUL at the SQL value chokepoint (`da0d41b`).
-- **Notidian-ircw — `resolvePath('../…')` over-pop past root** (ADR 0048) — resolved: graceful root-clamp contract ratified (`fa9a490`).
-- **Notidian-2w0 (epic item 5) — in-table quick find** (ADR 0021, Accepted) — already shipped + merged as child Notidian-r20 (Cmd/Ctrl+F highlight + navigate); virtualization-reveal migration folds into Notidian-8h9.
-- **Notidian-wcig — `detectPropertyProfileDivergence` case-fold field identity** (ADR 0040 advisory; adversarial follow-up to Notidian-7v4c) — resolved on `autolong/run-4`: the divergence advisory built its per-row present-field set with RAW key casing while the exclusion check on the same loop and the rest of the pipeline (`discoverFrontmatterSchema` merge, `computeFieldValueStats`) fold case-variants, so a coherent database imported with inconsistent key casing (6 `{priority,status}` + 6 `{Priority,Status}`) false-positived as 4 discriminating fields / 2 disjoint components / `divergent:true`, recommending a bad split. Fold keys to lowercase for identity + a spelling-count map (`displayField`, most-frequent/ties-first-seen, matching `discoverFrontmatterSchema`) for canonical banner casing. Advisory-only, no data loss; +2 regression tests; all 9620 tests + typecheck + build green (`bb970a7`).
+The offline-provable Decision-ADRs the loop refused to build blind and then resolved
+into shipped fixes — ADR 0025/0026/0030–0038, 0040–0048, the ADR 0041 view-search
+consolidation, and the ADR 0040 case-fold divergence follow-up (beads `e8e fs6 od7
+5zc qbr 0id 37m sp5 2zs jko drp k6a5 z8q ywcf 9i9i 2yh k778 p5qt dgo6 ircw wcig`),
+plus ADR 0024 (`2uz`) and ADR 0029 (`tni`) whose engines shipped — are all **CLOSED**
+and carry Status **Accepted, implemented** in [docs/adr/README.md](adr/README.md),
+each with per-fix evidence in its `bd close` reason + commit sha (index
+status-currency reconciled 2026-07-10 via `Notidian-7sa0`, commit `6524a3a`). They no
+longer await the owner, so the sha-by-sha enumeration was removed from this review
+surface — read status live from the ADR index / `bd show <id>`, never a copy here.
+
+- **Still OPEN — do not treat as resolved:** **`Notidian-nir`** (ADR 0027) — the bd
+  embedded-dolt `export`/`stats` blind is an **upstream** action item with **no
+  in-repo fix**; the JSONL-mirror policy is Accepted but the tracking bead stays
+  **OPEN** until an upstream bd release re-exports the full graph.
+- **`Notidian-2w0`** (Notion-parity epic) stays **OPEN** in bd for its remaining
+  roadmap items; only its ADR 0021 in-table quick-find sub-item shipped (child
+  `Notidian-r20`, later consolidated by ADR 0041 / removed by ADR 0049).
 
 **Parked → docs/ROADMAP.md (build only when the owner asks):**
 
@@ -566,7 +562,9 @@ product direction was parked to [docs/ROADMAP.md](ROADMAP.md).
 - **Notidian-5io — date reminders + recurring events** (ADR 0020) — parked → roadmap.
 - **Notidian-214 — frame-execution settings toggle + trusted-frame allowlist** (ADR 0022) — parked → roadmap (gated on the `hardenFrameExecution` flag-gated item above).
 - **Notidian-n2t — Type Profile hub-deletion notice** (ADR 0023) — parked → roadmap (ADR recommends decline).
-- **Notidian-2uz — sub-items + back-relations creation UX** (ADR 0024) — ~~parked → roadmap~~ **superseded by the owner's 2026-06-20 pull**: ADR 0024 Accepted + shipped (`Notidian-f0pj.1`), governing contract now ADR 0050.
 - **Notidian-e29 — per-database row-create templates in the table** (ADR 0028) — parked → roadmap.
-- **Notidian-tni — frontmatter-link relations + rollups UX polish** (ADR 0029) — ~~parked → roadmap~~ **superseded by the owner's 2026-06-20 pull**: ADR 0029 Accepted (A1/B1/C1/D2/E1 ratified); D2 indicator shipped (`Notidian-f0pj.2`), key-match FK relations shipped (`Notidian-mx0k.1`).
 - **Notidian-jlb5 — control-byte source guard** (ADR 0039) — parked → roadmap (repo currently clean; regression insurance only).
+
+_(ADR 0024 sub-items UX (`2uz`, superseded by ADR 0050) and ADR 0029 relations+rollups
+(`tni`, owner-pulled 2026-06-20) were previously listed here as parked; both are
+Accepted with engines shipped and their beads CLOSED — see the ADR index, above.)_
