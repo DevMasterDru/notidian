@@ -123,6 +123,7 @@ const REQUIRED_SETTING_KEYS = {
   enhancedLogs: true,
   basics: true,
   hardenFrameExecution: true,
+  frameRootTypeConsistency: true,
   renderPathViewOverlays: true,
   listItemPropertyPicker: true,
   rowVirtualization: true,
@@ -194,6 +195,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
 // `false` booleans (the mirror of the DEFAULT-ON pins above).
 const DOCUMENTED_REVIEW_QUEUE_FLAGS: ReadonlyArray<keyof MakeMDSettings> = [
   "enableHubRowIndicator", // Notidian-b0fm (z21a follow-up)
+  "frameRootTypeConsistency", // Notidian-it0j (root-prop/context-column type divergence)
 ];
 
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {

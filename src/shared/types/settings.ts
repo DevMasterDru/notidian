@@ -149,6 +149,23 @@ export interface MakeMDSettings {
   // frame execution (TextNodeView raw sink + $api on every frame). Existing saved
   // settings are not mutated; only fresh/unset state now defaults to true.
   hardenFrameExecution: boolean;
+  // Frame ROOT-prop / context-column TYPE-consistency kill-switch (bd
+  // Notidian-it0j). A stored, NON-EMPTY root frame prop whose NAME collides with a
+  // space context column typed 'object-multi' (or 'object') inherits that injected
+  // type ONLY on the editable topology (linkProps fields = [...tableData.cols,
+  // ...props.cols]) and not the read topology (frame.cols) — so a multi-line
+  // array-literal value compiles to the expression form on one surface (returns the
+  // array) and the statement form on the other (returns undefined): the SAME stored
+  // prop renders differently across editable vs read/embed.
+  //   true: execution IGNORES the injected context-column type on such a non-column
+  //     root prop, so both topologies type it identically and execute identically.
+  //   false (default): byte-for-byte legacy behavior (the divergence is preserved).
+  // DEFAULT-OFF: a core render-path change that is NOT owner-requested and cannot be
+  // fully verified offline, so per AGENTS.md it ships GATED OFF and dark until the
+  // owner enables it and live-verifies in the vault (docs/AUTONOMOUS-REVIEW-QUEUE.md).
+  // The fingerprint/trust layer (frameTrustSession.ts, sy30/9xbn) drops ROOT `types`
+  // entirely, so toggling this flag can never affect frame trust.
+  frameRootTypeConsistency: boolean;
   // Render-path declared-view overlays on notidian embeds (ADR-0066 Topic Hub
   // v1 view mechanism / Notidian-ioxi). When true, a notidian embed block's
   // `where:` clauses (and a frame node's forwarded predicate prop) apply a
