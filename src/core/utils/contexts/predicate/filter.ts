@@ -162,6 +162,95 @@ export const dateBefore: FilterFunction = (
   return valueDay <= filterDay;
 };
 
+// ADR 0066 / Notidian-l12a: a now-relative offset token withinLast/olderThan
+// (below) accept in place of an absolute date string -- an integer amount
+// immediately followed by a unit letter, e.g. '7d' (7 days), '2w' (2 weeks),
+// '1m' (1 calendar month), '1y' (1 calendar year). No sign, no 'now'/'today'
+// prefix.
+//
+// This grammar is kept deliberately OUT of parseDateOperand. An earlier
+// attempt at this bead folded relative-token parsing straight into
+// parseDateOperand (shared by dateAfter/dateBefore) and, as an unreviewed
+// side effect, made THOSE two existing absolute-date operators also silently
+// accept a relative token -- a behavior change nobody asked for, which failed
+// review. Isolating the grammar in its own sibling helper means
+// dateAfter/dateBefore's operand parsing is completely untouched; only
+// withinLast/olderThan resolve relative tokens.
+const RELATIVE_TOKEN_PATTERN = /^(\d+)([dwmy])$/;
+
+// Resolve a relative-date token (see RELATIVE_TOKEN_PATTERN) to the absolute
+// Date it denotes: `now` stepped back the given amount of units, then
+// truncated to that day's local start-of-day (so the result is always a
+// whole calendar day, matching the day-granular convention startOfDayValue
+// already enforces for every other date predicate in this file). `now`
+// defaults to the real current time but is injectable for deterministic
+// testing.
+//
+// Units: d = days, w = weeks (7 days), m = calendar months, y = calendar
+// years. The 'm'/'y' steps use the native Date#setMonth / Date#setFullYear,
+// which ROLL OVER when the current day-of-month doesn't exist in the target
+// month/year (e.g. Jan 31 minus 1 month lands in early March, not Feb
+// 28/29). That native rollover is intentionally ACCEPTED here, not corrected
+// -- Notidian-t5vs.
+//
+// Returns an Invalid Date (NaN-valued) for any token that doesn't match
+// RELATIVE_TOKEN_PATTERN, so a malformed token flows into the same
+// NaN-propagating, fail-closed comparisons as a malformed absolute date
+// (ADR 0032 B1) -- withinLast/olderThan below never throw and never silently
+// match on a broken token.
+export const resolveRelativeDateOperand = (
+  token: string,
+  now: Date = new Date()
+): Date => {
+  const match = RELATIVE_TOKEN_PATTERN.exec(token ?? "");
+  if (!match) return new Date(NaN);
+  const amount = parseInt(match[1], 10);
+  const unit = match[2];
+  const threshold = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (unit === "d") threshold.setDate(threshold.getDate() - amount);
+  else if (unit === "w") threshold.setDate(threshold.getDate() - amount * 7);
+  else if (unit === "m") threshold.setMonth(threshold.getMonth() - amount);
+  else if (unit === "y")
+    threshold.setFullYear(threshold.getFullYear() - amount);
+  return threshold;
+};
+
+// ADR 0066 / Notidian-l12a: now-relative date filters for the Topic Hub
+// Recently-Closed/Stalled overlays (Notidian-ioxi is the render-path
+// consumer). `token` is a relative offset per RELATIVE_TOKEN_PATTERN (e.g.
+// '7d', '2w', '1m', '1y'), resolved against `now` via
+// resolveRelativeDateOperand. Day-granular and boundary-inclusive like
+// dateAfter (ADR 0032 A1): a value dated exactly on the threshold day counts
+// as "within". Fail-closed like every date predicate in this file: a
+// malformed `value` OR a malformed `token` truncates to NaN, and every NaN
+// comparison is false, so a broken relative-date filter never silently
+// narrows or widens the row set.
+export const withinLast: FilterFunction = (
+  value: string,
+  token: string
+): boolean => {
+  const valueDay = startOfDayValue(parseDateOperand(value));
+  const thresholdDay = startOfDayValue(resolveRelativeDateOperand(token));
+  return valueDay >= thresholdDay;
+};
+
+// The strict complement of withinLast (< vs withinLast's inclusive >=): for
+// any pair of valid operands exactly one of withinLast/olderThan is true,
+// with no gap or overlap at the threshold day itself. Computed independently
+// here (NOT `!withinLast(...)`) so that a malformed value or token is
+// invisible to BOTH operators via its own NaN comparison, rather than
+// olderThan becoming (wrongly) visible by virtue of negating withinLast's
+// fail-closed false (ADR 0032 B1 parity: fail-closed for both, not fail-open
+// for one).
+export const olderThan: FilterFunction = (
+  value: string,
+  token: string
+): boolean => {
+  const valueDay = startOfDayValue(parseDateOperand(value));
+  const thresholdDay = startOfDayValue(resolveRelativeDateOperand(token));
+  return valueDay < thresholdDay;
+};
+
 export const listIncludes: FilterFunction = (
   value: string,
   filterValue: string

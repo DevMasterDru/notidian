@@ -1,5 +1,5 @@
 import { isString } from "lodash";
-import { dateAfter, dateBefore, empty, FilterFunctionType, greaterThan, isSameDay, isSameDayAsToday, lessThan, listEquals, listIncludes, stringCompare, stringEqual } from "../filter";
+import { dateAfter, dateBefore, empty, FilterFunctionType, greaterThan, isSameDay, isSameDayAsToday, lessThan, listEquals, listIncludes, olderThan, stringCompare, stringEqual, withinLast } from "../filter";
 
 
 export const filterFnTypes: FilterFunctionType = {
@@ -87,6 +87,26 @@ export const filterFnTypes: FilterFunctionType = {
     type: ["date"],
     fn: (v, f) => isSameDayAsToday(v, f),
     valueType: "none",
+  },
+  // ADR 0066 / Notidian-l12a: now-relative date operators for the Topic Hub
+  // Recently-Closed/Stalled overlays. valueType 'date' mirrors
+  // dateBefore/dateAfter above -- at eval time filterReturnForCol only reads
+  // fType when it equals 'property' (a dynamic value looked up from another
+  // property), so a literal overlay-constructed token (e.g. '7d') still flows
+  // straight through as filter.value regardless of valueType. The manual
+  // FilterBar value-editor dispatches on this SAME valueType and falls back
+  // to the plain date-picker dateBefore/dateAfter use, which cannot express a
+  // relative token by hand -- a known, separately-filed gap (Notidian-2l1y),
+  // not fixed here.
+  withinLast: {
+    type: ["date"],
+    fn: (v, f) => withinLast(v, f),
+    valueType: "date",
+  },
+  olderThan: {
+    type: ["date"],
+    fn: (v, f) => olderThan(v, f),
+    valueType: "date",
   },
   isExactList: {
     type: ["option", "option-multi","link-multi", "context-multi", 'tags-multi'],

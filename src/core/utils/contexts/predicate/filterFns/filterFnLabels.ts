@@ -19,6 +19,8 @@ export const filterFnLabels : Record<string, string> = {
   dateAfter: i18n.filterTypes.after,
   isSameDate: i18n.filterTypes.isSameDate,
   isSameDateAsToday: i18n.filterTypes.isSameDateAsToday,
+  withinLast: i18n.filterTypes.withinLast,
+  olderThan: i18n.filterTypes.olderThan,
   isExactList: i18n.filterTypes.is,
   isAnyInList: i18n.filterTypes.anyOf,
   isNoneInList: i18n.filterTypes.noneOf,

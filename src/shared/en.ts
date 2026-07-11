@@ -498,7 +498,9 @@ export const en = {
     "isNotEmpty": "is not empty",
     "isEmpty": "is empty",
     "isSameDate": "is same day as",
-    "isSameDateAsToday": "is today"
+    "isSameDateAsToday": "is today",
+    "withinLast": "is within the last",
+    "olderThan": "is older than"
   },
   "sortTypes": {
     "alphaAsc": "A to Z",
