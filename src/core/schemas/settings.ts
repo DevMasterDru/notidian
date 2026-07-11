@@ -136,15 +136,6 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // tolerant tokenizer, ADR 0026). The flag is RETAINED as a KILL-SWITCH: set it
   // false to restore byte-for-byte legacy frame execution.
   hardenFrameExecution: true,
-  // Default-OFF frame ROOT-prop / context-column TYPE-consistency kill-switch (bd
-  // Notidian-it0j). When ON, execution ignores an injected object-multi/object
-  // context-column TYPE on a non-column root prop (one the node owns with a
-  // non-empty authored value, no own type), so a multi-line array-literal value no
-  // longer executes differently across the editable vs read/embed topology. NOT
-  // owner-requested and not fully offline-verifiable, so per AGENTS.md it ships
-  // DEFAULT-OFF (byte-for-byte legacy divergence preserved) and is queued for the
-  // owner to enable + live-verify (docs/AUTONOMOUS-REVIEW-QUEUE.md).
-  frameRootTypeConsistency: false,
   // Default-ON render-path declared-view overlays on notidian embeds (ADR-0066
   // Topic Hub v1 view mechanism / Notidian-ioxi) — an owner-requested change;
   // the owner verifies it by USE. The overlay (`where:` clauses / a frame node's

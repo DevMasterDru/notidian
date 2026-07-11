@@ -146,7 +146,7 @@ const getFrameNodesByPath = async (
         return [treeNode, id];
       }
 
-      const linkedNode = linkProps(mdbFrame.cols, treeNode, superstate.settings?.frameRootTypeConsistency === true);
+      const linkedNode = linkProps(mdbFrame.cols, treeNode);
       const [linkedNodes, newUniqueID] = linkNodes(
         linkedNode.node,
         mdbFrame.schema.id,
@@ -207,29 +207,21 @@ const getFrameNodesByPath = async (
   }, newID]
   };
   
-// bd Notidian-it0j — gated behind settings.frameRootTypeConsistency (default-OFF
-// kill-switch). A stored ROOT prop the node already owns with a NON-EMPTY authored
-// value but no own type is AUTHORED CODE, not a context-column binding. When a
-// context column of type 'object-multi' (or 'object') shares its NAME, its TYPE
-// lands on the root ONLY on the editable topology (fields = [...tableData.cols,
-// ...props.cols]) and not the read topology (fields = frame.cols, which lacks the
-// column) — and generateCodeForProp (executable.ts) then picks the EXPRESSION form
-// for a multi-line array literal on the editable path but the STATEMENT form on the
-// read path, so the SAME stored prop evaluates to the array vs undefined. With the
-// flag ON, SKIP the injected type for such a non-column root prop so BOTH topologies
-// type it identically (undefined) and execute identically. A genuine column binding
-// keeps value "" (so it is NOT skipped and still gets its type); an author-supplied
-// own type wins on both paths already (so it is a no-op here). The fingerprint layer
-// (frameTrustSession.ts, sy30/9xbn) drops ROOT `types` entirely, so this never
-// affects trust — it is the distinct RUNTIME-divergence layer.
-export const linkProps = (fields: SpaceProperty[], root: FrameTreeNode, rootTypeConsistency = false) : FrameTreeNode => {
+// bd Notidian-it0j (reopened) — linkProps folds the injected context-column set
+// (`fields`) onto the frame root as props/types/propsValue/propsAttrs, the PURE
+// LEGACY fold. A per-prop skip keyed on the root's OWN `types` map (the reverted
+// frameRootTypeConsistency attempt) cannot be made topology-consistent at THIS seam:
+// the editable topology PINS tableData.cols into root.node.types
+// (FrameEditorRootContext) while the read topology leaves it {} (nodeToTypes 'group'),
+// so the two feed byte-identical per-prop inputs (same fields[name].type, same
+// non-empty props[name], same null types[name]) for a genuine frame-own column, and a
+// null-types skip therefore fires on the read path only — re-introducing the very
+// editable-vs-read divergence it aimed to remove (reviewer CASE2, confirmed). A real
+// fix must equalize the type BASIS at the field-set prep level (owner triage), never
+// here. Exported solely so rootTypeConsistency.test.ts can pin that invariant.
+export const linkProps = (fields: SpaceProperty[], root: FrameTreeNode) : FrameTreeNode => {
   const props = fields.reduce((p, c) => ({...p, [c.name]: ""}),{});
-  const skipInjectedType = (name: string): boolean =>
-    rootTypeConsistency === true &&
-    typeof root.node.props?.[name] === "string" &&
-    root.node.props[name] !== "" &&
-    root.node.types?.[name] == null;
-  const types = fields.reduce((p, c) => skipInjectedType(c.name) ? p : ({...p, [c.name]: c.type}),{});
+  const types = fields.reduce((p, c) => ({...p, [c.name]: c.type}),{});
   const propsValue = fields.reduce((p, c) => ({...p, [c.name]: c.value}),{});
   const propsAttrs = fields.reduce((p, c) => ({...p, [c.name]: c.attrs}),{});
   return {...root, node: {
@@ -288,7 +280,7 @@ export const applyPropsToState = (state: FrameState, props: FrameTreeProp, rootI
   ): Promise<FrameExecutable> => {
     const rootNode = nodes.find(f => f.id == schema.id) ?? schemaToRoot(schema);
     const root = await buildFrameTree(rootNode, nodes, superstate, nodes.length, false, {...editorProps, rootId: schema.id}).then(f => f[0]);
-     return root && buildExecutable(linkProps(fields, root, superstate.settings?.frameRootTypeConsistency === true));
+     return root && buildExecutable(linkProps(fields, root));
   }
 
   

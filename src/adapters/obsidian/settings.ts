@@ -383,17 +383,6 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
-        // bd Notidian-it0j — default-OFF kill-switch for the frame root-prop /
-        // context-column TYPE-consistency fix. No onChange side effect: the shared
-        // boolean handler saves it and linkProps (ast.ts) reads
-        // settings.frameRootTypeConsistency live on the next frame build. Set true
-        // to make a name-colliding root prop execute identically across the
-        // editable and read/embed topologies (see docs/AUTONOMOUS-REVIEW-QUEUE.md).
-        name: 'frameRootTypeConsistency',
-        category: 'advanced',
-        type: 'boolean',
-      },
-      {
         // bd Notidian-ioxi / ADR-0066 (Topic Hub) — render-path declared-view
         // overlay kill-switch. No onChange side effect: the shared boolean
         // handler saves it and the row-visibility seam reads
