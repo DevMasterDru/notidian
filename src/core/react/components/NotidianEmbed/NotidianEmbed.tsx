@@ -5,6 +5,7 @@ import {
 } from "core/utils/embeds/notidianEmbed";
 import type { Superstate } from "makemd-core";
 import React from "react";
+import { Predicate } from "shared/types/predicate";
 import { SpaceFragmentViewComponent } from "../SpaceView/Editor/EmbedView/SpaceFragmentView";
 
 export type NotidianEmbedHost =
@@ -46,6 +47,20 @@ export const NotidianEmbed = (props: {
   const heightStyle =
     descriptor.height == null ? undefined : { height: `${descriptor.height}px` };
 
+  // ADR-0066 / Notidian-ioxi — render-path declared-view overlay from the
+  // block's `where:` clauses. READ-PATH ONLY: handed to the SpaceFragment as its
+  // predicate prop, which the context branch forwards to ContextEditorProvider
+  // as `predicateOverlay` and folds into the row-visibility matcher — it is
+  // never persisted to the view schema/views.mdb. The renderPathViewOverlays
+  // kill-switch is enforced at that merge seam, so when the flag is off this
+  // overlay is ignored and the base view renders unfiltered (legacy). A plain
+  // const (not a hook) keeps it after the early return above; the merge memo
+  // keys off `.filters` (the stable descriptor.where array), not this wrapper.
+  const overlay: Partial<Predicate> | undefined =
+    descriptor.where && descriptor.where.length > 0
+      ? { filters: descriptor.where }
+      : undefined;
+
   return (
     <div
       className="mk-notidian-embed"
@@ -62,6 +77,7 @@ export const NotidianEmbed = (props: {
           superstate={props.superstate}
           showTitle={descriptor.title !== false}
           readMode={descriptor.editable !== true}
+          predicate={overlay}
         />
       </SpaceManagerProvider>
     </div>

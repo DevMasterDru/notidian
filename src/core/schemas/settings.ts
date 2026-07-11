@@ -136,6 +136,14 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // tolerant tokenizer, ADR 0026). The flag is RETAINED as a KILL-SWITCH: set it
   // false to restore byte-for-byte legacy frame execution.
   hardenFrameExecution: true,
+  // Default-ON render-path declared-view overlays on notidian embeds (ADR-0066
+  // Topic Hub v1 view mechanism / Notidian-ioxi) — an owner-requested change;
+  // the owner verifies it by USE. The overlay (`where:` clauses / a frame node's
+  // predicate prop) narrows the referenced base view at RENDER time, READ-PATH
+  // ONLY, and is NEVER persisted (Wave-3 write firewall). RETAINED as a
+  // KILL-SWITCH: set it false and the merge seam ignores the overlay so the base
+  // view renders unfiltered — byte-for-byte legacy behavior.
+  renderPathViewOverlays: true,
   // Default-ON list-view per-item display-property picker (bd Notidian-543 /
   // ADR 0016) — an owner-requested ("very important") Notion-'Properties'
   // parity feature; the owner verifies it by USE. The flag is RETAINED as a

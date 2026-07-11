@@ -383,6 +383,16 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // bd Notidian-ioxi / ADR-0066 (Topic Hub) — render-path declared-view
+        // overlay kill-switch. No onChange side effect: the shared boolean
+        // handler saves it and the row-visibility seam reads
+        // settings.renderPathViewOverlays live on the next render. Set false to
+        // ignore embed `where:` overlays and render base views unfiltered.
+        name: 'renderPathViewOverlays',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         name: 'spaceSubFolder',
         category: 'advanced',
         type: 'text',

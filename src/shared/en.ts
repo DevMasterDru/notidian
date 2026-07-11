@@ -1208,6 +1208,10 @@ export const en = {
       "name": "Harden Frame Execution",
       "desc": "Withhold write access ($api) from custom/imported frames and sanitize frame text. Protects against malicious frame code; may disable dynamic expressions in frames you authored yourself. Run the \"Trust dynamic frame code for this session\" command to re-enable a frame you trust (re-required after reload or edit)."
     },
+    "renderPathViewOverlays": {
+      "name": "Embed View Overlays",
+      "desc": "Let a Notidian embed's \"where:\" clauses filter the embedded view at render time, so a topic/hub page can show a narrowed slice of a shared database. Read-only: overlays never change the underlying view or its saved filters. Turn off to render embedded views unfiltered (legacy behavior)."
+    },
     "noteThumbnails": {
       "name": "Note Thumbnails",
       "desc": "Create thumbnails for notes"

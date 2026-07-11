@@ -47,6 +47,7 @@ import {
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { applyAssemblyLimit } from "core/utils/contexts/tableAssembly";
 import { makeRowMatchesFilters } from "core/utils/contexts/predicate/rowMatchesFilters";
+import { resolveOverlayFilters } from "core/utils/contexts/predicate/overlayFilters";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import {
   buildRowTree,
@@ -400,6 +401,11 @@ export const ContextEditorProvider: React.FC<
   React.PropsWithChildren<{
     superstate: Superstate;
     source?: string;
+    // ADR-0066 / Notidian-ioxi — render-path declared-view overlay. Applied
+    // CONJUNCTIVELY at the row-visibility seam ONLY (READ-PATH); never merged
+    // into the persisted predicate. Only `filters` is consumed in v1 (the
+    // richer sort/columns/groupBy tokens are out of scope — Notidian-lhiq).
+    predicateOverlay?: Partial<Predicate>;
   }>
 > = (props) => {
   const { frameSchemas, saveSchema, frameSchema } =
@@ -858,10 +864,26 @@ export const ContextEditorProvider: React.FC<
   // the integration seam, including the tags-synthesis shim and the nullish
   // spaceCache?.properties plumbing. Behavior is byte-identical to the prior
   // inlined reduce.
+  // ADR-0066 / Notidian-ioxi: fold the render-path declared-view overlay
+  // (props.predicateOverlay — a notidian embed `where:` block or a frame node's
+  // predicate prop) into the per-row match CONJUNCTIVELY. This is the ONLY seam
+  // the overlay touches: it is merged into the READ-path matcher's filter list
+  // and never reaches `predicate` state, savePredicate, or saveSchema, so an
+  // overlaid embed can never write its filters back to the view schema/views.mdb
+  // (ADR-0066 Wave-3 write firewall — pinned by the overlayFirewall DOM test).
+  // Gated by the renderPathViewOverlays kill-switch (default-ON): when off, the
+  // base filters pass through byte-for-byte unchanged (legacy).
+  const overlayFilters = props.predicateOverlay?.filters;
+  const overlayEnabled =
+    props.superstate.settings?.renderPathViewOverlays !== false;
   const rowMatchesFilters = useMemo(
     () =>
       makeRowMatchesFilters({
-        filters: predicate?.filters,
+        filters: resolveOverlayFilters({
+          base: predicate?.filters,
+          overlay: overlayFilters,
+          enabled: overlayEnabled,
+        }),
         cols,
         spaceManager,
         // spaceCache (= spaceState) can be null during load / for some views;
@@ -869,7 +891,14 @@ export const ContextEditorProvider: React.FC<
         // (reading 'properties')" — pinned by rowMatchesFilters.test.ts.
         properties: spaceCache?.properties,
       }),
-    [predicate?.filters, cols, spaceManager, spaceCache?.properties]
+    [
+      predicate?.filters,
+      overlayFilters,
+      overlayEnabled,
+      cols,
+      spaceManager,
+      spaceCache?.properties,
+    ]
   );
   const rowMatchesSearch = useMemo(
     () => (f: DBRow) =>

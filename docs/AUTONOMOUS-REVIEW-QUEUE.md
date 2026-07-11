@@ -234,6 +234,54 @@ a kill-switch** per [AGENTS.md](../AGENTS.md) (the owner's USE is the
 live-verification). They are listed here so the owner knows what to exercise and
 how to revert if a regression appears — not because they are gated OFF.
 
+### Notidian-ioxi — Render-path declared-view overlays on notidian embeds (ADR-0066 Topic Hub v1 view mechanism)
+
+⏳ **Shipped default-ON; NOT yet live-verified — awaiting the milestone live-verify + owner USE.**
+Lets a topic/hub page embed a shared database view and narrow it in place with
+`where:` clauses, filtered at RENDER time with **no SQLite / views.mdb write**
+(dodging the Notidian-eedq destructive-write class + the Wave-3 write firewall).
+The half-wired `predicate` prop on the embed renderer is now fully wired,
+read-path-only.
+
+- **Setting:** `renderPathViewOverlays` (default `true`) — `src/shared/types/settings.ts`,
+  defaulted in `src/core/schemas/settings.ts`, kill-switch toggle in
+  `src/adapters/obsidian/settings.ts` (Advanced).
+- **Why gated:** the row-visibility render seam is a core render path; correctness
+  of the live embed → context → matcher plumbing cannot be proven by tsc/jest/build
+  alone (the grammar, the pure merge, and the write-firewall guard ARE
+  offline-proven).
+- **What it does when ON:** a notidian embed block's `where: field <op> value`
+  clauses (and a frame node's forwarded `predicate` prop) become a conjunctive
+  (AND) filter overlay applied ONLY inside `makeRowMatchesFilters` (via the pure
+  `resolveOverlayFilters` seam). READ-PATH ONLY: the overlay never enters
+  `predicate` state / `savePredicate` / `saveSchema`, so an overlaid embed never
+  writes the underlying view. Operators: `=`/`!=`/`>`/`<`/`includes` + relative-date
+  `withinLast`/`olderThan` (`7d`/`2w`/`1m`/`1y`, Notidian-l12a).
+- **Kill-switch (revert):** set `renderPathViewOverlays: false` in the plugin's
+  `data.json` (or the Advanced settings toggle) → the merge seam ignores every
+  overlay and base views render UNFILTERED, byte-for-byte legacy.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - Embed a global database view on a page with `where: repo = Gidi`; confirm ONLY
+    matching rows render.
+  - Confirm ZERO writes hit the DB's `views.mdb`/SQLite on overlay render — open the
+    source view and confirm its saved filters/schema are untouched.
+  - Toggle the flag OFF → the embedded view renders all rows again.
+- **Offline evidence in place:** `src/core/utils/embeds/notidianEmbed.where.test.ts`
+  (grammar → `Filter[]`; multi-clause conjunct; malformed → error; no-where
+  byte-identical; `OVERLAY_OP_MAP` registry-parity anti-fail-open lock),
+  `src/core/utils/contexts/predicate/overlayFilters.test.ts` (conjunctive merge +
+  flag-off drops overlay), and
+  `src/core/react/context/ContextEditorContext.overlayFirewall.dom.test.tsx` (T2
+  anchor: the overlay narrows the READ path yet NEVER appears in the
+  savePredicate/saveSchema payload; flag-off = all rows). Full suite (9911 tests)
+  + tsc + build green.
+- **Out of scope (filed):** the richer schema-aware `sort:`/`columns:`/`groupBy:`/
+  `layout:` tokens (Notidian-lhiq); the `views:` folder-note frontmatter carrier
+  surface (Notidian-hu4j — filed as discovered work, design deferred pending the
+  AM ADR-0066 frontmatter contract).
+
+---
+
 ### Notidian-8h9 — Table row virtualization (assemble-before-paginate + windowed render)
 
 ✅ **Live-verified 2026-06-20 (default-ON); owner's ongoing USE remains the standing validation.**

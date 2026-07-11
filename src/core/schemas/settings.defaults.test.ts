@@ -123,6 +123,7 @@ const REQUIRED_SETTING_KEYS = {
   enhancedLogs: true,
   basics: true,
   hardenFrameExecution: true,
+  renderPathViewOverlays: true,
   listItemPropertyPicker: true,
   rowVirtualization: true,
   subItemsSetup: true,
@@ -171,6 +172,7 @@ const defaultKeys = Object.keys(DEFAULT_SETTINGS).sort();
 const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "rowVirtualization", // Notidian-8h9 / ADR 0049
   "hardenFrameExecution", // Notidian-vke / ADR 0018
+  "renderPathViewOverlays", // Notidian-ioxi / ADR-0066 (owner-requested default-ON)
   "viewSettingsInlineBar", // Notidian-vrmf
   "listItemPropertyPicker", // Notidian-543 / ADR 0016
   "subItemsSetup", // Notidian-xqxc

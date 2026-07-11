@@ -149,6 +149,19 @@ export interface MakeMDSettings {
   // frame execution (TextNodeView raw sink + $api on every frame). Existing saved
   // settings are not mutated; only fresh/unset state now defaults to true.
   hardenFrameExecution: boolean;
+  // Render-path declared-view overlays on notidian embeds (ADR-0066 Topic Hub
+  // v1 view mechanism / Notidian-ioxi). When true, a notidian embed block's
+  // `where:` clauses (and a frame node's forwarded predicate prop) apply a
+  // conjunctive filter overlay at RENDER time over the referenced base view —
+  // READ-PATH ONLY, never written back to the view schema / views.mdb (the
+  // Wave-3 write firewall). DEFAULT-ON at the owner's explicit request (their
+  // use IS the verification). The flag is RETAINED as a KILL-SWITCH: set it
+  // false and the overlay is ignored at the merge seam so the base view renders
+  // UNFILTERED — exact legacy behavior, byte-for-byte. Persisting is unaffected
+  // either way: the overlay is merged only inside the row-visibility matcher and
+  // never enters savePredicate/saveSchema, so toggling this flag can never touch
+  // stored data.
+  renderPathViewOverlays: boolean;
   // List view per-item display-property picker (Notion "Properties" parity) —
   // bd Notidian-543 / ADR 0016. When true, the list kit's per-item field set
   // (`fieldsView`, fed by the `_properties` context array) is filtered to the
