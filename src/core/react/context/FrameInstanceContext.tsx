@@ -273,6 +273,18 @@ export const FrameInstanceProvider: React.FC<
           onApiWithheld,
         }
       ).then((s) => {
+        // bd Notidian-06ix: a second runRoot() can start (rootProps/contexts
+        // change, or a bless re-run) while this run is still in flight. If
+        // THAT fresher run's promise settles first, activeRunID.current has
+        // already moved on to its runID by the time this (superseded) run's
+        // promise settles — mirror the saveState guard above and bail rather
+        // than let whichever promise settles LAST unconditionally clobber the
+        // fresher run's instance/activeRunID (which would also silently drop
+        // the fresh run's own saveState writes, since those are gated on this
+        // same ref matching their runID).
+        if (activeRunID.current !== runID) {
+          return;
+        }
 
         setInstance((p) => {
           return s;
