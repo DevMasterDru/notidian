@@ -120,6 +120,54 @@ The rename is rejected when:
 
 Folder moves are intentionally not performed through the title cell. A slash in the title is treated as a request to change folders, and Notidian rejects it with guidance to use a move command. A dedicated table move command is still a known gap.
 
+## Embed A Database In A Page Or Canvas
+
+Open the Command Palette (`Cmd/Ctrl+P`) and run one of:
+
+- `Copy Notidian Database Embed` — copies an embed block to the clipboard for you to paste anywhere.
+- `Insert Notidian Database Embed` — inserts an embed block at the cursor in the active Markdown editor.
+- `Insert Notidian Database Embed Into Canvas` — adds the same live view as a file node on the active Canvas.
+
+Each opens a picker for the target database, then produces a block for that database's default view:
+
+````md
+```notidian
+target: Projects
+kind: view
+id: filesView
+title: true
+editable: false
+```
+````
+
+Edit the `kind`/`id` fields directly in the block to point at a different saved view or table by id, adjust `height`, or set `editable: true` for a live editing surface instead of a read-only render.
+
+Canvas insertion creates or updates a small wrapper note for the Canvas file node. The wrapper stores only the embed block, not database rows or frontmatter values.
+
+Embeds are read-only by default (`editable: false`). Open the source Notidian table when you want the full editing surface.
+
+Legacy `![![Folder/#^schema]]` (table by schema id) and `![![Folder/#*view]]` (saved view by id) transclusion references remain compatible and route through the same embed renderer.
+
+### Narrow An Embedded View With `where:`
+
+Add one or more `where:` lines to filter the referenced view at render time, without changing the view itself:
+
+````md
+```notidian
+target: Projects
+kind: view
+id: filesView
+where: status != Done
+where: due withinLast 7d
+```
+````
+
+Multiple `where:` lines combine with AND. Supported operators are `=`, `!=`, `>`, `<`, `includes`, and the relative-date `withinLast` / `olderThan` (values like `7d`, `2w`, `1m`, `1y`). A malformed `where:` line fails the whole block; the embed shows an inline error naming the offending field instead of quietly dropping the filter.
+
+The overlay only narrows what the embed renders. It never writes the referenced view's saved filters, sort, or schema — the source database stays untouched. It is gated by the `Embed View Overlays` setting under Advanced settings, on by default with a kill-switch; turning it off renders the embedded view unfiltered, exactly as before the overlay existed.
+
+`sort:`, `columns:`, `groupBy:`, and `layout:` overlay tokens are not implemented yet — only `where:` filtering ships today.
+
 ## Copy, Cut, Paste, And Clear Ranges
 
 Notidian tables support rectangular spreadsheet-style selection.
@@ -291,6 +339,7 @@ These are known gaps, not accidental omissions:
 - Broader real-vault UI automation for multi-row paste, copy/cut, rejected title paste, richer conflict merge flows, and Obsidian metadata reload timing.
 - Opt-in legacy Make.md context write migration tooling.
 - Remaining table UI/apply commands for property create, default backfill, destructive delete, and rename conflict resolution.
+- Schema-aware embed overlay tokens (`sort:`, `columns:`, `groupBy:`, `layout:`) for database embeds — only the `where:` filter overlay ships today.
 
 ## Related Records
 

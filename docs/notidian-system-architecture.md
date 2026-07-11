@@ -45,6 +45,34 @@ The table may feel like a spreadsheet. It may render cached projections. It may 
 | Notidian context MDB | View state, explicit Notidian-owned fields, source-less legacy/context fallback values, legacy compatibility state | Frontmatter-backed or computed values as durable row data. |
 | Real-vault harness | Runtime proof in Obsidian | Product behavior that bypasses source-of-truth rules. |
 
+### Database Embed Projection
+
+A Notidian database embed is a live projection descriptor:
+
+- `target` identifies the folder/database scope;
+- `kind` identifies whether the descriptor points at a table/schema or saved
+  view/frame;
+- `id` identifies that schema or view;
+- host fields such as height, title visibility, and `editable` affect
+  presentation and edit-surface exposure only.
+
+Markdown pages and Canvas files store this descriptor, or a wrapper reference
+to it. They do not store row data. Rendering the descriptor uses the same
+Notidian table projection and authority-aware edit model as the main database
+surface.
+
+The descriptor may also declare an optional `where` filter list (ADR-0066
+Topic Hub v1 view mechanism). Each clause maps to a real filter-registry
+function through a locked operator table, and multiple clauses conjunct (AND).
+This overlay is a **render-path-only** projection: it is merged into the
+referenced view's row-visibility match at render time and is never written
+back into that view's predicate, schema, or context MDB — an embed can narrow
+what it shows but cannot mutate the database it points at. A settings flag
+gates the merge so the legacy unfiltered projection stays reachable as a
+kill-switch. Schema-dependent overlay tokens (sort/columns/groupBy/layout) are
+not part of the descriptor yet; they need target-database schema resolution
+the embed parser does not perform.
+
 ## Database Model
 
 ### Database

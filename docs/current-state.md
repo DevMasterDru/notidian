@@ -337,6 +337,18 @@ If an operation partially skips or fails, only accepted targets enter the undo/r
 
 The undo journal is table-scoped and transient. It is not a durable audit log and it does not add a hidden data-governance layer.
 
+### Notidian Database Embeds
+
+Notidian supports live database embeds in Markdown pages and Canvas files through fenced `notidian` code blocks (`target`/`kind`/`id`/`height`/`title`/`editable`), inserted or copied via the `Insert Notidian Database Embed`, `Copy Notidian Database Embed`, and `Insert Notidian Database Embed Into Canvas` commands. Embed blocks resolve to a Notidian target folder plus a table/schema id or saved view id, then render through the same table projection path as ordinary Notidian database views.
+
+Legacy `![![Folder/#^schema]]` and `![![Folder/#*view]]` transclusion references remain compatible and route through the shared embed renderer.
+
+Canvas insertion uses a wrapper Markdown note and a JSON Canvas file node. The wrapper note stores only the Notidian embed block; it does not store row data. Rows remain Markdown files, ordinary properties remain frontmatter, and Notidian view state remains Notidian-owned context state.
+
+Embedded views default to read-only. Editable embeds require an explicit `editable: true` descriptor flag and still use the existing authority-aware table transaction paths.
+
+An embed block can add one or more `where:` lines (ADR-0066 Topic Hub v1 view mechanism; Notidian-ioxi) to overlay a conjunctive (AND) row filter onto the referenced view at render time — `=`/`!=`/`>`/`<`/`includes` plus relative-date `withinLast`/`olderThan`. The overlay is **read-path only**: it is folded into the row-visibility match at render time and never reaches the view's saved predicate, schema, or context MDB, so an overlaid embed cannot write the source view. It is gated by the `renderPathViewOverlays` setting, default **on** with a kill-switch (Advanced settings); off renders the base view unfiltered. Schema-aware `sort:`/`columns:`/`groupBy:`/`layout:` overlay tokens are future work (Notidian-lhiq) and are not parsed yet.
+
 ## Guarantees
 
 Notidian currently guarantees the following for implemented edit paths:
@@ -410,6 +422,8 @@ The following work remains before Notidian should be considered final:
 | Table styling for selection and feedback | [TableView.css](../src/css/SpaceViewer/TableView.css) |
 | Real-vault smoke verification | [notidianRealVaultHarness.js](../scripts/notidianRealVaultHarness.js) and [notidianRealVaultHarness.test.js](../scripts/notidianRealVaultHarness.test.js) |
 | Local vault plugin installer | [notidianInstallToVault.js](../scripts/notidianInstallToVault.js) and [notidianInstallToVault.test.js](../scripts/notidianInstallToVault.test.js) |
+| Database embed descriptor, legacy-ref parsing, and `where:` overlay grammar | [notidianEmbed.ts](../src/core/utils/embeds/notidianEmbed.ts), [notidianEmbed.test.ts](../src/core/utils/embeds/notidianEmbed.test.ts), [notidianEmbed.where.test.ts](../src/core/utils/embeds/notidianEmbed.where.test.ts), [notidianCanvasEmbed.ts](../src/core/utils/embeds/notidianCanvasEmbed.ts), and [notidianCanvasEmbed.test.ts](../src/core/utils/embeds/notidianCanvasEmbed.test.ts) |
+| Database embed renderer, overlay merge, and Obsidian hosts | [NotidianEmbed.tsx](../src/core/react/components/NotidianEmbed/NotidianEmbed.tsx), [notidianMarkdownEmbed.tsx](../src/adapters/obsidian/utils/notidianMarkdownEmbed.tsx), [notidianEmbedCommands.tsx](../src/adapters/obsidian/utils/notidianEmbedCommands.tsx), [overlayFilters.ts](../src/core/utils/contexts/predicate/overlayFilters.ts), and [overlayFilters.test.ts](../src/core/utils/contexts/predicate/overlayFilters.test.ts) |
 
 ## Verification Commands
 
