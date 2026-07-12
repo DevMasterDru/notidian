@@ -192,6 +192,21 @@ export const FrameInstanceProvider: React.FC<
         onApiWithheld,
       }
     ).then((s) => {
+      // bd Notidian-jsvy: sibling to the Notidian-06ix runRoot race (commit
+      // 636cc64). saveState's own call-time pre-check above only ran once, at
+      // call time -- it says nothing about what may change WHILE this call's
+      // executeTreeNode promise is still in flight. A fresher call (another
+      // saveState call, or a runRoot() re-run from a rootProps/contexts
+      // change or a bless re-run) can move activeRunID.current on before this
+      // call settles. If THIS now-superseded call's promise settles LAST,
+      // bail rather than let it unconditionally clobber the fresher call's
+      // instance. Unlike runRoot's `.then`, saveState's `.then` never
+      // reassigns activeRunID.current itself, so only the setInstance
+      // clobber needs guarding here.
+      if (activeRunID.current !== runID) {
+        return;
+      }
+
       setInstance((p) => {
         return s;
       });
