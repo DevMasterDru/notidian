@@ -10,7 +10,17 @@ const generateCodeForProp = (value: any, isClosure: boolean, type?: string) => {
     if (codeBlock.startsWith('{') && codeBlock.endsWith('}')) codeBlock = `(${codeBlock})`
     codeBlock = (isClosure && !codeBlock.startsWith('(')) ? `($event, $value, $state, $saveState, $api) => { ${codeBlock} }` : codeBlock;
     const isMultiLine = (typeof codeBlock === 'string') ? codeBlock.includes('\n') : false;
-    const isObject = type?.startsWith('object') && objectIsConst(codeBlock, type)
+    // Notidian-jkxj (belt #3, harden-the-consumer beyond gz66's load-boundary scrub):
+    // `type` is buildExecutable's node.types?.[k] lookup, and node.types is the DERIVED
+    // type map (never JSON-parsed, so gz66's frameToNode scrub does not reach it). If a
+    // dunder/inherited props key k ('__proto__'/'constructor') ever reaches here and
+    // node.types lacks an OWN entry for k, the bracket lookup returns Object.prototype
+    // (the '__proto__' getter) or the Object constructor (inherited) — a truthy
+    // NON-STRING. This line is OUTSIDE the new Function try/catch below, so a bare
+    // `.startsWith` on that value throws TypeError and crashes the always-on frame
+    // render (DoS). Guard with typeof so a non-string type can never coerce into
+    // .startsWith; a real 'object'/'object-multi' string behaves exactly as before.
+    const isObject = typeof type === 'string' && type.startsWith('object') && objectIsConst(codeBlock, type)
     
     let func
     try {

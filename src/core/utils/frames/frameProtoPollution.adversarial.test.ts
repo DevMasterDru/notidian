@@ -181,3 +181,67 @@ describe("end-to-end: the prototype-key exploit fires raw, but never through fra
     expect(calls).toContain("ping:style");
   });
 });
+
+// bd Notidian-jkxj — belt #3 (harden-the-consumer), BEYOND gz66's load-boundary
+// scrub. generateCodeForProp (executable.ts) computes
+//   const isObject = type?.startsWith('object') && objectIsConst(...)
+// where type = treeNode.node.types?.[k], k being a props key. node.types is the
+// DERIVED type map (nodeToTypes), NOT JSON-parsed, so gz66's frameToNode scrub
+// never touches it. If a dunder/inherited props key k ('__proto__'/'constructor')
+// ever reaches buildExecutable and node.types lacks an OWN entry for k, the bracket
+// lookup returns Object.prototype ('__proto__' getter) or the Object constructor
+// (inherited) — a truthy NON-STRING — and `.startsWith` throws TypeError. That line
+// is OUTSIDE generateCodeForProp's new Function try/catch, so the TypeError escapes
+// buildExecutable and crashes the ALWAYS-ON frame render (DoS). The fix is a typeof
+// guard at the consumer so a non-string type can never coerce into .startsWith.
+// This is defense-in-depth of gz66's defense-in-depth; it must NOT weaken the scrub.
+describe("buildExecutable tolerates dunder/inherited prop keys in the type lookup (Notidian-jkxj)", () => {
+  it.each(["__proto__", "constructor"] as const)(
+    "does not throw when props key %s hits a non-own (non-string) node.types slot",
+    (dunder) => {
+      // Only JSON.parse revives an OWN '__proto__' data key (an object literal routes
+      // it through the setter and leaves no own key); 'constructor' shadows the
+      // inherited one via a JSON own key too. Both are enumerated by
+      // applyFunctionToObject's for-in (own + hasOwnProperty-guarded) and feed k.
+      const props = JSON.parse(`{"value":"1","${dunder}":"[1,2,3]"}`);
+      expect(Object.prototype.hasOwnProperty.call(props, dunder)).toBe(true);
+      // node.types is a plain, non-null object LACKING an OWN entry for the dunder
+      // key, so types[dunder] resolves through the prototype: Object.prototype for
+      // '__proto__', the Object constructor for 'constructor' — the exact non-string
+      // that pre-fix reached .startsWith and threw.
+      const node = {
+        id: "n",
+        schemaId: "s1",
+        name: "n",
+        type: "text",
+        rank: 0,
+        props,
+        styles: {},
+        actions: {},
+        types: { value: "object-multi" },
+      } as unknown as FrameNode;
+
+      expect(() => buildExecutable(treeFromNode(node))).not.toThrow();
+    }
+  );
+
+  it("still classifies a REAL 'object'/'object-multi' string type as const (unchanged)", () => {
+    // A legitimate string type must behave exactly as before the guard: an
+    // object-multi const literal compiles without being wrapped as a statement.
+    const node = {
+      id: "n",
+      schemaId: "s1",
+      name: "n",
+      type: "text",
+      rank: 0,
+      props: { list: "[1,2,3]" },
+      styles: {},
+      actions: {},
+      types: { list: "object-multi" },
+    } as unknown as FrameNode;
+
+    const exec = buildExecutable(treeFromNode(node));
+    // the compiled prop returns the parsed literal — proof the string type path is intact.
+    expect(exec.execProps.list.call({})).toEqual([1, 2, 3]);
+  });
+});
