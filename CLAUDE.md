@@ -1,6 +1,4 @@
-# Project Instructions for AI Agents
-
-This file provides instructions and context for AI coding agents working on this project.
+# Notidian Project Instructions
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker

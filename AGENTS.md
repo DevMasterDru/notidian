@@ -1,84 +1,19 @@
 # Notidian Agent Guardrails
 
-## Long Autonomous Mode (standing authorization — mission-gated)
+## Long Autonomous Mode
 
-The repository owner has authorized **Mission-Gated Autonomous Development** on the
-`autonomous/notion-parity-2026-06-12` branch. A session enters it when the owner
-says "long autonomous mode" / "autonomous mode" / "run the mission" / "go" /
-"continue" **and a commissioned mission exists** (owner-named scope: a bead list or
-epic). Once active, the rules here override the conservative default in the Beads
-block; **do not request approval or consent** for in-mission work (a *current,
-explicit* owner instruction in the live session still wins). **The drive never
-self-commissions**: no mission → ask the owner which mission to run. Quota-draining
-/ self-generated tail work is retired (ADR-0065, owner ruling 2026-07-10).
+Authorized on `autonomous/notion-parity-2026-06-12` for owner-commissioned, mission-gated work; never self-commission.
+Bead prefix `Notidian-`; review queue `docs/AUTONOMOUS-REVIEW-QUEUE.md`.
+Model/lane routing resolves live from vault `Configs/Model Routing.md`.
+Gates: the standard pre-commit chain below. Doctrine: the `long-autonomous-mode` skill.
 
-**Doctrine lives canonically, not here** (resolve live, never copy):
-
-- Decision + rationale: Atlas Method repo `docs/decisions/0065-mission-gated-autonomous-development.md` (amends `0022-long-autonomous-mode-use-driven.md` — use-driven validation + the route triage remain)
-- Method note: Atlas Vault `Agent Context/Methods/Long Autonomous Mode.md`
-- Engine + how-to: the global `long-autonomous-mode` skill (`~/.claude/skills/long-autonomous-mode/`; canonical source: Atlas Method repo `skills/`)
-
-**How to run it (this repo):**
-
-```
-Workflow({ scriptPath: "~/.claude/skills/long-autonomous-mode/engine.js", args: {
-  mission: { name: "<owner-named mission>", beads: ["Notidian-…"] /* or epicId */ },
-  planModel: "opus", gateModel: "opus",     // plan + all gates/reviews (NEVER Fable — see tiering)
-  implementModel: "sonnet",                 // T0/T1 worker tier
-  t2ImplementModel: "opus",                 // T2: authority-boundary / data-loss / render-path
-  securityReviewModel: "opus",              // authority-security lens
-  // Codex fallback is default-ON (ADR-0067); set codexFallback:false to disable.
-}})
-```
-
-**This repo's binding (the specifics the engine consumes):**
-
-- **Branch:** `autonomous/notion-parity-2026-06-12` (branch-first if ever on `main`).
-- **Model tiering (owner-ratified 2026-07-10):** **Fable is reserved for the
-  interactive orchestrator session — never an engine knob.** Setting
-  `planModel`/`gateModel` to Fable fans the flagship across the engine's ~10
-  mechanical roles and exhausts its session limit (Model Routing hard-rule #1;
-  it killed `run-6` at setup on 2026-07-10). Plan gate, all review lenses, the
-  milestone gate, the authority-security lens, and **T2** (authority-boundary /
-  data-loss / render-path) implementation run on **Opus**; **T0/T1
-  implementation runs Sonnet** — resolved live against Atlas
-  `Configs/Model Routing.md`. **Codex fallback (Atlas Method ADR-0067,
-  default-ON):** any fallback-eligible verdict role (plan gate, review lenses,
-  security lens, live-verify, secret scan, rollup) that returns null retries on
-  Codex via a Haiku proxy (`fable`/`opus`→`gpt-5.6-sol`,
-  `sonnet`/`haiku`→`gpt-5.6-luna`); disable with `codexFallback:false`. Every
-  subagent carries the max-reasoning directive *"deeply contemplate with maximum
-  reasoning and unlimited effort… decide and act without asking for approval."*
-- **Live-verify harness (the milestone gate drives this):** `npm run deploy:vault`
-  (build → install to the Atlas Vault → byte-hash parity → plugin reload →
-  `dev:errors`), then the `obsidian` CLI dev commands (`dev:dom`, `dev:screenshot`,
-  `dev:errors`, `eval`) to drive every affected user-visible flow in the running
-  app with runtime evidence. Requires Obsidian open; unreachable ⇒ the flows become
-  manual asks on the run's rollup bead. Committed ≠ deployed — never claim a render
-  change verified without deploying first.
-- **Surfaces:** review-queue `docs/AUTONOMOUS-REVIEW-QUEUE.md` (a renderer of
-  rollup beads, never the record); roadmap `docs/ROADMAP.md`.
-
-**Quality bar (non-negotiable, gate before every commit):**
-
-```bash
-npm test -- --runInBand        # all green
-npx tsc -noEmit -skipLibCheck  # exit 0
-npm run build                  # clean
-```
-
-- Commit **per bead**, message `type(scope): summary — Notidian-<id>`, ending with
-  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`; then push.
-- `bd close` the bead with an evidence-bearing reason; `bd remember` durable
-  insights; file follow-up beads for discovered work.
-
-**Authority & safety invariants (never violate, even autonomously):**
+## Authority and Safety Invariants
 
 - Respect the authority-partitioned model (ADR 0001/0014/0017): file + frontmatter
   are canonical; durable MDB ownership requires an explicit `source: "notidian"`.
 - Route every new vault-content `innerHTML`/`dangerouslySetInnerHTML`/SVG/iframe
   sink through `src/shared/utils/sanitize.ts` (ADR 0017 memory).
-- **Core render-path changes that can't be verified by tsc/jest/build** (e.g.
+- **Core render-path changes that cannot be verified by tsc/jest/build** (e.g.
   `Notidian-vke` frame sinks, `Notidian-8h9` virtualization) ship **behind a flag**
   with comprehensive unit/jsdom tests: default-**ON** with a kill-switch if the
   owner requested the feature (their *use* is the verification — but only after
@@ -90,16 +25,7 @@ npm run build                  # clean
 - If a bead fails its gates twice, stop on it, `bd update` a note (or `bd human`),
   and move to the next — do not thrash.
 
-## Active work streams (resolve live — `bd ready`)
-
-Work state is **never copied here** — which streams are active, which sessions are
-open/blocked/closed, and who runs them all drift, so read them live: `bd ready` /
-`bd show <id>` for the graph, and the slim orientation packets in
-[docs/streams/](docs/streams/) for each stream's scope + typed pointers. A fresh
-session: `bd ready` → claim the top ready issue → read its body + the matching
-packet → execute within scope → verify → `bd close` with evidence → commit.
-
-Stream packets on file (durable epic pointers only — open vs shipped lives in bd):
+## Stream Packets
 
 - [docs/streams/data-integrity-program.md](docs/streams/data-integrity-program.md) — epic `Notidian-loan`
 - [docs/streams/correctness-audit-fixes.md](docs/streams/correctness-audit-fixes.md) — epic `Notidian-vonm`
@@ -132,12 +58,17 @@ Historical ADRs and `docs/superpowers` records can explain how the system got he
 
 ## Verification
 
-Before claiming plugin health, run:
+### Pre-commit chain
 
 ```bash
 npm test -- --runInBand
 npx tsc -noEmit -skipLibCheck
 npm run build
+```
+
+### Plugin health
+
+```bash
 npm run health:audit -- --live
 ```
 
@@ -155,9 +86,7 @@ npm run deploy:vault          # build → install → byte-hash parity → reloa
 npm run deploy:vault -- --verify-only   # FAIL if the vault copy != current build (no writes)
 ```
 
-The CLI is the binary **`obsidian`** (NOT `obsidian-cli` — that's a *skill* title;
-a single empty `which obsidian-cli` is never proof it's absent; resolve a tool via
-its skill — Atlas Standards). Use it to confirm a render actually appears:
+The CLI binary is `obsidian`. Use it to confirm a render actually appears:
 
 ```bash
 obsidian plugin:reload id=notidian      # reload after a manual install
