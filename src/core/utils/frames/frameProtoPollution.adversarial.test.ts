@@ -22,6 +22,7 @@ import { API } from "makemd-core";
 import { FrameExecutable, FrameTreeNode } from "shared/types/frameExec";
 import { FrameNode, MFrame } from "shared/types/mframe";
 import { buildExecutable } from "./executable";
+import { ownStringNodeType } from "./nodeTypeLookup";
 import { frameToNode } from "./nodes";
 import { executeNode, ResultStore } from "./runner";
 
@@ -243,5 +244,66 @@ describe("buildExecutable tolerates dunder/inherited prop keys in the type looku
     const exec = buildExecutable(treeFromNode(node));
     // the compiled prop returns the parsed literal — proof the string type path is intact.
     expect(exec.execProps.list.call({})).toEqual([1, 2, 3]);
+  });
+});
+
+// bd Notidian-cd87 — belt #3 SIBLING to Notidian-jkxj (commit 65208c8d), same
+// cross-object inherited-key-coercion family, different consumer.
+// FrameSlidesEditor.tsx computes
+//   const f = removeQuotes(selectedSlideParent.props?.value);
+//   ... type: selectedNode.types[f] ...
+// where `f` is derived from a PROPS VALUE, NOT from Object.keys(node.types).
+// The three sibling lookups (ast.ts propertiesForNode, FilterBar,
+// FrameNodeEditor) all iterate Object.keys(node.types), so their key is
+// always own — provably safe, untouched by this bead. FrameSlidesEditor's `f`
+// has no such guarantee: if it is literally '__proto__'/'constructor' and
+// selectedNode.types lacks an OWN entry, a bare bracket read resolves through
+// the prototype chain (Object.prototype / the Object constructor) instead of
+// the expected string-or-undefined, and that non-string value would flow
+// straight into selectedProperty.type. The fix — ownStringNodeType in
+// ./nodeTypeLookup — requires an own key AND a string value.
+describe("ownStringNodeType guards FrameSlidesEditor's props-value-derived type lookup (Notidian-cd87)", () => {
+  const DUNDER_KEYS = ["__proto__", "constructor"] as const;
+
+  it.each(DUNDER_KEYS)(
+    "WITNESS: a bare types[%s] bracket read (the pre-fix behavior) resolves to a non-own, non-string value",
+    (dunder) => {
+      // A plain object literal with no own entry for the dunder key — exactly
+      // the shape selectedNode.types has when the slide's selected property
+      // name never matched an actual type key.
+      const types: Record<string, unknown> = { value: "text" };
+      expect(Object.prototype.hasOwnProperty.call(types, dunder)).toBe(false);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = (types as any)[dunder];
+      expect(typeof raw).not.toBe("string");
+    }
+  );
+
+  it.each(DUNDER_KEYS)(
+    "FIX: ownStringNodeType(types, %s) is undefined when types lacks an own entry",
+    (dunder) => {
+      const types: Record<string, unknown> = { value: "text" };
+      expect(ownStringNodeType(types, dunder)).toBeUndefined();
+    }
+  );
+
+  it("FIX: an own key whose value is a dunder-shadowed non-string is also rejected", () => {
+    // Defense-in-depth: even if 'constructor' were ever an OWN key (e.g. via
+    // JSON.parse reviving it) but held a non-string value, the guard must
+    // still refuse it rather than assign a non-string into selectedProperty.type.
+    const types: Record<string, unknown> = JSON.parse(
+      '{"value":"text","constructor":123}'
+    );
+    expect(Object.prototype.hasOwnProperty.call(types, "constructor")).toBe(
+      true
+    );
+    expect(ownStringNodeType(types, "constructor")).toBeUndefined();
+  });
+
+  it("UNCHANGED: a real own string type flows through exactly as the bare bracket read did", () => {
+    const types: Record<string, unknown> = { value: "text", count: "number" };
+    expect(ownStringNodeType(types, "count")).toBe("number");
+    expect(ownStringNodeType(types, "count")).toBe(types.count);
   });
 });

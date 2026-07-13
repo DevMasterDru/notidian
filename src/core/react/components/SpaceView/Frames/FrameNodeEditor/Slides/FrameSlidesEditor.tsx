@@ -3,6 +3,7 @@ import {
   menuInput,
 } from "core/react/components/UI/Menus/menu/SelectionMenu";
 import { FramesEditorRootContext } from "core/react/context/FrameEditorRootContext";
+import { ownStringNodeType } from "core/utils/frames/nodeTypeLookup";
 import { removeQuotes, wrapQuotes } from "core/utils/strings";
 import { SelectOption, Superstate } from "makemd-core";
 import i18n from "shared/i18n";
@@ -47,10 +48,14 @@ export const FrameSlidesEditor = (props: {
   useEffect(() => {
     if (!selectedNode || !selectedSlideParent) return null;
     const f = removeQuotes(selectedSlideParent.props?.value);
+    // Notidian-cd87: f is derived from a PROPS VALUE, not from
+    // Object.keys(node.types) — see nodeTypeLookup.ts for why a bare
+    // selectedNode.types[f] bracket read is unsafe here (defense-in-depth
+    // sibling of Notidian-jkxj / commit 65208c8d).
     setSelectedProperty((p) =>
       !p
         ? {
-            type: selectedNode.types[f],
+            type: ownStringNodeType(selectedNode.types, f),
             name: f,
             attrs: selectedNode.propsAttrs?.[f],
             schemaId: selectedNode.schemaId,
