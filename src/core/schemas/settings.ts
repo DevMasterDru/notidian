@@ -52,6 +52,15 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // live-verify (docs/AUTONOMOUS-REVIEW-QUEUE.md). OFF == the pre-feature
   // gutter, independent of enableNestedHubRows.
   enableHubRowIndicator: false,
+  // Notidian-loan.15: default OFF — review-queue flag-gate (Atlas Method
+  // ADR-0069). Wires the standalone, READ-ONLY LockBadge into the TableView row
+  // gutter for a row whose reserved `locked` system field resolves truthy.
+  // Core render-path change with no offline-provable placement, so it ships
+  // GATED OFF for the owner to enable + live-verify (docs/AUTONOMOUS-REVIEW-QUEUE.md).
+  // Display-only: NO click-to-unlock, NO write, NO lock enforcement (ADR-0069 D2
+  // scopes prevention to the MCP write path; the owner owns the direct-UI path).
+  // OFF == the pre-feature gutter (no badge).
+  lockBadge: false,
   // Notidian-loan.5: default ON — owner-ratified Data Integrity Program
   // (ADR-0057). KILL-SWITCH: set false to hide every health-surfaces UI
   // element (row badges + repair menu, mk-row-broken tint, the FilterBar

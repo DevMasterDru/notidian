@@ -877,6 +877,51 @@ body.mk-property-header-tooltip-visible > .tooltip {
   color: var(--mk-ui-text-secondary);
 }
 
+/* Read-only lock badge (Notidian-loan.15, Atlas Method ADR-0069). A small,
+   NON-INTERACTIVE lock affordance pinned to the gutter's top-right, clear of the
+   row-health badge (bottom-right) and the drag handle. Display only — no cursor
+   change, no hover state, nothing clickable. The glyph is a pure CSS-icon span
+   (a padlock drawn with borders + a pseudo-element shackle), no SVG/innerHTML
+   (ADR-0017 sanitize invariant). */
+.mk-lock-badge {
+  box-sizing: border-box;
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: var(--mk-ui-text-tertiary);
+}
+
+.mk-lock-badge-icon {
+  position: relative;
+  display: block;
+  width: 7px;
+  height: 6px;
+  margin-top: 3px;
+  border: 1.2px solid currentColor;
+  border-radius: 1.5px;
+  background: transparent;
+}
+
+/* The shackle: a rounded top arc sitting above the padlock body. */
+.mk-lock-badge-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 4px;
+  height: 4px;
+  transform: translateX(-50%);
+  border: 1.2px solid currentColor;
+  border-bottom: none;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
+}
+
 /* Broken-row rendering (D4): a row whose frontmatter is absent/unparseable
    gets a subtle, non-obtrusive error tint on the WHOLE row -- the native
    open-file affordance on the name cell is the existing way in; this is

@@ -65,6 +65,7 @@ const REQUIRED_SETTING_KEYS = {
   enableFolderNote: true,
   enableNestedHubRows: true,
   enableHubRowIndicator: true,
+  lockBadge: true,
   enableDataHealthSurfaces: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
@@ -194,6 +195,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
 // `false` booleans (the mirror of the DEFAULT-ON pins above).
 const DOCUMENTED_REVIEW_QUEUE_FLAGS: ReadonlyArray<keyof MakeMDSettings> = [
   "enableHubRowIndicator", // Notidian-b0fm (z21a follow-up)
+  "lockBadge", // Notidian-loan.15 (Atlas Method ADR-0069 — read-only lock badge)
 ];
 
 describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {

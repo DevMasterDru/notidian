@@ -622,6 +622,7 @@ export const en = {
     "installSpaceKit": "Install Space Kit",
     "hubRowIndicator": "This row is the hub of a nested database — open it",
     "rowHealthBadge": "This row has data issues — click to repair",
+    "lockBadge": "This row is locked",
     "rowHealthRowNotFound": "Could not locate this row to apply the fix.",
     "rowHealthFieldNotEditable": "This field cannot be edited through the repair menu.",
     "repairTierAutofix": "auto-fix",

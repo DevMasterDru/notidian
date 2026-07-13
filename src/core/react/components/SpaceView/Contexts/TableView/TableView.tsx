@@ -213,6 +213,7 @@ import {
   resolveDbTypeProfile,
 } from "./rowHealthRepair";
 import { RowHealthBadge } from "./RowHealthBadge";
+import { isLockedValue, LockBadge } from "./LockBadge";
 import { HubRowIndicator } from "core/react/components/UI/Toggles/HubRowIndicator";
 import {
   hubRowOpenTarget,
@@ -476,6 +477,13 @@ const TableRowDragHandle = (props: {
   // own, same posture as HubRowIndicator.
   healthViolations?: DataHealthViolation[];
   onOpenHealthMenu?: (e: React.MouseEvent) => void;
+  // Read-only lock badge (Notidian-loan.15, DEFAULT-OFF flag-gated). The caller
+  // (TableView) resolves both the flag and the row's reserved `locked` value and
+  // passes them straight through; LockBadge self-gates on both, so this component
+  // carries no lookup/gating logic of its own — same pass-through posture as
+  // healthViolations. Display-only: no click, no unlock, no write.
+  lockBadgeEnabled?: boolean;
+  rowLocked?: boolean;
   // Row-as-child-hub indicator (Notidian-b0fm, DEFAULT-OFF flag-gated). The
   // caller (TableView) resolves both flags + the hub-row relationship and only
   // sets `showHubRowIndicator` when all hold, so this component carries no
@@ -552,6 +560,10 @@ const TableRowDragHandle = (props: {
             onOpenMenu={props.onOpenHealthMenu}
           />
         ) : null}
+        <LockBadge
+          enabled={props.lockBadgeEnabled}
+          locked={props.rowLocked}
+        />
         {props.showHubRowIndicator && props.superstate ? (
           <HubRowIndicator
             superstate={props.superstate}
@@ -766,6 +778,11 @@ export const TableView = (props: { superstate: Superstate }) => {
   const hubIndicatorEnabled =
     !!props.superstate.settings.enableHubRowIndicator &&
     !!props.superstate.settings.enableNestedHubRows;
+  // Read-only lock badge (Notidian-loan.15, DEFAULT-OFF review-queue flag-gate).
+  // When ON, a data row whose reserved `locked` system field resolves truthy
+  // gets a small, non-interactive lock affordance in the gutter beside
+  // RowHealthBadge. OFF (the default) == the gutter renders exactly as before.
+  const lockBadgeEnabled = !!props.superstate.settings.lockBadge;
   const notePathForFolder = useCallback(
     (folderPath: string): string | null =>
       props.superstate.spacesIndex?.get(folderPath)?.space?.notePath ?? null,
@@ -4076,6 +4093,19 @@ export const TableView = (props: { superstate: Superstate }) => {
                       notePathForFolder
                     )
                   : false;
+              // Read-only lock badge (Notidian-loan.15, DEFAULT-OFF): resolve the
+              // row's reserved `locked` system field from its canonical home —
+              // file frontmatter (pathsIndex.metadata.property, the SAME source
+              // the reconciler validates), falling back to the materialized row
+              // value if present. Group headers are not data rows and never carry
+              // it; skip the lookup entirely when the flag is OFF.
+              const rowLocked =
+                lockBadgeEnabled && !isGroupHeader
+                  ? isLockedValue(
+                      props.superstate.pathsIndex.get(rowPath)?.metadata
+                        ?.property?.locked
+                    ) || isLockedValue(rowData?.["locked"])
+                  : false;
 
               return (
                 <React.Fragment key={row.id}>
@@ -4177,6 +4207,8 @@ export const TableView = (props: { superstate: Superstate }) => {
                       onOpenHealthMenu={(e) =>
                         openRowHealthRepairMenu(e, rowPath, rowViolations)
                       }
+                      lockBadgeEnabled={lockBadgeEnabled}
+                      rowLocked={rowLocked}
                       superstate={props.superstate}
                       showHubRowIndicator={rowIsHub}
                       onOpenHub={() => {

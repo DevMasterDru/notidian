@@ -225,6 +225,43 @@ against at implementation time.
   the folder). `settings.defaults.test.ts` pins the OFF default. Full suite + tsc
   + build green.
 
+### Notidian-loan.15 — Read-only lock badge wired into the TableView row gutter
+
+**2026-07-13 (`autolong/run-12`).** Second half of the loan.15 slice (the first
+half — context_class/locked as validated Type Profile v3 reserved system fields —
+is offline-proven and needs no live-verify). A standalone, READ-ONLY `LockBadge`
+component is wired into the TableView row gutter beside `RowHealthBadge`, shown for
+a data row whose reserved `locked` system field resolves truthy. Gated OFF because
+it is a core render-path change with no offline-provable live placement.
+
+- **Setting:** `lockBadge` (default `false`) — `src/shared/types/settings.ts`,
+  defaulted in `src/core/schemas/settings.ts`, OFF-default pinned in
+  `src/core/schemas/settings.defaults.test.ts` (`DOCUMENTED_REVIEW_QUEUE_FLAGS`).
+- **What it does when ON:** for each data row whose file frontmatter (or
+  materialized row value) has `locked: true` (or `"true"`), the gutter renders a
+  small, NON-INTERACTIVE `.mk-lock-badge` span (a CSS-icon padlock, top-right).
+  Gutter is otherwise unchanged.
+- **What it deliberately does NOT do (standing scope fence, ADR-0069 D2):**
+  display only — NO click-to-unlock, NO write, NO lock enforcement/prevention on
+  the direct-UI write funnel. Lock PREVENTION is the MCP `db.*` path's job (Wave-3
+  loan.9/.11); the owner is the authority on the direct-UI path.
+- **How to toggle:** set `lockBadge: true` in the plugin's `data.json`, then reload
+  the plugin (`obsidian plugin:reload id=notidian`). No settings-UI toggle yet.
+- **What to live-verify in the vault (the part gates can't cover):**
+  - Add `locked: true` to a database row's frontmatter: that row's gutter (and only
+    that row) shows the padlock badge; rows without it show nothing.
+  - The badge is inert — clicking it does nothing (no menu, no unlock, no write);
+    clicking elsewhere on the row still selects/opens it as before.
+  - Toggle the flag OFF → the badge disappears and the gutter is byte-for-byte the
+    pre-feature gutter.
+- **Offline evidence in place:** `validateRow.reservedFields.test.ts` (context_class
+  strict enum incl. `mirror`-is-not-a-member + `derived`-is; locked boolean policy;
+  both-absent = valid; reserved-def authoritative; never projected as a column),
+  `LockBadge.dom.test.tsx` (render matrix: flag-ON+locked = badge; flag-OFF /
+  locked-false / locked-absent = nothing; read-only invariants: no button, no click
+  handler, no SVG/innerHTML sink; `isLockedValue` resolver). `settings.defaults.test.ts`
+  pins the OFF default. Full suite + tsc + build green.
+
 ---
 
 ## Awaiting owner USE — default-ON flag-gated changes (ship-then-verify)

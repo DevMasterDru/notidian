@@ -2,6 +2,7 @@ import { filterReturnForCol } from "core/utils/contexts/predicate/filter";
 import {
   Invariant,
   NotidianTypeProfile,
+  RESERVED_SYSTEM_FIELDS,
   TypeProfileField,
   TypeProfileReference,
 } from "core/utils/contexts/typeProfile";
@@ -129,6 +130,13 @@ const asPatch = (value: unknown): Record<string, unknown> | null => {
 
 const isMissingValue = (value: unknown): boolean =>
   value == null || value === "" || (Array.isArray(value) && value.length == 0);
+
+// Case-folded names of the reserved system fields (Notidian-loan.15) — used to
+// drop any same-named field a hub also declared before the AUTHORITATIVE
+// reserved definition is appended to the working field set (see validateRowPatch).
+const reservedFieldNames = new Set(
+  RESERVED_SYSTEM_FIELDS.map((field) => field.name.toLowerCase())
+);
 
 // ---------------------------------------------------------------------------
 // Filter evaluation (ADR-0057 D1: reuse `filterReturnForCol` — the EXISTING
@@ -563,10 +571,38 @@ export const validateRowPatch = (
     Array.isArray(schema?.fields) ? schema!.fields : []
   ).filter((field): field is TypeProfileField => isPlainObject(field));
 
-  const effectiveRow: Record<string, unknown> = { ...rowRecord, ...patchRecord };
-  const fieldsByName = new Map(fields.map((field) => [field.name, field]));
+  // Reserved system fields (Notidian-loan.15, Atlas Method ADR-0069 D1):
+  // context_class + locked are RECOGNIZED field names with FIXED definitions,
+  // merged into the working field set of every REAL parsed profile so the SAME
+  // per-field machinery below validates them (strict enum for context_class,
+  // the existing boolean coercion path for locked). Merged HERE, at the
+  // validation boundary — NOT into NotidianTypeProfile.fields — so they never
+  // reach planTypeProfileApply's column projection or serializeTypeProfileField's
+  // hub round-trip (the loan.15 scope fence). The reserved definition is
+  // AUTHORITATIVE: any same-named field the hub also declared is dropped
+  // (case-folded) before the reserved one is appended. A null/undefined schema
+  // (not a type profile) injects nothing — `fields` is already [] — so
+  // validateRow(null, ...) stays [] exactly as before this wave.
+  const allFields =
+    schema == null
+      ? fields
+      : [
+          // A field whose `name` is absent/non-string (a malformed def that
+          // survived the isPlainObject filter above) can never BE a reserved
+          // name, so keep it untouched — matching this module's "never throws"
+          // adversarial contract; only string names are case-folded/compared.
+          ...fields.filter(
+            (field) =>
+              typeof field.name != "string" ||
+              !reservedFieldNames.has(field.name.toLowerCase())
+          ),
+          ...RESERVED_SYSTEM_FIELDS,
+        ];
 
-  for (const field of fields) {
+  const effectiveRow: Record<string, unknown> = { ...rowRecord, ...patchRecord };
+  const fieldsByName = new Map(allFields.map((field) => [field.name, field]));
+
+  for (const field of allFields) {
     pushSafe(violations, () => checkType(field, effectiveRow));
     pushSafe(violations, () => checkEnum(field, effectiveRow));
     pushSafe(violations, () => checkRequired(field, effectiveRow));

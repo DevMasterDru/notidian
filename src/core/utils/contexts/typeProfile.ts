@@ -54,6 +54,44 @@ export type TypeProfileField = {
   extra?: Record<string, unknown>;
 };
 
+// Reserved system fields (Notidian-loan.15, Atlas Method ADR-0069 D1). These
+// are RECOGNIZED field NAMES with FIXED definitions — system fields any
+// Notidian context row may carry, NOT user-defined columns. `validateRowPatch`
+// (validateRow.ts) merges this fragment into the working field set of every
+// REAL parsed profile so the existing per-field machinery validates them with
+// these fixed definitions. It is deliberately NOT merged into
+// `NotidianTypeProfile.fields`: that union feeds planTypeProfileApply's column
+// projection and serializeTypeProfileField's hub round-trip, and the loan.15
+// scope fence requires reserved fields NEVER be projected as user-editable
+// columns nor serialized back onto a hub note's fields/kind_fields map. Keeping
+// the merge at the validation boundary makes both hold by construction.
+//
+// context_class: the six-member CLOSED set per ADR-0069 D1, strict. `mirror` is
+// a DERIVED specialization of `derived`, NOT a 7th enum member — do not add it.
+// locked: a boolean, validated through the existing boolean coercion path.
+export const CONTEXT_CLASS_VALUES = [
+  "truth",
+  "elaboration",
+  "history",
+  "evidence",
+  "policy",
+  "derived",
+] as const;
+
+export const RESERVED_SYSTEM_FIELDS: readonly TypeProfileField[] = [
+  {
+    name: "context_class",
+    kind: "select",
+    type: "option",
+    enum: { values: [...CONTEXT_CLASS_VALUES], strict: true },
+  },
+  {
+    name: "locked",
+    kind: "checkbox",
+    type: "boolean",
+  },
+];
+
 // Per-database invariant (ADR-0056 D8): row-local predicate rule expressed in
 // the EXISTING Filter/predicate DSL (src/shared/types/predicate.ts) — no new
 // rule language. `when` is an optional guard (absent/empty == applies to every

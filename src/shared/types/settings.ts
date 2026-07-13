@@ -81,6 +81,17 @@ export interface MakeMDSettings {
   // byte-identical legacy gutter (no indicator, whatever enableNestedHubRows
   // is set to).
   enableHubRowIndicator: boolean;
+  // Notidian-loan.15 (default OFF, review-queue flag-gate, Atlas Method ADR-0069):
+  // opt-in READ-ONLY lock affordance in the TableView row gutter. When ON, a data
+  // row whose reserved `locked` system field resolves truthy gets a small,
+  // NON-INTERACTIVE `.mk-lock-badge` span (no click, no unlock, no write) beside
+  // RowHealthBadge. DEFAULT OFF: this is a core render-path change whose live
+  // placement can't be proven by tsc/jest/build, so it ships gated OFF for the
+  // owner to enable + live-verify (docs/AUTONOMOUS-REVIEW-QUEUE.md). The badge is
+  // display-only — lock ENFORCEMENT/PREVENTION is out of scope (ADR-0069 D2 scopes
+  // it to the MCP write path; the owner is the authority on the direct-UI path).
+  // OFF == byte-identical legacy gutter (no badge).
+  lockBadge: boolean;
   // Notidian-loan.5 (default ON, kill-switch, ADR-0057): master gate for the
   // Data Integrity Program's health-surfaces UI -- the row gutter's
   // RowHealthBadge (+ its repair menu), the broken-row `mk-row-broken` tint,
