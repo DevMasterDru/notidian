@@ -173,6 +173,14 @@ export interface MakeMDSettings {
   // never enters savePredicate/saveSchema, so toggling this flag can never touch
   // stored data.
   renderPathViewOverlays: boolean;
+  // Cross-database saved views (Notidian-42tx / ADR 0059). When true, a saved
+  // frame whose def.sources contains at least two database sources renders the
+  // pure mapped union of those source rows. F1 is deliberately read-only: the
+  // projection may filter/sort/group/export, but row/schema writes stay in each
+  // canonical source database. DEFAULT-ON because the owner commissioned F1;
+  // false is the kill-switch and restores the singular def.context/def.db read
+  // path without interpreting def.sources.
+  crossDatabaseSavedViews: boolean;
   // List view per-item display-property picker (Notion "Properties" parity) —
   // bd Notidian-543 / ADR 0016. When true, the list kit's per-item field set
   // (`fieldsView`, fed by the `_properties` context array) is filtered to the

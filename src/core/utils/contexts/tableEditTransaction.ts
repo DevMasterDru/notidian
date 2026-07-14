@@ -42,7 +42,8 @@ export type TableEditSkipReason =
   | "missing-context-table"
   | "missing-context-row"
   | "frontmatter-conflict"
-  | "schema-changed";
+  | "schema-changed"
+  | "read-only-projection";
 
 export type TableEditFailureReason =
   | "missing-path"

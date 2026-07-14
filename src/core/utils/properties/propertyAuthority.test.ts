@@ -1,5 +1,6 @@
 import { PathPropertyName } from "shared/types/context";
 import { frontmatterPropertySource } from "./allProperties";
+import { crossDatabasePropertySource } from "core/utils/contexts/crossDatabaseView";
 import {
   notidianPropertySource,
   propertyAuthorityForColumn,
@@ -132,6 +133,30 @@ describe("propertyAuthorityForColumn", () => {
       shouldPersistAuthorityValueToContext({
         name: "linkedFrom",
         type: "backlink",
+      })
+    ).toBe(false);
+  });
+
+  it("classifies cross-database projection columns as computed/read-only", () => {
+    expect(
+      propertyAuthorityForColumn({
+        name: "status",
+        type: "text",
+        source: crossDatabasePropertySource,
+      })
+    ).toBe("computed");
+    expect(
+      shouldWriteAuthorityValueToFrontmatter({
+        name: "status",
+        type: "text",
+        source: crossDatabasePropertySource,
+      })
+    ).toBe(false);
+    expect(
+      shouldPersistAuthorityValueToContext({
+        name: "status",
+        type: "text",
+        source: crossDatabasePropertySource,
       })
     ).toBe(false);
   });

@@ -393,6 +393,14 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // Notidian-42tx / ADR 0059 — owner-requested F1 projection kill-switch.
+        // The provider reads this live; false ignores saved source sets and
+        // restores singular source rendering.
+        name: 'crossDatabaseSavedViews',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         name: 'spaceSubFolder',
         category: 'advanced',
         type: 'text',

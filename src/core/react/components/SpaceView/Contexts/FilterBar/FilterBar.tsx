@@ -19,6 +19,7 @@ import { showSetValueMenu } from "core/react/components/UI/Menus/properties/prop
 import { showSpacesMenu } from "core/react/components/UI/Menus/properties/selectSpaceMenu";
 import { openContextCreateItemModal } from "core/react/components/UI/Modals/ContextCreateItemModal";
 import { CsvImportModal } from "core/react/components/UI/Modals/CsvImportModal";
+import { CrossDatabaseSourcesModal } from "core/react/components/UI/Modals/CrossDatabaseSourcesModal";
 import { executeCsvImport } from "core/utils/contexts/tableCsvImportRuntime";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import {
@@ -89,6 +90,8 @@ export const FilterBar = (props: {
   const { readMode } = useContext(PathContext);
   const {
     source,
+    crossDatabase,
+    crossDatabaseSources,
     dbSchema,
     cols,
     filteredData,
@@ -112,6 +115,57 @@ export const FilterBar = (props: {
 
   const { frameSchema, saveSchema, setFrameSchema } =
     useContext(FramesMDBContext);
+
+  const sourceContextOptions = useMemo(
+    () =>
+      Array.from(props.superstate.contextsIndex.entries())
+        .filter(([, context]) => (context?.schemas?.length ?? 0) > 0)
+        .map(([path, context]) => ({
+          path,
+          name: props.superstate.spacesIndex.get(path)?.name ?? path,
+          schemas: context.schemas.map((schema) => ({
+            id: schema.id,
+            name: schema.name,
+          })),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [props.superstate.contextsIndex, props.superstate.spacesIndex]
+  );
+
+  const openCrossDatabaseSources = (win: Window) => {
+    const seed =
+      crossDatabaseSources.length > 0
+        ? crossDatabaseSources
+        : [
+            {
+              context: source,
+              db: dbSchema?.id ?? defaultContextSchemaID,
+              label:
+                props.superstate.spacesIndex.get(source)?.name ?? source,
+              fields: {},
+            },
+          ];
+    props.superstate.ui.openModal(
+      "Cross-database sources",
+      <CrossDatabaseSourcesModal
+        sources={seed}
+        contexts={sourceContextOptions}
+        onSave={(sources) => {
+          const newSchema = {
+            ...frameSchema,
+            def: {
+              ...frameSchema.def,
+              db: defaultContextSchemaID,
+              sources,
+            },
+            type: "view",
+          };
+          saveSchema(newSchema).then(() => setFrameSchema(newSchema));
+        }}
+      />,
+      win
+    );
+  };
 
   // Data Integrity Program header chip (Notidian-loan.5, ADR-0057 D3/D4).
   // Flag-gated kill-switch: OFF subscribes to nothing and renders nothing.
@@ -705,7 +759,7 @@ export const FilterBar = (props: {
       );
       menuOptions.push(menuSeparator);
 
-      menuOptions.push({
+      if (!crossDatabase) menuOptions.push({
         name: i18n.menu.properties,
         icon: "ui//list",
         type: SelectOptionType.Submenu,
@@ -781,7 +835,7 @@ export const FilterBar = (props: {
     // gate and the row-menu "Add sub-item" gate (rowContextMenu.tsx). Hiding the
     // whole entry (vs. a dead-end "None") avoids both an empty submenu and an
     // orphaned active config surfacing display/scope submenus where it can't work.
-    if (dbSchema?.id == defaultContextSchemaID) {
+    if (!crossDatabase && dbSchema?.id == defaultContextSchemaID) {
     menuOptions.push({
       name: "Sub-items",
       icon: "ui//rows",
@@ -1022,7 +1076,7 @@ export const FilterBar = (props: {
       }
     }
     } // end primary-files-schema gate for the Sub-items block (bd Notidian-8k9b)
-    menuOptions.push({
+    if (!crossDatabase) menuOptions.push({
       name: "Import from CSV",
       icon: "ui//upload",
       onClick: (e) => {
@@ -1097,27 +1151,48 @@ export const FilterBar = (props: {
 
     menuOptions.push(menuSeparator);
 
-    const sourceSpace = props.superstate.spacesIndex.get(source);
-    menuOptions.push({
-      name: i18n.labels.source,
-      icon: "ui//table",
-      type: SelectOptionType.Disclosure,
-      value: sourceSpace.name,
-      onSubmenu: (rect, onHide) => {
-        return selectSource(rect, windowFromDocument(e.view.document));
-      },
-    });
+    if (crossDatabase) {
+      menuOptions.push({
+        name: "Sources",
+        icon: "ui//table",
+        value: `${crossDatabaseSources.length} sources`,
+        onClick: (event) =>
+          openCrossDatabaseSources(windowFromDocument(event.view.document)),
+      });
+    } else {
+      const sourceSpace = props.superstate.spacesIndex.get(source);
+      menuOptions.push({
+        name: i18n.labels.source,
+        icon: "ui//table",
+        type: SelectOptionType.Disclosure,
+        value: sourceSpace?.name ?? source,
+        onSubmenu: (rect, onHide) => {
+          return selectSource(rect, windowFromDocument(e.view.document));
+        },
+      });
 
-    const table = dbSchema.name;
-    menuOptions.push({
-      name: i18n.labels.list,
-      icon: "ui//table",
-      type: SelectOptionType.Disclosure,
-      value: table,
-      onSubmenu: (rect, onHide) => {
-        return selectList(rect, windowFromDocument(e.view.document));
-      },
-    });
+      const table = dbSchema.name;
+      menuOptions.push({
+        name: i18n.labels.list,
+        icon: "ui//table",
+        type: SelectOptionType.Disclosure,
+        value: table,
+        onSubmenu: (rect, onHide) => {
+          return selectList(rect, windowFromDocument(e.view.document));
+        },
+      });
+      if (
+        !readMode &&
+        props.superstate.settings?.crossDatabaseSavedViews !== false
+      ) {
+        menuOptions.push({
+          name: "Combine sources",
+          icon: "ui//plus",
+          onClick: (event) =>
+            openCrossDatabaseSources(windowFromDocument(event.view.document)),
+        });
+      }
+    }
 
     menuOptions.push(menuSeparator);
 
@@ -2025,7 +2100,8 @@ export const FilterBar = (props: {
 
               <span></span>
 
-              {dbSchema?.id == defaultContextSchemaID &&
+              {!crossDatabase &&
+                dbSchema?.id == defaultContextSchemaID &&
                 !spaceCache.space.readOnly && (
                   <>
                     <button

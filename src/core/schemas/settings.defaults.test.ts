@@ -125,6 +125,7 @@ const REQUIRED_SETTING_KEYS = {
   basics: true,
   hardenFrameExecution: true,
   renderPathViewOverlays: true,
+  crossDatabaseSavedViews: true,
   listItemPropertyPicker: true,
   rowVirtualization: true,
   subItemsSetup: true,
@@ -174,6 +175,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "rowVirtualization", // Notidian-8h9 / ADR 0049
   "hardenFrameExecution", // Notidian-vke / ADR 0018
   "renderPathViewOverlays", // Notidian-ioxi / ADR-0066 (owner-requested default-ON)
+  "crossDatabaseSavedViews", // Notidian-42tx / ADR 0059 (owner-requested default-ON)
   "viewSettingsInlineBar", // Notidian-vrmf
   "listItemPropertyPicker", // Notidian-543 / ADR 0016
   "subItemsSetup", // Notidian-xqxc

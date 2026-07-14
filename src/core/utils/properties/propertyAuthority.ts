@@ -1,5 +1,6 @@
 import { PathPropertyName } from "shared/types/context";
 import { SpaceProperty } from "shared/types/mdb";
+import { crossDatabasePropertySource } from "core/utils/contexts/crossDatabaseView";
 
 export type PropertyAuthority =
   | "file"
@@ -65,6 +66,7 @@ export const propertyAuthorityForColumn = (
   // layer, breaking the read-only promise (ADR 0001/0017; bd memory
   // any-new-computed-read-only-column-type). "skip IFF computed" is an invariant.
   if (property?.type && computedTypes.has(property.type)) return "computed";
+  if (property?.source === crossDatabasePropertySource) return "computed";
   if (property?.source === frontmatterSource) return "frontmatter";
   // Explicit Notidian ownership.
   if (property?.source === notidianPropertySource) return "notidian";

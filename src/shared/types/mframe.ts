@@ -2,6 +2,14 @@ import { FrameState } from "./frameExec";
 import { IAPI } from "./api";
 import { SpaceProperty as Property, SpaceTableSchema } from "./mdb";
 
+export type CrossDatabaseSourceDefinition = {
+  context: string;
+  db: string;
+  label?: string;
+  /** canonical view field -> source database field */
+  fields: Record<string, string>;
+};
+
 // Interaction type for event handlers
 export type Interaction = any;
 
@@ -36,6 +44,7 @@ export type ActionProp = Record<string, (e: Interaction, value: any, state: Fram
       db?: string
       type?: string
       id?: string
+      sources?: CrossDatabaseSourceDefinition[]
     }
   }
   export type FrameRoot = {

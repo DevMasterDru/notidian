@@ -685,6 +685,7 @@ export const TableView = (props: { superstate: Superstate }) => {
   const { readMode } = useContext(PathContext);
   const {
     tableData,
+    crossDatabase,
 
     dbSchema,
     contextTable,
@@ -713,6 +714,7 @@ export const TableView = (props: { superstate: Superstate }) => {
     subItemAddRows,
     subItemsTreeNodes,
   } = useContext(ContextEditorContext);
+  const tableReadOnly = readMode || crossDatabase;
 
   // Data Integrity Program health surfaces (Notidian-loan.5, ADR-0057 D3/D4).
   // Flag-gated kill-switch: OFF subscribes to nothing and every violation
@@ -2268,7 +2270,7 @@ export const TableView = (props: { superstate: Superstate }) => {
           // enableResizing: true,
           meta: {
             table: f.table,
-            editable: f.name != PathPropertyName,
+            editable: !tableReadOnly && f.name != PathPropertyName,
             schemaId: dbSchema?.id,
             fieldType: fieldTypeForType(f.type, f.name)?.type,
           },
@@ -2389,7 +2391,7 @@ export const TableView = (props: { superstate: Superstate }) => {
               }
               return renamedPath;
             };
-            const editMode = readMode
+            const editMode = tableReadOnly
               ? CellEditMode.EditModeReadOnly
               : !cell.getIsGrouped()
               ? isTouchScreen(props.superstate.ui)
@@ -2453,7 +2455,7 @@ export const TableView = (props: { superstate: Superstate }) => {
           },
         };
       }) ?? []),
-      ...(readMode
+      ...(tableReadOnly
         ? []
         : [
             {
@@ -2474,6 +2476,7 @@ export const TableView = (props: { superstate: Superstate }) => {
       contextTable,
       cellResetTokens,
       colsSize,
+      tableReadOnly,
     ]
   );
 
@@ -3940,7 +3943,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                           <ColumnHeader
                             superstate={props.superstate}
                             editable={
-                              !readMode &&
+                              !tableReadOnly &&
                               header.column.columnDef.meta.editable
                             }
                             column={cols.find(
@@ -4028,7 +4031,7 @@ export const TableView = (props: { superstate: Superstate }) => {
             {virtualPadTop > 0 ? (
               <tr aria-hidden="true" className="mk-table-virtual-spacer">
                 <td
-                  colSpan={cols.length + (readMode ? 1 : 2)}
+                  colSpan={cols.length + (tableReadOnly ? 1 : 2)}
                   style={{ height: virtualPadTop, padding: 0, border: "none" }}
                 />
               </tr>
@@ -4193,13 +4196,13 @@ export const TableView = (props: { superstate: Superstate }) => {
                     );
                   }}
                 >
-                  {rowOriginalIndex !== undefined && !readMode ? (
+                  {rowOriginalIndex !== undefined && !tableReadOnly ? (
                     <TableRowDragHandle
                       rowId={rowOriginalIndex}
                       rowNumber={visibleIndex + 1}
                       rowGutterWidth={rowGutterWidth}
                       selected={rowSelected}
-                      disabled={readMode}
+                      disabled={tableReadOnly}
                       frozen={frozenColumnCount > 0}
                       onReorderStart={prepareRowDrag}
                       onSelectStart={startRowSelectionDrag}
@@ -4241,7 +4244,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                       <td
                         key={i}
                         className="mk-td-group"
-                        colSpan={cols.length + (readMode ? 0 : 1)}
+                        colSpan={cols.length + (tableReadOnly ? 0 : 1)}
                       >
                         <div
                           className={classNames(
@@ -4300,7 +4303,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                           <span className="mk-group-header-count">
                             {row.subRows.length}
                           </span>
-                          {!readMode &&
+                          {!tableReadOnly &&
                             row.getGroupingValue(cell.column.id) !==
                               GROUP_NO_VALUE ? (
                             <>
@@ -4341,7 +4344,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                               </button>
                             </>
                           ) : null}
-                          {!readMode ? (
+                          {!tableReadOnly ? (
                             <button
                               type="button"
                               className="mk-group-header-add-button"
@@ -4594,7 +4597,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                     ></td>
                     <td
                       className="mk-subitem-add-cell"
-                      colSpan={cols.length + (readMode ? 0 : 1)}
+                      colSpan={cols.length + (tableReadOnly ? 0 : 1)}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -4624,7 +4627,7 @@ export const TableView = (props: { superstate: Superstate }) => {
             {virtualPadBottom > 0 ? (
               <tr aria-hidden="true" className="mk-table-virtual-spacer">
                 <td
-                  colSpan={cols.length + (readMode ? 1 : 2)}
+                  colSpan={cols.length + (tableReadOnly ? 1 : 2)}
                   style={{
                     height: virtualPadBottom,
                     padding: 0,
@@ -4642,7 +4645,7 @@ export const TableView = (props: { superstate: Superstate }) => {
               <tr>
                 <th
                   className="mk-row-new mk-row-pagination"
-                  colSpan={cols.length + (readMode ? 1 : 2)}
+                  colSpan={cols.length + (tableReadOnly ? 1 : 2)}
                 >
                   <div className="mk-table-pagination-actions">
                     <span className="mk-table-pagination-count">
@@ -4678,11 +4681,11 @@ export const TableView = (props: { superstate: Superstate }) => {
                 </th>
               </tr>
             )}
-            {!readMode ? (
+            {!tableReadOnly ? (
               <tr>
                 <th
                   className="mk-row-new"
-                  colSpan={cols.length + (readMode ? 1 : 2)}
+                  colSpan={cols.length + (tableReadOnly ? 1 : 2)}
                   data-placeholder={i18n.hintText.newItem}
                   onFocus={(e) => {
                     setSelectedColumn(null);

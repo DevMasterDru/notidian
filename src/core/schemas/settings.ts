@@ -153,6 +153,10 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // KILL-SWITCH: set it false and the merge seam ignores the overlay so the base
   // view renders unfiltered — byte-for-byte legacy behavior.
   renderPathViewOverlays: true,
+  // Default-ON cross-database saved-view projection (Notidian-42tx / ADR 0059).
+  // Owner-requested F1; retained as a kill-switch. OFF ignores def.sources and
+  // restores the singular context/database read path byte-for-byte.
+  crossDatabaseSavedViews: true,
   // Default-ON list-view per-item display-property picker (bd Notidian-543 /
   // ADR 0016) — an owner-requested ("very important") Notion-'Properties'
   // parity feature; the owner verifies it by USE. The flag is RETAINED as a

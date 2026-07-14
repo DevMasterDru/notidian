@@ -349,6 +349,27 @@ Embedded views default to read-only. Editable embeds require an explicit `editab
 
 An embed block can add one or more `where:` lines (ADR-0066 Topic Hub v1 view mechanism; Notidian-ioxi) to overlay a conjunctive (AND) row filter onto the referenced view at render time — `=`/`!=`/`>`/`<`/`includes` plus relative-date `withinLast`/`olderThan`. The overlay is **read-path only**: it is folded into the row-visibility match at render time and never reaches the view's saved predicate, schema, or context MDB, so an overlaid embed cannot write the source view. It is gated by the `renderPathViewOverlays` setting, default **on** with a kill-switch (Advanced settings); off renders the base view unfiltered. Schema-aware `sort:`/`columns:`/`groupBy:`/`layout:` overlay tokens are future work (Notidian-lhiq) and are not parsed yet.
 
+### Cross-Database Saved Views
+
+A native saved view can project rows from two or more folder databases through
+an ordered source set and explicit shared-field mappings ([ADR
+0059](adr/0059-cross-database-saved-views.md)). Configure it from view options:
+`Combine sources` creates the source set; `Sources` reopens it afterward. Each
+source selects a folder context and table, supplies a display label, and maps
+canonical fields with `canonical=sourceField` lines.
+
+The projection contains File, the mapped canonical fields, and Source. It uses
+source order for row order and duplicate-file precedence. Filters, sort, group,
+search, layouts, charts, CSV export, embeds, and the native view switcher operate
+on the projection normally.
+
+F1 projections are intentionally read-only: edit the canonical source database
+to change a row. Notidian blocks cell edits, file rename, row/schema mutation,
+reorder, CSV import, and programmatic value writes so a canonical display field
+cannot create a second frontmatter key when a source uses a different property
+name. `crossDatabaseSavedViews` is default on with an Advanced-settings kill
+switch; off ignores the source set and restores the singular view path.
+
 ## Guarantees
 
 Notidian currently guarantees the following for implemented edit paths:

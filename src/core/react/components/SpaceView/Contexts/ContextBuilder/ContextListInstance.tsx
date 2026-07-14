@@ -11,6 +11,7 @@ import {
   updatePathRankInSpace,
 } from "core/superstate/utils/spaces";
 import { updateTableValue } from "core/utils/contexts/context";
+import { isCrossDatabaseViewReadOnly } from "core/utils/contexts/crossDatabaseView";
 import {
   frontmatterGroupDragWrite,
   resolveGroupFieldName,
@@ -53,7 +54,8 @@ export const ContextListInstance = (
     [props.contexts]
   );
   const { spaceInfo } = useContext(SpaceContext);
-  const { dbSchema } = useContext(ContextEditorContext);
+  const { dbSchema, crossDatabase } = useContext(ContextEditorContext);
+  const projectionReadOnly = isCrossDatabaseViewReadOnly(crossDatabase);
   const { setDragNode } = useContext(WindowContext);
   const ref = React.useRef<HTMLDivElement>(null);
 
@@ -99,12 +101,16 @@ export const ContextListInstance = (
       props: props.props,
       contexts: contexts,
     },
-    disabled: props.type != "listItem" || props.editMode > FrameEditorMode.Read,
+    disabled:
+      projectionReadOnly ||
+      props.type != "listItem" ||
+      props.editMode > FrameEditorMode.Read,
     animateLayoutChanges: defaultAnimateLayoutChanges,
   });
 
   useDndMonitor({
     onDragStart: (e) => {
+      if (projectionReadOnly) return;
       if (e.active.data.current.id == props.id) {
         setDragNode(
           // <FrameRootView
@@ -123,6 +129,7 @@ export const ContextListInstance = (
     },
     onDragOver: (over) => {},
     onDragEnd: ({ active, over }) => {
+      if (projectionReadOnly) return;
       const dragReorder =
         over &&
         over.data.current.space == spaceInfo?.path &&

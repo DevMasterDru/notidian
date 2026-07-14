@@ -44,6 +44,11 @@ of scope (ADR 0014).
   Obsidian **Canvas**, via a `​```notidian` code block (target/kind/id/height/
   editable) — Canvas uses a small wrapper note + the standard JSON Canvas
   `file` node, deliberately avoiding undocumented Canvas-internals patching.
+- **Cross-database saved views**: one native saved view can project rows from
+  several folder databases through explicit canonical-to-source field mappings;
+  filters/sort/group/layouts/embeds/export and the native view switcher operate
+  on the live union. F1 is read-only to preserve each source frontmatter key as
+  the sole owner ([ADR 0059](adr/0059-cross-database-saved-views.md)).
 - **In-flight (Data Integrity Program, `Notidian-loan`)**: Type Profile v3
   schema registry (enum-as-law, required/unique/pattern, declared references,
   derived fields), a pure validation core, and a read-only reconciler/health

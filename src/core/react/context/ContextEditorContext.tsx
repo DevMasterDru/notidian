@@ -46,6 +46,10 @@ import {
 } from "core/utils/contexts/tableEditTransaction";
 import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { applyAssemblyLimit } from "core/utils/contexts/tableAssembly";
+import {
+  assembleCrossDatabaseView,
+  normalizeCrossDatabaseSources,
+} from "core/utils/contexts/crossDatabaseView";
 import { makeRowMatchesFilters } from "core/utils/contexts/predicate/rowMatchesFilters";
 import { resolveOverlayFilters } from "core/utils/contexts/predicate/overlayFilters";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
@@ -91,7 +95,10 @@ import {
   SpaceTableSchema,
   SpaceTables,
 } from "shared/types/mdb";
-import { FrameSchema } from "shared/types/mframe";
+import {
+  CrossDatabaseSourceDefinition,
+  FrameSchema,
+} from "shared/types/mframe";
 import { Predicate, Sort, SubItemsDisplay } from "shared/types/predicate";
 import { uniq, uniqueNameFromString } from "shared/utils/array";
 import { safelyParseJSON } from "shared/utils/json";
@@ -121,6 +128,8 @@ type ContextEditorContextProps = {
   predicate: Predicate;
   savePredicate: (predicate: Partial<Predicate>) => Promise<void>;
   source: string;
+  crossDatabase: boolean;
+  crossDatabaseSources: CrossDatabaseSourceDefinition[];
   hideColumn: (column: SpaceTableColumn, hidden: boolean) => void;
   sortColumn: (sort: Sort) => void;
   saveColumn: (
@@ -225,6 +234,8 @@ export const ContextEditorContext = createContext<ContextEditorContextProps>({
   dbSchema: null,
   views: [],
   source: "",
+  crossDatabase: false,
+  crossDatabaseSources: [],
   sortedColumns: [],
   filteredData: [],
   contextTable: {},
@@ -444,7 +455,24 @@ export const ContextEditorProvider: React.FC<
   const contextPath =
     props.source ?? frameSchema?.def?.context ?? spaceInfo?.path;
 
+  const crossDatabaseSources = useMemo(
+    () => normalizeCrossDatabaseSources(frameSchema?.def?.sources),
+    [frameSchema?.def?.sources]
+  );
+  const crossDatabase =
+    props.superstate.settings?.crossDatabaseSavedViews !== false &&
+    crossDatabaseSources.length > 1;
+  const crossDatabaseContexts = useMemo(
+    () => new Set(crossDatabaseSources.map((source) => source.context)),
+    [crossDatabaseSources]
+  );
+  const notifyCrossDatabaseReadOnly = () =>
+    props.superstate.ui.notify(
+      "Cross-database views are read-only. Edit the source database instead."
+    );
+
   const dbSchema: SpaceTableSchema = useMemo(() => {
+    if (crossDatabase) return { ...defaultContextDBSchema };
     if (frameSchema && frameSchema.def?.db) {
       if (schemaTable)
         return schemaTable?.rows.find(
@@ -456,7 +484,7 @@ export const ContextEditorProvider: React.FC<
       };
     }
     return null;
-  }, [frameSchema, schemaTable]);
+  }, [crossDatabase, frameSchema, schemaTable]);
   const views = useMemo(() => {
     const _views = frameSchemas.filter(
       (f) => f.type == "view" && f.def.db == dbSchema?.id
@@ -466,9 +494,16 @@ export const ContextEditorProvider: React.FC<
 
   const defaultSchema = defaultContextTable;
 
-  const contexts = useMemo(() => spaceCache?.contexts ?? [], [spaceCache]);
+  const contexts = useMemo(
+    () => (crossDatabase ? [] : (spaceCache?.contexts ?? [])),
+    [crossDatabase, spaceCache]
+  );
   const loadTables = async () => {
     let schemas: SpaceTableSchema[];
+
+    if (crossDatabase) {
+      schemas = [{ ...defaultContextDBSchema }];
+    } else {
 
     // SpaceManager handles MKit preview mode internally
     schemas = props.superstate.contextsIndex.get(contextPath)?.schemas;
@@ -479,6 +514,7 @@ export const ContextEditorProvider: React.FC<
       } catch (error) {
         schemas = [];
       }
+    }
     }
 
     if (schemas && !isEqual(schemaTable?.rows, schemas)) {
@@ -506,6 +542,23 @@ export const ContextEditorProvider: React.FC<
     });
   }, []);
   const retrieveCachedTable = (newSchema: SpaceTableSchema): Promise<void> => {
+    if (crossDatabase) {
+      return Promise.all(
+        crossDatabaseSources.map(async (source) => {
+          try {
+            const sourceTable = await spaceManager.readTable(
+              source.context,
+              source.db
+            );
+            return sourceTable ? { source, table: sourceTable } : null;
+          } catch (_error) {
+            return null;
+          }
+        })
+      ).then((loaded) => {
+        updateTable(assembleCrossDatabaseView(loaded.filter(Boolean) as any));
+      });
+    }
     // SpaceManager handles MKit data internally
     return spaceManager
       .readTable(contextPath, newSchema.id)
@@ -548,7 +601,10 @@ export const ContextEditorProvider: React.FC<
       flushReload.current();
     };
     const refreshMDB = (payload: { path: string }) => {
-      if (payload.path == contextPath) {
+      if (
+        payload.path == contextPath ||
+        (crossDatabase && crossDatabaseContexts.has(payload.path))
+      ) {
         scheduleReload("tables", () => loadTables());
       } else {
         const tag = Object.keys(contextTable).find(
@@ -558,7 +614,10 @@ export const ContextEditorProvider: React.FC<
       }
     };
     const refreshPath = (payload: { path: string }) => {
-      if (payload.path == contextPath) {
+      if (
+        payload.path == contextPath ||
+        (crossDatabase && crossDatabaseContexts.has(payload.path))
+      ) {
         scheduleReload("tables", () => loadTables());
       } else if (
         dbSchema?.primary == "true" &&
@@ -673,6 +732,7 @@ export const ContextEditorProvider: React.FC<
   );
   useEffect(() => {
     if (!tableData || !dbSchema) return;
+    if (crossDatabase) return;
     if (readMode || spaceInfo?.readOnly) return;
     const spaceState = props.superstate.spacesIndex.get(contextPath);
     if (!spaceState || spaceState.type == "tag") return;
@@ -735,6 +795,10 @@ export const ContextEditorProvider: React.FC<
   }, [tableData, dbSchema]);
 
   const saveDB = async (newTable: SpaceTable) => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return;
+    }
     if (spaceInfo.readOnly) return;
     updateTable(newTable);
     await props.superstate.spaceManager.saveTable(contextPath, newTable, true);
@@ -807,6 +871,7 @@ export const ContextEditorProvider: React.FC<
   }, [tableData]);
 
   const saveContextDB = async (newTable: SpaceTable, space: string) => {
+    if (crossDatabase) return;
     await spaceManager.saveTable(space, newTable, true).then((f) =>
       props.superstate.reloadContextByPath(space, {
         force: true,
@@ -1122,6 +1187,10 @@ export const ContextEditorProvider: React.FC<
   }, [subItemsNodes, filteredSortedData, predicate?.limit]);
 
   const updateRow = async (row: DBRow, index: number) => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return;
+    }
     const spaceState = props.superstate.spacesIndex.get(
       contextPath ?? spaceCache.path
     );
@@ -1199,6 +1268,18 @@ export const ContextEditorProvider: React.FC<
     writes: TableCellWrite[],
     options: { allOrNothing?: boolean } = {}
   ): Promise<TableEditTransactionResult> => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return {
+        ok: false,
+        applied: 0,
+        skipped: writes.map((write) => ({
+          write,
+          reason: "read-only-projection" as const,
+        })),
+        failed: [] as TableEditTransactionResult["failed"],
+      };
+    }
     // Serialize per-context value transactions and thread the latest root table
     // into the next, so two concurrent edits sharing one rendered snapshot do not
     // last-write-wins. bd Notidian-lg1.
@@ -1270,6 +1351,18 @@ export const ContextEditorProvider: React.FC<
     // An explicit authoritative reload supersedes any pending coalesced saveDB
     // read-back (Notidian-oxjk), so we never re-read the same context twice.
     flushSaveDBReload.current.cancel();
+    if (crossDatabase) {
+      await Promise.all(
+        crossDatabaseSources.map((source) =>
+          props.superstate.reloadContextByPath?.(source.context, {
+            force: true,
+            calculate: true,
+          })
+        )
+      );
+      if (dbSchema) await retrieveCachedTable(dbSchema);
+      return;
+    }
     if (props.superstate.reloadContextByPath) {
       await props.superstate.reloadContextByPath(contextPath, {
         force: true,
@@ -1303,6 +1396,12 @@ export const ContextEditorProvider: React.FC<
     ]);
   };
   const renameRowTitle = async (row: DBRow, value: string) => {
+    if (crossDatabase) {
+      props.superstate.ui.notify(
+        "Cross-database views are read-only. Rename the file in its source database."
+      );
+      return null;
+    }
     return renamePageTitleForRow({
       row,
       value,
@@ -1311,6 +1410,18 @@ export const ContextEditorProvider: React.FC<
     });
   };
   const applyTableEdits = async (writes: TablePasteWrite[]) => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return {
+        ok: false,
+        applied: 0,
+        skipped: writes.map((write) => ({
+          write,
+          reason: "read-only-projection" as const,
+        })),
+        failed: [] as TableEditTransactionResult["failed"],
+      };
+    }
     const fileWrites = writes.filter((write) => write.authority == "file");
     let valueWrites = writes.filter((write) => write.authority != "file");
     const results: TableEditTransactionResult[] = [];
@@ -1620,6 +1731,10 @@ export const ContextEditorProvider: React.FC<
     newKey: string,
     confirmRename?: (message: string) => boolean
   ): Promise<boolean> => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return false;
+    }
     if (spaceInfo?.readOnly) return false;
     if (!tableData || !isFrontmatterBackedProperty(column) || column.table) {
       return false;
@@ -1861,6 +1976,10 @@ export const ContextEditorProvider: React.FC<
     column: SpaceTableColumn,
     confirmDelete?: (message: string) => boolean
   ): Promise<boolean> => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return false;
+    }
     if (!isFrontmatterBackedProperty(column) || column.table != "") {
       props.superstate.ui.notify(
         "Only root frontmatter-backed columns can delete YAML keys."
@@ -1992,6 +2111,10 @@ export const ContextEditorProvider: React.FC<
   };
 
   const delColumn = (column: SpaceTableColumn) => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return;
+    }
     let mdbtable: SpaceTable;
     const table = column.table;
     if (table == "") {
@@ -2018,6 +2141,10 @@ export const ContextEditorProvider: React.FC<
     newColumn: SpaceTableColumn,
     oldColumn?: SpaceTableColumn
   ): boolean => {
+    if (crossDatabase) {
+      notifyCrossDatabaseReadOnly();
+      return false;
+    }
     let mdbtable: SpaceTable;
     const column = {
       ...newColumn,
@@ -2217,6 +2344,8 @@ export const ContextEditorProvider: React.FC<
     <ContextEditorContext.Provider
       value={{
         source: contextPath,
+        crossDatabase,
+        crossDatabaseSources,
         views,
         cols,
         saveDB,
