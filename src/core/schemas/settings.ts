@@ -157,6 +157,10 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // Owner-requested F1; retained as a kill-switch. OFF ignores def.sources and
   // restores the singular context/database read path byte-for-byte.
   crossDatabaseSavedViews: true,
+  // Default-ON period-scoped relation-rollup projection (Notidian-x7pn / ADR
+  // 0060). OFF ignores period scopes and skips provider-row materialization,
+  // restoring legacy cell-only rollup behavior.
+  periodScopedRollups: true,
   // Default-ON list-view per-item display-property picker (bd Notidian-543 /
   // ADR 0016) — an owner-requested ("very important") Notion-'Properties'
   // parity feature; the owner verifies it by USE. The flag is RETAINED as a

@@ -39,7 +39,8 @@ export const computeRowRollup = (
   relationValue: unknown,
   config: RollupConfig,
   sourcePath: string,
-  keyMatchConfig?: KeyMatchRelationConfig
+  keyMatchConfig?: KeyMatchRelationConfig,
+  now?: Date
 ): string => {
   const linkPaths = resolveLinkPaths(
     superstate,
@@ -53,7 +54,7 @@ export const computeRowRollup = (
     const resolved = keyMatchConfig ? target : resolveLink(target, sourcePath);
     return superstate.pathsIndex.get(resolved)?.metadata?.property ?? null;
   };
-  return computeFrontmatterRollup({ linkPaths, config, resolveFrontmatter });
+  return computeFrontmatterRollup({ linkPaths, config, resolveFrontmatter, now });
 };
 
 // Detailed variant (ADR 0029 D2): same resolution as computeRowRollup but also
@@ -65,7 +66,8 @@ export const computeRowRollupDetailed = (
   relationValue: unknown,
   config: RollupConfig,
   sourcePath: string,
-  keyMatchConfig?: KeyMatchRelationConfig
+  keyMatchConfig?: KeyMatchRelationConfig,
+  now?: Date
 ): { value: string; relationCount: number; resolvedCount: number } => {
   const linkPaths = resolveLinkPaths(
     superstate,
@@ -82,6 +84,7 @@ export const computeRowRollupDetailed = (
     linkPaths,
     config,
     resolveFrontmatter,
+    now,
   });
 };
 

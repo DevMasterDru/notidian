@@ -40,8 +40,16 @@ describe("computeRowBackRelation", () => {
       inlinks: ["Tasks/A.md", "Tasks/B.md", "Notes/Mention.md"],
       property: {},
     },
-    "Tasks/A.md": { property: { project: "[[Alpha]]", hours: 3 } },
-    "Tasks/B.md": { property: { project: "[[Projects/Alpha]]", hours: 5 } },
+    "Tasks/A.md": {
+      property: { project: "[[Alpha]]", hours: 3, done: "2026-01-01" },
+    },
+    "Tasks/B.md": {
+      property: {
+        project: "[[Projects/Alpha]]",
+        hours: 5,
+        done: "2025-12-31",
+      },
+    },
     "Notes/Mention.md": { property: { body: "see [[Projects/Alpha]]" } },
   });
 
@@ -73,6 +81,21 @@ describe("computeRowBackRelation", () => {
         field: "hours",
       })
     ).toBe("8");
+  });
+
+  it("scopes a reverse-relation count to the injected current local day", () => {
+    expect(
+      (computeRowBackRelation as any)(
+        superstate,
+        "Projects/Alpha.md",
+        {
+          relationProperty: "project",
+          fn: "count",
+          period: { field: "done", scope: "today" },
+        },
+        new Date(2026, 0, 1, 12)
+      )
+    ).toBe("1");
   });
 
   it("returns empty when nothing links back", () => {

@@ -341,3 +341,70 @@ describe("computeFrontmatterRollupDetailed percent rollups (Notidian-5ond.7)", (
     expect(run("percent_checked", "done", ["T/E", "T/Z"]).value).toBe("");
   });
 });
+
+describe("period-scoped relation rollups (Notidian-x7pn)", () => {
+  const frontmatter: Record<string, Record<string, unknown>> = {
+    today: { done: "2026-01-01" },
+    yesterday: { done: "2025-12-31" },
+    malformed: { done: "not-a-date" },
+    missing: {},
+    monday: { done: "2025-12-29" },
+    sunday: { done: "2026-01-04" },
+    nextMonday: { done: "2026-01-05" },
+  };
+  const resolveFrontmatter = (path: string) => frontmatter[path] ?? null;
+
+  it("counts only rows on the injected current local day", () => {
+    const result = (computeFrontmatterRollupDetailed as any)({
+      linkPaths: ["today", "yesterday", "malformed", "missing"],
+      config: {
+        relationProperty: "routine",
+        targetProperty: "",
+        fn: "count",
+        period: { field: "done", scope: "today" },
+      },
+      resolveFrontmatter,
+      now: new Date(2026, 0, 1, 18, 30),
+    });
+
+    expect(result).toEqual({
+      value: "1",
+      relationCount: 1,
+      resolvedCount: 1,
+    });
+  });
+
+  it("uses an ISO Monday-start week across the year boundary", () => {
+    const result = (computeFrontmatterRollupDetailed as any)({
+      linkPaths: ["monday", "sunday", "nextMonday"],
+      config: {
+        relationProperty: "routine",
+        targetProperty: "",
+        fn: "count",
+        period: { field: "done", scope: "iso-week" },
+      },
+      resolveFrontmatter,
+      now: new Date(2026, 0, 4, 12),
+    });
+
+    expect(result.value).toBe("2");
+    expect(result.relationCount).toBe(2);
+  });
+
+  it("returns the earliest and latest valid stored date values", () => {
+    const links = ["today", "yesterday", "malformed", "missing"];
+    const run = (fn: "earliest" | "latest") =>
+      computeFrontmatterRollup({
+        linkPaths: links,
+        config: {
+          relationProperty: "routine",
+          targetProperty: "done",
+          fn,
+        },
+        resolveFrontmatter,
+      });
+
+    expect(run("earliest")).toBe("2025-12-31");
+    expect(run("latest")).toBe("2026-01-01");
+  });
+});

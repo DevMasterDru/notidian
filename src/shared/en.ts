@@ -1217,6 +1217,10 @@ export const en = {
       "name": "Cross-Database Saved Views",
       "desc": "Let a saved Notidian view combine rows from multiple folder databases through shared-field mappings. F1 projections are read-only; edit each canonical source database. Turn off to ignore source sets and use the legacy single-database view path."
     },
+    "periodScopedRollups": {
+      "name": "Period-Scoped Rollups",
+      "desc": "Let relation rollups count or aggregate only rows from today or the current ISO week, and expose their live values to native filters and sort. Computed values are never stored. Turn off for legacy unscoped, cell-only rollups."
+    },
     "noteThumbnails": {
       "name": "Note Thumbnails",
       "desc": "Create thumbnails for notes"

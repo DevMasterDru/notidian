@@ -1,4 +1,5 @@
 import { parseFieldValue } from "core/schemas/parseFieldValue";
+import { comparisonTypeForComputedRelationColumn } from "core/utils/contexts/rollupConfig";
 import i18n from "shared/i18n";
 import { PathPropertyName } from "shared/types/context";
 import { DBTable, DBTables, SpaceProperty, SpaceTable, SpaceTableSchema } from "shared/types/mdb";
@@ -25,7 +26,9 @@ export type FieldType = {
 
 export const fieldTypeForField = (f: SpaceProperty) => {
   if (!f) return null;
-  return f.type == 'fileprop' ? parseFieldValue(f.value, 'fileprop')?.type ?? 'text' : f.type
+  return f.type == 'fileprop'
+    ? parseFieldValue(f.value, 'fileprop')?.type ?? 'text'
+    : comparisonTypeForComputedRelationColumn(f) ?? f.type
 };
 
 export const stickerForField = (f: SpaceProperty) => f.attrs?.length > 0
@@ -180,7 +183,7 @@ export const fieldTypes: FieldType[] = [
     label: "Rollup",
     icon: 'ui//aggregate',
     multi: false,
-    configKeys: ['ref', 'field', 'fn', 'keyMatch'],
+    configKeys: ['ref', 'field', 'fn', 'keyMatch', 'period'],
     flex: true,
     description: "Aggregate a property across the rows a relation links to"
   },
@@ -191,7 +194,7 @@ export const fieldTypes: FieldType[] = [
     label: "Linked from",
     icon: 'ui//links-coming-in',
     multi: false,
-    configKeys: ['ref', 'fn', 'field'],
+    configKeys: ['ref', 'fn', 'field', 'period'],
     flex: true,
     description: "Show or aggregate the rows that link to this row via a relation"
   },

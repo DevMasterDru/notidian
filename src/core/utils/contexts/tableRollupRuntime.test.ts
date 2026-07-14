@@ -31,8 +31,8 @@ const makeSuperstate = (fm: Record<string, Record<string, any>>) => {
 
 describe("computeRowRollup", () => {
   const superstate = makeSuperstate({
-    "Tasks/A": { hours: 3 },
-    "Tasks/B": { hours: 5 },
+    "Tasks/A": { hours: 3, done: "2026-01-01" },
+    "Tasks/B": { hours: 5, done: "2025-12-31" },
   });
 
   it("resolves linked paths from frontmatter and aggregates the target", () => {
@@ -66,6 +66,24 @@ describe("computeRowRollup", () => {
         "Projects/X"
       )
     ).toBe("0");
+  });
+
+  it("threads an injected clock through a period-scoped forward rollup", () => {
+    expect(
+      (computeRowRollup as any)(
+        superstate,
+        "[[Tasks/A]], [[Tasks/B]]",
+        {
+          relationProperty: "tasks",
+          targetProperty: "",
+          fn: "count",
+          period: { field: "done", scope: "today" },
+        },
+        "Projects/X",
+        undefined,
+        new Date(2026, 0, 1, 12)
+      )
+    ).toBe("1");
   });
 
   // Regression for Notidian-e1u: production pathsIndex keys carry the ".md"

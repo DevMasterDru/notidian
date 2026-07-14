@@ -181,6 +181,11 @@ export interface MakeMDSettings {
   // false is the kill-switch and restores the singular def.context/def.db read
   // path without interpreting def.sources.
   crossDatabaseSavedViews: boolean;
+  // F2 period-scoped relation rollups (Notidian-x7pn / ADR 0060). When true,
+  // rollup/backlink period scopes materialize only on ephemeral render rows so
+  // native filters and sort can consume them. False ignores period scopes and
+  // restores the legacy cell-only, unscoped computation path.
+  periodScopedRollups: boolean;
   // List view per-item display-property picker (Notion "Properties" parity) —
   // bd Notidian-543 / ADR 0016. When true, the list kit's per-item field set
   // (`fieldsView`, fed by the `_properties` context array) is filtered to the

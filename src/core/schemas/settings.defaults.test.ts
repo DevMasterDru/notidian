@@ -126,6 +126,7 @@ const REQUIRED_SETTING_KEYS = {
   hardenFrameExecution: true,
   renderPathViewOverlays: true,
   crossDatabaseSavedViews: true,
+  periodScopedRollups: true,
   listItemPropertyPicker: true,
   rowVirtualization: true,
   subItemsSetup: true,
@@ -176,6 +177,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "hardenFrameExecution", // Notidian-vke / ADR 0018
   "renderPathViewOverlays", // Notidian-ioxi / ADR-0066 (owner-requested default-ON)
   "crossDatabaseSavedViews", // Notidian-42tx / ADR 0059 (owner-requested default-ON)
+  "periodScopedRollups", // Notidian-x7pn / ADR 0060 (owner-requested default-ON)
   "viewSettingsInlineBar", // Notidian-vrmf
   "listItemPropertyPicker", // Notidian-543 / ADR 0016
   "subItemsSetup", // Notidian-xqxc
@@ -222,6 +224,10 @@ describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {
       .filter(([, v]) => v === undefined)
       .map(([k]) => k);
     expect(undefinedValued).toEqual([]);
+  });
+
+  test("period-scoped rollups ship default-on behind an honest kill switch", () => {
+    expect((DEFAULT_SETTINGS as any).periodScopedRollups).toBe(true);
   });
 
   describe("documented kill-switches are pinned LOUD (default-ON booleans)", () => {

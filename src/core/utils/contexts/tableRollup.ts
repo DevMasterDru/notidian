@@ -1,4 +1,9 @@
 import { uniq } from "shared/utils/array";
+import {
+  isValueInRollupPeriod,
+  rollupDateValueMillis,
+  RollupPeriodConfig,
+} from "core/utils/contexts/rollupPeriod";
 
 // Frontmatter-link rollups (Notidian-9ln): aggregate a property across the rows
 // a relation property links to. Read-only and frontmatter-canonical — the
@@ -9,7 +14,8 @@ import { uniq } from "shared/utils/array";
 export type RollupConfig = {
   relationProperty: string; // the relation column whose links to follow
   targetProperty: string; // the property to read from each linked row
-  fn: string; // count | count_values | values | unique | sum | avg | min | max
+  fn: string; // count | count_values | values | unique | sum | avg | min | max | earliest | latest
+  period?: RollupPeriodConfig;
 };
 
 // Resolve a linked row's frontmatter. Prod: (path) =>
@@ -82,8 +88,20 @@ export const computeFrontmatterRollupDetailed = (params: {
   linkPaths: string[];
   config: RollupConfig;
   resolveFrontmatter: FrontmatterResolver;
+  now?: Date;
 }): { value: string; relationCount: number; resolvedCount: number } => {
-  const { linkPaths, config, resolveFrontmatter } = params;
+  const { config, resolveFrontmatter } = params;
+  const linkPaths = config.period
+    ? params.linkPaths.filter((path) => {
+        const frontmatter = resolveFrontmatter(path);
+        return !!frontmatter &&
+          isValueInRollupPeriod(
+            frontmatter[config.period.field],
+            config.period,
+            params.now
+          );
+      })
+    : params.linkPaths;
   const relationCount = linkPaths.length;
 
   // Count of relations is independent of whether each link resolves.
@@ -100,6 +118,7 @@ export const computeFrontmatterRollupDetailed = (params: {
     config.fn == "avg" ||
     config.fn == "min" ||
     config.fn == "max";
+  const dateFn = config.fn == "earliest" || config.fn == "latest";
   const isUsable = (value: unknown) =>
     !(value == null || String(value).trim().length == 0);
 
@@ -150,11 +169,20 @@ export const computeFrontmatterRollupDetailed = (params: {
       perLink.push(value);
     }
     if (perLink.length == 0) continue;
-    for (const v of perLink) rawValues.push(v);
     // Numeric fns need at least one finite number to have "counted" this link.
     if (numericFn) {
+      for (const value of perLink) rawValues.push(value);
       if (perLink.some((v) => !Number.isNaN(toNumber(v)))) resolvedCount++;
+    } else if (dateFn) {
+      const validDates = perLink.filter((v) =>
+        Number.isFinite(rollupDateValueMillis(v))
+      );
+      if (validDates.length > 0) {
+        resolvedCount++;
+        for (const value of validDates) rawValues.push(value);
+      }
     } else {
+      for (const value of perLink) rawValues.push(value);
       resolvedCount++;
     }
   }
@@ -189,6 +217,20 @@ export const computeFrontmatterRollupDetailed = (params: {
           value = "";
       }
     }
+  } else if (dateFn) {
+    const winner = rawValues.reduce<unknown | undefined>((selected, candidate) => {
+      if (selected === undefined) return candidate;
+      const selectedMillis = rollupDateValueMillis(selected);
+      const candidateMillis = rollupDateValueMillis(candidate);
+      return config.fn == "earliest"
+        ? candidateMillis < selectedMillis
+          ? candidate
+          : selected
+        : candidateMillis > selectedMillis
+        ? candidate
+        : selected;
+    }, undefined);
+    value = winner === undefined ? "" : String(winner);
   } else {
     // Unknown fn -> "" (matches the legacy default branch).
     value = "";
@@ -201,4 +243,5 @@ export const computeFrontmatterRollup = (params: {
   linkPaths: string[];
   config: RollupConfig;
   resolveFrontmatter: FrontmatterResolver;
+  now?: Date;
 }): string => computeFrontmatterRollupDetailed(params).value;

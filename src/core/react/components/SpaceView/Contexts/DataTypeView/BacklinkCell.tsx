@@ -23,11 +23,20 @@ export const BacklinkCell = (
     if (!config.ref) return "";
     const targetPath = props.row?.[PathPropertyName] ?? props.contextPath;
     if (!targetPath) return "";
+    const periodScopedRollups =
+      props.superstate.settings?.periodScopedRollups !== false
+        ? config.period
+        : undefined;
     return computeRowBackRelation(props.superstate, targetPath, {
       relationProperty: config.ref,
       fn: config.fn ?? "list",
       field: config.field,
+      period: periodScopedRollups,
     });
-  }, [props.propertyValue, props.row]);
+  }, [
+    props.propertyValue,
+    props.row,
+    props.superstate.settings?.periodScopedRollups,
+  ]);
   return <div className="mk-cell-rollup">{value}</div>;
 };

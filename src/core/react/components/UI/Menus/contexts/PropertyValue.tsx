@@ -15,6 +15,7 @@ import { EditOptionsModal } from "../../Modals/EditOptionsModal";
 import StickerModal from "shared/components/StickerModal";
 import { showFilterSelectorMenu } from "../properties/filterSelectorMenu";
 import { nameForField } from "core/utils/frames/frames";
+import { updateComputedRelationPeriod } from "core/utils/contexts/rollupConfig";
 
 export const PropertyValueComponent = (props: {
   superstate: Superstate;
@@ -500,14 +501,67 @@ export const PropertyValueComponent = (props: {
   };
   const selectRollupFn = (e: React.MouseEvent) => {
     const options: SelectOption[] = [
-      ...["count", "count_values", "values", "sum", "avg", "min", "max"].map(
-        (f) => ({ name: f, value: f })
-      ),
+      ...[
+        "count",
+        "count_values",
+        "values",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "earliest",
+        "latest",
+      ].map((f) => ({ name: f, value: f })),
       // Progress rollups (Notidian-5ond.7): render as a bar.
       { name: "percent (not empty)", value: "percent" },
       { name: "percent checked", value: "percent_checked" },
     ];
     showOptions(e, parsedValue.fn, options, "fn");
+  };
+
+  const selectComputedRelationPeriod = (e: React.MouseEvent) => {
+    showOptions(
+      e,
+      parsedValue.period?.scope ?? "",
+      [
+        { name: "Any time", value: "" },
+        { name: "Today (local)", value: "today" },
+        { name: "This ISO week (Monday start)", value: "iso-week" },
+      ],
+      "_periodScope",
+      (scope: "" | "today" | "iso-week") =>
+        props.saveValue(
+          JSON.stringify(
+            updateComputedRelationPeriod(
+              parsedValue,
+              scope,
+              parsedValue.period?.field ?? ""
+            )
+          )
+        )
+    );
+  };
+
+  const editComputedRelationPeriodField = (e: React.MouseEvent) => {
+    props.superstate.ui.openModal(
+      "Period date property",
+      <InputModal
+        value={parsedValue.period?.field ?? ""}
+        saveLabel={"Save"}
+        saveValue={(field) =>
+          props.saveValue(
+            JSON.stringify(
+              updateComputedRelationPeriod(
+                parsedValue,
+                parsedValue.period?.scope ?? "today",
+                field
+              )
+            )
+          )
+        }
+      />,
+      windowFromDocument(e.view.document)
+    );
   };
 
   // Back-relation config (Notidian-ahk): ref = the relation property NAME on the
@@ -535,6 +589,8 @@ export const PropertyValueComponent = (props: {
         "avg",
         "min",
         "max",
+        "earliest",
+        "latest",
       ].map((f) => ({ name: f, value: f })),
       // Progress rollups (Notidian-5ond.7): render as a bar.
       { name: "percent (not empty)", value: "percent" },
@@ -846,10 +902,41 @@ export const PropertyValueComponent = (props: {
         parsedValue.fn &&
         parsedValue.fn != "list" &&
         parsedValue.fn != "count" && (
-          <div className="mk-menu-option" onClick={(e) => selectRollupProperty(e)}>
+          <div
+            className="mk-menu-option"
+            onClick={(e) => selectRollupProperty(e)}
+          >
             <span>{"Property"}</span>
             <span>{parsedValue.field ?? i18n.labels.select}</span>
           </div>
+        )}
+      {props.superstate.settings?.periodScopedRollups !== false &&
+        parsedValue.ref?.length > 0 &&
+        (parsedValue.fn ?? "list") != "list" && (
+          <>
+            <div
+              className="mk-menu-option"
+              onClick={(e) => selectComputedRelationPeriod(e)}
+            >
+              <span>{"Period"}</span>
+              <span>
+                {parsedValue.period?.scope == "today"
+                  ? "Today"
+                  : parsedValue.period?.scope == "iso-week"
+                  ? "This ISO week"
+                  : "Any time"}
+              </span>
+            </div>
+            {parsedValue.period?.scope && (
+              <div
+                className="mk-menu-option"
+                onClick={(e) => editComputedRelationPeriodField(e)}
+              >
+                <span>{"Period date property"}</span>
+                <span>{parsedValue.period.field || i18n.labels.select}</span>
+              </div>
+            )}
+          </>
         )}
     </>
   ) : props.fieldType?.startsWith("rollup") ? (
@@ -903,10 +990,44 @@ export const PropertyValueComponent = (props: {
         : parsedValue.ref?.length > 0) &&
         parsedValue.fn &&
         parsedValue.fn != "count" && (
-          <div className="mk-menu-option" onClick={(e) => selectRollupProperty(e)}>
+          <div
+            className="mk-menu-option"
+            onClick={(e) => selectRollupProperty(e)}
+          >
             <span>{"Property"}</span>
             <span>{parsedValue.field ?? i18n.labels.select}</span>
           </div>
+        )}
+      {props.superstate.settings?.periodScopedRollups !== false &&
+        (isKeyMatchMode
+          ? parsedValue.keyMatch?.sourceField?.length > 0 &&
+            parsedValue.keyMatch?.targetFolder?.length > 0 &&
+            parsedValue.keyMatch?.targetField?.length > 0
+          : parsedValue.ref?.length > 0) && (
+          <>
+            <div
+              className="mk-menu-option"
+              onClick={(e) => selectComputedRelationPeriod(e)}
+            >
+              <span>{"Period"}</span>
+              <span>
+                {parsedValue.period?.scope == "today"
+                  ? "Today"
+                  : parsedValue.period?.scope == "iso-week"
+                  ? "This ISO week"
+                  : "Any time"}
+              </span>
+            </div>
+            {parsedValue.period?.scope && (
+              <div
+                className="mk-menu-option"
+                onClick={(e) => editComputedRelationPeriodField(e)}
+              >
+                <span>{"Period date property"}</span>
+                <span>{parsedValue.period.field || i18n.labels.select}</span>
+              </div>
+            )}
+          </>
         )}
     </>
   ) : props.fieldType == "fileprop" ? (

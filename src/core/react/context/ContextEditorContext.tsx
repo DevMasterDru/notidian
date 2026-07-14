@@ -50,6 +50,8 @@ import {
   assembleCrossDatabaseView,
   normalizeCrossDatabaseSources,
 } from "core/utils/contexts/crossDatabaseView";
+import { materializeComputedRelationColumns } from "core/utils/contexts/computedRelationColumns";
+import { millisecondsUntilNextLocalDay } from "core/utils/contexts/rollupPeriod";
 import { makeRowMatchesFilters } from "core/utils/contexts/predicate/rowMatchesFilters";
 import { resolveOverlayFilters } from "core/utils/contexts/predicate/overlayFilters";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
@@ -437,6 +439,10 @@ export const ContextEditorProvider: React.FC<
   const [schemaTable, setSchemaTable] = useState<DBTable>(null);
   const [contextTable, setContextTable] = useState<SpaceTables>({});
   const [tableData, setTableData] = useState<SpaceTable>(null);
+  const [computedRelationEpoch, setComputedRelationEpoch] = useState(0);
+  const refreshComputedRelations = useRef(
+    _.debounce(() => setComputedRelationEpoch((value) => value + 1), 50)
+  );
 
   const [searchString, setSearchString] = useState<string>(null);
   const [searchActive, setSearchActive] = useState<boolean>(false);
@@ -466,6 +472,21 @@ export const ContextEditorProvider: React.FC<
     () => new Set(crossDatabaseSources.map((source) => source.context)),
     [crossDatabaseSources]
   );
+  const hasComputedRelationColumns =
+    props.superstate.settings?.periodScopedRollups !== false &&
+    (tableData?.cols ?? []).some(
+      (column) => column?.type == "rollup" || column?.type == "backlink"
+    );
+
+  useEffect(() => {
+    if (!hasComputedRelationColumns) return;
+    const timeout = window.setTimeout(
+      () => setComputedRelationEpoch((value) => value + 1),
+      millisecondsUntilNextLocalDay()
+    );
+    return () => window.clearTimeout(timeout);
+  }, [hasComputedRelationColumns, computedRelationEpoch, contextPath]);
+
   const notifyCrossDatabaseReadOnly = () =>
     props.superstate.ui.notify(
       "Cross-database views are read-only. Edit the source database instead."
@@ -614,6 +635,7 @@ export const ContextEditorProvider: React.FC<
       }
     };
     const refreshPath = (payload: { path: string }) => {
+      if (hasComputedRelationColumns) refreshComputedRelations.current();
       if (
         payload.path == contextPath ||
         (crossDatabase && crossDatabaseContexts.has(payload.path))
@@ -656,7 +678,14 @@ export const ContextEditorProvider: React.FC<
         refreshPath
       );
     };
-  }, [contextTable, dbSchema, retrieveCachedTable, spaceInfo, tableData]);
+  }, [
+    contextTable,
+    dbSchema,
+    retrieveCachedTable,
+    spaceInfo,
+    tableData,
+    hasComputedRelationColumns,
+  ]);
 
   useEffect(() => {
     loadTables();
@@ -727,6 +756,7 @@ export const ContextEditorProvider: React.FC<
       flushReload.current.cancel();
       pendingReloadRef.current = null;
       flushSaveDBReload.current.cancel();
+      refreshComputedRelations.current.cancel();
     },
     [contextPath, dbSchema?.id]
   );
@@ -859,8 +889,24 @@ export const ContextEditorProvider: React.FC<
         }, {}),
       })) ?? [];
 
-    return computedData;
-  }, [tableData, contextTable, cols, dbSchema, pathState]);
+    if (props.superstate.settings?.periodScopedRollups === false)
+      return computedData;
+    return materializeComputedRelationColumns({
+      rows: computedData,
+      columns: tableData?.cols ?? [],
+      superstate: props.superstate,
+      contextPath,
+    });
+  }, [
+    tableData,
+    contextTable,
+    cols,
+    dbSchema,
+    pathState,
+    contextPath,
+    computedRelationEpoch,
+    props.superstate.settings?.periodScopedRollups,
+  ]);
 
   useEffect(() => {
     if (tableData) {

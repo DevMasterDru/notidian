@@ -49,6 +49,11 @@ of scope (ADR 0014).
   filters/sort/group/layouts/embeds/export and the native view switcher operate
   on the live union. F1 is read-only to preserve each source frontmatter key as
   the sole owner ([ADR 0059](adr/0059-cross-database-saved-views.md)).
+- **Period-scoped relation rollups**: forward Rollup and reverse Linked From
+  columns can aggregate related rows from local Today or the current ISO
+  Monday-start week; the live result works in native filters and sort without
+  storing counters or latest dates ([ADR
+  0060](adr/0060-period-scoped-relation-rollups.md)).
 - **In-flight (Data Integrity Program, `Notidian-loan`)**: Type Profile v3
   schema registry (enum-as-law, required/unique/pattern, declared references,
   derived fields), a pure validation core, and a read-only reconciler/health

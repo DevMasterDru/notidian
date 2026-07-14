@@ -370,6 +370,26 @@ cannot create a second frontmatter key when a source uses a different property
 name. `crossDatabaseSavedViews` is default on with an Advanced-settings kill
 switch; off ignores the source set and restores the singular view path.
 
+### Period-Scoped Relation Rollups
+
+Rollup and Linked From columns can optionally scope related rows to **Today**
+(local calendar date) or **This ISO week** (Monday start) before calculating the
+aggregate ([ADR 0060](adr/0060-period-scoped-relation-rollups.md)). The computed
+value is projected onto the in-memory render row before Notidian applies native
+filters and sort. It is never written to row frontmatter or the context MDB.
+
+For the Atlas Routine Log contract, add a **Linked From** column to Routines,
+set **Relation property** to `routine`, **Show** to `count`, **Period** to `This
+ISO week`, and **Period date property** to `done`. The result is the live weekly
+completion count for each routine. A second Linked From column with **Show** =
+`latest`, **Property** = `done`, and **Period** = `Any time` exposes the last
+completion date without creating a `last_done` field.
+
+Malformed or absent period dates do not enter the scoped set. The
+`periodScopedRollups` Advanced setting is default on with a kill switch; off
+ignores period scopes and skips provider materialization, leaving legacy
+unscoped cell rollups.
+
 ## Guarantees
 
 Notidian currently guarantees the following for implemented edit paths:

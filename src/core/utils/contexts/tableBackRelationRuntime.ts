@@ -2,6 +2,7 @@ import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import { makeRelationLinkResolver } from "core/utils/contexts/relationResolver";
 import { filterBackRelations } from "core/utils/contexts/tableBackRelations";
 import { computeFrontmatterRollup } from "core/utils/contexts/tableRollup";
+import { RollupPeriodConfig } from "core/utils/contexts/rollupPeriod";
 import { Superstate } from "makemd-core";
 
 // Runtime bridge for back-relations (Notidian-ahk). For a target row, find the
@@ -12,14 +13,16 @@ import { Superstate } from "makemd-core";
 
 export type BackRelationConfig = {
   relationProperty: string; // the forward-relation property on the linking rows
-  fn?: string; // list (default) | count | count_values | values | unique | sum | avg | min | max
+  fn?: string; // list (default) | count | count_values | values | unique | sum | avg | min | max | earliest | latest
   field?: string; // target property for value/numeric aggregates
+  period?: RollupPeriodConfig;
 };
 
 export const computeRowBackRelation = (
   superstate: Superstate,
   targetPath: string,
-  config: BackRelationConfig
+  config: BackRelationConfig,
+  now?: Date
 ): string => {
   if (!config?.relationProperty || !targetPath) return "";
 
@@ -55,8 +58,10 @@ export const computeRowBackRelation = (
       relationProperty: config.relationProperty,
       targetProperty: config.field ?? "",
       fn,
+      period: config.period,
     },
     resolveFrontmatter: (path) =>
       superstate.pathsIndex.get(path)?.metadata?.property ?? null,
+    now,
   });
 };

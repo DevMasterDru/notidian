@@ -401,6 +401,13 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // Notidian-x7pn / ADR 0060 — owner-requested F2 render projection.
+        // False ignores period scopes and restores legacy cell-only rollups.
+        name: 'periodScopedRollups',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         name: 'spaceSubFolder',
         category: 'advanced',
         type: 'text',

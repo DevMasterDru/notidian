@@ -30,6 +30,10 @@ export const RollupCell = (
     if (config.fn != "count" && !config.field) return null;
     const sourcePath = props.row?.[PathPropertyName] ?? props.contextPath;
     const fn = config.fn ?? "count";
+    const periodScopedRollups =
+      props.superstate.settings?.periodScopedRollups !== false
+        ? config.period
+        : undefined;
 
     // For key-match, the relation value is the source row's sourceField value.
     // For wikilink, it's the relation column's value.
@@ -46,12 +50,17 @@ export const RollupCell = (
           relationProperty: useKeyMatch ? config.keyMatch.sourceField : config.ref,
           targetProperty: config.field,
           fn,
+          period: periodScopedRollups,
         },
         sourcePath,
         useKeyMatch ? config.keyMatch : undefined
       ),
     };
-  }, [props.propertyValue, props.row]);
+  }, [
+    props.propertyValue,
+    props.row,
+    props.superstate.settings?.periodScopedRollups,
+  ]);
 
   if (!rollup) return <div className="mk-cell-rollup"></div>;
 
