@@ -15,6 +15,10 @@ pointers:
     key: Atlas Method ADR 0066
     resolver: read docs/decisions/0066-topic-hub-notidian-hub-standard.md in the Atlas Method repo
     why: owner-ratified Topic Hub contract
+  - type: repo-decision
+    key: Notidian ADR 0062
+    resolver: read docs/adr/0062-topic-hub-declared-views-and-calendar-offsets.md
+    why: accepted declaration, composition, failure, and calendar-offset contract
   - type: code-symbol
     key: src/core/utils/embeds/notidianEmbed.ts
     resolver: inspect the live parser and descriptor types
@@ -47,8 +51,8 @@ that remains behind the Data Integrity Wave 3 write firewall.
   `renderPathViewOverlays` kill-switch — `docs/current-state.md`.
 - Schema-aware sort and column restrictions require target-schema resolution; the
   pure descriptor parser cannot safely infer them — bead `Notidian-lhiq`.
-- Owner-value choices remain judgment gates, not implementation assumptions — repo
-  `AGENTS.md` ratify-before-record rule.
+- The declaration, composition, failure, and calendar-offset contracts are owner-ratified
+  in Notidian ADR 0062; implementation sessions consume that record without reopening it.
 
 ## Ruled out
 
