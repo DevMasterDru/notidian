@@ -13,7 +13,7 @@ pointers:
     why: current shipped embed and read-only overlay behavior
   - type: external-decision
     key: Atlas Method ADR 0066
-    resolver: read docs/decisions/0066-topic-hub-standard.md in the Atlas Method repo
+    resolver: read docs/decisions/0066-topic-hub-notidian-hub-standard.md in the Atlas Method repo
     why: owner-ratified Topic Hub contract
   - type: code-symbol
     key: src/core/utils/embeds/notidianEmbed.ts
