@@ -44,12 +44,16 @@ export class Indexer {
   reloadSet: Set<string>;
   callbacks: Map<string, [FileCallback, FileCallback][]>;
   private draining: boolean;
+  private activeJobs: Set<string>;
+  private trailingJobs: Map<string, WorkerJobType>;
 
   public constructor(public numWorkers: number, public cache: Superstate) {
     this.reloadQueue = [];
     this.reloadSet = new Set();
     this.callbacks = new Map();
     this.draining = false;
+    this.activeJobs = new Set();
+    this.trailingJobs = new Map();
   }
 
   public reload<T>(jerb: WorkerJobType): Promise<T> {
@@ -59,7 +63,13 @@ export class Indexer {
       else this.callbacks.set(jobKey, [[resolve, reject]]);
     });
 
-    if (this.reloadSet.has(jobKey)) return promise;
+    if (this.reloadSet.has(jobKey)) {
+      // A queued job can absorb duplicate requests because it has not read its
+      // source yet. An active job already owns a snapshot, so retain the latest
+      // request as one trailing reload instead of resolving it with stale data.
+      if (this.activeJobs.has(jobKey)) this.trailingJobs.set(jobKey, jerb);
+      return promise;
+    }
     this.reloadSet.add(jobKey);
     this.reloadQueue.push(jerb);
     this.drain();
@@ -80,13 +90,32 @@ export class Indexer {
   }
 
   private async processJob(job: WorkerJobType) {
+    const jobKey = stringifyJob(job);
+    // Freeze the callback generation before execute() starts reading. Reloads
+    // arriving during that read collect in a new callback batch for the
+    // trailing job.
+    const calls = ([] as [FileCallback, FileCallback][]).concat(
+      this.callbacks.get(jobKey) ?? []
+    );
+    this.callbacks.delete(jobKey);
+    this.activeJobs.add(jobKey);
+
     let data: any;
     try {
       data = await this.execute(job);
     } catch (error) {
       data = { $error: `Failed to index ${job.type} ${job.path}: ${error}` };
     }
-    this.finish(job, data);
+    this.finish(calls, data);
+    this.activeJobs.delete(jobKey);
+
+    const trailingJob = this.trailingJobs.get(jobKey);
+    if (trailingJob) {
+      this.trailingJobs.delete(jobKey);
+      this.reloadQueue.push(trailingJob);
+    } else {
+      this.reloadSet.delete(jobKey);
+    }
   }
 
   private async execute(job: WorkerJobType): Promise<any> {
@@ -243,14 +272,7 @@ export class Indexer {
     };
   }
 
-  private finish(jerb: WorkerJobType, data: any) {
-    const jobKey = stringifyJob(jerb);
-    const calls = ([] as [FileCallback, FileCallback][]).concat(
-      this.callbacks.get(jobKey) ?? []
-    );
-    this.reloadSet.delete(jobKey);
-    this.callbacks.delete(jobKey);
-
+  private finish(calls: [FileCallback, FileCallback][], data: any) {
     if (data && typeof data === "object" && "$error" in data) {
       for (const [_, reject] of calls) reject(data["$error"]);
     } else {
