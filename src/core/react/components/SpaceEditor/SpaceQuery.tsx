@@ -5,6 +5,10 @@ import {
 import { filterFnLabels } from "core/utils/contexts/predicate/filterFns/filterFnLabels";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
 import {
+  isRecurrenceFilterFn,
+  recurrenceFilterFnsForFieldName,
+} from "core/utils/contexts/recurrenceOccurrence";
+import {
   allPredicateFns,
   predicateFnsForType,
 } from "core/utils/contexts/predicate/predicate";
@@ -403,11 +407,24 @@ export const SpaceQuery = (
     // Anchor to the bound filter-fn control (currentTarget), not the clicked child
     // (Notidian-3txp). Synchronous read keeps currentTarget valid.
     const offset = e.currentTarget.getBoundingClientRect();
-    const { type, field, fType } = filters[i].filters[k];
-    const _filters =
+    const { field, fType } = filters[i].filters[k];
+    const selectedField = props.fields.find(
+      (candidate) => candidate.field == field
+    );
+    const genericFilters = (
       fType == "any"
         ? allPredicateFns(filterFnTypes)
-        : predicateFnsForType(fType, filterFnTypes);
+        : predicateFnsForType(fType, filterFnTypes)
+    ).filter((fn) => !isRecurrenceFilterFn(fn));
+    const _filters = [
+      ...genericFilters,
+      ...(selectedField?.vType == "option" &&
+        props.superstate.settings?.recurrenceAwareFilters !== false
+        ? recurrenceFilterFnsForFieldName(
+            selectedField?.field ?? selectedField?.label ?? field
+          )
+        : []),
+    ].filter((value, position, values) => values.indexOf(value) == position);
     props.superstate.ui.openMenu(
       offset,
       {

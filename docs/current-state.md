@@ -390,6 +390,34 @@ Malformed or absent period dates do not enter the scoped set. The
 ignores period scopes and skips provider materialization, leaving legacy
 unscoped cell rollups.
 
+### Recurrence-Aware Occurrence Filters
+
+Native saved-view filters expose **Occurs today** and **Occurs this ISO week**
+for ordinary select properties named `cadence` or `recurrence` ([ADR
+0061](adr/0061-recurrence-aware-occurs-on-filters.md)). Evaluation reads the
+selected schedule cell plus the row's `days` and `times_per_week` frontmatter at
+render time. It never creates occurrence rows or writes a computed flag.
+
+Today follows the local calendar: daily always matches, weekdays match Monday
+through Friday, and weekly/custom schedules match only a selected current day.
+The ISO-week operator includes daily/weekday schedules, weekly schedules, and
+custom schedules with a valid selected day or positive finite weekly target.
+A frequency-only N-of-M schedule is in the week but is never declared due
+today. Monthly, unknown, and incomplete schedules fail closed because the
+compact schema does not identify a month day.
+
+For a day-assigned Routine, combine **Occurs today** with F2's Today completion
+count to express due-but-not-done. For a frequency-only `times_per_week`
+Routine, compare the F2 ISO-week completion count with the weekly target
+instead; no Today due state is invented. Events can use the same engine after a
+later schema rollout adds ordinary `recurrence` and `days` properties. F3 does
+not modify the Atlas Vault schema.
+
+An open occurrence-filtered view recomputes at the next local-day boundary.
+`recurrenceAwareFilters` is default on with an Advanced-settings kill switch;
+off hides the operators and ignores stored occurrence predicates fail-open so
+they cannot make rows disappear.
+
 ## Guarantees
 
 Notidian currently guarantees the following for implemented edit paths:

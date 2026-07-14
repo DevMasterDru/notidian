@@ -1,8 +1,30 @@
 import { isString } from "lodash";
+import {
+  RECURRENCE_FIELD_NAMES,
+  recurrenceOccursInScope,
+} from "core/utils/contexts/recurrenceOccurrence";
 import { dateAfter, dateBefore, empty, FilterFunctionType, greaterThan, isSameDay, isSameDayAsToday, lessThan, listEquals, listIncludes, olderThan, stringCompare, stringEqual, withinLast } from "../filter";
 
 
 export const filterFnTypes: FilterFunctionType = {
+  occursToday: {
+    type: ["option"],
+    scopedFields: [...RECURRENCE_FIELD_NAMES],
+    // The selected column may be named either `cadence` or `recurrence`.
+    // filterReturnForCol already resolved its live cell as `value`, so project
+    // that value onto the evaluator's canonical cadence key instead of
+    // guessing which supported column name was selected.
+    fn: (value, _filterValue, row) =>
+      !!row && recurrenceOccursInScope({ ...row, cadence: value }, "today"),
+    valueType: "none",
+  },
+  occursThisWeek: {
+    type: ["option"],
+    scopedFields: [...RECURRENCE_FIELD_NAMES],
+    fn: (value, _filterValue, row) =>
+      !!row && recurrenceOccursInScope({ ...row, cadence: value }, "iso-week"),
+    valueType: "none",
+  },
   isNotEmpty: {
     type: ["text", "file", "number", "option", "option-multi", "link", "link-multi", 'image'],
     fn: (v, f) => !empty(v, ''),

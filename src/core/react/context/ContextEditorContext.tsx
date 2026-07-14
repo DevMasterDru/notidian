@@ -52,6 +52,7 @@ import {
 } from "core/utils/contexts/crossDatabaseView";
 import { materializeComputedRelationColumns } from "core/utils/contexts/computedRelationColumns";
 import { millisecondsUntilNextLocalDay } from "core/utils/contexts/rollupPeriod";
+import { isRecurrenceFilterFn } from "core/utils/contexts/recurrenceOccurrence";
 import { makeRowMatchesFilters } from "core/utils/contexts/predicate/rowMatchesFilters";
 import { resolveOverlayFilters } from "core/utils/contexts/predicate/overlayFilters";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
@@ -477,15 +478,25 @@ export const ContextEditorProvider: React.FC<
     (tableData?.cols ?? []).some(
       (column) => column?.type == "rollup" || column?.type == "backlink"
     );
+  const hasRecurrenceFilters =
+    props.superstate.settings?.recurrenceAwareFilters !== false &&
+    [
+      ...(predicate?.filters ?? []),
+      ...(props.superstate.settings?.renderPathViewOverlays !== false
+        ? (props.predicateOverlay?.filters ?? [])
+        : []),
+    ].some((filter) => isRecurrenceFilterFn(filter.fn));
+  const hasCurrentPeriodDependencies =
+    hasComputedRelationColumns || hasRecurrenceFilters;
 
   useEffect(() => {
-    if (!hasComputedRelationColumns) return;
+    if (!hasCurrentPeriodDependencies) return;
     const timeout = window.setTimeout(
       () => setComputedRelationEpoch((value) => value + 1),
       millisecondsUntilNextLocalDay()
     );
     return () => window.clearTimeout(timeout);
-  }, [hasComputedRelationColumns, computedRelationEpoch, contextPath]);
+  }, [hasCurrentPeriodDependencies, computedRelationEpoch, contextPath]);
 
   const notifyCrossDatabaseReadOnly = () =>
     props.superstate.ui.notify(
@@ -1001,6 +1012,8 @@ export const ContextEditorProvider: React.FC<
         // null-safe so the call never throws "Cannot read properties of null
         // (reading 'properties')" — pinned by rowMatchesFilters.test.ts.
         properties: spaceCache?.properties,
+        enableRecurrenceFilters:
+          props.superstate.settings?.recurrenceAwareFilters !== false,
       }),
     [
       predicate?.filters,
@@ -1009,6 +1022,7 @@ export const ContextEditorProvider: React.FC<
       cols,
       spaceManager,
       spaceCache?.properties,
+      props.superstate.settings?.recurrenceAwareFilters,
     ]
   );
   const rowMatchesSearch = useMemo(

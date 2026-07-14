@@ -13,8 +13,10 @@ export const defaultPredicateFnForType = (
   type: string,
   types: FilterFunctionType | SortFunctionType
 ) => {
-  const fnType = Object.keys(types).find((f) =>
-    types[f].type.find((g) => g == type)
+  const fnType = Object.keys(types).find(
+    (f) =>
+      !(types[f] as { scopedFields?: string[] }).scopedFields?.length &&
+      types[f].type.find((g) => g == type)
   );
   return fnType;
 };
@@ -22,15 +24,19 @@ export const defaultPredicateFnForType = (
 export const allPredicateFns = (
   types: FilterFunctionType | SortFunctionType
 ) => {
-  return Object.keys(types);
+  return Object.keys(types).filter(
+    (f) => !(types[f] as { scopedFields?: string[] }).scopedFields?.length
+  );
 };
 
 export const predicateFnsForType = (
   type: string,
   types: FilterFunctionType | SortFunctionType
 ) => {
-  const fnTypes = Object.keys(types).filter((f) =>
-    types[f].type.find((g) => g == type)
+  const fnTypes = Object.keys(types).filter(
+    (f) =>
+      !(types[f] as { scopedFields?: string[] }).scopedFields?.length &&
+      types[f].type.find((g) => g == type)
   );
   return fnTypes;
 };

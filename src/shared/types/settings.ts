@@ -186,6 +186,12 @@ export interface MakeMDSettings {
   // native filters and sort can consume them. False ignores period scopes and
   // restores the legacy cell-only, unscoped computation path.
   periodScopedRollups: boolean;
+  // F3 recurrence-aware occurrence filters (Notidian-1ceb / ADR 0061).
+  // When true, cadence/recurrence fields expose native value-free "occurs
+  // today" and "occurs this ISO week" predicates evaluated from each row's
+  // cadence, days, and times_per_week frontmatter. False ignores those stored
+  // predicates (fail-open) and restores the legacy generic filter surface.
+  recurrenceAwareFilters: boolean;
   // List view per-item display-property picker (Notion "Properties" parity) —
   // bd Notidian-543 / ADR 0016. When true, the list kit's per-item field set
   // (`fieldsView`, fed by the `_properties` context array) is filtered to the

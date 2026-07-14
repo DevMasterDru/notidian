@@ -408,6 +408,13 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // Notidian-1ceb / ADR 0061 — native recurrence-aware occurrence
+        // predicates. False hides and ignores the special operators.
+        name: 'recurrenceAwareFilters',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         name: 'spaceSubFolder',
         category: 'advanced',
         type: 'text',

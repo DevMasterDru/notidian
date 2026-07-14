@@ -1221,6 +1221,10 @@ export const en = {
       "name": "Period-Scoped Rollups",
       "desc": "Let relation rollups count or aggregate only rows from today or the current ISO week, and expose their live values to native filters and sort. Computed values are never stored. Turn off for legacy unscoped, cell-only rollups."
     },
+    "recurrenceAwareFilters": {
+      "name": "Recurrence-Aware Filters",
+      "desc": "Add value-free Occurs today and Occurs this ISO week filters to cadence and recurrence fields. Occurrences are computed from each row's cadence, days, and times_per_week properties and never stored. Turn off to hide and ignore these filters."
+    },
     "noteThumbnails": {
       "name": "Note Thumbnails",
       "desc": "Create thumbnails for notes"

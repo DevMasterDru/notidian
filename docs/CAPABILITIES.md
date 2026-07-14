@@ -54,6 +54,12 @@ of scope (ADR 0014).
   Monday-start week; the live result works in native filters and sort without
   storing counters or latest dates ([ADR
   0060](adr/0060-period-scoped-relation-rollups.md)).
+- **Recurrence-aware occurrence filters**: select fields named `cadence` or
+  `recurrence` expose native Occurs today / Occurs this ISO week predicates that
+  interpret `days` and `times_per_week` directly from canonical frontmatter;
+  frequency-only weekly targets never invent a due day and no occurrence rows
+  or reset daemon are created ([ADR
+  0061](adr/0061-recurrence-aware-occurs-on-filters.md)).
 - **In-flight (Data Integrity Program, `Notidian-loan`)**: Type Profile v3
   schema registry (enum-as-law, required/unique/pattern, declared references,
   derived fields), a pure validation core, and a read-only reconciler/health

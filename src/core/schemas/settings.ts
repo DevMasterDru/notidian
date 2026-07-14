@@ -161,6 +161,10 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // 0060). OFF ignores period scopes and skips provider-row materialization,
   // restoring legacy cell-only rollup behavior.
   periodScopedRollups: true,
+  // Default-ON recurrence-aware occurrence predicates (Notidian-1ceb / ADR
+  // 0061). OFF ignores stored occursToday/occursThisWeek predicates and hides
+  // them from the filter UIs, preserving legacy row visibility.
+  recurrenceAwareFilters: true,
   // Default-ON list-view per-item display-property picker (bd Notidian-543 /
   // ADR 0016) — an owner-requested ("very important") Notion-'Properties'
   // parity feature; the owner verifies it by USE. The flag is RETAINED as a

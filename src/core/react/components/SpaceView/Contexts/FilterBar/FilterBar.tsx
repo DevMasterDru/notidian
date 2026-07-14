@@ -36,6 +36,7 @@ import { SpaceContext } from "core/react/context/SpaceContext";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
 import { filterFnLabels } from "core/utils/contexts/predicate/filterFns/filterFnLabels";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
+import { recurrenceFilterFnsForFieldName } from "core/utils/contexts/recurrenceOccurrence";
 import {
   defaultPredicateFnForType,
   defaultPredicateForSchema,
@@ -1524,7 +1525,13 @@ export const FilterBar = (props: {
     };
     const field = filteredCols.find((f) => f.name + f.table == filter.field);
     const fieldType = fieldTypeForField(field);
-    const filtersForType = predicateFnsForType(fieldType, filterFnTypes);
+    const filtersForType = [
+      ...predicateFnsForType(fieldType, filterFnTypes),
+      ...(fieldType == "option" &&
+        props.superstate.settings?.recurrenceAwareFilters !== false
+        ? recurrenceFilterFnsForFieldName(field?.name)
+        : []),
+    ].filter((value, position, values) => values.indexOf(value) == position);
     props.superstate.ui.openMenu(
       offset,
       {

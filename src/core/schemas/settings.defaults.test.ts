@@ -127,6 +127,7 @@ const REQUIRED_SETTING_KEYS = {
   renderPathViewOverlays: true,
   crossDatabaseSavedViews: true,
   periodScopedRollups: true,
+  recurrenceAwareFilters: true,
   listItemPropertyPicker: true,
   rowVirtualization: true,
   subItemsSetup: true,
@@ -178,6 +179,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "renderPathViewOverlays", // Notidian-ioxi / ADR-0066 (owner-requested default-ON)
   "crossDatabaseSavedViews", // Notidian-42tx / ADR 0059 (owner-requested default-ON)
   "periodScopedRollups", // Notidian-x7pn / ADR 0060 (owner-requested default-ON)
+  "recurrenceAwareFilters", // Notidian-1ceb / ADR 0061 (owner-requested default-ON)
   "viewSettingsInlineBar", // Notidian-vrmf
   "listItemPropertyPicker", // Notidian-543 / ADR 0016
   "subItemsSetup", // Notidian-xqxc

@@ -2,6 +2,8 @@ import i18n from "shared/i18n";
 
 
 export const filterFnLabels : Record<string, string> = {
+  occursToday: "Occurs today",
+  occursThisWeek: "Occurs this ISO week",
   isEmpty: i18n.filterTypes.isEmpty,
   isNotEmpty: i18n.filterTypes.isNotEmpty,
   include: i18n.filterTypes.contains,

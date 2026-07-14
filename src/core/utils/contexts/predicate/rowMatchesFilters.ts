@@ -3,6 +3,7 @@ import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow, SpaceTableColumn } from "shared/types/mdb";
 import { Filter } from "shared/types/predicate";
+import { isRecurrenceFilterFn } from "core/utils/contexts/recurrenceOccurrence";
 
 // The narrow structural slice of SpaceManager this helper needs. Typing the
 // dependency by shape (not the concrete class) keeps the per-row matcher pure
@@ -19,6 +20,9 @@ export type MakeRowMatchesFiltersArgs = {
   // whose spaceCache hasn't populated; MUST be tolerated (Notidian-iguu /
   // az2p): the predicate must never throw on a nullish cache.
   properties: Record<string, any> | undefined | null;
+  // Default-ON F3 kill switch. When false, recurrence occurrence predicates
+  // are ignored (fail-open) so a stored filter cannot hide any rows.
+  enableRecurrenceFilters?: boolean;
 };
 
 // Pure per-row predicate-filter match (Notidian-iguu). Extracted VERBATIM from
@@ -34,6 +38,7 @@ export const makeRowMatchesFilters = ({
   cols,
   spaceManager,
   properties,
+  enableRecurrenceFilters = true,
 }: MakeRowMatchesFiltersArgs): ((row: DBRow) => boolean) => {
   // Whether this context exposes a synthesized "tags" column off the primary
   // files schema. Resolved once per build (not per row) — it depends only on
@@ -44,6 +49,7 @@ export const makeRowMatchesFilters = ({
   );
   return (f: DBRow) =>
     (filters ?? []).reduce((p, c) => {
+      if (!enableRecurrenceFilters && isRecurrenceFilterFn(c.fn)) return p;
       // Tags-synthesis shim: when a synthesized tags column is present, project
       // the row's live tags (from the path state) onto the tags field so a
       // tags filter can match. Null-safe path state -> [] (no throw on load).

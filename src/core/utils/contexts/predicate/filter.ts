@@ -7,9 +7,18 @@ import { filterFnTypes } from "./filterFns/filterFnTypes";
 
 export type FilterFunctionType = Record<
   string,
-  { type: string[]; fn: FilterFunction; valueType: string }
+  {
+    type: string[];
+    fn: FilterFunction;
+    valueType: string;
+    // Some operators are valid only for specially named fields even though
+    // their storage type is ordinary (for example recurrence on an option).
+    // Generic menus omit scoped entries; the owning UI appends them only when
+    // its field-name contract matches.
+    scopedFields?: string[];
+  }
 >;
-type FilterFunction = (v: any, f: any) => boolean;
+type FilterFunction = (v: any, f: any, row?: DBRow) => boolean;
 
 // FAIL-CLOSED-EMPTY value guard for the TEXT matcher family (ADR 0043, Option A,
 // Notidian-9i9i). The bare `(value ?? "")` guard caught null/undefined but NOT a
@@ -338,10 +347,8 @@ export const filterReturnForCol = (
     // props -> no throw, fail-open true).
     const value = (filter.fType == 'property') ? (properties ?? {})[filter.value] : filter.value;
     const rowValue = col.type == 'flex' ? parseFlexValue(row[filter.field])?.value : row[filter.field];
-    result = filterType.fn(rowValue, value);
+    result = filterType.fn(rowValue, value, row);
   }
 
   return result;
 };
-
-

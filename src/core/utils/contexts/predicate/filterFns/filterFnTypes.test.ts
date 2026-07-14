@@ -317,6 +317,8 @@ describe("filterFnTypes dispatch map — characterization + adversarial/property
         "isSameDateAsToday",
         "isTrue",
         "isFalse",
+        "occursToday",
+        "occursThisWeek",
       ]);
       const actualNone = new Set(
         entries.filter(([, e]) => e.valueType === "none").map(([k]) => k)
@@ -338,6 +340,8 @@ describe("filterFnTypes dispatch map — characterization + adversarial/property
         isSameDateAsToday: "2024-03-15",
         isTrue: "true",
         isFalse: "true",
+        occursToday: "daily",
+        occursThisWeek: "daily",
       };
       const fsToTry = ["", "ignored", null, undefined, 0, { a: 1 }, ["b"]];
       for (const key of noneKeys) {

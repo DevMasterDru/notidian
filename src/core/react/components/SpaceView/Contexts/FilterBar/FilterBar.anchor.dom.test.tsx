@@ -198,7 +198,8 @@ let openViewSearchMock = jest.fn();
 
 const renderFilterBar = (
   superstate: any,
-  predicateOverride?: any
+  predicateOverride?: any,
+  contextEditorOverride?: any
 ): { root: Root; container: HTMLElement } => {
   const spaceState = {
     path: "Some Space",
@@ -222,6 +223,7 @@ const renderFilterBar = (
     setSearchActive: jest.fn(),
     searchActive: false,
     reloadContextData: async () => {},
+    ...contextEditorOverride,
   } as any;
   const framesValue = {
     frameSchema: { id: "fs", name: "View", type: "view", def: {} },
@@ -395,6 +397,77 @@ const makeSuperstateCapturingProps = (calls: OpenMenuFullCall[]): any => {
   };
   return ss;
 };
+
+describe("FilterBar recurrence-aware operator scoping (Notidian-1ceb)", () => {
+  const openOperatorMenu = async (
+    fieldName: string,
+    fieldType: string,
+    enabled: boolean
+  ): Promise<string[]> => {
+    const calls: OpenMenuFullCall[] = [];
+    const superstate = makeSuperstateCapturingProps(calls);
+    superstate.settings.recurrenceAwareFilters = enabled;
+    const predicate = {
+      ...tablePredicate,
+      filters: [
+        {
+          field: fieldName,
+          fn: "isNotEmpty",
+          fType: "none",
+          value: "",
+        },
+      ],
+    };
+    const { root, container } = renderFilterBar(superstate, predicate, {
+      cols: [{ name: fieldName, type: fieldType, table: "" }],
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const operator = container.querySelector(
+      ".mk-filter-bar .mk-filter span:nth-child(2)"
+    ) as HTMLElement;
+    expect(operator).toBeTruthy();
+    act(() => {
+      operator.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, view: window })
+      );
+    });
+    const operators = calls[calls.length - 1].props.options.map(
+      (option: any) => option.value
+    );
+    act(() => root.unmount());
+    container.remove();
+    return operators;
+  };
+
+  it("shows occurrence operators only for enabled cadence/recurrence select fields", async () => {
+    await expect(openOperatorMenu("cadence", "option", true)).resolves.toEqual(
+      expect.arrayContaining(["occursToday", "occursThisWeek"])
+    );
+
+    await expect(
+      openOperatorMenu("recurrence", "option", true)
+    ).resolves.toEqual(
+      expect.arrayContaining(["occursToday", "occursThisWeek"])
+    );
+  });
+
+  it("hides occurrence operators for unrelated fields, non-selects, and the kill switch", async () => {
+    for (const [name, type, enabled] of [
+      ["status", "option", true],
+      ["cadence", "text", true],
+      ["cadence", "option", false],
+    ] as const) {
+      const operators = await openOperatorMenu(name, type, enabled);
+      expect(operators).not.toEqual(
+        expect.arrayContaining(["occursToday", "occursThisWeek"])
+      );
+    }
+  });
+});
 
 describe("FilterBar Group-By toolbar button (Notidian-nmr)", () => {
   let openMenuCalls: OpenMenuFullCall[];
