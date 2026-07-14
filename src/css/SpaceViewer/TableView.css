@@ -311,7 +311,6 @@ body.mk-property-header-tooltip-visible > .tooltip {
   color: inherit;
   font: inherit;
   justify-content: flex-start;
-}
   flex: 0 1 auto;
   cursor: pointer;
   text-align: start;
