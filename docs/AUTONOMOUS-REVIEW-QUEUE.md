@@ -643,7 +643,6 @@ surface — read status live from the ADR index / `bd show <id>`, never a copy h
 
 **Parked → docs/ROADMAP.md (build only when the owner asks):**
 
-- **Notidian-o4w — select-to-comment + AI-review channel** (ADR 0019) — parked → roadmap.
 - **Notidian-5io — date reminders + recurring events** (ADR 0020) — parked → roadmap.
 - **Notidian-214 — frame-execution settings toggle + trusted-frame allowlist** (ADR 0022) — parked → roadmap (gated on the `hardenFrameExecution` flag-gated item above).
 - **Notidian-n2t — Type Profile hub-deletion notice** (ADR 0023) — parked → roadmap (ADR recommends decline).

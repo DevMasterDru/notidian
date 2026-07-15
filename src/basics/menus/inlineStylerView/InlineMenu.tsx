@@ -12,6 +12,7 @@ import { uiIconSet } from "shared/assets/icons";
 import { getColors, getColorPalettes } from "core/utils/colorPalette";
 import { sanitizeFileName } from "shared/utils/sanitizers";
 import { Mark } from "./Mark";
+import { CommentAction } from "./CommentAction";
 import { InlineStyle, resolveStyles } from "./styles";
 
 export const loadStylerIntoContainer = (
@@ -599,6 +600,10 @@ export const InlineMenuComponent: React.FC<{
           __html: uiIconSet["mk-mark-blocklink"],
         }}
       ></div>
+      <CommentAction
+        cm={props.cm ?? getActiveCM(props.plugin)}
+        plugin={props.plugin}
+      />
       <div className="mk-mark-group">
         <div
           aria-label={"New Note"}

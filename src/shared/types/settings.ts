@@ -102,6 +102,11 @@ export interface MakeMDSettings {
   // these surfaces renders nothing and subscribes to nothing (byte-identical
   // to pre-S5 rendering).
   enableDataHealthSurfaces: boolean;
+  // Notidian-tluq.2 / ADR 0019 (default ON, kill-switch): show the Comment
+  // action in the non-empty-selection inline styler and permit file-canonical
+  // CommentV1 authoring. OFF removes the action entirely and performs no
+  // comment/anchor writes, restoring the pre-feature popup.
+  selectToComment: boolean;
   folderIndentationLines: boolean;
   revealActiveFile: boolean;
   hiddenFiles: string[];

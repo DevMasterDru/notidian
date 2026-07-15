@@ -16,6 +16,7 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 - **Frontmatter-link relations + rollups UX polish** (ADR 0029 → bd `Notidian-f0pj.2`). ✓ Shipped.
 - **Filename template mirror** (ADR 0054 → bd `Notidian-pay5.1`). ✓ Shipped.
 - **Key-match FK relations** (ADR 0029 → bd `Notidian-mx0k.1`). Owner-authorized 2026-06-30. Key-match resolver shipped; island header (mx0k.2) reverted in favor of template sync (ADR 0055).
+- **Select-to-comment + AI-review channel** (ADR 0019 → bd `Notidian-tluq.1`–`.3`). Owner-pulled 2026-07-10; the block-id + versioned frontmatter contract is Accepted, with Notidian authoring and Atlasidian consumption scheduled next.
 - ~~**Template sync — computed properties** (ADR 0055)~~ — owner-authorized 2026-06-30; resequenced by ADR-0058 (2026-07-02) to ship as Wave 4 (`Notidian-loan.12`) of the Data Integrity Program instead of standalone — see Parked below.
 
 ## Data Integrity Program (owner ratified 2026-07-02)
@@ -34,7 +35,6 @@ issues yet.
 
 ## Parked — build when the owner asks
 
-- **Select-to-comment + AI-review channel** — anchor a vault comment to a selection (block-id `^block`) and store AI-directed comments as a frontmatter `review.comments` list; cross-repo contract with Atlasidian. — ([ADR 0019](adr/0019-select-to-comment-anchoring-and-ai-review-channel.md))
 - **Date reminders + recurring events** — in-app Notice reminders for due dates and rrule-shaped `repeat` recurrence expanded at render time (no external plugin, no generated rows). — ([ADR 0020](adr/0020-date-reminders-and-recurring-events.md))
 - ~~**Frame-execution settings toggle + trusted-frame allowlist**~~ — pulled by the owner 2026-07-10 ("finalize all open features in notidian") and **shipped**: advanced-category `hardenFrameExecution` toggle + session-scoped, non-persisted, per-frame bless via the "Trust dynamic frame code for this session" command (always a named pick; in-memory code fingerprint makes the bless survive remounts of identical code while edit/reload still drop it). — ([ADR 0022](adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md) **Accepted — implemented**; bd `Notidian-214`, hardening fixes `Notidian-pg6g`/`Notidian-kcgt`; content-hash *persistence* refinement stays deferred per the ADR)
 - **Type Profile hub-deletion notice** — surface when a folder DB's Type Profile hub note is deleted out from under it (ADR's own recommendation is to decline; low-value P3). — ([ADR 0023](adr/0023-type-profile-hub-deletion-notice.md))

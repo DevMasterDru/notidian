@@ -51,6 +51,16 @@ body:not(.is-mobile) .mk-style-menu {
   display: flex;
 }
 
+button.mk-mark-comment {
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 
 .mk-mobile-styler .mobile-toolbar-options-list {
   display: none;

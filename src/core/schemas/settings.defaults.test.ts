@@ -67,6 +67,7 @@ const REQUIRED_SETTING_KEYS = {
   enableHubRowIndicator: true,
   lockBadge: true,
   enableDataHealthSurfaces: true,
+  selectToComment: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
   spaceNoteBodyFullCollapse: true,
@@ -189,6 +190,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "filenameTemplateEnforcement", // Notidian-pay5 / ADR 0054
   "enableNestedHubRows", // Notidian-z21a / Atlas Method ADR-0042 D1
   "enableDataHealthSurfaces", // Notidian-loan.5 / ADR-0057
+  "selectToComment", // Notidian-tluq.2 / ADR 0019
   "enableNavigatorTextFilter", // Notidian-nrjb
 ];
 
@@ -230,6 +232,10 @@ describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {
 
   test("period-scoped rollups ship default-on behind an honest kill switch", () => {
     expect((DEFAULT_SETTINGS as any).periodScopedRollups).toBe(true);
+  });
+
+  test("select-to-comment ships default-on behind an honest kill switch", () => {
+    expect((DEFAULT_SETTINGS as any).selectToComment).toBe(true);
   });
 
   describe("documented kill-switches are pinned LOUD (default-ON booleans)", () => {

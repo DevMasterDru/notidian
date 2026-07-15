@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "source": "Notidian ADR 0019",
+  "fixtures": [
+    { "file": "general-attached.md", "outcome": "ignore-for-ai" },
+    { "file": "review-attached.md", "outcome": "attached" },
+    { "file": "review-changed.md", "outcome": "QUOTE_CHANGED" },
+    { "file": "review-anchor-missing.md", "outcome": "ANCHOR_NOT_FOUND" },
+    { "file": "review-anchor-ambiguous.md", "outcome": "ANCHOR_AMBIGUOUS" },
+    { "file": "review-malformed-sibling.md", "outcome": "one-valid-one-invalid" },
+    { "file": "review-missing-version.md", "outcome": "MISSING_COMMENTS_VERSION" },
+    { "file": "review-unsupported-version.md", "outcome": "UNSUPPORTED_COMMENTS_VERSION" },
+    { "file": "review-comments-not-array.md", "outcome": "COMMENTS_NOT_ARRAY" }
+  ]
+}

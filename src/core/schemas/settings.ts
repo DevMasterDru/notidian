@@ -68,6 +68,11 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // from the reconciler; the reconciler itself (Notidian-loan.4) keeps
   // detecting in the background either way -- this flag only gates the UI.
   enableDataHealthSurfaces: true,
+  // Notidian-tluq.2 / ADR 0019: owner-requested select-to-comment authoring
+  // ships ON. False is the complete kill-switch: the inline styler renders no
+  // Comment action and the authoring path cannot mint anchors or write
+  // CommentV1 frontmatter.
+  selectToComment: true,
   spaceViewShowNoteBody: true,
   // Notidian-8sl: default ON — the owner explicitly requested a collapsible +
   // shrink-to-fit space-note body, so it ships enabled; the owner verifies it by

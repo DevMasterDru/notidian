@@ -383,6 +383,13 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // Notidian-tluq.2 / ADR 0019 — owner-requested selection Comment
+        // authoring. False removes the popup action and all authoring writes.
+        name: 'selectToComment',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         // bd Notidian-ioxi / ADR-0066 (Topic Hub) — render-path declared-view
         // overlay kill-switch. No onChange side effect: the shared boolean
         // handler saves it and the row-visibility seam reads
