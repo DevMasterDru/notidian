@@ -65,6 +65,8 @@ import { Filter, Predicate } from "shared/types/predicate";
 const contextPath = "Test/Database";
 const gidiPath = "Test/Database/Gidi.md";
 const otherPath = "Test/Database/Other.md";
+const lowPriorityPath = "Test/Database/Low.md";
+const donePath = "Test/Database/Done.md";
 
 // A global database whose rows carry a `repo` property. The topic page overlays
 // `where: repo = Gidi`.
@@ -74,18 +76,40 @@ const table = {
     { name: PathPropertyName, type: "fileprop", schemaId: "files", primary: "true" },
     { name: "Status", type: "text", schemaId: "files", source: frontmatterPropertySource },
     { name: "repo", type: "text", schemaId: "files", source: frontmatterPropertySource },
+    { name: "priority", type: "text", schemaId: "files", source: frontmatterPropertySource },
   ],
   rows: [
-    { [PathPropertyName]: gidiPath, Status: "Open", repo: "Gidi" },
-    { [PathPropertyName]: otherPath, Status: "Open", repo: "Other" },
+    { [PathPropertyName]: gidiPath, Status: "Open", repo: "Gidi", priority: "urgent" },
+    { [PathPropertyName]: otherPath, Status: "Open", repo: "Other", priority: "urgent" },
+    { [PathPropertyName]: lowPriorityPath, Status: "Open", repo: "Gidi", priority: "later" },
+    { [PathPropertyName]: donePath, Status: "Done", repo: "Gidi", priority: "urgent" },
   ],
 } as any;
 
-const overlayFilter: Filter = {
+const declarationOverlayFilter: Filter = {
   field: "repo",
   fn: "is",
   value: "Gidi",
   fType: "text",
+};
+const embedOverlayFilter: Filter = {
+  field: "priority",
+  fn: "is",
+  value: "urgent",
+  fType: "text",
+};
+const overlay = { filters: [declarationOverlayFilter, embedOverlayFilter] };
+const richOverlay: Partial<Predicate> = {
+  ...overlay,
+  sort: [{ field: "priority", fn: "reverseAlphabetical" }],
+  groupBy: ["repo"],
+  colsOrder: [PathPropertyName, "priority"],
+  colsHidden: ["Status", "repo"],
+  limit: 1,
+  view: "table",
+  listView: "",
+  listGroup: "",
+  listItem: "",
 };
 
 let capturedContext: any;
@@ -110,10 +134,12 @@ const buildSuperstate = (renderPathViewOverlays: boolean | undefined) =>
       ],
     ]),
     spacesIndex: new Map([[contextPath, { type: "folder" }]]),
-    spacesMap: { getInverse: (): string[] => [gidiPath, otherPath] },
+    spacesMap: { getInverse: (): string[] => [gidiPath, otherPath, lowPriorityPath, donePath] },
     pathsIndex: new Map([
-      [gidiPath, { metadata: { property: { Status: "Open", repo: "Gidi" } } }],
-      [otherPath, { metadata: { property: { Status: "Open", repo: "Other" } } }],
+      [gidiPath, { metadata: { property: { Status: "Open", repo: "Gidi", priority: "urgent" } } }],
+      [otherPath, { metadata: { property: { Status: "Open", repo: "Other", priority: "urgent" } } }],
+      [lowPriorityPath, { metadata: { property: { Status: "Open", repo: "Gidi", priority: "later" } } }],
+      [donePath, { metadata: { property: { Status: "Done", repo: "Gidi", priority: "urgent" } } }],
     ]),
     eventsDispatcher: { addListener: jest.fn(), removeListener: jest.fn() },
     reloadContext: jest.fn().mockResolvedValue(undefined),
@@ -133,13 +159,13 @@ const frameSchema = {
   name: "Files View",
   type: "view",
   def: { db: "files" },
-  // The persisted view has NO filters of its own — any filtering seen at read
-  // time is the overlay, and any filter seen at write time is a user edit.
+  // The persisted view excludes Done; declaration + embed overlays narrow it
+  // further by repo then priority.
   predicate: JSON.stringify({
-    filters: [],
+    filters: [{ field: "Status", fn: "isNot", value: "Done", fType: "text" }],
     sort: [],
     groupBy: [],
-    colsOrder: [PathPropertyName, "Status", "repo"],
+    colsOrder: [PathPropertyName, "Status", "repo", "priority"],
     colsHidden: [],
     colsSize: {},
   }),
@@ -195,13 +221,16 @@ describe("render-path overlay — read-path only + write firewall (Notidian-ioxi
 
   it("applies the overlay to the READ path — only matching rows render (default-on)", async () => {
     const { root, container } = await mountProvider({
-      overlay: { filters: [overlayFilter] },
+      overlay,
     });
 
     const visibleRepos = (capturedContext.filteredData as any[])
       .map((r) => r.repo)
       .sort();
     expect(visibleRepos).toEqual(["Gidi"]);
+    expect((capturedContext.filteredData as any[]).map((r) => r.priority)).toEqual([
+      "urgent",
+    ]);
 
     act(() => root.unmount());
     container.remove();
@@ -209,7 +238,7 @@ describe("render-path overlay — read-path only + write firewall (Notidian-ioxi
 
   it("NEVER persists overlay filters through savePredicate/saveSchema (write firewall)", async () => {
     const { root, container, saveSchema } = await mountProvider({
-      overlay: { filters: [overlayFilter] },
+      overlay,
     });
 
     // A genuine user edit through the FilterBar write path: add the view's OWN
@@ -239,6 +268,7 @@ describe("render-path overlay — read-path only + write firewall (Notidian-ioxi
     // schema (the column name "repo" legitimately lives in colsOrder, so it is
     // NOT a firewall signal); its absence from the raw payload is the guard.
     expect(payload.predicate).not.toContain("Gidi");
+    expect(payload.predicate).not.toContain("urgent");
 
     // And a save that does not touch filters at all also never leaks the overlay.
     saveSchema.mockClear();
@@ -257,17 +287,97 @@ describe("render-path overlay — read-path only + write firewall (Notidian-ioxi
     container.remove();
   });
 
+  it("projects rich values into render context without changing native state", async () => {
+    const { root, container } = await mountProvider({ overlay: richOverlay });
+
+    expect(capturedContext.predicate).toEqual(
+      expect.objectContaining({
+        sort: richOverlay.sort,
+        groupBy: richOverlay.groupBy,
+        colsOrder: richOverlay.colsOrder,
+        colsHidden: richOverlay.colsHidden,
+        limit: 1,
+        view: "table",
+      })
+    );
+    expect(capturedContext.filteredData).toHaveLength(1);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("NEVER persists rich projection values through savePredicate/saveSchema", async () => {
+    const { root, container, saveSchema } = await mountProvider({
+      overlay: richOverlay,
+    });
+
+    saveSchema.mockClear();
+    await act(async () => {
+      await capturedContext.savePredicate({
+        sort: richOverlay.sort,
+        groupBy: richOverlay.groupBy,
+        colsOrder: richOverlay.colsOrder,
+        colsHidden: richOverlay.colsHidden,
+        limit: 99,
+        view: "month",
+        listView: "changed",
+        listGroup: "changed",
+        listItem: "changed",
+        tableDirection: "rtl",
+      });
+    });
+
+    const payload = saveSchema.mock.calls[saveSchema.mock.calls.length - 1][0];
+    const savedPredicate = JSON.parse(payload.predicate);
+    expect(savedPredicate.sort).toEqual([]);
+    expect(savedPredicate.groupBy).toEqual([]);
+    expect(savedPredicate.colsOrder).toEqual([
+      PathPropertyName,
+      "Status",
+      "repo",
+      "priority",
+    ]);
+    expect(savedPredicate.colsHidden).toEqual([]);
+    expect(savedPredicate.limit).toBe(0);
+    expect(savedPredicate.view).not.toBe("month");
+    expect(savedPredicate.tableDirection).toBe("rtl");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("ignores the overlay when the kill-switch flag is OFF (legacy: unfiltered)", async () => {
     const { root, container } = await mountProvider({
       renderPathViewOverlays: false,
-      overlay: { filters: [overlayFilter] },
+      overlay,
     });
 
     const visibleRepos = (capturedContext.filteredData as any[])
       .map((r) => r.repo)
       .sort();
     // Both rows render — the overlay was dropped at the merge seam.
-    expect(visibleRepos).toEqual(["Gidi", "Other"]);
+    expect(visibleRepos).toEqual(["Gidi", "Gidi", "Other"]);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("restores every native rich value when the kill-switch flag is OFF", async () => {
+    const { root, container } = await mountProvider({
+      renderPathViewOverlays: false,
+      overlay: richOverlay,
+    });
+
+    expect(capturedContext.predicate.sort).toEqual([]);
+    expect(capturedContext.predicate.groupBy).toEqual([]);
+    expect(capturedContext.predicate.colsOrder).toEqual([
+      PathPropertyName,
+      "Status",
+      "repo",
+      "priority",
+    ]);
+    expect(capturedContext.predicate.colsHidden).toEqual([]);
+    expect(capturedContext.predicate.limit).toBe(0);
 
     act(() => root.unmount());
     container.remove();
@@ -279,7 +389,7 @@ describe("render-path overlay — read-path only + write firewall (Notidian-ioxi
     const visibleRepos = (capturedContext.filteredData as any[])
       .map((r) => r.repo)
       .sort();
-    expect(visibleRepos).toEqual(["Gidi", "Other"]);
+    expect(visibleRepos).toEqual(["Gidi", "Gidi", "Other"]);
 
     act(() => root.unmount());
     container.remove();

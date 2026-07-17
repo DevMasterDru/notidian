@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by the owner on 2026-07-14. Implementation is pending in
+Accepted by the owner on 2026-07-14. Implementation work is tracked in
 `Notidian-uupm.2` through `Notidian-uupm.4`.
 
 Authority: Atlas Method ADR 0066 D4/D7 makes database folder-note frontmatter

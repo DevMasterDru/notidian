@@ -3,6 +3,12 @@ import {
   descriptorToFragmentPath,
   NotidianEmbedDescriptor,
 } from "core/utils/embeds/notidianEmbed";
+import {
+  DeclaredViewInspection,
+  DeclaredViewRuntimeResult,
+  inspectDeclaredViewForEmbed,
+  resolveDeclaredViewForEmbed,
+} from "core/utils/embeds/notidianDeclaredViewRuntime";
 import type { Superstate } from "makemd-core";
 import React from "react";
 import { Predicate } from "shared/types/predicate";
@@ -27,39 +33,35 @@ export const NotidianEmbedErrorView = (props: {
   </div>
 );
 
-export const NotidianEmbed = (props: {
+type NotidianEmbedProps = {
   superstate: Superstate;
   sourcePath: string;
   host: NotidianEmbedHost;
   descriptor?: NotidianEmbedDescriptor;
   error?: NotidianEmbedError;
-}) => {
-  if (props.error || !props.descriptor) {
-    return (
-      <NotidianEmbedErrorView
-        error={props.error ?? { message: "Missing Notidian embed descriptor" }}
-      />
-    );
-  }
+};
 
+const NotidianEmbedContent = (
+  props: Omit<NotidianEmbedProps, "descriptor" | "error"> & {
+    descriptor: NotidianEmbedDescriptor;
+    predicateOverlay?: Partial<Predicate>;
+  }
+) => {
   const descriptor = props.descriptor;
   const fragmentPath = descriptorToFragmentPath(descriptor);
   const heightStyle =
     descriptor.height == null ? undefined : { height: `${descriptor.height}px` };
 
   // ADR-0066 / Notidian-ioxi — render-path declared-view overlay from the
-  // block's `where:` clauses. READ-PATH ONLY: handed to the SpaceFragment as its
-  // predicate prop, which the context branch forwards to ContextEditorProvider
-  // as `predicateOverlay` and folds into the row-visibility matcher — it is
-  // never persisted to the view schema/views.mdb. The renderPathViewOverlays
-  // kill-switch is enforced at that merge seam, so when the flag is off this
-  // overlay is ignored and the base view renders unfiltered (legacy). A plain
-  // const (not a hook) keeps it after the early return above; the merge memo
-  // keys off `.filters` (the stable descriptor.where array), not this wrapper.
+  // block's `where:` clauses or a folder declaration's schema-resolved rich
+  // values. READ-PATH ONLY: the context branch projects it for rendering and
+  // strips every owned key from save payloads. The renderPathViewOverlays
+  // kill-switch is enforced at that projection seam.
   const overlay: Partial<Predicate> | undefined =
-    descriptor.where && descriptor.where.length > 0
+    props.predicateOverlay ??
+    (descriptor.where && descriptor.where.length > 0
       ? { filters: descriptor.where }
-      : undefined;
+      : undefined);
 
   return (
     <div
@@ -81,5 +83,77 @@ export const NotidianEmbed = (props: {
         />
       </SpaceManagerProvider>
     </div>
+  );
+};
+
+const DeclaredNotidianEmbed = (
+  props: Omit<NotidianEmbedProps, "descriptor" | "error"> & {
+    descriptor: NotidianEmbedDescriptor;
+    inspection: Extract<DeclaredViewInspection, { kind: "declaration" }>;
+  }
+) => {
+  const [resolution, setResolution] = React.useState<DeclaredViewRuntimeResult>(
+    null
+  );
+
+  React.useEffect(() => {
+    let current = true;
+    resolveDeclaredViewForEmbed({
+      superstate: props.superstate,
+      descriptor: props.descriptor,
+      inspection: props.inspection,
+    }).then((result) => {
+      if (current) setResolution(result);
+    });
+    return () => {
+      current = false;
+    };
+  }, [props.superstate, props.descriptor, props.inspection]);
+
+  if (!resolution) {
+    return (
+      <div className="mk-notidian-embed-loading" role="status">
+        Loading Notidian embed…
+      </div>
+    );
+  }
+  if (resolution.ok === false) {
+    return <NotidianEmbedErrorView error={{ message: resolution.message }} />;
+  }
+  return (
+    <NotidianEmbedContent
+      {...props}
+      descriptor={resolution.descriptor}
+      predicateOverlay={resolution.predicateOverlay}
+    />
+  );
+};
+
+export const NotidianEmbed = (props: NotidianEmbedProps) => {
+  if (props.error || !props.descriptor) {
+    return (
+      <NotidianEmbedErrorView
+        error={props.error ?? { message: "Missing Notidian embed descriptor" }}
+      />
+    );
+  }
+
+  const inspection = inspectDeclaredViewForEmbed({
+    superstate: props.superstate,
+    sourcePath: props.sourcePath,
+    descriptor: props.descriptor,
+  });
+  if (inspection.kind == "error") {
+    return <NotidianEmbedErrorView error={{ message: inspection.message }} />;
+  }
+  if (inspection.kind == "none") {
+    return <NotidianEmbedContent {...props} descriptor={props.descriptor} />;
+  }
+  return (
+    <DeclaredNotidianEmbed
+      {...props}
+      descriptor={props.descriptor}
+      inspection={inspection}
+    />
   );
 };

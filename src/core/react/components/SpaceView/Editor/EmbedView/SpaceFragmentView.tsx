@@ -30,9 +30,9 @@ export interface SpaceFragmentViewComponentProps {
   containerRef?: React.RefObject<HTMLDivElement>;
   setFrameSchema?: (schema: string) => void;
   // ADR-0066 / Notidian-ioxi — render-path declared-view overlay forwarded into
-  // ContextEditorProvider as `predicateOverlay`. READ-PATH ONLY. Partial because
-  // v1 carries only `filters` (a notidian embed `where:` block or a frame node's
-  // predicate prop); the richer tokens are out of scope (Notidian-lhiq).
+  // ContextEditorProvider as `predicateOverlay`. READ-PATH ONLY. Folder-note
+  // declarations may project filters plus schema-resolved sort, groupBy,
+  // columns, limit, and display-kind fields; none enter the saved predicate.
   predicate?: Partial<Predicate>;
 }
 

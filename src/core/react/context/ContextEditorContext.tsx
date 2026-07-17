@@ -55,6 +55,10 @@ import { millisecondsUntilNextLocalDay } from "core/utils/contexts/rollupPeriod"
 import { isRecurrenceFilterFn } from "core/utils/contexts/recurrenceOccurrence";
 import { makeRowMatchesFilters } from "core/utils/contexts/predicate/rowMatchesFilters";
 import { resolveOverlayFilters } from "core/utils/contexts/predicate/overlayFilters";
+import {
+  applyRenderPathPredicateProjection,
+  stripRenderPathProjectionFromSave,
+} from "core/utils/contexts/predicate/renderPathPredicateProjection";
 import { sortReturnForCol } from "core/utils/contexts/predicate/sort";
 import {
   buildRowTree,
@@ -415,10 +419,10 @@ export const ContextEditorProvider: React.FC<
   React.PropsWithChildren<{
     superstate: Superstate;
     source?: string;
-    // ADR-0066 / Notidian-ioxi — render-path declared-view overlay. Applied
-    // CONJUNCTIVELY at the row-visibility seam ONLY (READ-PATH); never merged
-    // into the persisted predicate. Only `filters` is consumed in v1 (the
-    // richer sort/columns/groupBy tokens are out of scope — Notidian-lhiq).
+    // ADR-0062 — render-path declared-view projection. Filters are applied
+    // conjunctively; explicitly declared rich values replace the corresponding
+    // native values for rendering only. The save path strips every projected
+    // key before state or schema persistence.
     predicateOverlay?: Partial<Predicate>;
   }>
 > = (props) => {
@@ -449,6 +453,17 @@ export const ContextEditorProvider: React.FC<
   const [searchActive, setSearchActive] = useState<boolean>(false);
   const openViewSearch = () => setSearchActive(true);
   const [predicate, setPredicate] = useState<Predicate>(null);
+  const overlayEnabled =
+    props.superstate.settings?.renderPathViewOverlays !== false;
+  const projectedPredicate = useMemo(
+    () =>
+      applyRenderPathPredicateProjection({
+        base: predicate,
+        overlay: props.predicateOverlay,
+        enabled: overlayEnabled,
+      }),
+    [predicate, props.predicateOverlay, overlayEnabled]
+  );
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [editMode, setEditMode] = useState<number>(0);
   // Sub-items collapse state (Notidian-pv4), PERSISTED per view in
@@ -971,14 +986,20 @@ export const ContextEditorProvider: React.FC<
       .filter(
         (f) =>
           f.hidden != "true" &&
-          !(predicate?.colsHidden ?? []).some((c) => c == f.name + f.table)
+          !(projectedPredicate?.colsHidden ?? []).some(
+            (c) => c == f.name + f.table
+          )
       )
       .sort(
         (a, b) =>
-          (predicate?.colsOrder ?? []).findIndex((x) => x == a.name + a.table) -
-          (predicate?.colsOrder ?? []).findIndex((x) => x == b.name + b.table)
+          (projectedPredicate?.colsOrder ?? []).findIndex(
+            (x) => x == a.name + a.table
+          ) -
+          (projectedPredicate?.colsOrder ?? []).findIndex(
+            (x) => x == b.name + b.table
+          )
       );
-  }, [cols, predicate]);
+  }, [cols, projectedPredicate]);
   // Per-row predicate-filter match (Notidian-5ond.5): the flat path AND the
   // hierarchy-aware scope seam share the EXACT same match. Extracted into the
   // pure, co-located-tested makeRowMatchesFilters helper (Notidian-iguu) so the
@@ -988,16 +1009,13 @@ export const ContextEditorProvider: React.FC<
   // inlined reduce.
   // ADR-0066 / Notidian-ioxi: fold the render-path declared-view overlay
   // (props.predicateOverlay — a notidian embed `where:` block or a frame node's
-  // predicate prop) into the per-row match CONJUNCTIVELY. This is the ONLY seam
-  // the overlay touches: it is merged into the READ-path matcher's filter list
-  // and never reaches `predicate` state, savePredicate, or saveSchema, so an
-  // overlaid embed can never write its filters back to the view schema/views.mdb
-  // (ADR-0066 Wave-3 write firewall — pinned by the overlayFirewall DOM test).
+  // predicate prop) into the per-row match CONJUNCTIVELY. Rich projected values
+  // use projectedPredicate at their read seams, while this filter merge remains
+  // the row-visibility seam. Neither route reaches native predicate state or
+  // saveSchema (pinned by the overlayFirewall DOM test).
   // Gated by the renderPathViewOverlays kill-switch (default-ON): when off, the
   // base filters pass through byte-for-byte unchanged (legacy).
   const overlayFilters = props.predicateOverlay?.filters;
-  const overlayEnabled =
-    props.superstate.settings?.renderPathViewOverlays !== false;
   const rowMatchesFilters = useMemo(
     () =>
       makeRowMatchesFilters({
@@ -1044,7 +1062,7 @@ export const ContextEditorProvider: React.FC<
   const sortedAllData = useMemo(
     () =>
       data.filter(rowMatchesSearch).sort((a, b) => {
-        return (predicate?.sort ?? []).reduce((p, c) => {
+        return (projectedPredicate?.sort ?? []).reduce((p, c) => {
           return p == 0
             ? sortReturnForCol(
                 cols.find((col) => col.name + col.table == c.field),
@@ -1055,7 +1073,7 @@ export const ContextEditorProvider: React.FC<
             : p;
         }, 0);
       }),
-    [data, rowMatchesSearch, predicate?.sort, cols]
+    [data, rowMatchesSearch, projectedPredicate?.sort, cols]
   );
   // The flat path's data — byte-identical to before (Array.filter preserves the
   // sorted order): the predicate-passing rows in sort order.
@@ -1243,8 +1261,8 @@ export const ContextEditorProvider: React.FC<
     // (Notidian-yjg3) so the limit math is locked offline and identical
     // byte-for-byte to the inline `limit > 0 ? base.slice(0, limit) : base` it
     // replaced — this is the contract the 8h9 virtualization flag-gate preserves.
-    return applyAssemblyLimit(base, predicate?.limit);
-  }, [subItemsNodes, filteredSortedData, predicate?.limit]);
+    return applyAssemblyLimit(base, projectedPredicate?.limit);
+  }, [subItemsNodes, filteredSortedData, projectedPredicate?.limit]);
 
   const updateRow = async (row: DBRow, index: number) => {
     if (crossDatabase) {
@@ -1702,9 +1720,14 @@ export const ContextEditorProvider: React.FC<
     options?: { optimistic?: boolean }
   ) => {
     const defPredicate = defaultPredicateForSchema(dbSchema);
+    const nativePredicate = stripRenderPathProjectionFromSave({
+      candidate: newPredicate,
+      overlay: props.predicateOverlay,
+      enabled: overlayEnabled,
+    });
     const pred = {
       ...(predicate ?? defPredicate),
-      ...newPredicate,
+      ...nativePredicate,
     };
     // Pass dbSchema.id so an orphaned off-primary subItems config auto-heals on
     // save (bd Notidian-sas8) — closes the "unclearable off-primary" gap left by
@@ -2417,7 +2440,7 @@ export const ContextEditorProvider: React.FC<
         sortedColumns,
         contextTable,
         setContextTable,
-        predicate,
+        predicate: projectedPredicate,
         savePredicate,
         saveColumn,
         renameFrontmatterPropertyKey,
