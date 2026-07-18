@@ -33,6 +33,7 @@ Gates: the standard pre-commit chain below. Doctrine: the `long-autonomous-mode`
 - [docs/streams/filename-template-mirror.md](docs/streams/filename-template-mirror.md) — epic `Notidian-pay5.1`
 - [docs/streams/Topic Hub Follow Ons.md](docs/streams/Topic%20Hub%20Follow%20Ons.md) — epic `Notidian-uupm`
 - [docs/streams/Feature Finalization.md](docs/streams/Feature%20Finalization.md) — epic `Notidian-tluq`
+- [docs/streams/Notidian Final Completion.md](docs/streams/Notidian%20Final%20Completion.md) — epic `Notidian-4qjx`
 
 ## Current Architecture
 

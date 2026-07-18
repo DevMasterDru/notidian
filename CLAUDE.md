@@ -1,5 +1,12 @@
 # Notidian Project Instructions
 
+## Final Completion Program
+
+For the owner-commissioned all-product completion mission, load
+`docs/streams/Notidian Final Completion.md` and epic `Notidian-4qjx` before
+selecting work. The explicit mission routing and no-push boundary live on the
+epic and its launch packet.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 
