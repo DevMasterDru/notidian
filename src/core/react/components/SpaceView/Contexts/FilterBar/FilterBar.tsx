@@ -19,7 +19,10 @@ import { showSetValueMenu } from "core/react/components/UI/Menus/properties/prop
 import { showSpacesMenu } from "core/react/components/UI/Menus/properties/selectSpaceMenu";
 import { openContextCreateItemModal } from "core/react/components/UI/Modals/ContextCreateItemModal";
 import { CsvImportModal } from "core/react/components/UI/Modals/CsvImportModal";
-import { CrossDatabaseSourcesModal } from "core/react/components/UI/Modals/CrossDatabaseSourcesModal";
+import {
+  buildCrossDatabaseSourceContextOptions,
+  CrossDatabaseSourcesModal,
+} from "core/react/components/UI/Modals/CrossDatabaseSourcesModal";
 import { executeCsvImport } from "core/utils/contexts/tableCsvImportRuntime";
 import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
 import {
@@ -30,6 +33,7 @@ import { repairSubItemLinks } from "core/utils/contexts/subItemLinkRepair";
 import { PathPropertyName } from "shared/types/context";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
 import { tableToCsv } from "core/utils/contexts/tableCsv";
+import { persistCrossDatabaseSources } from "core/utils/contexts/crossDatabaseView";
 import { FramesMDBContext } from "core/react/context/FramesMDBContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
@@ -119,17 +123,10 @@ export const FilterBar = (props: {
 
   const sourceContextOptions = useMemo(
     () =>
-      Array.from(props.superstate.contextsIndex.entries())
-        .filter(([, context]) => (context?.schemas?.length ?? 0) > 0)
-        .map(([path, context]) => ({
-          path,
-          name: props.superstate.spacesIndex.get(path)?.name ?? path,
-          schemas: context.schemas.map((schema) => ({
-            id: schema.id,
-            name: schema.name,
-          })),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
+      buildCrossDatabaseSourceContextOptions(
+        props.superstate.contextsIndex,
+        props.superstate.spacesIndex
+      ),
     [props.superstate.contextsIndex, props.superstate.spacesIndex]
   );
 
@@ -152,16 +149,12 @@ export const FilterBar = (props: {
         sources={seed}
         contexts={sourceContextOptions}
         onSave={(sources) => {
-          const newSchema = {
-            ...frameSchema,
-            def: {
-              ...frameSchema.def,
-              db: defaultContextSchemaID,
-              sources,
-            },
-            type: "view",
-          };
-          saveSchema(newSchema).then(() => setFrameSchema(newSchema));
+          void persistCrossDatabaseSources({
+            frameSchema,
+            sources,
+            saveSchema,
+            setFrameSchema,
+          });
         }}
       />,
       win

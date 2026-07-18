@@ -48,6 +48,7 @@ import { TablePasteWrite } from "core/utils/contexts/tablePastePlan";
 import { applyAssemblyLimit } from "core/utils/contexts/tableAssembly";
 import {
   assembleCrossDatabaseView,
+  filterCrossDatabaseLoadedSource,
   normalizeCrossDatabaseSources,
 } from "core/utils/contexts/crossDatabaseView";
 import { materializeComputedRelationColumns } from "core/utils/contexts/computedRelationColumns";
@@ -488,6 +489,10 @@ export const ContextEditorProvider: React.FC<
     () => new Set(crossDatabaseSources.map((source) => source.context)),
     [crossDatabaseSources]
   );
+  const notifiedCrossDatabaseIssues = useRef(new Set<string>());
+  useEffect(() => {
+    notifiedCrossDatabaseIssues.current.clear();
+  }, [frameSchema?.def?.sources]);
   const hasComputedRelationColumns =
     props.superstate.settings?.periodScopedRollups !== false &&
     (tableData?.cols ?? []).some(
@@ -597,13 +602,31 @@ export const ContextEditorProvider: React.FC<
               source.context,
               source.db
             );
-            return sourceTable ? { source, table: sourceTable } : null;
+            if (!sourceTable) return null;
+            return filterCrossDatabaseLoadedSource(
+              { source, table: sourceTable },
+              spaceManager,
+              undefined,
+              props.superstate.settings?.recurrenceAwareFilters !== false
+            );
           } catch (_error) {
             return null;
           }
         })
       ).then((loaded) => {
-        updateTable(assembleCrossDatabaseView(loaded.filter(Boolean) as any));
+        const results = loaded.filter(Boolean) as Array<
+          NonNullable<(typeof loaded)[number]>
+        >;
+        for (const result of results) {
+          if (!result.issue) continue;
+          const issueKey = `${result.issue.sourceContext}\0${result.issue.sourceDb}\0${result.issue.message}`;
+          if (notifiedCrossDatabaseIssues.current.has(issueKey)) continue;
+          notifiedCrossDatabaseIssues.current.add(issueKey);
+          props.superstate.ui.notify(result.issue.message);
+        }
+        updateTable(
+          assembleCrossDatabaseView(results.map((result) => result.loaded))
+        );
       });
     }
     // SpaceManager handles MKit data internally

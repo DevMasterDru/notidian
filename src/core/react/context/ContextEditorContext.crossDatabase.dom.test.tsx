@@ -63,12 +63,20 @@ const sourceTable = (
   rows: [{ [PathPropertyName]: path, [field]: value }],
 });
 
-const routinesTable = sourceTable(
-  "Routines/Morning Walk.md",
-  "priority_num",
-  "1"
-);
-const eventsTable = sourceTable("Events/Dinner.md", "importance", "2");
+const routinesTable = {
+  ...sourceTable("Routines/Morning Walk.md", "priority_num", "1"),
+  rows: [
+    { [PathPropertyName]: "Routines/Morning Walk.md", priority_num: "1" },
+    { [PathPropertyName]: "Routines/Inactive.md", priority_num: "0" },
+  ],
+};
+const eventsTable = {
+  ...sourceTable("Events/Dinner.md", "importance", "2"),
+  rows: [
+    { [PathPropertyName]: "Events/Dinner.md", importance: "2" },
+    { [PathPropertyName]: "Events/Old.md", importance: "1" },
+  ],
+};
 const hostTable = sourceTable("My Day/Host.md", "priority", "9");
 
 const frameSchema = {
@@ -83,12 +91,28 @@ const frameSchema = {
         db: "files",
         label: "Routines",
         fields: { priority: "priority_num" },
+        filters: [
+          {
+            field: "priority_num",
+            fn: "isGreatThan",
+            value: "0",
+            fType: "number",
+          },
+        ],
       },
       {
         context: "Events",
         db: "files",
         label: "Events",
         fields: { priority: "importance" },
+        filters: [
+          {
+            field: "importance",
+            fn: "isGreatThan",
+            value: "1",
+            fType: "number",
+          },
+        ],
       },
     ],
   },
@@ -108,7 +132,10 @@ const CaptureContext = (): React.ReactElement | null => {
   return null;
 };
 
-const mount = async (enabled: boolean | undefined) => {
+const mount = async (
+  enabled: boolean | undefined,
+  mountedFrameSchema: any = frameSchema
+) => {
   const readTable = jest.fn(async (context: string) => {
     if (context == "Routines") return routinesTable;
     if (context == "Events") return eventsTable;
@@ -185,7 +212,11 @@ const mount = async (enabled: boolean | undefined) => {
       >
         <PathContext.Provider value={{ pathState: { path: "My Day" }, readMode: false }}>
           <FramesMDBContext.Provider
-            value={{ frameSchemas: [frameSchema], frameSchema, saveSchema }}
+            value={{
+              frameSchemas: [mountedFrameSchema],
+              frameSchema: mountedFrameSchema,
+              saveSchema,
+            }}
           >
             <ContextEditorProvider superstate={superstate}>
               <CaptureContext />
@@ -236,6 +267,45 @@ describe("ContextEditorProvider cross-database read projection", () => {
     ]);
     expect(mounted.readTable).toHaveBeenCalledWith("Routines", "files");
     expect(mounted.readTable).toHaveBeenCalledWith("Events", "files");
+
+    unmount(mounted.root, mounted.container);
+  });
+
+  it("fails one invalid configured source closed and notifies once for that source", async () => {
+    const invalidFrameSchema = {
+      ...frameSchema,
+      def: {
+        ...frameSchema.def,
+        sources: frameSchema.def.sources.map((source, index) =>
+          index == 0
+            ? {
+                ...source,
+                filters: [
+                  {
+                    field: "priority_num",
+                    fn: "futureOperator",
+                    value: "0",
+                    fType: "number",
+                  },
+                ],
+              }
+            : source
+        ),
+      },
+    };
+
+    const mounted = await mount(true, invalidFrameSchema);
+
+    expect(capturedContext.data).toEqual([
+      expect.objectContaining({
+        [PathPropertyName]: "Events/Dinner.md",
+        Source: "Events",
+      }),
+    ]);
+    expect(mounted.superstate.ui.notify).toHaveBeenCalledTimes(1);
+    expect(mounted.superstate.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Routines")
+    );
 
     unmount(mounted.root, mounted.container);
   });

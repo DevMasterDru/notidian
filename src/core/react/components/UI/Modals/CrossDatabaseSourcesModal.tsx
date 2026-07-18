@@ -1,13 +1,52 @@
 import React, { useMemo, useState } from "react";
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { CrossDatabaseSourceDefinition } from "shared/types/mframe";
-import { normalizeCrossDatabaseSources } from "core/utils/contexts/crossDatabaseView";
+import { Filter } from "shared/types/predicate";
+import {
+  crossDatabaseSourceFilterIssue,
+  normalizeCrossDatabaseSources,
+} from "core/utils/contexts/crossDatabaseView";
+import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
+import { filterFnLabels } from "core/utils/contexts/predicate/filterFns/filterFnLabels";
 
 export type CrossDatabaseSourceContextOption = {
   path: string;
   name: string;
-  schemas: Array<{ id: string; name: string }>;
+  schemas: Array<{
+    id: string;
+    name: string;
+    fields?: Array<{ name: string; type: string }>;
+  }>;
 };
+
+export const buildCrossDatabaseSourceContextOptions = (
+  contextsIndex: Map<string, any>,
+  spacesIndex: Map<string, any>
+): CrossDatabaseSourceContextOption[] =>
+  Array.from(contextsIndex.entries())
+    .filter(([, context]) => (context?.schemas?.length ?? 0) > 0)
+    .map(([path, context]) => ({
+      path,
+      name: spacesIndex.get(path)?.name ?? path,
+      schemas: context.schemas.map((schema: { id: string; name: string }) => {
+        const table =
+          context.mdb?.[schema.id] ??
+          (context.contextTable?.schema?.id == schema.id
+            ? context.contextTable
+            : undefined);
+        return {
+          id: schema.id,
+          name: schema.name,
+          fields: (table?.cols ?? []).map(
+            (field: { name: string; type: string }) => ({
+              name: field.name,
+              type: field.type,
+            })
+          ),
+        };
+      }),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
 const blankSource = (): CrossDatabaseSourceDefinition => ({
   context: "",
@@ -15,6 +54,30 @@ const blankSource = (): CrossDatabaseSourceDefinition => ({
   label: "",
   fields: {},
 });
+
+const operatorsForField = (field: { name: string; type: string }): string[] =>
+  Object.keys(filterFnTypes).filter((operator) => {
+    const definition = filterFnTypes[operator];
+    return (
+      definition.type.includes(field.type) &&
+      (!definition.scopedFields?.length ||
+        definition.scopedFields.includes(field.name.toLowerCase()))
+    );
+  });
+
+const blankFilter = (
+  fields: Array<{ name: string; type: string }>
+): Filter | undefined => {
+  const field = fields.find((candidate) => operatorsForField(candidate).length > 0);
+  if (!field) return undefined;
+  const fn = operatorsForField(field)[0];
+  return {
+    field: field.name,
+    fn,
+    value: "",
+    fType: filterFnTypes[fn].valueType,
+  };
+};
 
 export const parseCrossDatabaseFieldMappings = (
   value: string
@@ -46,6 +109,17 @@ export const CrossDatabaseSourcesModal = (props: {
       ? props.sources.map((source) => ({
           ...source,
           fields: { ...source.fields },
+          ...(Array.isArray(source.filters)
+            ? {
+                filters: source.filters.map((filter) =>
+                  filter && typeof filter == "object"
+                    ? { ...filter }
+                    : filter
+                ) as Filter[],
+              }
+            : source.filters === undefined
+              ? {}
+              : { filters: source.filters }),
         }))
       : [blankSource()]
   );
@@ -53,7 +127,19 @@ export const CrossDatabaseSourcesModal = (props: {
     () => normalizeCrossDatabaseSources(drafts),
     [drafts]
   );
-  const canSave = normalized.length >= 2;
+  const invalidFilters = normalized.some((source) => {
+    const context = props.contexts.find(
+      (candidate) => candidate.path == source.context
+    );
+    const schema = context?.schemas.find((candidate) => candidate.id == source.db);
+    return !!crossDatabaseSourceFilterIssue(source, {
+      cols: (schema?.fields ?? []).map((field) => ({
+        ...field,
+        schemaId: source.db,
+      })),
+    });
+  });
+  const canSave = normalized.length >= 2 && !invalidFilters;
   const contextListId = "notidian-cross-database-contexts";
 
   const update = (
@@ -86,6 +172,8 @@ export const CrossDatabaseSourcesModal = (props: {
           (candidate) => candidate.path == source.context.trim()
         );
         const schemas = context?.schemas ?? [];
+        const fields =
+          schemas.find((schema) => schema.id == source.db)?.fields ?? [];
         return (
           <section
             key={index}
@@ -158,6 +246,146 @@ export const CrossDatabaseSourcesModal = (props: {
                 placeholder={"priority=priority_num\nstatus=state"}
               />
             </label>
+            <div className="mk-layout-column mk-gap-4 mk-cross-database-source-filters">
+              <span>Source filters</span>
+              {(Array.isArray(source.filters) ? source.filters : []).map(
+                (filter, filterIndex) => {
+                  const selectedField = fields.find(
+                    (field) => field.name == filter.field
+                  );
+                  const operators = selectedField
+                    ? operatorsForField(selectedField)
+                    : [];
+                  return (
+                    <div
+                      key={filterIndex}
+                      className="mk-layout-row mk-gap-4 mk-cross-database-source-filter"
+                    >
+                      <label>
+                        Field
+                        <select
+                          className="mk-input"
+                          aria-label={`Source ${index + 1} filter ${filterIndex + 1} field`}
+                          value={filter.field}
+                          onChange={(event) => {
+                            const field = fields.find(
+                              (candidate) => candidate.name == event.target.value
+                            );
+                            const fn = field
+                              ? operatorsForField(field)[0]
+                              : undefined;
+                            if (!field || !fn) return;
+                            update(index, {
+                              filters: source.filters!.map((candidate, candidateIndex) =>
+                                candidateIndex == filterIndex
+                                  ? {
+                                      ...candidate,
+                                      field: field.name,
+                                      fn,
+                                      fType: filterFnTypes[fn].valueType,
+                                    }
+                                  : candidate
+                              ),
+                            });
+                          }}
+                        >
+                          <option value="" disabled>
+                            Select field
+                          </option>
+                          {fields
+                            .filter(
+                              (candidate) =>
+                                operatorsForField(candidate).length > 0
+                            )
+                            .map((field) => (
+                              <option key={field.name} value={field.name}>
+                                {field.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label>
+                        Operator
+                        <select
+                          className="mk-input"
+                          aria-label={`Source ${index + 1} filter ${filterIndex + 1} operator`}
+                          value={filter.fn}
+                          onChange={(event) => {
+                            const fn = event.target.value;
+                            update(index, {
+                              filters: source.filters!.map((candidate, candidateIndex) =>
+                                candidateIndex == filterIndex
+                                  ? {
+                                      ...candidate,
+                                      fn,
+                                      fType: filterFnTypes[fn].valueType,
+                                    }
+                                  : candidate
+                              ),
+                            });
+                          }}
+                        >
+                          <option value="" disabled>
+                            Select operator
+                          </option>
+                          {operators.map((operator) => (
+                            <option key={operator} value={operator}>
+                              {filterFnLabels[operator] ?? operator}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Value
+                        <input
+                          className="mk-input"
+                          aria-label={`Source ${index + 1} filter ${filterIndex + 1} value`}
+                          value={filter.value}
+                          onChange={(event) =>
+                            update(index, {
+                              filters: source.filters!.map((candidate, candidateIndex) =>
+                                candidateIndex == filterIndex
+                                  ? { ...candidate, value: event.target.value }
+                                  : candidate
+                              ),
+                            })
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        aria-label={`Remove source ${index + 1} filter ${filterIndex + 1}`}
+                        onClick={() => {
+                          const filters = source.filters!.filter(
+                            (_, candidateIndex) => candidateIndex != filterIndex
+                          );
+                          update(index, {
+                            ...(filters.length > 0
+                              ? { filters }
+                              : { filters: undefined }),
+                          });
+                        }}
+                      >
+                        Remove filter
+                      </button>
+                    </div>
+                  );
+                }
+              )}
+              <button
+                type="button"
+                disabled={!blankFilter(fields)}
+                onClick={() => {
+                  const filter = blankFilter(fields);
+                  if (!filter) return;
+                  update(index, {
+                    filters: [...(source.filters ?? []), filter],
+                  });
+                }}
+              >
+                Add filter
+              </button>
+            </div>
             <button
               type="button"
               onClick={() =>
@@ -181,6 +409,11 @@ export const CrossDatabaseSourcesModal = (props: {
       {normalized.length < 2 && (
         <div className="mk-view-config-warning">
           Add at least two valid source contexts.
+        </div>
+      )}
+      {invalidFilters && (
+        <div className="mk-view-config-warning">
+          Every source filter must use a field and operator supported by its selected database.
         </div>
       )}
       <div className="mk-modal-actions">

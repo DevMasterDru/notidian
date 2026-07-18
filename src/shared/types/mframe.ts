@@ -1,6 +1,7 @@
 import { FrameState } from "./frameExec";
 import { IAPI } from "./api";
 import { SpaceProperty as Property, SpaceTableSchema } from "./mdb";
+import { Filter } from "./predicate";
 
 export type CrossDatabaseSourceDefinition = {
   context: string;
@@ -8,6 +9,7 @@ export type CrossDatabaseSourceDefinition = {
   label?: string;
   /** canonical view field -> source database field */
   fields: Record<string, string>;
+  filters?: Filter[];
 };
 
 // Interaction type for event handlers

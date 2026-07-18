@@ -1,7 +1,17 @@
 import { defaultContextSchemaID } from "shared/schemas/context";
 import { PathPropertyName } from "shared/types/context";
 import { SpaceProperty, SpaceTable } from "shared/types/mdb";
-import { CrossDatabaseSourceDefinition } from "shared/types/mframe";
+import {
+  CrossDatabaseSourceDefinition,
+  FrameSchema,
+} from "shared/types/mframe";
+import { Filter } from "shared/types/predicate";
+import { fieldTypeForField } from "schemas/mdb";
+import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
+import {
+  makeRowMatchesFilters,
+  RowMatchesSpaceManager,
+} from "core/utils/contexts/predicate/rowMatchesFilters";
 
 export const crossDatabasePropertySource = "cross-database";
 export const crossDatabaseSourceColumn = "Source";
@@ -17,11 +27,29 @@ export type CrossDatabaseLoadedSource = {
   table: SpaceTable;
 };
 
+export type CrossDatabaseSourceIssue = {
+  code: "invalid-source-filter";
+  sourceContext: string;
+  sourceDb: string;
+  message: string;
+};
+
 const cleanString = (value: unknown): string =>
   typeof value == "string" ? value.trim() : "";
 
 const defaultLabel = (context: string): string =>
   context.split("/").filter(Boolean).at(-1) ?? context;
+
+const normalizeFilter = (value: unknown): unknown => {
+  if (!value || typeof value != "object" || Array.isArray(value)) return value;
+  const raw = value as Record<string, unknown>;
+  return {
+    ...raw,
+    ...(typeof raw.field == "string" ? { field: raw.field.trim() } : {}),
+    ...(typeof raw.fn == "string" ? { fn: raw.fn.trim() } : {}),
+    ...(typeof raw.fType == "string" ? { fType: raw.fType.trim() } : {}),
+  };
+};
 
 export const normalizeCrossDatabaseSources = (
   value: unknown
@@ -50,15 +78,133 @@ export const normalizeCrossDatabaseSources = (
       return result;
     }, {});
 
-    normalized.push({
+    const source: CrossDatabaseSourceDefinition = {
       context,
       db,
       label: cleanString(raw.label) || defaultLabel(context),
       fields,
-    });
+    };
+    if (raw.filters !== undefined) {
+      const filters = Array.isArray(raw.filters)
+        ? raw.filters.map(normalizeFilter)
+        : raw.filters;
+      if (!Array.isArray(filters) || filters.length > 0) {
+        (source as unknown as Record<string, unknown>).filters = filters;
+      }
+    }
+    normalized.push(source);
     seen.add(identity);
   }
   return normalized;
+};
+
+const invalidSourceFilterIssue = (
+  source: CrossDatabaseSourceDefinition
+): CrossDatabaseSourceIssue => ({
+  code: "invalid-source-filter",
+  sourceContext: source.context,
+  sourceDb: source.db,
+  message: `Source ${source.label || source.context} has an invalid filter configuration and was excluded.`,
+});
+
+const isNativeSourceFilter = (
+  value: unknown,
+  table: SpaceTable
+): value is Filter => {
+  if (!value || typeof value != "object" || Array.isArray(value)) return false;
+  const filter = value as Record<string, unknown>;
+  if (
+    typeof filter.field != "string" ||
+    !filter.field ||
+    typeof filter.fn != "string" ||
+    typeof filter.value != "string" ||
+    typeof filter.fType != "string"
+  ) {
+    return false;
+  }
+  const operator = filterFnTypes[filter.fn];
+  if (!operator) return false;
+  if (filter.fType != operator.valueType) return false;
+  const column = table.cols.find(
+    (candidate) => candidate.name + ((candidate as any).table ?? "") == filter.field
+  );
+  if (!column) return false;
+  const fieldType = fieldTypeForField(column);
+  if (!operator.type.includes(fieldType)) return false;
+  return (
+    !operator.scopedFields?.length ||
+    operator.scopedFields.includes(column.name.toLowerCase())
+  );
+};
+
+export const crossDatabaseSourceFilterIssue = (
+  source: CrossDatabaseSourceDefinition,
+  table: Pick<SpaceTable, "cols">
+): CrossDatabaseSourceIssue | undefined => {
+  const configured = (source as unknown as Record<string, unknown>).filters;
+  if (configured === undefined) return undefined;
+  return !Array.isArray(configured) ||
+    configured.some((filter) => !isNativeSourceFilter(filter, table as SpaceTable))
+    ? invalidSourceFilterIssue(source)
+    : undefined;
+};
+
+export const filterCrossDatabaseLoadedSource = (
+  loaded: CrossDatabaseLoadedSource,
+  spaceManager: RowMatchesSpaceManager,
+  properties: Record<string, any> | undefined | null = undefined,
+  enableRecurrenceFilters = true
+): { loaded: CrossDatabaseLoadedSource; issue?: CrossDatabaseSourceIssue } => {
+  const configured = (loaded.source as unknown as Record<string, unknown>)
+    .filters;
+  if (configured === undefined) return { loaded };
+  const issue = crossDatabaseSourceFilterIssue(loaded.source, loaded.table);
+  if (issue) {
+    return {
+      loaded: {
+        source: loaded.source,
+        table: { ...loaded.table, rows: [] },
+      },
+      issue,
+    };
+  }
+  const matches = makeRowMatchesFilters({
+    filters: configured as Filter[],
+    cols: loaded.table.cols.map((column) => ({ ...column, table: "" })),
+    spaceManager,
+    properties,
+    enableRecurrenceFilters,
+  });
+  return {
+    loaded: {
+      source: loaded.source,
+      table: { ...loaded.table, rows: loaded.table.rows.filter(matches) },
+    },
+  };
+};
+
+export const persistCrossDatabaseSources = async ({
+  frameSchema,
+  sources,
+  saveSchema,
+  setFrameSchema,
+}: {
+  frameSchema: FrameSchema;
+  sources: CrossDatabaseSourceDefinition[];
+  saveSchema: (schema: FrameSchema) => Promise<unknown>;
+  setFrameSchema: (schema: FrameSchema) => void;
+}): Promise<void> => {
+  const nextSchema: FrameSchema = {
+    ...frameSchema,
+    def: {
+      ...frameSchema.def,
+      db: defaultContextSchemaID,
+      sources,
+    },
+    type: "view",
+  };
+  await saveSchema(nextSchema);
+  setFrameSchema(nextSchema);
 };
 
 const sourceColumnFor = (
