@@ -5,65 +5,51 @@ description: Notidian's outward interface for cross-repo consultation (ADR-0041)
 
 # Notidian — Capabilities
 
-> Per Atlas Method ADR-0041 (cross-repo consultation ladder): read this file
-> inline before spawning a subagent or cold-exploring this repo. Stable cited
-> facts and pointers only — never volatile counts/state; resolve those live via
-> `bd` or the docs this file points at.
+> Per Atlas Method ADR-0041 (cross-repo consultation ladder): read this file inline
+> before spawning a subagent or cold-exploring this repo. Resolve volatile state
+> live through `bd` or the cited source; this page holds stable facts and pointers.
 
 ## 1. Identity
 
-Notidian is an independent Make.md fork — a Notion-style database engine laid
-over canonical Obsidian files, running as a single bundled Obsidian plugin
-(`main.js`) inside Obsidian's Electron renderer. It is the sole intended
-database engine for the Atlas Vault; native Obsidian Bases is retired and out
-of scope (ADR 0014).
+Notidian is an independent Make.md fork: a Notion-style database engine over
+canonical Obsidian files, bundled as one plugin (`main.js`). It is the sole
+Atlas Vault database engine; native Obsidian Bases is out of scope (ADR 0014).
 
 - Repo: `~/Projects/Notidian` · bd prefix: `Notidian-` · Portfolio row:
   `Portfolio/Notidian.md` (`kind: product`, serves `[[Atlas]]`).
 - Build: `npm run build` (typecheck + bundle); `npm run deploy:vault` (build →
-  install → reload — the only path that makes a change visible in a running
-  vault, ADR 0051).
+  install → reload, the only path that updates a running vault; ADR 0051).
 
 ## 2. Capabilities
 
-- **Folder-as-database tables**: frontmatter properties materialize as table
-  columns; Notion-style UX — spreadsheet paste/cut/fill, undo/redo, frozen
-  columns, manual row order, grouped islands, in-view quick find, properties
-  visibility panel, per-database row-create templates.
+- **Folder-as-database tables**: frontmatter properties become table columns;
+  UX includes range editing, undo/redo, frozen columns, manual order, grouped
+  islands, view search, property visibility, and row-create templates.
 - **File-canonical editing**: page titles are file renames, not detached
-  strings; frontmatter writes gate table/context acceptance; stale-write
-  conflicts surface inline (Reload / Apply anyway) instead of silently
-  overwriting.
+  strings; frontmatter writes gate acceptance; stale-write conflicts surface
+  inline (Reload / Apply anyway) instead of overwriting.
 - **Hub-declared schema**: a database's hub note can declare `schema_type:
-  notidian_type_profile` + a `fields:` map; hub↔table mirror keeps both in
-  sync one-directionally-safe (no echo loops).
+  notidian_type_profile` plus `fields:`; the hub↔table mirror suppresses echoes.
 - **Legacy Make.md migration**: read-only audit/planner classifies a legacy
-  context table against live frontmatter (conflicts, backfill candidates,
-  context-only values) before any migration write.
+  table against live frontmatter before any migration write.
 - **Embeds**: a database table/view can be embedded live in any note, or on an
-  Obsidian **Canvas**, via a `​```notidian` code block (target/kind/id/height/
-  editable) — Canvas uses a small wrapper note + the standard JSON Canvas
-  `file` node, deliberately avoiding undocumented Canvas-internals patching.
+  Obsidian **Canvas**, via a `​```notidian` code block. Canvas uses a wrapper
+  note and standard JSON Canvas `file` node, not undocumented internals.
 - **Cross-database saved views**: one native saved view can project rows from
-  several folder databases through explicit canonical-to-source field mappings;
-  filters/sort/group/layouts/embeds/export and the native view switcher operate
-  on the live union. F1 is read-only to preserve each source frontmatter key as
-  the sole owner ([ADR 0059](adr/0059-cross-database-saved-views.md)).
+  several folders through explicit field mappings. Native view operations act
+  on the live union; F1 is read-only to preserve source ownership ([ADR
+  0059](adr/0059-cross-database-saved-views.md)).
 - **Period-scoped relation rollups**: forward Rollup and reverse Linked From
-  columns can aggregate related rows from local Today or the current ISO
-  Monday-start week; the live result works in native filters and sort without
-  storing counters or latest dates ([ADR
+  can aggregate local Today or the current ISO Monday-start week. Results work
+  in native filters and sort without durable counters or dates ([ADR
   0060](adr/0060-period-scoped-relation-rollups.md)).
 - **Recurrence-aware occurrence filters**: select fields named `cadence` or
-  `recurrence` expose native Occurs today / Occurs this ISO week predicates that
-  interpret `days` and `times_per_week` directly from canonical frontmatter;
-  frequency-only weekly targets never invent a due day and no occurrence rows
-  or reset daemon are created ([ADR
+  `recurrence` expose Occurs today / Occurs this ISO week predicates over
+  canonical frontmatter. They create no occurrence rows or reset daemon ([ADR
   0061](adr/0061-recurrence-aware-occurs-on-filters.md)).
 - **In-flight (Data Integrity Program, `Notidian-loan`)**: Type Profile v3
-  schema registry (enum-as-law, required/unique/pattern, declared references,
-  derived fields), a pure validation core, and a read-only reconciler/health
-  surface — ADRs 0056–0058.
+  schema registry, pure validation core, and read-only reconciler/health surface
+  — ADRs 0056–0058.
 
 ## 3. Concepts & vocabulary
 
@@ -87,10 +73,9 @@ of scope (ADR 0014).
 - **Live-verify contract** (ADR 0051): committed + gates-green ≠ deployed; a
   render-path change needs `npm run deploy:vault` + `obsidian dev:dom`/
   `dev:errors`/`dev:screenshot` before it's considered shipped.
-- **Standing autonomous authorization**: "Long Autonomous Mode" section in
-  this repo's `AGENTS.md`, run via the repo-agnostic
-  `~/.claude/skills/long-autonomous-mode/` engine (doctrine: Atlas Method
-  `docs/decisions/0022`); branch `autonomous/notion-parity-2026-06-12`.
+- **Final-completion execution** (ADR 0064): one xhigh root resolves the live
+  Beads graph and gates one direct Sol-medium implementation worker at a time on
+  `autonomous/notion-parity-2026-06-12`; no hcom or Claude transport proxy.
 - **AI operating guidance**: the `notidian` skill (canonical source in the
   *Atlasidian* repo, `.agents/skills/notidian/`) is the routing skill for any
   Obsidian-database task, in this repo or the vault.
@@ -108,10 +93,9 @@ of scope (ADR 0014).
   recursively regardless of ignore filters (V8 OOM risk).
 - `.worktrees/` holds ignored local worktree snapshots — not active source,
   do not inspect/summarize unless explicitly asked.
-- The engine that runs autonomous drives here is **repo-local by design**: it
-  reads only this repo's own `AGENTS.md`/`README`/`package.json`, never the
-  Atlas Method repo's ADR stream — fresh cross-cutting doctrine does not
-  auto-propagate in and must be threaded in by a session that knows to check.
+- Autonomous completion state lives in this repo's Beads graph, packet, ADRs,
+  and git history; model and invocation details resolve live from the Atlas
+  Vault Model Routing registry (ADR 0064).
 
 ## 6. Consultation pointers
 

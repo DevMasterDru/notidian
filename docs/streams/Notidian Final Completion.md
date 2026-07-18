@@ -19,6 +19,10 @@ pointers:
     key: docs/adr/README.md
     resolver: follow only the ADRs linked by the active Bead brief
     why: decisions and rejected alternatives remain authoritative at implementation time
+  - type: repo-doc
+    key: docs/adr/0064-final-completion-micro-session-execution.md
+    resolver: read Decision before dispatching or resuming final-completion work
+    why: defines the direct one-Bead execution and checkpoint contract
   - type: external
     key: Atlas Vault Configs Model Routing
     resolver: read /Users/druker/Atlas Vault/Configs/Model Routing.md at every dispatch
@@ -67,7 +71,10 @@ Those remain pointers or owner surfaces outside the completion manifest.
 - Markdown paths and frontmatter remain canonical; Notidian MDB state owns only
   explicit Notidian fields and view behavior — `docs/current-state.md`.
 - Work status and dependency order live only in epic `Notidian-4qjx` and its
-  explicit mission manifest; this packet never copies their volatile state.
+  live Beads graph; this packet never copies their volatile state.
+- Final completion runs as direct dependency-critical one-Bead micro-sessions:
+  xhigh orchestration and gates around one explicit Sol-medium implementation
+  worker, with a local commit checkpoint after each accepted unit — ADR 0064.
 - Existing Feature Finalization, Topic Hub, and Data Integrity packets retain
   their local architecture and decision boundaries.
 - Commits are local and pushes are prohibited until a later explicit owner
@@ -83,12 +90,15 @@ Those remain pointers or owner surfaces outside the completion manifest.
   blocked until evidence closes each commissioned product leaf.
 - One model owning both implementation and final judgment — the active mission
   uses separate medium implementation and xhigh orchestration and gates.
+- Broad plan-all-before-build runs, unrelated multi-Bead waves, and hcom or
+  Claude transport proxies — ADR 0064.
 
 ## Links
 
-- **Work graph:** epic `Notidian-4qjx`; use `bd show Notidian-4qjx` and the
-  explicit autolong mission manifest.
+- **Work graph:** epic `Notidian-4qjx`; resolve current status and dependency
+  order through `bd show Notidian-4qjx`, in-progress leaves, and `bd ready`.
 - **Decisions:** [ADR index](../adr/README.md).
+- **Execution decision:** [ADR 0064](../adr/0064-final-completion-micro-session-execution.md).
 - **Sibling streams:** [Feature Finalization](Feature%20Finalization.md),
   [Topic Hub Follow Ons](Topic%20Hub%20Follow%20Ons.md), and
   [Data Integrity Program](data-integrity-program.md).
