@@ -1215,6 +1215,10 @@ export const en = {
       "name": "Select to Comment",
       "desc": "Show a Comment action when text is selected. Comments and their Obsidian block anchors are stored in the Markdown file and frontmatter; turn off to remove the action and prevent comment writes."
     },
+    "dateReminders": {
+      "name": "Date Reminders",
+      "desc": "Deliver due reminders while Obsidian is open, including an at-most-once seven-day catch-up after reopening. Reminder schedules stay in Markdown frontmatter. Off by default."
+    },
     "renderPathViewOverlays": {
       "name": "Embed View Overlays",
       "desc": "Let a Notidian embed's \"where:\" clauses filter the embedded view at render time, so a topic/hub page can show a narrowed slice of a shared database. Read-only: overlays never change the underlying view or its saved filters. Turn off to render embedded views unfiltered (legacy behavior)."

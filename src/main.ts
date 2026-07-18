@@ -19,6 +19,16 @@ import {
   NavigatorContentVault,
   reconcileNavigatorContentSearchLifecycle,
 } from "adapters/obsidian/NavigatorContentSearchService";
+import {
+  ReminderDeliveryLifecycleController,
+  ReminderDeliveryService,
+} from "adapters/obsidian/ReminderDeliveryService";
+import { SerializedSettingsPersistence } from "adapters/obsidian/SerializedSettingsPersistence";
+import {
+  ObsidianReminderStateFileIO,
+  ReminderFiredStateStore,
+  ReminderStateVaultAdapter,
+} from "adapters/mdb/ReminderFiredStateStore";
 import NavigatorContentSearchWorker from "web-worker:core/superstate/workers/navigatorContentSearch/navigatorContentSearch.worker.ts";
 import {
   NotidianPluginSettingsTab
@@ -166,6 +176,9 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
   private filenameEnforcer: import("core/utils/contexts/filenameEnforcer").FilenameEnforcer | null = null;
   private reconciler: import("core/superstate/reconciler").Reconciler | null = null;
   private navigatorContentSearchService: NavigatorContentSearchService | null = null;
+  private reminderDeliveryLifecycle: ReminderDeliveryLifecycleController<ReminderDeliveryService> | null = null;
+  private readonly settingsPersistence =
+    new SerializedSettingsPersistence<typeof DEFAULT_SETTINGS>();
 
   private syncNavigatorContentSearchService = () => {
     this.navigatorContentSearchService =
@@ -184,6 +197,37 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
           })
       );
     this.superstate.navigatorContentSearch = this.navigatorContentSearchService;
+  };
+
+  private syncReminderDeliveryService = async () => {
+    if (!this.reminderDeliveryLifecycle) {
+      this.reminderDeliveryLifecycle = new ReminderDeliveryLifecycleController(
+        () =>
+          new ReminderDeliveryService({
+            index: {
+              entries: () => this.superstate.pathsIndex.entries(),
+              get: (path) => this.superstate.pathsIndex.get(path),
+            },
+            events: this.superstate.eventsDispatcher,
+            store: new ReminderFiredStateStore(
+              new ObsidianReminderStateFileIO(
+                this.app.vault.adapter as unknown as ReminderStateVaultAdapter,
+              ),
+            ),
+            now: Date.now,
+            notify: (message) => this.superstate.ui.notify(message),
+            diagnostic: (error) =>
+              console.error("[Notidian reminders] delivery service failure", error),
+            registerInterval: (callback, intervalMs) =>
+              this.registerInterval(window.setInterval(callback, intervalMs)),
+            clearInterval: (handle) => window.clearInterval(handle as number),
+            isIndexReady: () => this.superstate.initialized,
+          }),
+      );
+    }
+    await this.reminderDeliveryLifecycle.reconcile(
+      this.superstate.settings.dateReminders,
+    );
   };
 
   private pluginDataFilePath(fileName: string) {
@@ -627,6 +671,11 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
       this.syncNavigatorContentSearchService
     );
     this.syncNavigatorContentSearchService();
+    this.superstate.eventsDispatcher.addListener(
+      "settingsChanged",
+      this.syncReminderDeliveryService,
+    );
+    await this.syncReminderDeliveryService();
     
 
 
@@ -835,16 +884,23 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   }
 
   async saveSettings(refresh = true) {
-
     this.superstate.settings = this.sanitizedSettings(this.superstate.settings);
-    await this.saveData(this.superstate.settings);
-    this.obsidianAdapter.pathLastUpdated.set(this.pluginDataFilePath("data.json"), Date.now());
-    if (refresh)
-    this.superstate.dispatchEvent("settingsChanged", null)
-    
+    return this.settingsPersistence.enqueue(
+      this.superstate.settings,
+      async (snapshot) => {
+        await this.saveData(snapshot);
+        this.obsidianAdapter.pathLastUpdated.set(
+          this.pluginDataFilePath("data.json"),
+          Date.now(),
+        );
+      },
+      () => {
+        if (refresh) this.superstate.dispatchEvent("settingsChanged", null);
+      },
+    );
   }
 
-  onunload() {
+  onunload(): void {
     this.superstate.eventsDispatcher.removeListener(
       "settingsChanged",
       this.syncNavigatorContentSearchService
@@ -858,6 +914,13 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
         }
       );
     this.superstate.navigatorContentSearch = null;
+    this.superstate.eventsDispatcher.removeListener(
+      "settingsChanged",
+      this.syncReminderDeliveryService,
+    );
+    this.reminderDeliveryLifecycle?.shutdown((error) =>
+      console.error("[Notidian reminders] shutdown failure", error),
+    );
     this.reconciler?.stop();
     this.superstate.reconciler = null;
     this.superstate.persister.unload();

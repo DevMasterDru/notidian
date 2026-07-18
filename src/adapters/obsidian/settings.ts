@@ -390,6 +390,13 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // Notidian-tluq.7 / ADR 0020 — opt-in delivery scanner. The shared
+        // settingsChanged event reconciles its lifecycle after this is saved.
+        name: 'dateReminders',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         // bd Notidian-ioxi / ADR-0066 (Topic Hub) — render-path declared-view
         // overlay kill-switch. No onChange side effect: the shared boolean
         // handler saves it and the row-visibility seam reads

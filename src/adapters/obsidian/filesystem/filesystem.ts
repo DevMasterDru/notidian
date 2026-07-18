@@ -8,7 +8,7 @@ import { LocalStorageCache } from "adapters/mdb/localCache/localCache";
 import { LocalCachePersister } from "shared/types/persister";
 
 import { MobileCachePersister } from "adapters/mdb/localCache/localCacheMobile";
-import { DEFAULT_SETTINGS } from "core/schemas/settings";
+import { sanitizeNotidianSettings } from "core/schemas/settings";
 import { defaultFocusFile } from "core/spaceManager/filesystemAdapter/filesystemAdapter";
 import { parsePathState } from "core/utils/superstate/parser";
 import { DBRows } from "shared/types/mdb";
@@ -191,7 +191,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
             }
             
             if (path == normalizePath(pluginDataPath(this.plugin.app.vault.configDir, "data.json"))) {
-                this.plugin.superstate.settings = Object.assign({}, DEFAULT_SETTINGS, await this.plugin.loadData());
+                this.plugin.superstate.settings = sanitizeNotidianSettings(await this.plugin.loadData());
                 this.plugin.superstate.dispatchEvent("settingsChanged", null);
             } 
         }

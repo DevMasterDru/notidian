@@ -73,6 +73,9 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // Comment action and the authoring path cannot mint anchors or write
   // CommentV1 frontmatter.
   selectToComment: true,
+  // ADR 0020 / Notidian-tluq.7: delivery is explicitly opt-in and independent
+  // from schedule authoring. OFF starts no scanner and sends no reminders.
+  dateReminders: false,
   spaceViewShowNoteBody: true,
   // Notidian-8sl: default ON — the owner explicitly requested a collapsible +
   // shrink-to-fit space-note body, so it ships enabled; the owner verifies it by
@@ -264,6 +267,12 @@ export const sanitizeNotidianSettings = (data: unknown): MakeMDSettings => {
   // Notidian-3gx2: force existing saved values out of the crash path too. A
   // default change alone would not help vaults that already persisted true.
   settings.cacheIndex = false;
+
+  // ADR 0020: corrupt/truthy persisted values must never opt a vault into
+  // reminder delivery. Only an actual boolean can override the OFF default.
+  if (typeof settings.dateReminders !== "boolean") {
+    settings.dateReminders = false;
+  }
 
   return settings as unknown as MakeMDSettings;
 };

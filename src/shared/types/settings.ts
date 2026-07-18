@@ -107,6 +107,10 @@ export interface MakeMDSettings {
   // CommentV1 authoring. OFF removes the action entirely and performs no
   // comment/anchor writes, restoring the pre-feature popup.
   selectToComment: boolean;
+  // ADR 0020 / Notidian-tluq.7: opt-in reminder delivery. When true, the
+  // candidate-indexed delivery service scans file-canonical due/repeat/reminder
+  // metadata while Obsidian is open. Default OFF; authoring is independent.
+  dateReminders: boolean;
   folderIndentationLines: boolean;
   revealActiveFile: boolean;
   hiddenFiles: string[];

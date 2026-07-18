@@ -68,6 +68,7 @@ const REQUIRED_SETTING_KEYS = {
   lockBadge: true,
   enableDataHealthSurfaces: true,
   selectToComment: true,
+  dateReminders: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
   spaceNoteBodyFullCollapse: true,
@@ -236,6 +237,10 @@ describe("DEFAULT_SETTINGS <-> MakeMDSettings parity (Notidian-ycs6)", () => {
 
   test("select-to-comment ships default-on behind an honest kill switch", () => {
     expect((DEFAULT_SETTINGS as any).selectToComment).toBe(true);
+  });
+
+  test("date reminder delivery ships default-off", () => {
+    expect((DEFAULT_SETTINGS as any).dateReminders).toBe(false);
   });
 
   describe("documented kill-switches are pinned LOUD (default-ON booleans)", () => {
