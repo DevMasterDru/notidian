@@ -187,6 +187,19 @@ export const dateBefore: FilterFunction = (
 // withinLast/olderThan resolve relative tokens.
 const RELATIVE_TOKEN_PATTERN = /^(\d+)([dwmy])$/;
 
+export type RelativeDateUnit = "d" | "w" | "m" | "y";
+
+export const parseRelativeDateToken = (
+  token: unknown
+): { amount: string; unit: RelativeDateUnit } | null => {
+  const match = RELATIVE_TOKEN_PATTERN.exec(
+    typeof token === "string" ? token : ""
+  );
+  return match
+    ? { amount: match[1], unit: match[2] as RelativeDateUnit }
+    : null;
+};
+
 // Resolve a relative-date token (see RELATIVE_TOKEN_PATTERN) to the absolute
 // Date it denotes: `now` stepped back the given amount of units, then
 // truncated to that day's local start-of-day (so the result is always a
@@ -196,11 +209,9 @@ const RELATIVE_TOKEN_PATTERN = /^(\d+)([dwmy])$/;
 // testing.
 //
 // Units: d = days, w = weeks (7 days), m = calendar months, y = calendar
-// years. The 'm'/'y' steps use the native Date#setMonth / Date#setFullYear,
-// which ROLL OVER when the current day-of-month doesn't exist in the target
-// month/year (e.g. Jan 31 minus 1 month lands in early March, not Feb
-// 28/29). That native rollover is intentionally ACCEPTED here, not corrected
-// -- Notidian-t5vs.
+// years. Month/year subtraction selects the target calendar period first and
+// clamps the original day to that period's last valid day (ADR 0062), avoiding
+// native Date rollover for month-end and leap-day operands.
 //
 // Returns an Invalid Date (NaN-valued) for any token that doesn't match
 // RELATIVE_TOKEN_PATTERN, so a malformed token flows into the same
@@ -211,16 +222,31 @@ export const resolveRelativeDateOperand = (
   token: string,
   now: Date = new Date()
 ): Date => {
-  const match = RELATIVE_TOKEN_PATTERN.exec(token ?? "");
-  if (!match) return new Date(NaN);
-  const amount = parseInt(match[1], 10);
-  const unit = match[2];
+  const parsed = parseRelativeDateToken(token);
+  if (!parsed) return new Date(NaN);
+  const amount = parseInt(parsed.amount, 10);
+  const unit = parsed.unit;
   const threshold = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (unit === "d") threshold.setDate(threshold.getDate() - amount);
   else if (unit === "w") threshold.setDate(threshold.getDate() - amount * 7);
-  else if (unit === "m") threshold.setMonth(threshold.getMonth() - amount);
-  else if (unit === "y")
-    threshold.setFullYear(threshold.getFullYear() - amount);
+  else {
+    const originalDay = threshold.getDate();
+    const targetMonthIndex =
+      threshold.getFullYear() * 12 +
+      threshold.getMonth() -
+      (unit === "m" ? amount : amount * 12);
+    const targetYear = Math.floor(targetMonthIndex / 12);
+    const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+    const targetPeriodEnd = new Date(0);
+    targetPeriodEnd.setHours(0, 0, 0, 0);
+    targetPeriodEnd.setFullYear(targetYear, targetMonth + 1, 0);
+    threshold.setDate(1);
+    threshold.setFullYear(
+      targetYear,
+      targetMonth,
+      Math.min(originalDay, targetPeriodEnd.getDate())
+    );
+  }
   return threshold;
 };
 

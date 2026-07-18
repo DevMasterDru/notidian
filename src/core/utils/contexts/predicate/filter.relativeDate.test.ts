@@ -55,19 +55,47 @@ describe("relative-date filter fns (withinLast / olderThan) — Notidian-l12a", 
       expect(result.getDate()).toBe(27); // July 11 - 14 days = June 27
     });
 
-    it("'m' unit steps back N calendar months via native setMonth (mid-month, no rollover)", () => {
+    it("'m' unit steps back N calendar months (mid-month)", () => {
       const result = resolveRelativeDateOperand("1m", FIXED_NOW);
       expect(result.getFullYear()).toBe(2026);
       expect(result.getMonth()).toBe(5); // June
       expect(result.getDate()).toBe(11);
     });
 
-    it("'y' unit steps back N calendar years via native setFullYear (non-leap-day date)", () => {
+    it("'y' unit steps back N calendar years (non-leap-day date)", () => {
       const result = resolveRelativeDateOperand("1y", FIXED_NOW);
       expect(result.getFullYear()).toBe(2025);
       expect(result.getMonth()).toBe(6);
       expect(result.getDate()).toBe(11);
     });
+
+    it("clamps 31 March minus one month to the last valid day of February", () => {
+      const result = resolveRelativeDateOperand(
+        "1m",
+        new Date(2026, 2, 31, 12, 0, 0)
+      );
+      expect(result).toEqual(new Date(2026, 1, 28));
+    });
+
+    it("clamps leap day minus one year to 28 February", () => {
+      const result = resolveRelativeDateOperand(
+        "1y",
+        new Date(2024, 1, 29, 12, 0, 0)
+      );
+      expect(result).toEqual(new Date(2023, 1, 28));
+    });
+
+    it.each([
+      ["15m", new Date(2026, 2, 31, 12, 0, 0), new Date(2024, 11, 31)],
+      ["13m", new Date(2026, 2, 31, 12, 0, 0), new Date(2025, 1, 28)],
+      ["5y", new Date(2024, 1, 29, 12, 0, 0), new Date(2019, 1, 28)],
+      ["4y", new Date(2024, 1, 29, 12, 0, 0), new Date(2020, 1, 29)],
+    ])(
+      "clamps multi-period crossing %s without calendar rollover",
+      (token, now, expected) => {
+        expect(resolveRelativeDateOperand(token, now)).toEqual(expected);
+      }
+    );
 
     it("defaults `now` to the real current time when omitted", () => {
       // Convention (matches filter.test.ts's isSameDayAsToday tests): derive

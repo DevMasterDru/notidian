@@ -38,6 +38,7 @@ import { FramesMDBContext } from "core/react/context/FramesMDBContext";
 import { PathContext } from "core/react/context/PathContext";
 import { SpaceContext } from "core/react/context/SpaceContext";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
+import { parseRelativeDateToken } from "core/utils/contexts/predicate/filter";
 import { filterFnLabels } from "core/utils/contexts/predicate/filterFns/filterFnLabels";
 import { filterFnTypes } from "core/utils/contexts/predicate/filterFns/filterFnTypes";
 import { recurrenceFilterFnsForFieldName } from "core/utils/contexts/recurrenceOccurrence";
@@ -1786,6 +1787,17 @@ export const FilterBar = (props: {
     filter: Filter,
     index: number
   ) => {
+    if (
+      filter.fType != "property" &&
+      (filter.fn == "withinLast" || filter.fn == "olderThan")
+    ) {
+      savePredicate({
+        filters: (predicate?.filters ?? []).map((s, i) =>
+          i == index ? filter : s
+        ),
+      });
+      return;
+    }
     switch (filter.fType ?? filterFnTypes[filter.fn].valueType) {
       case "property":
         {
@@ -2478,6 +2490,7 @@ export const FilterBar = (props: {
                 superstate={props.superstate}
                 fieldType={cols.find((c) => c.name + c.table == f.field)?.type}
                 filter={f}
+                enableRelativeDateEditor
                 selectFilterValue={(e, f) => selectFilterValue(e, f, i)}
               ></FilterValueSpan>
               {properties.length > 0 && (
@@ -2569,17 +2582,75 @@ export const FilterValueSpan = (props: {
   filter: Filter;
   selectFilterValue: (e: React.MouseEvent, f: Filter) => void;
   fieldType: string;
+  enableRelativeDateEditor?: boolean;
 }) => {
   const { filter, selectFilterValue, fieldType } = props;
   const fnType = filterFnTypes[filter.fn];
   const [value, setValue] = useState(filter.value);
+  const initialRelativeToken = parseRelativeDateToken(filter.value);
+  const [relativeAmount, setRelativeAmount] = useState(
+    initialRelativeToken?.amount ?? ""
+  );
+  const [relativeUnit, setRelativeUnit] = useState(
+    initialRelativeToken?.unit ?? "d"
+  );
 
-  useEffect(() => setValue(filter.value), [filter.value]);
+  useEffect(() => {
+    setValue(filter.value);
+    const parsed = parseRelativeDateToken(filter.value);
+    setRelativeAmount(parsed?.amount ?? "");
+    setRelativeUnit(parsed?.unit ?? "d");
+  }, [filter.value]);
   if (filter.fType == "property") {
     return <span>{filter.value}</span>;
   }
   if (!fieldType || !fnType || fnType.valueType == "none") {
     return <></>;
+  } else if (
+    props.enableRelativeDateEditor &&
+    (filter.fn == "withinLast" || filter.fn == "olderThan")
+  ) {
+    const saveRelativeToken = (amount: string, unit: string) => {
+      if (!parseRelativeDateToken(`${amount}${unit}`)) return;
+      const normalizedAmount = amount.replace(/^0+(?=\d)/, "");
+      selectFilterValue(null, {
+        ...filter,
+        value: `${normalizedAmount}${unit}`,
+      });
+    };
+    return (
+      <span className="mk-relative-date-filter-value">
+        <input
+          aria-label="Relative date amount"
+          type="number"
+          min="0"
+          step="1"
+          inputMode="numeric"
+          value={relativeAmount}
+          onChange={(e) => {
+            const amount = e.currentTarget.value;
+            setRelativeAmount(amount);
+            saveRelativeToken(amount, relativeUnit);
+          }}
+        />
+        <select
+          aria-label="Relative date unit"
+          value={relativeUnit}
+          onChange={(e) => {
+            const unit = e.currentTarget.value;
+            const parsed = parseRelativeDateToken(`${relativeAmount}${unit}`);
+            if (!parsed) return;
+            setRelativeUnit(parsed.unit);
+            saveRelativeToken(parsed.amount, parsed.unit);
+          }}
+        >
+          <option value="d">days</option>
+          <option value="w">weeks</option>
+          <option value="m">months</option>
+          <option value="y">years</option>
+        </select>
+      </span>
+    );
   } else if (fnType.valueType == "text" || fnType.valueType == "number") {
     return (
       <input

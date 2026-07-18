@@ -116,10 +116,8 @@ export const filterFnTypes: FilterFunctionType = {
   // fType when it equals 'property' (a dynamic value looked up from another
   // property), so a literal overlay-constructed token (e.g. '7d') still flows
   // straight through as filter.value regardless of valueType. The manual
-  // FilterBar value-editor dispatches on this SAME valueType and falls back
-  // to the plain date-picker dateBefore/dateAfter use, which cannot express a
-  // relative token by hand -- a known, separately-filed gap (Notidian-2l1y),
-  // not fixed here.
+  // FilterBar recognizes these two operator ids and uses the shared relative-
+  // token parser/editor while ordinary date operators retain the date picker.
   withinLast: {
     type: ["date"],
     fn: (v, f) => withinLast(v, f),
