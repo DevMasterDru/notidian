@@ -719,6 +719,8 @@ export const en = {
     "searchPlaceholder": "Search this view...",
     "navigatorFilterPlaceholder": "Filter files and folders...",
     "navigatorFilterClear": "Clear filter",
+    "navigatorFilterBuilding": "Building content index…",
+    "navigatorFilterUnavailable": "Content search unavailable",
     "searchView": "Search",
     "searchViewTooltip": "Search this view (⌘/Ctrl+F)",
     "contextItemSelectPlaceholder": "Find Item",

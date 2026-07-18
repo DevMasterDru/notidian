@@ -3,6 +3,7 @@ import { SPACE_VIEW_TYPE, SpaceViewContainer } from "adapters/obsidian/SpaceView
 import { DEFAULT_SETTINGS, sanitizeNotidianSettings } from "core/schemas/settings";
 import {
   App, MarkdownView,
+  EventRef,
   Platform,
   Plugin,
   TAbstractFile,
@@ -13,6 +14,12 @@ import {
   addIcon,
   normalizePath
 } from "obsidian";
+import {
+  NavigatorContentSearchService,
+  NavigatorContentVault,
+  reconcileNavigatorContentSearchLifecycle,
+} from "adapters/obsidian/NavigatorContentSearchService";
+import NavigatorContentSearchWorker from "web-worker:core/superstate/workers/navigatorContentSearch/navigatorContentSearch.worker.ts";
 import {
   NotidianPluginSettingsTab
 } from "./adapters/obsidian/settings";
@@ -83,6 +90,7 @@ import { ObsidianCommands } from "adapters/obsidian/commands/obsidianCommands";
 import { CLIManager } from "core/middleware/commands";
 import { openBlinkModal } from "core/react/components/Blink/Blink";
 import { LocalCachePersister } from "shared/types/persister";
+import { NavigatorContentWorkerPort } from "shared/types/navigatorContentSearch";
 
 import { ImageFileTypeAdapter } from "adapters/image/imageAdapter";
 import { LocalStorageCache } from "adapters/mdb/localCache/localCache";
@@ -157,6 +165,26 @@ export default class MakeMDPlugin extends Plugin implements IMakeMDPlugin {
 
   private filenameEnforcer: import("core/utils/contexts/filenameEnforcer").FilenameEnforcer | null = null;
   private reconciler: import("core/superstate/reconciler").Reconciler | null = null;
+  private navigatorContentSearchService: NavigatorContentSearchService | null = null;
+
+  private syncNavigatorContentSearchService = () => {
+    this.navigatorContentSearchService =
+      reconcileNavigatorContentSearchLifecycle(
+        this.superstate.settings.enableNavigatorTextFilter,
+        this.navigatorContentSearchService,
+        () =>
+          new NavigatorContentSearchService({
+            vault: this.app.vault as unknown as NavigatorContentVault,
+            superstate: this.superstate,
+            createWorker: () =>
+              new NavigatorContentSearchWorker({
+                name: "Navigator Content Search",
+              }) as unknown as NavigatorContentWorkerPort,
+            registerVaultEvent: (ref) => this.registerEvent(ref as EventRef),
+          })
+      );
+    this.superstate.navigatorContentSearch = this.navigatorContentSearchService;
+  };
 
   private pluginDataFilePath(fileName: string) {
     return normalizePath(pluginDataPath(this.app.vault.configDir, fileName));
@@ -594,6 +622,11 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
       commandsManager
       )
     await this.loadSettings();
+    this.superstate.eventsDispatcher.addListener(
+      "settingsChanged",
+      this.syncNavigatorContentSearchService
+    );
+    this.syncNavigatorContentSearchService();
     
 
 
@@ -812,6 +845,19 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   }
 
   onunload() {
+    this.superstate.eventsDispatcher.removeListener(
+      "settingsChanged",
+      this.syncNavigatorContentSearchService
+    );
+    this.navigatorContentSearchService =
+      reconcileNavigatorContentSearchLifecycle(
+        false,
+        this.navigatorContentSearchService,
+        () => {
+          throw new Error("Navigator content search cannot start during unload");
+        }
+      );
+    this.superstate.navigatorContentSearch = null;
     this.reconciler?.stop();
     this.superstate.reconciler = null;
     this.superstate.persister.unload();

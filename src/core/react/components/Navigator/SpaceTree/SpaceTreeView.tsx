@@ -46,6 +46,9 @@ interface SpaceTreeComponentProps {
   // passes this prop, so the branch below is dead and the tree is
   // byte-for-byte the pre-feature expandedSpaces-driven retrieveData() path.
   filterQuery?: string;
+  // Latest path-only matches from the ephemeral content index. Body text is
+  // never passed into the synchronous tree projection.
+  additionalMatchPaths?: ReadonlySet<string>;
 }
 
 const treeForSpace = (
@@ -310,9 +313,21 @@ export const SpaceTreeComponent = (props: SpaceTreeComponentProps) => {
   const computeFlattenedTree = useCallback(
     () =>
       trimmedFilterQuery.length > 0
-        ? filterTreeByQuery(superstate, activeViewSpaces, trimmedFilterQuery)
+        ? filterTreeByQuery(
+            superstate,
+            activeViewSpaces,
+            trimmedFilterQuery,
+            props.additionalMatchPaths
+          )
         : retrieveData(superstate, activeViewSpaces, active, expandedSpaces),
-    [superstate, activeViewSpaces, active, expandedSpaces, trimmedFilterQuery]
+    [
+      superstate,
+      activeViewSpaces,
+      active,
+      expandedSpaces,
+      trimmedFilterQuery,
+      props.additionalMatchPaths,
+    ]
   );
 
   const refreshableSpaces = useMemo(

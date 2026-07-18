@@ -117,6 +117,48 @@ describe("filterTreeByQuery (Notidian-nrjb)", () => {
     expect(result).toEqual([]);
   });
 
+  it("treats a content-only match as a normal match with the same ancestor and tree contracts", () => {
+    const result = filterTreeByQuery(
+      makeSuperstate(),
+      rootSpaces(),
+      "body-only-token",
+      new Set(["Projects/Notidian/Beta.md"])
+    );
+    const byPath = new Map(result.map((node) => [node.path, node]));
+
+    expect(result.map((node) => node.path)).toEqual([
+      "/",
+      "Projects",
+      "Projects/Notidian",
+      "Projects/Notidian/Beta.md",
+    ]);
+    expect(byPath.get("/")).toMatchObject({
+      depth: 0,
+      parentId: null,
+      childrenCount: 3,
+      filtered: true,
+      sortable: false,
+    });
+    expect(byPath.get("Projects/Notidian/Beta.md")).toMatchObject({
+      depth: 3,
+      parentId: "Projects/Notidian",
+      childrenCount: 0,
+      filtered: true,
+      sortable: false,
+    });
+  });
+
+  it("never admits a hidden content-only path", () => {
+    const result = filterTreeByQuery(
+      makeSuperstate(),
+      rootSpaces(),
+      "body-only-token",
+      new Set(["Archive/Old.md"])
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("hidden paths never match and are never force-included as ancestors", () => {
     const result = filterTreeByQuery(makeSuperstate(), rootSpaces(), "archive");
     expect(result).toEqual([]);

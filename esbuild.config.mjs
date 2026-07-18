@@ -38,7 +38,8 @@ function inlineWorkerPlugin(extraConfig) {
           const workerLookup = {
             "indexer.worker.ts": "Superstate Indexer",
             "runner.worker.ts": "Superstate Runner",
-            "search.worker.ts": "Superstate Search"
+            "search.worker.ts": "Superstate Search",
+            "navigatorContentSearch.worker.ts": "Navigator Content Search"
           }
           const workerName = workerPath.split('/').pop();
           
@@ -54,6 +55,12 @@ export default function Worker() {
           };
         }
       );
+
+      build.onResolve({filter: /^web-worker:/}, ({path: workerSpecifier, resolveDir}) => {
+        return {
+          path: path.resolve(resolveDir, workerSpecifier.slice("web-worker:".length)),
+        };
+      });
       
 
       const inlineWorkerFunctionCode = `

@@ -30,6 +30,8 @@
 import React from "react";
 import { act } from "react-dom/test-utils";
 import { createRoot, Root } from "react-dom/client";
+import { EventDispatcher } from "shared/utils/dispatchers/dispatcher";
+import { SuperstateEvent } from "shared/types/PathState";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -66,10 +68,7 @@ const makeSuperstate = (enableNavigatorTextFilter: boolean): any => ({
     // just needs to resolve without throwing.
     primaryInteractionType: () => 1,
   },
-  eventsDispatcher: {
-    addListener: jest.fn(),
-    removeListener: jest.fn(),
-  },
+  eventsDispatcher: new EventDispatcher<SuperstateEvent>(),
 });
 
 const typeIntoInput = (input: HTMLInputElement, value: string) => {
@@ -107,7 +106,10 @@ describe("MainList navigator text-filter kill-switch (Notidian-nrjb)", () => {
     expect(tree).not.toBeNull();
     expect(tree.getAttribute("data-filter-query")).toBe("__undefined__");
     expect(spaceTreeSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ filterQuery: undefined })
+      expect.objectContaining({
+        filterQuery: undefined,
+        additionalMatchPaths: undefined,
+      })
     );
   });
 
@@ -159,5 +161,33 @@ describe("MainList navigator text-filter kill-switch (Notidian-nrjb)", () => {
         .getAttribute("data-filter-query")
     ).toBe("");
     expect(container.querySelector(".mk-navigator-filter-clear")).toBeNull();
+  });
+
+  it("rerenders the mounted Navigator when settingsChanged toggles the kill-switch", async () => {
+    const superstate = makeSuperstate(true);
+    await act(async () => {
+      root.render(<MainList superstate={superstate} />);
+    });
+    expect(container.querySelector(".mk-navigator-filter")).not.toBeNull();
+
+    superstate.settings.enableNavigatorTextFilter = false;
+    await act(async () => {
+      await superstate.eventsDispatcher.dispatchEvent("settingsChanged", null);
+    });
+
+    expect(container.querySelector(".mk-navigator-filter")).toBeNull();
+    expect(spaceTreeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filterQuery: undefined,
+        additionalMatchPaths: undefined,
+      })
+    );
+
+    superstate.settings.enableNavigatorTextFilter = true;
+    await act(async () => {
+      await superstate.eventsDispatcher.dispatchEvent("settingsChanged", null);
+    });
+
+    expect(container.querySelector(".mk-navigator-filter")).not.toBeNull();
   });
 });

@@ -30,6 +30,7 @@
     "verify:live:ui": "node scripts/notidianVerify.js live --ui",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "benchmark:navigator-search": "node scripts/notidianNavigatorSearchBenchmark.js",
     "version": "npm run sync-version && git add manifest.json",
     "publish": "node scripts/publish.mjs",
     "release": "node scripts/release.mjs"

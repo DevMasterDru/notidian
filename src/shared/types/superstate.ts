@@ -11,6 +11,7 @@ import { IAPI } from "./api";
 import { IAssetManager } from "./assets";
 import { Command } from "./commands";
 import { IDataHealthReconciler } from "./dataHealth";
+import { INavigatorContentSearch } from "./navigatorContentSearch";
 import { Focus } from "./focus";
 import { IndexMap } from "./indexMap";
 import { FrameRoot, MDBFrames } from "./mframe";
@@ -40,6 +41,9 @@ export abstract class ISuperstate {
     // public API (see reconciler.ts's own doc comment) — null until main.ts
     // constructs it post-load, nulled again at plugin unload.
     reconciler: IDataHealthReconciler | null;
+    // ADR 0063: session-ephemeral Navigator body index. Null while the
+    // Navigator filter kill-switch is off or before its service is constructed.
+    navigatorContentSearch: INavigatorContentSearch | null;
     pathsIndex: Map<string, PathState>;
     spacesIndex: Map<string, SpaceState>;
     contextsIndex: Map<string, ContextState>;
@@ -101,4 +105,3 @@ export abstract class ISuperstate {
 }
 
 export type PathStateWithRank = PathState & { rank?: number; };
-

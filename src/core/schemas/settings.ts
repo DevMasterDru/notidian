@@ -228,8 +228,8 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // (viewSettings.test.ts); the render + de-dup + OFF-revert wiring is
   // jsdom-tested (FilterBar.viewSettings.dom.test.tsx).
   viewSettingsInlineBar: true,
-  // Vault file-tree text filter (Notidian-nrjb). See MakeMDSettings doc-comment
-  // (shared/types/settings.ts) for the full DEFAULT-ON / KILL-SWITCH contract.
+  // Navigator name/path + ephemeral-worker body filter (ADR 0063). See the
+  // MakeMDSettings doc-comment for the full DEFAULT-ON / KILL-SWITCH contract.
   enableNavigatorTextFilter: true,
   basicsSettings: BasicDefaultSettings,
   firstLaunch: false,

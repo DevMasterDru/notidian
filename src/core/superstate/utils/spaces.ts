@@ -239,7 +239,8 @@ const navigatorFilterIsMatch = (
 export const filterTreeByQuery = (
   superstate: Superstate,
   activeViewSpaces: PathState[],
-  query: string
+  query: string,
+  additionalMatchPaths?: ReadonlySet<string>
 ): TreeNode[] => {
   const queryLower = (query ?? "").trim().toLowerCase();
   const rootPaths = new Set(
@@ -250,11 +251,16 @@ export const filterTreeByQuery = (
     return !!pathState && !pathState.hidden;
   };
 
-  // 1. Every non-hidden path whose name/path matches.
+  // 1. Every non-hidden path whose name/path or derived content index matches.
+  // The optional set is path-only: body text never crosses into this
+  // synchronous tree projection.
   const matchedPaths: string[] = [];
   for (const [path, pathState] of superstate.pathsIndex) {
     if (!pathState || pathState.hidden) continue;
-    if (navigatorFilterIsMatch(pathState, path, queryLower)) {
+    if (
+      navigatorFilterIsMatch(pathState, path, queryLower) ||
+      additionalMatchPaths?.has(path)
+    ) {
       matchedPaths.push(path);
     }
   }

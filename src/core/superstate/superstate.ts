@@ -60,6 +60,7 @@ import { ISuperstate, PathStateWithRank } from "shared/types/superstate";
 import { getParentPathFromString } from "utils/path";
 import { fastSearch, searchPath } from "./workers/search/impl";
 import type { Reconciler } from "./reconciler";
+import type { INavigatorContentSearch } from "shared/types/navigatorContentSearch";
 export type SuperProperty = {
     id: string,
     name: string,
@@ -115,6 +116,8 @@ public api: API;
     // Superstate from "makemd-core", which re-exports THIS class's own
     // interface -- a real value import here would cycle back through it).
     public reconciler: Reconciler | null = null;
+    // ADR 0063: path-only read surface for the session-ephemeral body index.
+    public navigatorContentSearch: INavigatorContentSearch | null = null;
     //Index
     public pathsIndex: Map<string, PathState>
     public spacesIndex: Map<string, SpaceState>
@@ -464,6 +467,7 @@ public api: API;
     }
 
     public dispatchEvent<K extends keyof SuperstateEvent>(event: K, payload: SuperstateEvent[K]) {
+        if (event === "superstateUpdated") this.initialized = true;
         this.eventsDispatcher.dispatchEvent(event, payload);
     }
 
