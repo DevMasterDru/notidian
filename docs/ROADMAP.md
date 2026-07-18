@@ -18,6 +18,7 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 - **Key-match FK relations** (ADR 0029 → bd `Notidian-mx0k.1`). Owner-authorized 2026-06-30. Key-match resolver shipped; island header (mx0k.2) reverted in favor of template sync (ADR 0055).
 - **Select-to-comment + AI-review channel** (ADR 0019 → bd `Notidian-tluq.1`–`.3`). Owner-pulled 2026-07-10; the block-id + versioned frontmatter contract is Accepted, with Notidian authoring and Atlasidian consumption scheduled next.
 - **Navigator content search** (ADR 0063 → bd `Notidian-tluq.4`–`.5`). Owner-pulled 2026-07-10; the dedicated ephemeral worker-index contract is Accepted, with the implementation session owning freshness, cancellation, performance, and live verification.
+- **Date reminders + recurring events** (ADR 0020 → bd `Notidian-tluq.6`–`.8`). Owner-pulled 2026-07-10; the strict file-canonical recurrence and bounded at-most-once reminder contracts are Accepted. Contract confirmation is complete; delivery and authoring implementation follow.
 - ~~**Template sync — computed properties** (ADR 0055)~~ — owner-authorized 2026-06-30; resequenced by ADR-0058 (2026-07-02) to ship as Wave 4 (`Notidian-loan.12`) of the Data Integrity Program instead of standalone — see Parked below.
 
 ## Data Integrity Program (owner ratified 2026-07-02)
@@ -36,7 +37,6 @@ issues yet.
 
 ## Parked — build when the owner asks
 
-- **Date reminders + recurring events** — in-app Notice reminders for due dates and rrule-shaped `repeat` recurrence expanded at render time (no external plugin, no generated rows). — ([ADR 0020](adr/0020-date-reminders-and-recurring-events.md))
 - ~~**Frame-execution settings toggle + trusted-frame allowlist**~~ — pulled by the owner 2026-07-10 ("finalize all open features in notidian") and **shipped**: advanced-category `hardenFrameExecution` toggle + session-scoped, non-persisted, per-frame bless via the "Trust dynamic frame code for this session" command (always a named pick; in-memory code fingerprint makes the bless survive remounts of identical code while edit/reload still drop it). — ([ADR 0022](adr/0022-frame-execution-settings-toggle-and-trusted-frame-allowlist.md) **Accepted — implemented**; bd `Notidian-214`, hardening fixes `Notidian-pg6g`/`Notidian-kcgt`; content-hash *persistence* refinement stays deferred per the ADR)
 - **Type Profile hub-deletion notice** — surface when a folder DB's Type Profile hub note is deleted out from under it (ADR's own recommendation is to decline; low-value P3). — ([ADR 0023](adr/0023-type-profile-hub-deletion-notice.md))
 - **Control-byte source guard** — CI/lint regression insurance that blocks raw NUL/C0 control bytes from re-entering tracked source (repo is currently clean; this is prevention, not a fix). — ([ADR 0039](adr/0039-control-byte-source-guard.md))
