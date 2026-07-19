@@ -1,4 +1,6 @@
 import { CsvImport } from "core/utils/contexts/tableCsv";
+import { pageTitleFromPath } from "core/utils/contexts/pageTitle";
+import { PathPropertyName } from "shared/types/context";
 import { sanitizeFileName } from "shared/utils/sanitizers";
 
 // CSV import planning (Notidian-84u). Pure: turn parsed CSV records into a
@@ -69,7 +71,9 @@ export const planCsvImport = (params: {
     // Sanitize to a safe file name (strip path separators / illegal chars) so a
     // title like "A/B" cannot create nested folders. A title that sanitizes to
     // nothing can't name a file → skipped.
-    const fileName = sanitizeFileName(title).trim();
+    const fileName = sanitizeFileName(
+      titleHeader === PathPropertyName ? pageTitleFromPath(title) : title
+    ).trim();
     if (!fileName) {
       skippedNoTitle++;
       continue;

@@ -1,5 +1,9 @@
-import { parseCsvToRecords } from "core/utils/contexts/tableCsv";
+import {
+  parseCsvToRecords,
+  tableToCsv,
+} from "core/utils/contexts/tableCsv";
 import { planCsvImport } from "core/utils/contexts/tableCsvImport";
+import { PathPropertyName } from "shared/types/context";
 
 const plan = (
   csv: string,
@@ -17,6 +21,55 @@ const plan = (
   });
 
 describe("planCsvImport", () => {
+  it("preserves a table export path as the raw title while planning its Markdown basename", () => {
+    const csv = tableToCsv({
+      columns: [
+        { key: PathPropertyName, name: PathPropertyName },
+        { key: "status", name: "Status" },
+      ],
+      rows: [
+        { [PathPropertyName]: "Sandbox/Untitled 1.md", status: "active" },
+      ],
+    });
+
+    const result = planCsvImport({
+      parsed: parseCsvToRecords(csv),
+      existingColumnNames: [],
+      existingRowTitles: [],
+    });
+
+    expect(result.rows[0]).toEqual({
+      title: "Sandbox/Untitled 1.md",
+      fileName: "Untitled 1",
+      properties: { Status: "active" },
+      collision: "none",
+    });
+  });
+
+  it("extracts nested multi-dot Markdown basenames for the canonical File title", () => {
+    const result = plan("File,Status\nArea/Nested/Release.notes.v2.md,ready");
+
+    expect(result.rows[0]).toEqual({
+      title: "Area/Nested/Release.notes.v2.md",
+      fileName: "Release.notes.v2",
+      properties: { Status: "ready" },
+      collision: "none",
+    });
+  });
+
+  it("does not give a non-File title header path semantics", () => {
+    const result = plan("Name,File,Status\nA/B:C,Folder/Other.md,open", {
+      titleHeader: "Name",
+    });
+
+    expect(result.rows[0]).toEqual({
+      title: "A/B:C",
+      fileName: "ABC",
+      properties: { File: "Folder/Other.md", Status: "open" },
+      collision: "none",
+    });
+  });
+
   it("uses the first header as the title and maps the rest to frontmatter", () => {
     const result = plan("Name,Status,Hours\nAlpha,active,3\nBeta,done,5");
     expect(result.titleHeader).toBe("Name");
