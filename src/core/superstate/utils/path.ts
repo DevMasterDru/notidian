@@ -10,13 +10,29 @@ import { renameTag } from "utils/tags";
 
 // Row-as-child-hub cascade (Notidian-z21a, Atlas Method ADR-0042 D1): keeps a
 // hub row's nested child-database folder in sync with its file across
-// rename/move/delete, gated behind settings.enableNestedHubRows. A cascade
-// failure only notifies — it never blocks or rolls back the primary file
-// operation the user actually asked for (same non-blocking-secondary-effect
-// contract as the Type Profile table<->hub mirror).
+// rename/move/delete, gated behind settings.enableNestedHubRows. Rename keeps
+// its legacy non-blocking notice; delete returns a structured cascade failure
+// to the outer deletion boundary because its primary file is already gone.
 const notePathForIndexedFolder = (superstate: Superstate) => (
     folderPath: string
 ): string | null => superstate.spacesIndex.get(folderPath)?.space?.notePath ?? null;
+
+export type PathDeletePhase = "primary" | "cascade";
+
+export class PathDeleteError extends Error {
+    readonly path: string;
+    readonly phase: PathDeletePhase;
+    readonly cause: unknown;
+
+    constructor(path: string, phase: PathDeletePhase, cause: unknown) {
+        const detail = cause instanceof Error ? `: ${cause.message}` : "";
+        super(`Could not delete ${path}${detail}`);
+        this.name = "PathDeleteError";
+        this.path = path;
+        this.phase = phase;
+        this.cause = cause;
+    }
+}
 
 const cascadeHubRowRename = async (
     superstate: Superstate,
@@ -31,7 +47,11 @@ const cascadeHubRowRename = async (
     );
     if (plan.kind !== "rename") return;
     try {
-        await superstate.spaceManager.renameSpace(plan.fromFolder, plan.toFolder);
+        const renamed = await superstate.spaceManager.renameSpace(
+            plan.fromFolder,
+            plan.toFolder
+        );
+        if (!renamed) throw new Error("Hub row cascade rename was declined.");
     } catch (e) {
         superstate.ui.notify(i18n.notice.hubRowCascadeRenameFailed);
     }
@@ -51,16 +71,8 @@ const cascadeHubRowDelete = async (
         // `deletePath` instead, mirrored here). `plan.folder` is a real folder
         // path (e.g. "Knowledge/Gidi"), so `deletePath` is the correct API.
         await superstate.spaceManager.deletePath(plan.folder);
-        // `spaceManager.deletePath` is filesystem-only: it never touches
-        // spacesIndex/contextsIndex/spacesMap and dispatches no `spaceDeleted`
-        // event. Pair it with an explicit onSpaceDeleted, mirroring
-        // onTagDeleted's identical `deletePath(spacePath)` ->
-        // `onSpaceDeleted(...)` pairing (superstate.ts), so in-memory state
-        // stops describing a folder that no longer exists on disk (open
-        // views/Navigator nodes for it get the `spaceDeleted` event too).
-        superstate.onSpaceDeleted(plan.folder);
-    } catch (e) {
-        superstate.ui.notify(i18n.notice.hubRowCascadeDeleteFailed);
+    } catch (error) {
+        throw new PathDeleteError(plan.folder, "cascade", error);
     }
 };
 
@@ -159,7 +171,9 @@ export const hidePath = async (superstate: Superstate, path: string) => {
     ]);
     superstate.ui.notify("Item is now hidden in the Navigator, you can manage hidden items in the Navigator menu.", );
     superstate.saveSettings();
-    superstate.reloadPath(path, true).then(f => superstate.dispatchEvent("superstateUpdated", null));
+    superstate.reloadPath(path, true).then(reloaded => {
+        if (reloaded) superstate.dispatchEvent("superstateUpdated", null);
+    });
 }
 
 export const hidePaths = async (superstate: Superstate, paths: string[]) => {
@@ -168,9 +182,9 @@ export const hidePaths = async (superstate: Superstate, paths: string[]) => {
       ...paths,
     ]);
     superstate.saveSettings();
-    Promise.all(paths.map((path) => {
-        superstate.reloadPath(path, true);
-    })).then(f => superstate.dispatchEvent("superstateUpdated", null));
+    const reloads = await Promise.all(paths.map(path => superstate.reloadPath(path, true)));
+    if (reloads.some(Boolean)) superstate.dispatchEvent("superstateUpdated", null);
+    return reloads;
 }
 
 export const deletePath = async (superstate: Superstate, path: string) => {
@@ -184,24 +198,14 @@ export const deletePath = async (superstate: Superstate, path: string) => {
     // row's own file would still let the (now-real, post-cascade-fix)
     // sibling-folder deletion run — desyncing folder from file exactly like
     // the rename/move case this commit already guards.
-    let deleted = true;
     try {
         await superstate.spaceManager.deletePath(path);
-    } catch (e) {
-        deleted = false;
-        // Surface the failure instead of swallowing it (Notidian-b0fm). The
-        // primary delete rejected, so the row's own file is still on disk and
-        // the cascade below is correctly skipped — but without this the user
-        // gets NO signal at all (the caught `e` was previously unused), unlike
-        // cascadeHubRowRename/Delete's own failure notices. Non-blocking: a
-        // notice only, never a throw/rollback, matching this file's
-        // secondary-effect contract.
-        superstate.ui.notify(i18n.notice.deletePathFailed);
+    } catch (error) {
+        // This utility owns filesystem semantics, not user reporting. Preserve
+        // path/phase context for the outer UI boundary and skip the cascade.
+        throw new PathDeleteError(path, "primary", error);
     }
-    if (deleted) {
-        superstate.onPathDeleted(path);
-        await cascadeHubRowDelete(superstate, path);
-    }
+    await cascadeHubRowDelete(superstate, path);
 }
 
 export const movePathToSpace = async (superstate: Superstate, oldPath: string, newParent: string) => {
@@ -224,7 +228,11 @@ export const convertPathToSpace = async (
   }
   const newPath = pathState.parent+'/'+pathState.name
   await superstate.spaceManager.createSpace(pathState.name, pathState.parent, {});
-    await superstate.spaceManager.renamePath(path, newPath+'/'+pathState.metadata?.file?.name+'.md');
+    const renamed = await superstate.spaceManager.renamePath(
+      path,
+      newPath+'/'+pathState.metadata?.file?.name+'.md'
+    );
+    if (!renamed) return;
     superstate.ui.viewsByPath(path).forEach(view => {
       view.openPath(newPath);
   });

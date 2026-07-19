@@ -343,21 +343,27 @@ const NewPropertyMenuComponent = (
     source: string,
     existingProps: SpaceProperty[]
   ) => {
-    props.superstate.spaceManager
+    void props.superstate.spaceManager
       .readTable(source, defaultContextSchemaID)
-      .then((f) => {
-        props.superstate.spaceManager.saveTable(
-          source,
-          buildAddAllPropertiesTable(f, existingProps),
-          true
+      .then(async (f) => {
+        if (!f) throw new Error(`Context table not found for ${source}`);
+        const desired = buildAddAllPropertiesTable(f, existingProps);
+        const saved = await props.superstate.spaceManager.mutateTable(
+          source, f.schema.id, { kind: "merge", base: f, desired }, true
         );
+        if (!saved) throw new Error(`Context table mutation declined for ${source}`);
       })
-      .then((f) =>
+      .then(() =>
         props.superstate.reloadContextByPath(source, {
           force: true,
           calculate: true,
         })
-      );
+      )
+      .catch((error) => {
+        console.error("[Notidian] Add all properties failed:", error);
+        const detail = error instanceof Error ? `: ${error.message}` : "";
+        props.superstate.ui.notify(`Could not add all properties${detail}`);
+      });
     props.hide();
   };
   // Top-level one-click entry: discover + materialize every frontmatter

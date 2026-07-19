@@ -44,7 +44,13 @@ import { safelyParseJSON } from "shared/utils/json";
 import { mdbSchemaToFrameSchema } from "shared/utils/makemd/schema";
 import { parseMultiString } from "utils/parsers";
 import { getAllParentTags } from "utils/tags";
-import { removeLinkInContexts, removePathInContexts, removeTagInContexts, renameLinkInContexts, renamePathInContexts, renameTagInContexts, updateContextWithProperties } from "../utils/contexts/context";
+import {
+    removePathLifecycleInContexts,
+    removeTagInContexts,
+    renamePathLifecycleInContexts,
+    renameTagInContexts,
+    updateContextWithProperties,
+} from "../utils/contexts/context";
 import { API } from "./api";
 import { SpacesCommandsAdapter } from "./commands";
 
@@ -65,6 +71,20 @@ export type SuperProperty = {
     id: string,
     name: string,
 }
+
+type RenameLineage = {
+    fileCache?: PathState;
+    rowContexts: SpaceInfo[];
+    linkContexts: SpaceInfo[];
+    linkedSpaces: SpaceState[];
+    oldSpaces: string[];
+    queue: Promise<boolean>;
+    pendingSteps: RenameStep[];
+    cancelled: boolean;
+    currentPath: string;
+};
+
+type RenameStep = Readonly<{ oldPath: string; newPath: string }>;
 
 
 
@@ -186,6 +206,10 @@ public api: API;
     }>
     private contextStateQueue: Promise<unknown>;
     private indexer: Indexer;
+    private invalidatedPathStates: Map<string, PathState>;
+    private pathPersistenceQueues: Map<string, Promise<void>>;
+    private pendingPathInvalidations: Map<string, { generation: number; state?: PathState }>;
+    private renameLineages: Map<string, RenameLineage>;
 
     public focuses: Focus[];
     public searchIndex: FuseIndex<PathState>;
@@ -242,6 +266,10 @@ public api: API;
         this.iconsCache = new Map();
         this.imagesCache = new Map();
         this.contextStateQueue = Promise.resolve();
+        this.invalidatedPathStates = new Map();
+        this.pathPersistenceQueues = new Map();
+        this.pendingPathInvalidations = new Map();
+        this.renameLineages = new Map();
 
 
         //Intiate Workers
@@ -268,9 +296,9 @@ public api: API;
 
     public addToContextStateQueue(operation: () => Promise<unknown>) {
         //Simple queue (FIFO) for processing context changes
-        this.contextStateQueue = this.contextStateQueue.then(operation).catch(() => {
-            //do nuth'ing
-        });
+        const queued = this.contextStateQueue.catch((): void => undefined).then(operation);
+        this.contextStateQueue = queued.then((): void => undefined, (): void => undefined);
+        return queued;
     }
     public persister: LocalCachePersister;
     public async initialize () {
@@ -419,16 +447,8 @@ public api: API;
 
     public async loadFromCache() {
         this.dispatchEvent("superstateReindex", null)
-        const allIcons = await this.persister.loadAll('icon')
-        
-        // Load SVG files - Let AssetManager handle icon caching
-        this.spaceManager.allPaths(['svg']).forEach(s => {
-            const row = allIcons.find(f => f.path == s);
-            if (row?.cache.length > 0 && this.assets) {
-                // AssetManager will handle all icon caching
-                this.assets.cacheIconFromPath(s, row.cache);
-            }
-        });
+        // Persisted SVG bytes have no durable source provenance. Source-backed
+        // icon loading repopulates the cache from current files after restart.
         const allPaths = await this.persister.loadAll('path')
         const allSpaces = await this.persister.loadAll('space');
         const allContexts = await this.persister.loadAll('context')
@@ -507,7 +527,9 @@ public api: API;
             }
         }
         const diff = [..._.difference(newPaths, [...currentPaths]), ..._.difference([...currentPaths], newPaths)];
-        const cachedPromises = diff.map(f => this.reloadPath(f, true).then(g => this.dispatchEvent("pathStateUpdated", {path: f})));
+        const cachedPromises = diff.map(f => this.reloadPath(f, true).then(reloaded => {
+            if (reloaded) this.dispatchEvent("pathStateUpdated", {path: f});
+        }));
         await Promise.all(cachedPromises)
         
     }
@@ -525,21 +547,29 @@ public api: API;
     public async initializePaths() {
         this.dispatchEvent("superstateReindex", null)
         const allFiles = this.spaceManager.allPaths()
+        const generationSnapshot = new Map(
+            allFiles.map(path => [path, this.indexer.pathGeneration(path)] as const)
+        );
         
         const start = Date.now();
         await this.indexer.reload<{[key: string]: {cache: PathState, changed: boolean}}>({ type: 'paths', path: ''}).then(async r => {
             for await (const [path, {cache, changed}] of Object.entries(r)) {
-                await this.pathReloaded(path, cache, changed, false);
+                const generation = generationSnapshot.get(path);
+                if (generation === undefined) continue;
+                await this.pathReloaded(path, cache, changed, false, generation);
                 
             }
         });
         
         this.ui.notify(`${pluginDisplayName} - ${allFiles.length} Paths Cached in ${(Date.now()-start)/1000} seconds`, 'console')
         
-        const allPaths = uniq([...this.spacesIndex.keys(), ...allFiles]);
-        [...this.pathsIndex.keys()].filter(f => !allPaths.some(g => g == f)).forEach(f =>
-            this.onPathDeleted(f))
-            ;
+        const currentFiles = this.spaceManager.allPaths();
+        const allPaths = uniq([...this.spacesIndex.keys(), ...currentFiles]);
+        await Promise.all(
+            [...this.pathsIndex.keys()]
+                .filter(path => !allPaths.some(current => current === path))
+                .map(path => this.onPathDeleted(path))
+        );
 
         this.dispatchEvent("superstateUpdated", null)
     }
@@ -549,8 +579,8 @@ public api: API;
 
         const oldPath = spacePathFromName(tag);
         const newSpaceInfo = fileSystemSpaceInfoFromTag(this.spaceManager, newTag);
+        if (!await this.onPathRename(oldPath, newSpaceInfo.path)) return;
         await this.onSpaceRenamed(oldPath, newSpaceInfo)
-        await this.onPathRename(oldPath, newSpaceInfo.path)
         this.dispatchEvent("spaceChanged", { path: oldPath, newPath: newSpaceInfo.path });
 
         const allContextsWithTag : SpaceInfo[] = [];
@@ -594,122 +624,228 @@ public api: API;
     }
 
     public async deleteTagInPath(tag: string, path: string) {
-        let oldMetadata : PathState
-        if (this.pathsIndex.has(path)) {
-            oldMetadata = this.pathsIndex.get(path)
+        const generation = this.indexer.pathGeneration(path);
+        let currentMetadata = this.pathsIndex.get(path);
+        if (!currentMetadata) {
+            if (!await this.reloadPath(path)) return;
+            currentMetadata = this.pathsIndex.get(path);
         }
-        if (oldMetadata) {
-            const newMetadata = {
-                ...oldMetadata,
-                tags: oldMetadata.tags.filter(f => f != tag),
-                spaces: oldMetadata.spaces.filter(f => f != tagSpacePathFromTag(tag)),
-            }
-            this.pathsIndex.set(path, newMetadata);
-            this.tagsMap.set(path, new Set(newMetadata.tags))
-            this.spacesMap.set(path, new Set(newMetadata.spaces))
-        } else {
-            await this.reloadPath(path);
-        }
-        this.onPathReloaded(path);
+        if (!currentMetadata || !this.indexer.isPathGenerationCurrent(path, generation)) return;
+        const newMetadata = {
+            ...currentMetadata,
+            tags: currentMetadata.tags.filter(f => f != tag),
+            spaces: currentMetadata.spaces.filter(f => f != tagSpacePathFromTag(tag)),
+        };
+        this.pathsIndex.set(path, newMetadata);
+        this.tagsMap.set(path, new Set(newMetadata.tags));
+        this.spacesMap.set(path, new Set(newMetadata.spaces));
+        if (!await this.onPathReloaded(path, generation, newMetadata)) return;
         this.dispatchEvent("pathStateUpdated", { path});
         
     }
 
     
-    public onMetadataChange(path: string) {
+    public async onMetadataChange(path: string): Promise<void> {
         if (this.settings.enhancedLogs) {
             // Metadata Changed
         }
-        if (!this.pathsIndex.has(path)) {return}
-        this.reloadPath(path).then(f => 
-            {
-                const pathState = this.pathsIndex.get(path);
-                const spaceState = this.spacesIndex.get(path);
-                if (spaceState) {
-                    this.reloadSpace(spaceState.space).then(f => this.onSpaceDefinitionChanged(f, spaceState.metadata))
-                }
-                const allContextsWithFile = pathState.spaces.map(f => this.spacesIndex.get(f)?.space).filter(f => f);   
-                this.addToContextStateQueue(() => updateContextWithProperties(this, path, allContextsWithFile));
-                    this.dispatchEvent("pathStateUpdated", {path: path})
-                }
-            );
-        
+        if (!this.pathsIndex.has(path)) return;
+        const generation = this.indexer.pathGeneration(path);
+        if (!await this.reloadPath(path)) return;
+        if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+        const pathState = this.pathsIndex.get(path);
+        if (!pathState) return;
+        const spaceState = this.spacesIndex.get(path);
+        if (spaceState) {
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+            const reloadedSpace = await this.reloadSpace(spaceState.space);
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+            await this.onSpaceDefinitionChanged(reloadedSpace, spaceState.metadata);
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+        }
+        const allContextsWithFile = pathState.spaces.map(f => this.spacesIndex.get(f)?.space).filter(f => f);
+        await this.addToContextStateQueue(async () => {
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+            await updateContextWithProperties(this, path, allContextsWithFile);
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+        });
+        if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+        this.dispatchEvent("pathStateUpdated", {path});
     }
 
     public reloadSpaceByPath (path: string, metadata?: SpaceDefinition) {
         return this.reloadSpace(this.spaceManager.spaceInfoForPath(path), metadata)
     }
 
-    public async onPathRename(oldPath: string, newPath: string) {
-
-        //assume that space indexer has updated all records properly
-        const newFilePath = newPath;
-        const oldFileCache = this.pathsIndex.get(oldPath);
-        const oldSpaces = oldFileCache?.spaces ?? [];
-        if (oldFileCache) {
-
-            this.spacesMap.delete(oldPath)
-            this.spacesMap.deleteInverse(oldPath)
-            this.linksMap.delete(oldPath)
-            this.linksMap.deleteInverse(oldPath)
-            this.tagsMap.delete(oldPath)
-            this.pathsIndex.delete(oldPath);
-
-            const allContextsWithPath = oldSpaces.map(f => this.spacesIndex.get(f)).filter(f => f);
-
-            // Rename context rows before indexing the new path so metadata sync
-            // updates the existing row instead of appending a duplicate row.
-            await renamePathInContexts(this.spaceManager, oldPath, newFilePath, allContextsWithPath.map(f => f.space))
-            // Remove any orphaned old path entries
-            await removePathInContexts(this.spaceManager, oldPath, allContextsWithPath.map(f => f.space))
-            await this.reloadPath(newFilePath, true)
-            for(const space of allContextsWithPath) {
-                if (space.metadata?.links?.includes(oldPath)) {
-                    this.addToContextStateQueue(() => saveSpaceMetadataValue(this, space.path, "links", space.metadata.links.map(f => f == oldPath ? newPath : f)))
-                }
-                await this.reloadContext(space.space, { force: true, calculate: true })
+    public async onPathRename(oldPath: string, newPath: string): Promise<boolean> {
+        const lineages = this.renameLineages ??= new Map();
+        let lineage = lineages.get(oldPath);
+        if (!lineage) {
+            const fileCache = this.pathsIndex.get(oldPath) ?? this.invalidatedPathStates?.get(oldPath);
+            const oldSpaces = fileCache?.spaces ?? [];
+            const linkedSpaces = oldSpaces
+                .map(path => this.spacesIndex.get(path))
+                .filter((space): space is SpaceState => Boolean(space));
+            const linkContexts: SpaceInfo[] = [];
+            for (const [, context] of this.contextsIndex) {
+                if (!context.outlinks.includes(oldPath)) continue;
+                const contextSpace = this.spacesIndex.get(context.path)?.space;
+                if (contextSpace) linkContexts.push(contextSpace);
             }
-            const allContextsWithLink : SpaceInfo[] = [];
-            for(const [contextPath, contextCache] of this.contextsIndex) {
-                if (contextCache.outlinks.includes(oldPath)) {
-                    allContextsWithLink.push(this.spacesIndex.get(contextCache.path).space)
-                }
-            }
-            this.addToContextStateQueue(() => renameLinkInContexts(this.spaceManager, oldPath, newFilePath, allContextsWithLink).then(f => Promise.all(allContextsWithLink.map(c => this.reloadContext(c, { force: true, calculate: true })))))
+            lineage = {
+                fileCache,
+                rowContexts: linkedSpaces.map(space => space.space),
+                linkContexts,
+                linkedSpaces,
+                oldSpaces,
+                queue: Promise.resolve(true),
+                pendingSteps: [],
+                cancelled: false,
+                currentPath: oldPath,
+            };
+            lineages.set(oldPath, lineage);
+            if (this.pathsIndex.has(oldPath)) await this.invalidatePath(oldPath);
+            this.pendingPathInvalidations?.delete(oldPath);
         }
-        
-        let focusChanged = false;
-        this.focuses.forEach(focus => {
-            if (focus.paths.includes(oldPath)) {
-                focus.paths = focus.paths.map(f => f == oldPath ? newPath : f)
-                focusChanged = true;
+        const step: RenameStep = Object.freeze({ oldPath, newPath });
+        lineage.pendingSteps.push(step);
+        lineages.set(newPath, lineage);
+        const scheduled = lineage.queue.catch(() => false).then(async () => {
+            if (lineage!.cancelled) return false;
+            return await this.executeRenameLineage(lineage!, step);
+        }).finally(() => {
+            const index = lineage!.pendingSteps.indexOf(step);
+            if (index >= 0) lineage!.pendingSteps.splice(index, 1);
+            if (lineage!.pendingSteps.length === 0 && lineage!.queue === scheduled) {
+                for (const [path, mapped] of this.renameLineages ?? []) {
+                    if (mapped === lineage) this.renameLineages.delete(path);
+                }
             }
-        })
-        if (focusChanged) {
-            await this.spaceManager.saveFocuses(this.focuses);
-            this.dispatchEvent("focusesChanged", null)
-        }
-        
-        
-        await this.reloadPath(newPath, true)
-        this.persister.remove(oldPath, 'path');
-
-        const changedSpaces = uniq([...(this.spacesMap.get(newPath) ?? []), ...oldSpaces]);
-        //reload contexts to calculate proper paths
-        const cachedPromises = changedSpaces.map(f => this.reloadContext(this.spacesIndex.get(f)?.space, { force: false, calculate: true }));
-        await Promise.all(cachedPromises);
-
-        changedSpaces.forEach(f => this.dispatchEvent("spaceStateUpdated", { path: f}))
-        this.dispatchEvent("pathChanged", { path: oldPath, newPath: newPath});
-
-        this.ui.viewsByPath(oldPath).forEach(view => {
-            view.openPath(newPath);
         });
+        lineage.queue = scheduled;
+        return await scheduled;
     }
 
-    public async onPathCreated(path: string) {
-        
-        await this.reloadPath(path, true)
+    private async executeRenameLineage(lineage: RenameLineage, step: RenameStep): Promise<boolean> {
+        const { oldPath, newPath } = step;
+        if (oldPath === newPath) return true;
+        const lifecycleOldPath = lineage.currentPath;
+        const destinationGeneration = this.indexer.pathGeneration(newPath);
+        const hasQueuedForwardStep = () => lineage.pendingSteps.some(candidate =>
+            candidate !== step && candidate.oldPath === newPath
+        );
+        const isDestinationValid = () =>
+            !lineage.cancelled && (
+                this.indexer.isPathGenerationCurrent(newPath, destinationGeneration) ||
+                hasQueuedForwardStep()
+            );
+        const metadataSnapshots = lineage.linkedSpaces
+            .filter(space => space.metadata?.links?.includes(lifecycleOldPath))
+            .map(space => ({ space, links: [...space.metadata.links] }));
+        const focusesSnapshot = this.focuses.map(focus => ({ ...focus, paths: [...focus.paths] }));
+        let relationsCommitted = false;
+        let metadataCommitted = 0;
+        let focusesAttempted = false;
+
+        try {
+            await this.addToContextStateQueue(() => renamePathLifecycleInContexts(
+                this.spaceManager,
+                lifecycleOldPath,
+                newPath,
+                lineage.rowContexts,
+                lineage.linkContexts,
+                isDestinationValid,
+            ));
+            relationsCommitted = true;
+            if (!isDestinationValid()) throw new Error(`Rename destination invalidated: ${newPath}`);
+
+            for (const snapshot of metadataSnapshots) {
+                await saveSpaceMetadataValue(
+                    this,
+                    snapshot.space.path,
+                    "links",
+                    snapshot.links.map(path => path === lifecycleOldPath ? newPath : path),
+                );
+                metadataCommitted += 1;
+                if (!isDestinationValid()) throw new Error(`Rename destination invalidated: ${newPath}`);
+            }
+
+            // A synchronously queued physical hop may already have moved the
+            // intermediate path. Its lifecycle still commits in order, but
+            // indexing is deferred to the final extant destination.
+            if (!hasQueuedForwardStep()) {
+                if (!await this.reloadPath(newPath, true)) throw new Error(`Failed to index renamed path ${newPath}`);
+                if (!isDestinationValid()) throw new Error(`Rename destination invalidated: ${newPath}`);
+            }
+            const changedSpaces = uniq([...(this.spacesMap.get(newPath) ?? []), ...lineage.oldSpaces]);
+            for (const changedSpace of changedSpaces) {
+                const context = this.spacesIndex.get(changedSpace)?.space;
+                if (context) await this.reloadContext(context, { force: false, calculate: true });
+                if (!isDestinationValid()) throw new Error(`Rename destination invalidated: ${newPath}`);
+            }
+
+            const nextFocuses = focusesSnapshot.map(focus => ({
+                ...focus,
+                paths: focus.paths.map(path => path === lifecycleOldPath ? newPath : path),
+            }));
+            if (!_.isEqual(nextFocuses, focusesSnapshot)) {
+                focusesAttempted = true;
+                await this.spaceManager.persistFocuses(nextFocuses);
+                if (!isDestinationValid()) throw new Error(`Rename destination invalidated: ${newPath}`);
+                this.focuses = nextFocuses;
+                this.dispatchEvent("focusesChanged", null);
+            }
+
+            this.invalidatedPathStates?.delete(lifecycleOldPath);
+            lineage.currentPath = newPath;
+            for (const path of changedSpaces) this.dispatchEvent("spaceStateUpdated", { path });
+            this.dispatchEvent("pathChanged", { path: oldPath, newPath });
+            for (const view of this.ui.viewsByPath(oldPath)) view.openPath(newPath);
+            return true;
+        } catch (error) {
+            if (focusesAttempted) {
+                try { await this.spaceManager.persistFocuses(focusesSnapshot); } catch (rollbackError) {
+                    console.error("Failed to restore focuses after rename:", rollbackError);
+                }
+            }
+            for (const snapshot of metadataSnapshots.slice(0, metadataCommitted).reverse()) {
+                try { await saveSpaceMetadataValue(this, snapshot.space.path, "links", snapshot.links); } catch (rollbackError) {
+                    console.error(`Failed to restore space links for ${snapshot.space.path}:`, rollbackError);
+                }
+            }
+            if (relationsCommitted) {
+                try {
+                    await this.addToContextStateQueue(() => renamePathLifecycleInContexts(
+                        this.spaceManager,
+                        newPath,
+                        lifecycleOldPath,
+                        lineage.rowContexts,
+                        lineage.linkContexts,
+                    ));
+                } catch (rollbackError) {
+                    console.error(`Failed to restore relations after ${oldPath} rename:`, rollbackError);
+                }
+            }
+            console.error(`Failed to rename path lifecycle ${oldPath} to ${newPath}:`, error);
+            return false;
+        }
+    }
+
+    public async onPathCreated(path: string): Promise<boolean> {
+        const previousLineage = this.renameLineages?.get(path);
+        if (previousLineage) {
+            previousLineage.cancelled = true;
+            for (const [lineagePath, lineage] of this.renameLineages) {
+                if (lineage === previousLineage) this.renameLineages.delete(lineagePath);
+            }
+        }
+        this.pendingPathInvalidations?.delete(path);
+        this.indexer.invalidatePath(path);
+        const generation = this.indexer.pathGeneration(path);
+        if (!await this.reloadPath(path, true)) return false;
+        if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
+        await this.contextStateQueue;
+        if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
         const parent = getParentPathFromString(path);
         // A folder note can live inside its space (parent folder) or beside it
         // (adjacent mode: Reviews.md next to Reviews/).
@@ -722,40 +858,89 @@ public api: API;
                     : null;
         if (noteSpacePath) {
             await this.reloadSpace(this.spacesIndex.get(noteSpacePath).space)
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
             await this.reloadContextByPath(noteSpacePath, {force: true})
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
         }
         this.dispatchEvent("pathCreated", { path});
+        return true;
     }
 
 
 
-    public onPathDeleted(path: string) {
-        
-        
+    public async invalidatePath(path: string) {
+        const fileCache = this.pathsIndex.get(path);
+        if (fileCache) (this.invalidatedPathStates ??= new Map()).set(path, fileCache);
+        this.indexer.invalidatePath(path);
+        const generation = this.indexer.pathGeneration(path);
+        (this.pendingPathInvalidations ??= new Map()).set(path, {
+            generation,
+            state: fileCache ?? this.invalidatedPathStates?.get(path),
+        });
         this.spacesMap.delete(path);
+        this.spacesMap.deleteInverse(path);
         this.linksMap.delete(path);
         this.linksMap.deleteInverse(path);
-        this.persister.remove(path, 'path');
-        const fileCache = this.pathsIndex.get(path)
+        this.tagsMap.delete(path);
+        this.tagsMap.deleteInverse(path);
+        for (const [image, imagePath] of this.imagesCache) {
+            if (imagePath === path) this.imagesCache.delete(image);
+        }
+        this.pathsIndex.delete(path);
+        await Promise.all([
+            this.assets?.invalidateIconPath(path),
+            this.queuePathPersistence(path, () => this.persister.remove(path, 'path')),
+        ]);
+        return generation;
+    }
+
+    public async onPathDeleted(path: string): Promise<void> {
+        const renameLineage = this.renameLineages?.get(path);
+        if (renameLineage) renameLineage.cancelled = true;
+        let invalidation = this.pendingPathInvalidations?.get(path);
+        if (!invalidation) {
+            const state = this.pathsIndex.get(path) ?? this.invalidatedPathStates?.get(path);
+            const generation = await this.invalidatePath(path);
+            invalidation = { generation, state };
+        }
+        const fileCache = invalidation.state;
+        const generation = invalidation.generation;
+        this.pendingPathInvalidations?.delete(path);
 
         if (!fileCache) {
             return;
         }
-        
-          const allContextsWithFile = (fileCache.spaces ?? []).map(f => this.spacesIndex.get(f)?.space).filter(f => f);
-          this.addToContextStateQueue(() => removePathInContexts(this.spaceManager, path, allContextsWithFile).then(f => allContextsWithFile.forEach(c => this.reloadContext(c, { force: false, calculate: true }))))
-          const allContextsWithLink : SpaceInfo[] = [];
-          for(const [contextPath, contextCache] of this.contextsIndex) {
+
+        const allContextsWithFile = (fileCache.spaces ?? [])
+            .map(spacePath => this.spacesIndex.get(spacePath)?.space)
+            .filter((space): space is SpaceInfo => Boolean(space));
+        const allContextsWithLink : SpaceInfo[] = [];
+        for(const [, contextCache] of this.contextsIndex) {
             if (contextCache.outlinks.includes(path) && this.spacesIndex.has(contextCache.path)) {
                 allContextsWithLink.push(this.spacesIndex.get(contextCache.path).space)
             }
         }
-        this.addToContextStateQueue(() => removeLinkInContexts(this.spaceManager, path, allContextsWithLink).then(f => allContextsWithFile.forEach(c => this.reloadContext(c, { force: false, calculate: true }))));
+        const isCurrent = () => this.indexer.isPathGenerationCurrent(path, generation);
+        try {
+            await this.addToContextStateQueue(async () => {
+                if (!isCurrent()) return;
+                await removePathLifecycleInContexts(
+                    this.spaceManager,
+                    path,
+                    allContextsWithFile,
+                    allContextsWithLink,
+                    isCurrent,
+                );
+            });
+        } catch (error) {
+            if (isCurrent()) throw error;
+        }
+        if (!isCurrent()) return;
+        this.invalidatedPathStates?.delete(path);
 
         (fileCache.spaces ?? []).forEach(f => {
             this.dispatchEvent('spaceStateUpdated',{ path: f});
         });
-        this.pathsIndex.delete(path);
         this.dispatchEvent('pathDeleted', {path});
     }
     
@@ -996,17 +1181,20 @@ public async updateSpaceMetadata (spacePath: string, metadata: SpaceDefinition) 
         }
         
     }
-    private async pathReloaded (path: string, cache: PathState, changed: boolean, force: boolean) {
+    private async pathReloaded (path: string, cache: PathState, changed: boolean, force: boolean, generation: number) {
         if (!cache) return false;
+        if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
         if (this.settings.enhancedLogs) {
             // Path Reloaded
         }
+            if (!await this.onPathReloaded(path, generation, cache)) return false;
+            if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
             this.pathsIndex.set(path, cache);
-            await this.onPathReloaded(path);
+            this.invalidatedPathStates?.delete(path);
             if (cache.subtype == 'image' || cache.metadata?.file?.extension == 'svg') {
                 this.imagesCache.set(cache.metadata.file.filename, path);
             }
-            if (!changed && !force) { return false }
+            if (!changed && !force) { return true }
             
             this.tagsMap.set(path, new Set(cache.tags))
             this.linksMap.set(path, new Set(cache.outlinks))
@@ -1016,28 +1204,38 @@ public async updateSpaceMetadata (spacePath: string, metadata: SpaceDefinition) 
                 //initiate missing tags
                 const promises = cache.tags.map(f => fileSystemSpaceInfoFromTag(this.spaceManager, f)).filter(f => !this.spacesIndex.has(f.path)).map(async f =>  
                     {
+                        if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
                         await this.reloadSpace(f);
-                        this.reloadContext(f, { force: false, calculate: true });
+                        if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
+                        await this.reloadContext(f, { force: false, calculate: true });
+                        if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
                         await this.reloadPath(f.path);
-                        return 
+                        return this.indexer.isPathGenerationCurrent(path, generation);
                     }
                 );
                 const allPromises = Promise.all(promises)
                 await allPromises.then(f => {
+                    if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
                     this.dispatchEvent("spaceStateUpdated", {path: tagsSpacePath});
                 })
+                if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
                 
             }
             if (force) {
 
+                if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
+
                 const allContextsWithFile = cache.spaces.map(f => this.spacesIndex.get(f)?.space).filter(f => f);   
 
-                this.addToContextStateQueue(() => updateContextWithProperties(this, path, allContextsWithFile).then(g => {
+                this.addToContextStateQueue(async () => {
+                    if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
+                    await updateContextWithProperties(this, path, allContextsWithFile);
+                    if (!this.indexer.isPathGenerationCurrent(path, generation)) return;
 
                     allContextsWithFile.forEach(f => {
                         this.dispatchEvent("spaceStateUpdated", {path: f.path})
                     })
-                }));
+                });
                 
             }
             
@@ -1045,37 +1243,45 @@ public async updateSpaceMetadata (spacePath: string, metadata: SpaceDefinition) 
             const isSvgFile = cache.metadata?.file?.extension === 'svg';
             
             if (isSvgFile && this.assets && (this.assets.iconPathMapping.has(path) || this.settings.indexSVG)) {
-                this.spaceManager.readPath(path).then(f => {
-                    // Let AssetManager handle all icon caching
-                    this.assets.cacheIconFromPath(path, f);
-                    this.persister.store(path, f, 'icon');
-                });
+                if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
+                await this.assets.loadIconFromPath(path, () => this.spaceManager.readPath(path));
+                if (!this.indexer.isPathGenerationCurrent(path, generation)) return false;
             }
             
-            
+            return this.indexer.isPathGenerationCurrent(path, generation);
 }
     public async reloadPath(path: string, force?: boolean) : Promise<boolean> {
 
         if (!path) return false;
-        
-        return this.indexer.reload<{cache: PathState, changed: boolean}>({ type: 'path', path: path}).then(async r => {
-
-            await this.pathReloaded(path, r.cache, r.changed, force);
-
-            return true;
-        });
+        const generation = this.indexer.pathGeneration(path);
+        const result = await this.indexer.reload<{cache: PathState, changed: boolean}>({ type: 'path', path: path});
+        if (!result || !this.indexer.isPathGenerationCurrent(path, generation)) return false;
+        return this.pathReloaded(path, result.cache, result.changed, force, generation);
     }
 
-    public async onPathReloaded(path: string) {
-        let pathState : PathState
-        
-        if (this.pathsIndex.has(path)) {
-            pathState = this.pathsIndex.get(path)
-        }
+    public async onPathReloaded(path: string, generation?: number, pendingState?: PathState) {
+        let pathState : PathState = pendingState;
+        if (!pathState && this.pathsIndex.has(path)) pathState = this.pathsIndex.get(path)
         if (!pathState) {
             return false;
         }
-        
-        await this.persister.store(path,  serializePathState(pathState), 'path');
+        if (generation !== undefined && !this.indexer.isPathGenerationCurrent(path, generation)) return false;
+        await this.queuePathPersistence(path, () => this.persister.store(path, serializePathState(pathState), 'path'));
+        if (generation !== undefined && !this.indexer.isPathGenerationCurrent(path, generation)) {
+            return false;
+        }
+        return true;
+    }
+
+    private queuePathPersistence<T>(path: string, operation: () => Promise<T>): Promise<T> {
+        const queues = this.pathPersistenceQueues ??= new Map();
+        const previous = queues.get(path) ?? Promise.resolve();
+        const queued = previous.catch((): void => undefined).then(operation);
+        const settled: Promise<void> = queued.then((): void => undefined, (): void => undefined);
+        queues.set(path, settled);
+        void settled.then(() => {
+            if (queues.get(path) === settled) queues.delete(path);
+        });
+        return queued;
     }
 }

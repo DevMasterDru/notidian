@@ -22,13 +22,15 @@ export class FontsFileTypeAdapter implements FileTypeAdapter<FontTypeCache, Font
         this.cache = new Map();
     }
     
-    public async parseCache (file: AFile, refresh: boolean) {
+    public async parseCache (file: AFile, refresh: boolean, generation?: number) {
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
         const newCache =  { css: `@font-face {
             font-family: '${file.name}';
             src: url('${this.middleware.resourcePathForPath(file.path)}');
         }`}
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         this.cache.set(file.path, newCache);
-        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh);
+        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh, generation);
     }
     
     public cacheTypes (file: AFile) { return ['css'] as Array<keyof FontTypeCache>}

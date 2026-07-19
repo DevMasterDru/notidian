@@ -147,6 +147,7 @@ const buildSuperstate = (renderPathViewOverlays: boolean | undefined) =>
     spaceManager: {
       readTable: jest.fn(async () => table),
       saveTable: jest.fn(async () => true),
+      mutateTable: jest.fn(async () => true),
       saveProperties: jest.fn().mockResolvedValue(true),
       deleteProperty: jest.fn().mockResolvedValue(undefined),
       resolvePath: (path: string) => path,

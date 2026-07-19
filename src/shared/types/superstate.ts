@@ -67,7 +67,7 @@ export abstract class ISuperstate {
 
     refreshMetadata: () => void;
     initializeIndex:() => Promise<void>;
-    addToContextStateQueue: (operation: () => Promise<any>) => void;
+    addToContextStateQueue: (operation: () => Promise<any>) => Promise<unknown>;
     initialize:() => Promise<void>;
     reloadSystemActions: () => Promise<void>;
     initializePaths: () => Promise<void>;
@@ -83,11 +83,12 @@ export abstract class ISuperstate {
     onTagRenamed: (tag: string, newTag: string)=> Promise<void>;
     onTagDeleted:(tag: string) => Promise<void>;
     deleteTagInPath:(tag: string, path: string) => Promise<void>;
-    onMetadataChange:(path: string) => void;
+    onMetadataChange:(path: string) => Promise<void>;
     reloadSpaceByPath:(path: string, metadata?: SpaceDefinition) => Promise<SpaceState>;
-    onPathRename:(oldPath: string, newPath: string) => Promise<void>;
-    onPathCreated:(path: string) => Promise<void>;
-    onPathDeleted:(path: string) => void;
+    onPathRename:(oldPath: string, newPath: string) => Promise<boolean>;
+    onPathCreated:(path: string) => Promise<boolean>;
+    invalidatePath:(path: string) => Promise<number>;
+    onPathDeleted:(path: string) => Promise<void>;
     onSpaceRenamed:(oldPath: string, newSpaceInfo: SpaceInfo) => Promise<void>;
     onSpaceDeleted:(space: string) => void;
     reloadActions:(space: SpaceInfo) => Promise<boolean>;

@@ -13,6 +13,7 @@ import { linkContextRow, mergeContextRows, propertyDependencies, syncContextRow 
 import { runFormulaWithContext } from "core/utils/formula/parser";
 import { executeCode } from "core/utils/frames/runner";
 import { stripFrontmatterBackedRowValues } from "core/utils/properties/allProperties";
+import { applyTableMutation } from "core/utils/contexts/tableMutation";
 import { ensureArray, tagSpacePathFromTag } from "core/utils/strings";
 import { defaultContextTable, defaultFolderMDBTable, defaultFramesTable, defaultTablesForContext } from "schemas/mdb";
 import i18n from "shared/i18n";
@@ -26,7 +27,7 @@ import { DBTables, SpaceProperty, SpaceTable, SpaceTables, SpaceTableSchema } fr
 import { MDBFrame, MDBFrames } from "shared/types/mframe";
 import { SpaceDefinition } from "shared/types/spaceDef";
 import { SpaceInfo } from "shared/types/spaceInfo";
-import { SpaceAdapter } from "shared/types/spaceManager";
+import { SpaceAdapter, TableMutationOperation } from "shared/types/spaceManager";
 import { uniqueNameFromString } from "shared/utils/array";
 import { safelyParseJSON } from "shared/utils/json";
 import { movePath } from "shared/utils/uri";
@@ -48,10 +49,16 @@ export class FilesystemSpaceAdapter implements SpaceAdapter {
         fileSystem.eventDispatch.addListener("onCreate", this.onCreate, 0, this)
         fileSystem.eventDispatch.addListener("onRename", this.onRename, 0, this)
         fileSystem.eventDispatch.addListener("onDelete", this.onDelete, 0, this)
+        fileSystem.eventDispatch.addListener("onPathInvalidated", this.onPathInvalidated, 0, this)
         fileSystem.eventDispatch.addListener("onFocusesUpdated", this.onFocusesUpdated, 0, this)
         fileSystem.eventDispatch.addListener("onSpaceUpdated", this.onSpaceUpdated, 0, this)
         fileSystem.eventDispatch.addListener("onCacheUpdated", this.onMetadataChange, 0, this)
 
+    }
+
+    private onPathInvalidated(payload: {path: string}) {
+      if (!payload.path) return;
+      return this.spaceManager.superstate.invalidatePath(payload.path);
     }
   
    public spaceManager: SpaceManager;
@@ -179,16 +186,14 @@ export class FilesystemSpaceAdapter implements SpaceAdapter {
       if (!payload.path) return;
       if (payload.path.endsWith('.json')) {
         const spacePathFromDef = payload.path.split('/').slice(0, -2).join('/');
-        this.spaceManager.onPathPropertyChanged(spacePathFromDef)
-        return;
+        return await this.spaceManager.onPathPropertyChanged(spacePathFromDef)
       }
       const path = this.spaceManager.superstate.pathsIndex.get(payload.path);
       
       if (path?.metadata.spacePath?.length > 0) {
-        this.spaceManager.onPathPropertyChanged(path?.metadata.spacePath)
-        return;
+        return await this.spaceManager.onPathPropertyChanged(path?.metadata.spacePath)
       }
-      this.spaceManager.onPathPropertyChanged(payload.path)
+      return await this.spaceManager.onPathPropertyChanged(payload.path)
     }
     
     public uriByPath (path: string) {
@@ -555,6 +560,20 @@ const defaultSpaceTemplate = this.defaultFrame(path);
     }
     return result;
   }
+
+  public async mutateTable(path: string, schemaId: string, operation: TableMutationOperation, force?: boolean) {
+    let mdbFile = await this.fileSystem.getFile(this.spaceInfoForPath(path).dbPath);
+    if (!mdbFile) {
+      if (!force) return false;
+      mdbFile = await this.createDefaultTable(path);
+    }
+    return this.fileSystem.saveFileFragment(
+      mdbFile,
+      'mdbTable',
+      schemaId,
+      (current: SpaceTable) => stripFrontmatterBackedRowValues(applyTableMutation(current, operation)),
+    );
+  }
   public async deleteTable (path: string, name: string) {
     const mdbFile = await this.fileSystem.getFile(this.spaceInfoForPath(path).dbPath)
     return this.fileSystem.deleteFileFragment(mdbFile, 'schema', name)
@@ -772,6 +791,11 @@ const defaultSpaceTemplate = this.defaultFrame(path);
 
     return this.fileSystem.saveFileFragment(file, 'property', null, (prev) => ({...prev, ...properties}))
   }
+  public async mutateProperties(path: string, mutation: (properties: Record<string, any>) => Record<string, any>, expectedFile?: AFile) {
+    const file = expectedFile ?? await this.fileSystem.getFile(path);
+    if (!file) return false;
+    return this.fileSystem.saveFileFragment(file, 'property', null, mutation);
+  }
 
   public async readLabel (path: string) {
     
@@ -837,9 +861,9 @@ const defaultSpaceTemplate = this.defaultFrame(path);
     onCreate = async (payload: {file: AFile}) => {
       
       if (payload.file.isFolder){
-        this.spaceManager.onSpaceCreated(payload.file.path)
+        return this.spaceManager.onSpaceCreated(payload.file.path)
       } else {
-        this.spaceManager.onPathCreated(payload.file.path)
+        return this.spaceManager.onPathCreated(payload.file.path)
       }
       };
     
@@ -847,21 +871,24 @@ const defaultSpaceTemplate = this.defaultFrame(path);
 
         if (!payload.file) return;
         if (!payload.file.isFolder && payload.file.extension != "mdb") {
-          this.spaceManager.onPathDeleted(payload.file.path)
+          return this.spaceManager.onPathDeleted(payload.file.path)
         } else if (payload.file.isFolder) {
-          this.spaceManager.onSpaceDeleted(payload.file.path)
+          return this.spaceManager.onSpaceDeleted(payload.file.path)
         }
       };
       
-      onRename = (payload: {file: AFile, oldPath: string}) => {
+      onRename = async (payload: {file: AFile, oldPath: string}) => {
 
         if (!payload.file) return;
+        let result: unknown;
         if (!payload.file.isFolder && payload.file.extension != "mdb") {
-          this.spaceManager.onPathChanged(payload.file.path, payload.oldPath)
+          result = await this.spaceManager.onPathChanged(payload.file.path, payload.oldPath)
         } else if (payload.file.isFolder) 
         {
-          this.spaceManager.onSpaceRenamed(payload.file.path, payload.oldPath)
+          result = await this.spaceManager.onSpaceRenamed(payload.file.path, payload.oldPath)
         }
+        if (result === false) throw new Error(`Rename lifecycle rejected: ${payload.oldPath} -> ${payload.file.path}`);
+        return result;
         }
 
       
@@ -970,10 +997,9 @@ const defaultSpaceTemplate = this.defaultFrame(path);
         superstate.settings.folderNoteInsideFolder === false;
 
       // Pre-check the destination so a name collision fails atomically and
-      // loudly instead of silently relocating the hub note onto an unrelated
-      // folder (Notidian-0gm1). fileSystem.renameFile resolves null (never
-      // throws) on failure, so without this the folder rename could no-op while
-      // the sibling note rename still ran, desyncing folder and hub note. A
+      // loudly instead of relocating the hub note onto an unrelated folder
+      // (Notidian-0gm1). Physical rename failures reject; this preflight also
+      // prevents the sibling note rename after a known collision. A
       // case-only rename (Projects -> projects) is allowed through to
       // renameFile, mirroring pageTitleRename's isCaseOnlyRename allowance.
       const isCaseOnlyRename =
@@ -997,9 +1023,8 @@ const defaultSpaceTemplate = this.defaultFrame(path);
         spaceInfo.folderPath,
         newSpaceInfo.folderPath
       );
-      // Guard the note rename on the folder-rename result: if the folder rename
-      // failed (null), do NOT touch the folder note, or the hub note is renamed
-      // away from a folder that never moved (Notidian-0gm1).
+      // Keep the defensive result guard for alternate adapters that can decline
+      // a rename without throwing; the Obsidian adapter rejects physical failures.
       if (!f) {
         superstate.ui.notify(i18n.notice.duplicateSpaceName);
         return f;
@@ -1029,11 +1054,11 @@ const defaultSpaceTemplate = this.defaultFrame(path);
       }
       return f;
     }
-    public deleteSpace (path: string) {
+    public async deleteSpace (path: string) {
 
       const spaceCache = this.spaceInfoForPath(path)
         const spaceInfo = fileSystemSpaceInfoFromTag(this.spaceManager, spaceCache.name);
-        this.fileSystem.deleteFile(spaceInfo.folderPath);
+        await this.fileSystem.deleteFile(spaceInfo.folderPath);
     }
 
     public childrenForSpace (path: string) {
@@ -1059,7 +1084,9 @@ const defaultSpaceTemplate = this.defaultFrame(path);
       const newMetadata = {...metadata, links: spaceExists}
       await this.saveSpace(tagPath, (oldMetadata) => ({...oldMetadata, ...newMetadata}));
       await this.spaceManager.superstate.updateSpaceMetadata(tagPath, newMetadata)
-      this.spaceManager.superstate.reloadPath(path, true).then(f => this.spaceManager.superstate.dispatchEvent("pathStateUpdated", {path: path}))
+      this.spaceManager.superstate.reloadPath(path, true).then(reloaded => {
+        if (reloaded) this.spaceManager.superstate.dispatchEvent("pathStateUpdated", {path: path});
+      })
       
     }
 

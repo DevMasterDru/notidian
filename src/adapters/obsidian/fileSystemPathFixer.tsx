@@ -20,21 +20,29 @@ export const openPathFixer = (plugin: MakeMDPlugin) => {
     <ConfirmationModal
       message={message}
       confirmLabel="Rename"
+      reportError={(error) => superstate.ui.notify(String(error))}
       confirmAction={async () => {
         for (const file of currentIssueFiles) {
           const currentFile = getAbstractFileAtPath(plugin.app, file);
+          if (!currentFile) throw new Error(`Could not find ${file}.`);
           const currentName =
             currentFile instanceof TFile
               ? (currentFile as TFile)?.basename
               : currentFile.name;
-          if (!currentFile) return;
+          const aliases = plugin.superstate.pathsIndex.get(file)?.metadata
+            ?.property?.aliases;
+          const renamedPath = await renameFile(
+            plugin,
+            currentFile,
+            sanitizeFileName(currentName)
+          );
+          if (!renamedPath) throw new Error(`Could not rename ${file}.`);
           await updatePrimaryAlias(
             plugin.superstate,
-            file,
-            plugin.superstate.pathsIndex.get(file)?.metadata?.property?.aliases,
+            renamedPath,
+            aliases,
             currentName
           );
-          await renameFile(plugin, currentFile, sanitizeFileName(currentName));
         }
         plugin.obsidianAdapter.fileNameWarnings = new Set();
       }}

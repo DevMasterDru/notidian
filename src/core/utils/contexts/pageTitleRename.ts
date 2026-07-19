@@ -148,14 +148,18 @@ const preserveContextRowPosition = async (
   const row = matchingRows[0];
   rows.splice(Math.min(targetIndex, rows.length), 0, row);
 
-  await superstate.spaceManager.saveTable(
+  const saved = await superstate.spaceManager.mutateTable(
     contextPath,
-    {
+    table.schema.id,
+    { kind: "merge", base: table, desired: {
       ...table,
       rows,
-    },
+    } },
     true
   );
+  if (saved === false) {
+    throw new Error("Could not persist page-title row position.");
+  }
   await superstate.reloadContextByPath?.(contextPath, {
     force: true,
     calculate: true,
@@ -297,14 +301,18 @@ const reconcileBulkContextRows = async (
     return failures;
   }
 
-  await superstate.spaceManager.saveTable(
+  const saved = await superstate.spaceManager.mutateTable(
     contextPath,
-    {
+    table.schema.id,
+    { kind: "merge", base: table, desired: {
       ...table,
       rows,
-    },
+    } },
     true
   );
+  if (saved === false) {
+    throw new Error("Could not persist bulk page-title reconciliation.");
+  }
   await superstate.reloadContextByPath?.(contextPath, {
     force: true,
     calculate: true,
@@ -444,6 +452,16 @@ export const executeBulkPageTitleRename = async ({
     ...rename,
     state: "old" as "old" | "temp" | "final",
   }));
+  const pathInfo = async (path: string): Promise<Record<string, any> | null> => {
+    const getter = superstate.spaceManager.getPathInfo;
+    if (typeof getter !== "function") return null;
+    return await getter.call(superstate.spaceManager, path);
+  };
+  const incarnationOf = (info: Record<string, any> | null) => info?.obsidianFile ?? info;
+  const originalIncarnations = new Map<string, unknown>();
+  for (const rename of renameStates) {
+    originalIncarnations.set(rename.oldPath, incarnationOf(await pathInfo(rename.oldPath)));
+  }
 
   try {
     for (const rename of renameStates) {
@@ -474,6 +492,11 @@ export const executeBulkPageTitleRename = async ({
     for (const rename of renameStates.slice().reverse()) {
       if (rename.state != "temp") continue;
       try {
+        const originalIncarnation = originalIncarnations.get(rename.oldPath);
+        const source = await pathInfo(rename.tempPath);
+        const occupiedOld = await pathInfo(rename.oldPath);
+        if (originalIncarnation && incarnationOf(source) !== originalIncarnation) continue;
+        if (occupiedOld && incarnationOf(occupiedOld) !== originalIncarnation) continue;
         const rolledBackPath = await superstate.spaceManager.renamePath(
           rename.tempPath,
           rename.oldPath

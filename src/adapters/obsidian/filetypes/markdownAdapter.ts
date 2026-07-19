@@ -107,6 +107,7 @@ export class ObsidianMarkdownFiletypeAdapter implements FileTypeAdapter<CleanCac
     public middleware: FilesystemMiddleware;
     public styleAst : StyleAst;
     public thumbnailFreshCache: Map<string, boolean>;
+    private pathMutationQueues = new Map<string, Promise<void>>();
 public app: App;
     public constructor (public plugin: MakeMDPlugin) {
         this.app = plugin.app;
@@ -119,24 +120,37 @@ public app: App;
         this.thumbnailFreshCache = new Map();
         
     }
-    public metadataChange (file: TFile) {
-        
-        this.parseCache(tFileToAFile(file), true);
-        
+    public invalidatePath(path: string) {
+        this.cache.delete(path);
+        this.thumbnailFreshCache.delete(path);
+        this.linksMap.delete(path);
+        this.linksMap.deleteInverse(path);
+        if (path.toLowerCase().endsWith('.md')) {
+            const thumbnailPath = `${this.cacheDirectory}/${hashCode(path)}.jpeg`;
+            void this.middleware.deleteDerivedCacheFile(thumbnailPath).catch(error => {
+                console.error(`Failed to delete derived Markdown thumbnail ${thumbnailPath}:`, error);
+            });
+        }
+    }
+    public async metadataChange (file: TFile) {
+        if (this.app.vault.getAbstractFileByPath(file.path) !== file) return;
+        await this.parseCache(tFileToAFile(file), true);
     }
     public cacheDirectory = ".notidian/thumbnails";
 
     public loadFile = async (file: AFile) => {
-        
+        const generation = this.middleware.capturePathGeneration(file.path);
         if (this.plugin.superstate.settings.noteThumbnails) {
             const thumbnailPath = `${this.cacheDirectory}/${hashCode(file.path)}.jpeg`;
-            if (!(await this.middleware.fileExists(thumbnailPath)) || !this.thumbnailFreshCache.get(file.path)) 
+            if (!(await this.middleware.derivedCacheFileExists(thumbnailPath)) || !this.thumbnailFreshCache.get(file.path))
             {
+                if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
                 if (!Platform.isMobile) {
-                    const thumbnailResult = await this.generateThumbnail(file, thumbnailPath);
+                    const thumbnailResult = await this.generateThumbnail(file, thumbnailPath, generation);
                     if (thumbnailResult) {
-                        this.parseCache(file, true);
+                        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
                         this.thumbnailFreshCache.set(file.path, true);
+                        await this.parseCache(file, true, generation);
                     }
                     
                 }
@@ -146,7 +160,7 @@ public app: App;
             
     }  
 
-    public generateThumbnail = async(file: AFile, thumbnail: string) => {
+    public generateThumbnail = async(file: AFile, thumbnail: string, generation = this.middleware.capturePathGeneration(file.path)) => {
 
 
         const htmlToDataURL = async (
@@ -257,15 +271,20 @@ public app: App;
           }
 
           const binary = await htmlToDataURL(html, 512, 800, this.styleAst.styles['--mk-ui-background-contrast']);
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
             if (!(await this.middleware.fileExists(this.cacheDirectory))) {
                 await this.middleware.createFolder(this.cacheDirectory);
             }
-            await this.middleware.writeBinaryToFile(thumbnail, binary);
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
+            await this.middleware.writeDerivedCacheFile(thumbnail, binary, file.path, generation);
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
             return true;
             
     }
-    public async parseCache (file: AFile, refresh?: boolean) {
+    public async parseCache (file: AFile, refresh?: boolean, generation?: number) {
         if (!file) return;
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         const fCache = this.app.metadataCache.getCache(file.path);
         if (!fCache) return;
             const rt = [];
@@ -336,14 +355,16 @@ public app: App;
         
         if (this.plugin.superstate.settings.noteThumbnails) {
             const thumbnailPath = `${this.cacheDirectory}/${hashCode(file.path)}.jpeg`;
-            if ((await this.middleware.fileExists(thumbnailPath)))
+            if (this.thumbnailFreshCache.get(file.path)
+                && (await this.middleware.derivedCacheFileExists(thumbnailPath)))
             {
-                this.thumbnailFreshCache.set(file.path, true);
+                if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
                 updatedCache.label.thumbnail = thumbnailPath;   
             }
         }
         if (this.plugin.superstate.settings.notesPreview) {
             const contents = await this.plugin.app.vault.cachedRead(getAbstractFileAtPath(this.plugin.app, file.path)as TFile)
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
             const newContent = removeMarkdown(contents.slice(fCache.frontmatterPosition?.end.offset ?? 0, 1000));
             if (currentCache?.label?.preview && newContent !== currentCache.label.preview) {
                 this.thumbnailFreshCache.set(file.path, false);
@@ -367,6 +388,7 @@ public app: App;
         // The guard fires ONLY on a real link change (most edits don't change
         // links). It terminates: re-indexing a target does not change THAT
         // target's own outgoing links, so the guard is false there — no cascade.
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         if (currentCache) {
           const oldLinks = currentCache.resolvedLinks ?? [];
           const newLinksAll = updatedCache.resolvedLinks ?? [];
@@ -394,7 +416,7 @@ public app: App;
         }
         this.cache.set(file.path, updatedCache);
         
-        this.middleware.updateFileCache(file.path, updatedCache, refresh);
+        this.middleware.updateFileCache(file.path, updatedCache, refresh, generation);
     }
     private metadataKeys = ['property', 'links', 'embeds', 'tags', 'headings', 'sections', 'listItems', 'frontmatter', 'frontmatterPosition', 'frontmatterLinks', 'blocks'] as Array<keyof CachedMetadata>;
     public cacheTypes (file: AFile) : (keyof CleanCachedMetadata)[] {
@@ -485,13 +507,33 @@ public app: App;
         })
     }
     public newContent: (file: AFile, fragmentType: keyof CachedMetadataContentTypes, fragmentId: string, content: CachedMetadataContentTypes[keyof CachedMetadataContentTypes], options: { [key: string]: any; }) => Promise<any>;
+
+    private queueIncarnationMutation(
+        file: AFile,
+        operation: (expected: unknown, isCurrent: () => boolean) => Promise<boolean>,
+    ): Promise<boolean> {
+        const expected = file.obsidianFile ?? this.app.vault.getAbstractFileByPath(file.path);
+        const isCurrent = () => !!expected && this.app.vault.getAbstractFileByPath(file.path) === expected;
+        const previous = this.pathMutationQueues.get(file.path) ?? Promise.resolve();
+        const queued = previous.catch((): void => undefined).then(async () => {
+            if (!isCurrent()) return false;
+            return operation(expected, isCurrent);
+        });
+        const settled = queued.then((): void => undefined, (): void => undefined);
+        this.pathMutationQueues.set(file.path, settled);
+        void settled.then(() => {
+            if (this.pathMutationQueues.get(file.path) === settled) this.pathMutationQueues.delete(file.path);
+        });
+        return queued;
+    }
     
     public async saveContent (file: AFile, fragmentType: keyof CachedMetadataContentTypes, fragmentId: string, content: (prev: any) => any) {
-        if (fragmentType == 'label') {
-            const afile = this.app.vault.getAbstractFileByPath(file.path);
-            if (afile && afile instanceof TFile) {
-                if (this.app.fileManager.processFrontMatter) {
-                await this.app.fileManager.processFrontMatter(afile, (frontmatter: any) => {
+        if (fragmentType == 'label' || fragmentType == 'frontmatter' || fragmentType == 'property') {
+            return this.queueIncarnationMutation(file, async (expected, isCurrent) => {
+                if (!(expected instanceof TFile) || !this.app.fileManager.processFrontMatter) return false;
+                await this.app.fileManager.processFrontMatter(expected, (frontmatter: any) => {
+                    if (!isCurrent()) return;
+                    if (fragmentType == 'label') {
                     if (fragmentId == 'sticker') {
                         frontmatter[this.plugin.superstate.settings.fmKeySticker] = content(frontmatter);
                     } else if (fragmentId == 'color') {
@@ -501,44 +543,31 @@ public app: App;
                     }else if (fragmentId == 'cover') {
                         frontmatter[this.plugin.superstate.settings.fmKeyBanner] = content(frontmatter);
                     }
-                    
-                    
-                });
-                
-                }
-            }
-        }
-        if (fragmentType == 'frontmatter' || fragmentType == 'property') {
-            const afile = this.app.vault.getAbstractFileByPath(file.path);
-            if (afile && afile instanceof TFile) {
-                if (this.app.fileManager.processFrontMatter) {
-                await this.app.fileManager.processFrontMatter(afile, (frontmatter: any) => {
-                    
+                    } else {
                     const newFrontmatter = content(frontmatter);
                     const newKeys = Object.keys(newFrontmatter);
                     newKeys.forEach((f) => {
                             frontmatter[f] = newFrontmatter?.[f];
                     })
                     Object.keys(frontmatter).filter(f => !newKeys.includes(f)).forEach(f => delete frontmatter[f]);
-
+                    }
                 });
-                }
-            }
+                return isCurrent();
+            });
         }
-        
         return true;
     }
     public async deleteContent (file: AFile, fragmentType: keyof CachedMetadataContentTypes, fragmentId: any) {
 
         if (fragmentType == 'frontmatter' || fragmentType == 'property') {
-            const afile = this.app.vault.getAbstractFileByPath(file.path);
-            if (afile && afile instanceof TFile) {
-                if (this.app.fileManager.processFrontMatter) {
-                return this.app.fileManager.processFrontMatter(afile, (frontmatter: any) => {
+            return this.queueIncarnationMutation(file, async (expected, isCurrent) => {
+                if (!(expected instanceof TFile) || !this.app.fileManager.processFrontMatter) return false;
+                await this.app.fileManager.processFrontMatter(expected, (frontmatter: any) => {
+                    if (!isCurrent()) return;
                     delete frontmatter[fragmentId]
                 });
-                }
-            }
+                return isCurrent();
+            });
         }
         
         return;

@@ -2,7 +2,7 @@ export interface EventTypeToPayload {
     [eventType: string]: any;
 }
 
-type EventListener<T> = (event: T) => void | Promise<void>;
+type EventListener<T> = (event: T) => void | Promise<unknown>;
 
 interface Listener<T> {
     callback: EventListener<T>;
@@ -56,6 +56,25 @@ export class EventDispatcher<T extends EventTypeToPayload> {
                     this.removeListener(eventType, listener.callback);
                 }
             }
+        }
+    }
+
+    async dispatchEventPropagating<K extends keyof T>(eventType: K, event: T[K]): Promise<void> {
+        const listeners = this.listeners.get(eventType);
+        if (!listeners) return;
+        const failures: unknown[] = [];
+        for (const listener of [...listeners]) {
+            try {
+                await listener.callback.call(listener.context, event);
+            } catch (error) {
+                failures.push(error);
+                console.error(`Error in listener for event '${String(eventType)}':`, error);
+            } finally {
+                if (listener.once) this.removeListener(eventType, listener.callback);
+            }
+        }
+        if (failures.length > 0) {
+            throw new AggregateError(failures, `Event '${String(eventType)}' listener failures`);
         }
     }
 }

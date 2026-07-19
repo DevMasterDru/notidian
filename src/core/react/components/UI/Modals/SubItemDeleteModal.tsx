@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import i18n from "shared/i18n";
 
 // Non-destructive parent-delete prompt (Notidian-5ond.8, ADR 0050). Shown ONLY
@@ -23,21 +23,41 @@ import i18n from "shared/i18n";
 export const SubItemDeleteModal = (props: {
   hide?: () => void;
   // (1) Delete only this row; children promote to roots (no rewrite). Default.
-  deleteOnly: () => void;
+  deleteOnly: () => void | Promise<void>;
   // (2) Delete this row and its entire visible subtree.
-  deleteRecursive: () => void;
+  deleteRecursive: () => void | Promise<void>;
+  // The request boundary supplies the single user-facing failure reporter.
+  reportError: (error: unknown) => void;
   // Number of descendant rows the recursive option will remove (for the count).
   subItemCount: number;
 }) => {
-  const { hide, deleteOnly, deleteRecursive, subItemCount } = props;
-  const runDeleteOnly = () => {
-    deleteOnly();
-    hide && hide();
-  };
-  const runDeleteRecursive = () => {
-    deleteRecursive();
-    hide && hide();
-  };
+  const { hide, deleteOnly, deleteRecursive, reportError, subItemCount } = props;
+  const inFlight = useRef(false);
+  const [deleting, setDeleting] = useState(false);
+  const runAction = useCallback(
+    async (action: () => void | Promise<void>) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setDeleting(true);
+      try {
+        await action();
+        hide?.();
+      } catch (error) {
+        reportError(error);
+        inFlight.current = false;
+        setDeleting(false);
+      }
+    },
+    [hide, reportError]
+  );
+  const runDeleteOnly = useCallback(
+    () => runAction(deleteOnly),
+    [deleteOnly, runAction]
+  );
+  const runDeleteRecursive = useCallback(
+    () => runAction(deleteRecursive),
+    [deleteRecursive, runAction]
+  );
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Enter") {
@@ -45,14 +65,14 @@ export const SubItemDeleteModal = (props: {
         event.stopPropagation();
         event.stopImmediatePropagation();
         // Enter = the safe, non-destructive default (promote children).
-        runDeleteOnly();
+        void runDeleteOnly();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [runDeleteOnly]);
   return (
     <div className="mk-modal-contents mk-subitem-delete-modal">
       <div className="mk-modal-message">
@@ -62,11 +82,17 @@ export const SubItemDeleteModal = (props: {
         )}
       </div>
       <div className="mk-button-group">
-        <button onClick={() => runDeleteOnly()} tabIndex={0} autoFocus>
+        <button
+          onClick={() => void runDeleteOnly()}
+          disabled={deleting}
+          tabIndex={0}
+          autoFocus
+        >
           {i18n.buttons.deletePromoteChildren}
         </button>
         <button
-          onClick={() => runDeleteRecursive()}
+          onClick={() => void runDeleteRecursive()}
+          disabled={deleting}
           tabIndex={0}
           className="mod-warning"
         >
@@ -75,7 +101,7 @@ export const SubItemDeleteModal = (props: {
             subItemCount.toString()
           )}
         </button>
-        <button onClick={() => hide && hide()} tabIndex={0}>
+        <button onClick={() => hide?.()} disabled={deleting} tabIndex={0}>
           {i18n.buttons.cancel}
         </button>
       </div>

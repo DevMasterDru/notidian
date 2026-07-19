@@ -8,6 +8,7 @@ import {
   removeLinksInRow,
   renameLinksInRow,
   replaceLinkInValue,
+  rewriteCanonicalLinkPayload,
   valueContainsLink,
 } from "./links";
 
@@ -84,6 +85,42 @@ const contextCol = (name: string): SpaceProperty =>
 // parseMultiString as JSON; multi-link values MUST therefore be serialized
 // arrays. We build them through serializeMultiString to mirror real storage.
 const multi = (...entries: string[]) => serializeMultiString(entries);
+
+describe("rewriteCanonicalLinkPayload syntax preservation", () => {
+  it("renames only the matching file target while preserving wrappers, fragments, aliases, order, and container shape", () => {
+    expect(rewriteCanonicalLinkPayload("link", "[[Old.md#Heading|Read this]]", "Old.md", "New.md"))
+      .toBe("[[New.md#Heading|Read this]]");
+    expect(rewriteCanonicalLinkPayload("link", "Old.md^block-id", "Old.md", "New.md"))
+      .toBe("New.md^block-id");
+    expect(rewriteCanonicalLinkPayload(
+      "link-multi",
+      ["[[Old.md#Heading|Alias]]", "Old.md^block", "[[Other.md#Keep|Other alias]]", "plain value"],
+      "Old.md",
+      "New.md",
+    )).toEqual([
+      "[[New.md#Heading|Alias]]",
+      "New.md^block",
+      "[[Other.md#Keep|Other alias]]",
+      "plain value",
+    ]);
+  });
+
+  it("deletes only matching targets without normalizing unrelated syntax", () => {
+    expect(rewriteCanonicalLinkPayload("link", "[[Old.md#Heading|Alias]]", "Old.md"))
+      .toBe("");
+    expect(rewriteCanonicalLinkPayload(
+      "link-multi",
+      ["[[Keep.md#Heading|Alias]]", "Old.md^block", "unrelated bare value"],
+      "Old.md",
+    )).toEqual(["[[Keep.md#Heading|Alias]]", "unrelated bare value"]);
+  });
+
+  it("preserves empty and absent canonical properties exactly", () => {
+    expect(rewriteCanonicalLinkPayload("link", "", "Old.md", "New.md")).toBe("");
+    expect(rewriteCanonicalLinkPayload("link", undefined, "Old.md", "New.md")).toBeUndefined();
+    expect(rewriteCanonicalLinkPayload("link-multi", [], "Old.md")).toEqual([]);
+  });
+});
 
 // ===========================================================================
 // (1) PROPERTY: replace/removeLinkInValue touch ONLY the targeted identity
@@ -262,9 +299,9 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
   const savedColumns = (calls: SaveCall[]) =>
     calls.flatMap((c) => Object.keys(c.payload));
 
-  it("removeLinksInRow: saveProperties ONLY for frontmatter-backed MATCHED columns", () => {
+  it("removeLinksInRow: saveProperties ONLY for frontmatter-backed MATCHED columns", async () => {
     const { manager, calls } = makeSpyManager();
-    const out = removeLinksInRow(manager, buildRow(), "Target.md", cols);
+    const out = await removeLinksInRow(manager, buildRow(), "Target.md", cols);
 
     // Authority gate: file writes only for the frontmatter columns that matched.
     const saved = savedColumns(calls).sort();
@@ -290,9 +327,9 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
     expect(out[PathPropertyName]).toBe(PATH);
   });
 
-  it("renameLinksInRow: saveProperties ONLY for frontmatter-backed MATCHED columns", () => {
+  it("renameLinksInRow: saveProperties ONLY for frontmatter-backed MATCHED columns", async () => {
     const { manager, calls } = makeSpyManager();
-    const out = renameLinksInRow(
+    const out = await renameLinksInRow(
       manager,
       buildRow(),
       "Target.md",
@@ -317,7 +354,7 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
     expect(out.fmNoMatch).toBe(multi("[[Unrelated.md]]"));
   });
 
-  it("frontmatter payload for a SINGULAR link column is a single clean wikilink (not the JSON array)", () => {
+  it("frontmatter payload for a SINGULAR link column is a single clean wikilink (not the JSON array)", async () => {
     // Regression guard for the singular-`link` frontmatter corruption: the row
     // value carried by remove/replaceLinkInValue is ALWAYS a serializeMultiString
     // JSON array, but a SINGULAR link column's frontmatter form is one wikilink.
@@ -331,7 +368,7 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
       // A singular link column holds a single bare-path value in the row.
       fmLink: "Target.md",
     };
-    renameLinksInRow(manager, row, "Target.md", "Renamed.md", [
+    await renameLinksInRow(manager, row, "Target.md", "Renamed.md", [
       fmLinkCol("fmLink"),
     ]);
     expect(calls).toHaveLength(1);
@@ -343,7 +380,7 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
     expect(calls[0].payload.fmLink).not.toBe("[[[Renamed.md]]]");
   });
 
-  it("frontmatter payload for a link-MULTI column is a clean wikilink array", () => {
+  it("frontmatter payload for a link-MULTI column is a clean wikilink array", async () => {
     // The multi case takes parseMDBStringValue's `-multi` branch, wrapping each
     // entry once -> a clean wikilink array. This matches the project's
     // established-correct shape in codex-yaml-fidelity.audit.test.ts.
@@ -352,42 +389,42 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
       [PathPropertyName]: PATH,
       related: multi("Target.md", "Other.md"),
     };
-    renameLinksInRow(manager, row, "Target.md", "Renamed.md", [
+    await renameLinksInRow(manager, row, "Target.md", "Renamed.md", [
       fmLinkMultiCol("related"),
     ]);
     expect(calls).toHaveLength(1);
     expect(calls[0].payload.related).toEqual(["[[Renamed.md]]", "[[Other.md]]"]);
   });
 
-  it("NO-MATCH row: no saveProperties call, row returned unchanged", () => {
+  it("NO-MATCH row: no saveProperties call, row returned unchanged", async () => {
     const { manager, calls } = makeSpyManager();
     const row = buildRow();
-    const out = removeLinksInRow(manager, row, "Absent.md", cols);
+    const out = await removeLinksInRow(manager, row, "Absent.md", cols);
     expect(calls).toHaveLength(0);
     // identity: no delta keys spread over the row
     expect(out).toEqual(row);
 
     const { manager: m2, calls: c2 } = makeSpyManager();
-    const out2 = renameLinksInRow(m2, row, "Absent.md", "[[X.md]]", cols);
+    const out2 = await renameLinksInRow(m2, row, "Absent.md", "[[X.md]]", cols);
     expect(c2).toHaveLength(0);
     expect(out2).toEqual(row);
   });
 
-  it("empty cols: short-circuits, no save, returns the same row", () => {
+  it("empty cols: short-circuits, no save, returns the same row", async () => {
     const { manager, calls } = makeSpyManager();
     const row = buildRow();
-    expect(removeLinksInRow(manager, row, "Target.md", [])).toBe(row);
-    expect(renameLinksInRow(manager, row, "Target.md", "[[Y]]", [])).toBe(row);
+    expect(await removeLinksInRow(manager, row, "Target.md", [])).toBe(row);
+    expect(await renameLinksInRow(manager, row, "Target.md", "[[Y]]", [])).toBe(row);
     expect(calls).toHaveLength(0);
   });
 
-  it("source-less link-multi is Notidian-owned: matched row delta updates, file never written", () => {
+  it("source-less link-multi is Notidian-owned: matched row delta updates, file never written", async () => {
     const { manager, calls } = makeSpyManager();
     const row: DBRow = {
       [PathPropertyName]: PATH,
       onlyMulti: multi("[[Target.md]]", "[[Other.md]]"),
     };
-    const out = removeLinksInRow(manager, row, "Target.md", [
+    const out = await removeLinksInRow(manager, row, "Target.md", [
       sourcelessLinkMultiCol("onlyMulti"),
     ]);
     // Authority gate: no frontmatter representation => no file write.
@@ -396,7 +433,7 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
     expect(parseMultiString(out.onlyMulti)).toEqual(["[[Other.md]]"]);
   });
 
-  it("matched frontmatter column among many non-matching columns saves exactly once", () => {
+  it("matched frontmatter column among many non-matching columns saves exactly once", async () => {
     const { manager, calls } = makeSpyManager();
     const row: DBRow = {
       [PathPropertyName]: PATH,
@@ -404,7 +441,7 @@ describe("AUTHORITY MATRIX: removeLinksInRow / renameLinksInRow", () => {
       b: multi("[[Target.md]]"),
       c: multi("[[AlsoNope.md]]"),
     };
-    const out = removeLinksInRow(manager, row, "Target.md", [
+    const out = await removeLinksInRow(manager, row, "Target.md", [
       fmLinkCol("a"),
       fmLinkCol("b"),
       fmLinkCol("c"),

@@ -1,6 +1,13 @@
 //handles db ops
 
-import { linkColumns, removeLinksInRow, renameLinksInRow } from "core/utils/contexts/links";
+import {
+  linkColumns,
+  planRemoveLinksInRow,
+  planRenameLinksInRow,
+  rewriteCanonicalLinkPayload,
+  removeLinksInRow,
+  renameLinksInRow,
+} from "core/utils/contexts/links";
 import { removeRowForPath, removeRowsForPath, renameRowForPath, reorderRowsForPath } from "core/utils/contexts/pathUpdates";
 import _ from "lodash";
 import { PathPropertyName } from "shared/types/context";
@@ -13,6 +20,7 @@ import { DefaultSpaceCols } from "core/react/components/SpaceView/Frames/Default
 import { SpaceManager } from "core/spaceManager/spaceManager";
 import { metadataPathForSpace } from "core/superstate/utils/spaces";
 import { materializeFrontmatterBackedContextTable } from "core/utils/properties/allProperties";
+import { shouldWriteAuthorityValueToFrontmatter } from "core/utils/properties/propertyAuthority";
 import { Superstate } from "makemd-core";
 import { defaultContextFields } from "shared/schemas/fields";
 import { safelyParseJSON } from "shared/utils/json";
@@ -91,10 +99,15 @@ const saveContext = async (
   manager: SpaceManager,
   spaceInfo: SpaceInfo,
   newTable: SpaceTable,
+  baseTable: SpaceTable,
   forceCreate?: boolean,
   calculate=true
 ): Promise<void> => {
-  await manager.saveTable(spaceInfo.path, newTable, forceCreate).then(f => {
+  await manager.mutateTable(spaceInfo.path, newTable.schema.id, {
+    kind: "merge",
+    base: structuredClone(baseTable),
+    desired: structuredClone(newTable),
+  }, forceCreate).then(f => {
     if (f)
     // Always force reload after save to ensure UI updates
     return manager.superstate.reloadContextByPath(spaceInfo.path, { force: true, calculate })
@@ -233,7 +246,7 @@ export const updateTableValue = async (
                 {
                   // Update Table Value
                 }
-                await saveContext(manager, space, newMDB);}
+                await saveContext(manager, space, newMDB, f);}
             return newMDB;
         })
         )
@@ -271,7 +284,7 @@ export const updateContextValue = async (
     if (manager.superstate.settings.enhancedLogs) {
       // Update Context Value
     }
-      return saveContext(manager, space, newMDB, force, calculate)
+      return saveContext(manager, space, newMDB, f, force, calculate)
     }
     )
     
@@ -388,7 +401,7 @@ export const updateContextWithProperties = async (
           if (superstate.settings.enhancedLogs) {
             // Update Context Path Properties
           }
-          await saveContext(superstate.spaceManager, space, newDB, true);
+          await saveContext(superstate.spaceManager, space, newDB, mdb, true);
         }
       return newDB;
     })
@@ -409,7 +422,7 @@ export const updateTableRow = async (manager: SpaceManager,
           if (manager.superstate.settings.enhancedLogs) {
             // Update Table Row
           }
-          await saveContext(manager, space, newDB);
+          await saveContext(manager, space, newDB, mdb);
         }
       return newDB;
     })
@@ -432,7 +445,7 @@ export const updateValueInContext = async ( manager: SpaceManager,
             if (manager.superstate.settings.enhancedLogs) {
               // Update Value in Context
             }
-            await saveContext(manager, space, newDB);
+            await saveContext(manager, space, newDB, mdb);
           }
         return newDB;
       })
@@ -456,7 +469,7 @@ export const renameTagInContexts = async ( manager: SpaceManager,
             if (manager.superstate.settings.enhancedLogs) {
               // Rename Tag in Context
             }
-            await saveContext(manager, space, newDB);
+            await saveContext(manager, space, newDB, mdb);
           }
         return newDB;
       })
@@ -480,7 +493,7 @@ export const renameTagInContexts = async ( manager: SpaceManager,
               if (manager.superstate.settings.enhancedLogs) {
                 // Remove Tag in Context
               }
-              await saveContext(manager, space, newDB);
+              await saveContext(manager, space, newDB, mdb);
             }
           return newDB;
         })
@@ -498,7 +511,7 @@ export const renameTagInContexts = async ( manager: SpaceManager,
                 if (manager.superstate.settings.enhancedLogs) {
                   // Add Row in Table
                 }
-                await saveContext(manager, space, newDB);}
+                await saveContext(manager, space, newDB, mdb);}
             return newDB;
           })
         
@@ -512,7 +525,7 @@ export const renameTagInContexts = async ( manager: SpaceManager,
                 if (manager.superstate.settings.enhancedLogs) {
                   // Delete Row in Table
                 }
-                await saveContext(manager, space, newDB);}
+                await saveContext(manager, space, newDB, mdb);}
             return newDB;
           })
       }
@@ -537,7 +550,7 @@ export const deleteRowsInTable = async (
       if (manager.superstate.settings.enhancedLogs) {
         // Delete Rows in Table
       }
-      await saveContext(manager, space, newDB);
+      await saveContext(manager, space, newDB, mdb);
     }
     return newDB;
   });
@@ -572,7 +585,7 @@ export const restoreRowsInTable = async (
       if (manager.superstate.settings.enhancedLogs) {
         // Restore Rows in Table
       }
-      await saveContext(manager, space, newDB);
+      await saveContext(manager, space, newDB, mdb);
     }
     return newDB;
   });
@@ -591,7 +604,7 @@ export const addPathInContexts = async (manager: SpaceManager,
             if (manager.superstate.settings.enhancedLogs) {
               // Add Path in Context
             }
-            await saveContext(manager, space, newDB);}
+            await saveContext(manager, space, newDB, mdb);}
         return newDB;
       })
     });
@@ -609,14 +622,14 @@ export const renameLinkInContexts = async (manager: SpaceManager,
         const linkCols = linkColumns(mdb.cols);
         const newDB = {
           ...mdb,
-          rows: mdb.rows.map(r => renameLinksInRow(manager, r, oldPath, newPath, linkCols))
+          rows: await Promise.all(mdb.rows.map(r => renameLinksInRow(manager, r, oldPath, newPath, linkCols)))
         } ;
         if (!_.isEqual(mdb, newDB))
         {
           if (manager.superstate.settings.enhancedLogs) {
             // Rename Link in Context
           }
-          await saveContext(manager, space, newDB);}
+          await saveContext(manager, space, newDB, mdb);}
         return newDB;
       })
     });
@@ -632,14 +645,14 @@ export const removeLinkInContexts = async (manager: SpaceManager,
         const linkCols = linkColumns(mdb.cols);
         const newDB = {
           ...mdb,
-          rows: mdb.rows.map(r => removeLinksInRow(manager, r, path, linkCols))
+          rows: await Promise.all(mdb.rows.map(r => removeLinksInRow(manager, r, path, linkCols)))
         } ;
         if (!_.isEqual(mdb, newDB))
         {
           if (manager.superstate.settings.enhancedLogs) {
             // Remove link in context
           }
-          await saveContext(manager, space, newDB);}
+          await saveContext(manager, space, newDB, mdb);}
         return newDB;
       })
     });
@@ -656,7 +669,7 @@ export const renamePathInContexts = async (manager: SpaceManager,
         const newDB = renameRowForPath(mdb, oldPath, newPath);
         if (!_.isEqual(mdb, newDB))
         {
-          await saveContext(manager, space, newDB);}
+          await saveContext(manager, space, newDB, mdb);}
         return newDB;
       })
     });
@@ -678,12 +691,247 @@ export const removePathInContexts = async (manager: SpaceManager,
           if (manager.superstate.settings.enhancedLogs) {
             // Remove Path in Context
           }
-          await saveContext(manager, space, newDB);}
+          await saveContext(manager, space, newDB, mdb);}
         return newDB;
       })
     });
     return Promise.all(promises);
 }
+
+type PathLifecycleMode = { kind: "remove" } | { kind: "rename"; newPath: string };
+
+const mutatePathLifecycleInContexts = async (
+  manager: SpaceManager,
+  oldPath: string,
+  rowSpaces: SpaceInfo[],
+  linkSpaces: SpaceInfo[],
+  mode: PathLifecycleMode,
+  isCurrent: () => boolean = () => true,
+): Promise<void> => {
+  const rowPaths = new Set(rowSpaces.map(space => space.path));
+  const linkPaths = new Set(linkSpaces.map(space => space.path));
+  const spaces = [...rowSpaces, ...linkSpaces].reduce<Map<string, SpaceInfo>>((byPath, space) => {
+    if (!byPath.has(space.path)) byPath.set(space.path, space);
+    return byPath;
+  }, new Map());
+  const tablePlans: Array<{ space: SpaceInfo; before: SpaceTable; after: SpaceTable }> = [];
+  const canonicalCandidates = new Map<string, { path: string; properties: Map<string, string> }>();
+
+  for (const space of spaces.values()) {
+    if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+    const before = await manager.contextForSpace(space.path);
+    if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+    if (!before) continue;
+    let after = before;
+    if (rowPaths.has(space.path)) {
+      after = mode.kind === "rename"
+        ? renameRowForPath(after, oldPath, mode.newPath)
+        : removeRowForPath(after, oldPath);
+    }
+    if (linkPaths.has(space.path)) {
+      const cols = linkColumns(after.cols);
+      const plans = after.rows.map(row => mode.kind === "rename"
+        ? planRenameLinksInRow(row, oldPath, mode.newPath, cols)
+        : planRemoveLinksInRow(row, oldPath, cols));
+      after = { ...after, rows: plans.map(plan => plan.row) };
+      const canonicalCols = cols.filter(shouldWriteAuthorityValueToFrontmatter);
+      const authoritativeMembers: string[] = Array.from(
+        manager.superstate.spacesMap?.getInverse?.(space.path) ?? [],
+      );
+      const candidatePaths = new Set([
+        ...authoritativeMembers,
+        ...before.rows.map(row => row[PathPropertyName]),
+      ].filter(Boolean));
+      for (const rowPath of candidatePaths) {
+        if (!rowPath) continue;
+        const path = rowPath === oldPath
+          ? mode.kind === "rename" ? mode.newPath : undefined
+          : rowPath;
+        if (!path) continue;
+        const candidate = canonicalCandidates.get(path) ?? { path, properties: new Map() };
+        canonicalCols.forEach(col => candidate.properties.set(col.name, col.type));
+        canonicalCandidates.set(path, candidate);
+      }
+    }
+    if (!_.isEqual(before, after)) tablePlans.push({ space, before, after });
+  }
+
+  const canonicalPlans = await Promise.all([...canonicalCandidates.values()].map(async plan => ({
+    ...plan,
+    file: (typeof manager.getPathInfo === "function"
+      ? await manager.getPathInfo(plan.path)
+      : { path: plan.path }) as { path: string; obsidianFile?: unknown } | null,
+  })));
+  type CanonicalAttempt = {
+    path: string;
+    restore: Record<string, unknown>;
+    applied: Record<string, unknown>;
+  };
+  const attemptedCanonical: CanonicalAttempt[] = [];
+  const attemptedTables: Array<{ plan: typeof tablePlans[number]; applied: SpaceTable }> = [];
+
+  const applyLifecycle = (table: SpaceTable, spacePath: string): SpaceTable => {
+    let next = table;
+    if (rowPaths.has(spacePath)) {
+      next = mode.kind === "rename"
+        ? renameRowForPath(next, oldPath, mode.newPath)
+        : removeRowForPath(next, oldPath);
+    }
+    if (linkPaths.has(spacePath)) {
+      const cols = linkColumns(next.cols);
+      next = {
+        ...next,
+        rows: next.rows.map(row => mode.kind === "rename"
+          ? planRenameLinksInRow(row, oldPath, mode.newPath, cols).row
+          : planRemoveLinksInRow(row, oldPath, cols).row),
+      };
+    }
+    return next;
+  };
+
+  const restoreTableDelta = (current: SpaceTable, before: SpaceTable, applied: SpaceTable): SpaceTable => {
+    const rows = [...current.rows];
+    const beforeByPath = new Map(before.rows.map(row => [row[PathPropertyName], row]));
+    const appliedByPath = new Map(applied.rows.map(row => [row[PathPropertyName], row]));
+
+    // A rename is one identity transition, not a delete/add pair. Invert only
+    // the owned path change while retaining fields concurrently edited on the
+    // surviving row after the forward write.
+    if (mode.kind === "rename") {
+      const beforeRow = beforeByPath.get(oldPath);
+      const appliedRow = appliedByPath.get(mode.newPath);
+      const currentIndex = rows.findIndex(row => row[PathPropertyName] === mode.newPath);
+      if (beforeRow && appliedRow && currentIndex >= 0
+        && !rows.some(row => row[PathPropertyName] === oldPath)) {
+        rows[currentIndex] = { ...rows[currentIndex], [PathPropertyName]: oldPath };
+        appliedByPath.delete(mode.newPath);
+        appliedByPath.set(oldPath, { ...appliedRow, [PathPropertyName]: oldPath });
+      }
+    }
+
+    // Restore rows removed by this lifecycle by their stable file identity and
+    // original order. Positional pairing is invalid after a deletion shifts
+    // every following row left.
+    before.rows.forEach((beforeRow, beforeIndex) => {
+      const identity = beforeRow[PathPropertyName];
+      if (appliedByPath.has(identity)) return;
+      if (!rows.some(row => row[PathPropertyName] === identity)) {
+        rows.splice(Math.min(beforeIndex, rows.length), 0, beforeRow);
+      }
+    });
+
+    // Revert lifecycle-owned cell changes only when the current value still
+    // equals what the lifecycle wrote. Concurrent edits remain authoritative.
+    for (const [identity, beforeRow] of beforeByPath) {
+      const appliedRow = appliedByPath.get(identity);
+      if (!appliedRow) continue;
+      const currentIndex = rows.findIndex(row => row[PathPropertyName] === identity);
+      if (currentIndex < 0) continue;
+      const restored = { ...rows[currentIndex] };
+      for (const key of new Set([...Object.keys(beforeRow), ...Object.keys(appliedRow)])) {
+        if (!_.isEqual(beforeRow[key], appliedRow[key]) && _.isEqual(restored[key], appliedRow[key])) {
+          restored[key] = beforeRow[key];
+        }
+      }
+      rows[currentIndex] = restored;
+    }
+    return { ...current, rows };
+  };
+
+  try {
+    for (const plan of canonicalPlans) {
+      if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+      if (!plan.file) continue;
+      const write: CanonicalAttempt = { path: plan.path, restore: {}, applied: {} };
+      attemptedCanonical.push(write);
+      const saved = await manager.mutateProperties(write.path, live => {
+        const next = { ...live };
+        for (const [property, type] of plan.properties) {
+          if (!Object.prototype.hasOwnProperty.call(live, property)) continue;
+          const rewritten = rewriteCanonicalLinkPayload(
+            type,
+            live[property],
+            oldPath,
+            mode.kind === "rename" ? mode.newPath : undefined,
+          );
+          if (_.isEqual(rewritten, live[property])) continue;
+          write.restore[property] = live[property];
+          write.applied[property] = rewritten;
+          next[property] = rewritten;
+        }
+        return next;
+      }, plan.file);
+      if (saved === false) throw new Error(`Failed to persist canonical links for ${write.path}`);
+      if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+    }
+    for (const plan of tablePlans) {
+      if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+      const attempt = { plan, applied: plan.before };
+      attemptedTables.push(attempt);
+      const saved = await manager.mutateTable(plan.space.path, plan.before.schema.id, {
+        kind: "transform",
+        apply: fresh => {
+          attempt.applied = applyLifecycle(fresh, plan.space.path);
+          return attempt.applied;
+        },
+      }, true);
+      if (saved === false) throw new Error(`Failed to persist context lifecycle for ${plan.space.path}`);
+      if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+    }
+    if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+    await Promise.all(tablePlans.map(table =>
+      manager.superstate.reloadContextByPath(table.space.path, { force: true, calculate: true })
+    ));
+    if (!isCurrent()) throw new Error("Path lifecycle invalidated");
+  } catch (error) {
+    for (const { plan, applied } of [...attemptedTables].reverse()) {
+      try {
+        await manager.mutateTable(
+          plan.space.path,
+          plan.before.schema.id,
+          { kind: "transform", apply: fresh => restoreTableDelta(fresh, plan.before, applied) },
+          true,
+        );
+        await manager.superstate.reloadContextByPath(plan.space.path, { force: true, calculate: true });
+      } catch (rollbackError) {
+        console.error(`Failed to restore context ${plan.space.path}:`, rollbackError);
+      }
+    }
+    for (const write of [...attemptedCanonical].reverse()) {
+      try {
+        const plan = canonicalPlans.find(candidate => candidate.path === write.path);
+        if (!plan?.file) continue;
+        await manager.mutateProperties(write.path, live => {
+          const restored = { ...live };
+          for (const [property, applied] of Object.entries(write.applied)) {
+            if (_.isEqual(live[property], applied)) restored[property] = write.restore[property];
+          }
+          return restored;
+        }, plan.file);
+      } catch (rollbackError) {
+        console.error(`Failed to restore canonical links for ${write.path}:`, rollbackError);
+      }
+    }
+    throw error;
+  }
+};
+
+export const renamePathLifecycleInContexts = (
+  manager: SpaceManager,
+  oldPath: string,
+  newPath: string,
+  rowSpaces: SpaceInfo[],
+  linkSpaces: SpaceInfo[],
+  isCurrent?: () => boolean,
+) => mutatePathLifecycleInContexts(manager, oldPath, rowSpaces, linkSpaces, { kind: "rename", newPath }, isCurrent);
+
+export const removePathLifecycleInContexts = (
+  manager: SpaceManager,
+  path: string,
+  rowSpaces: SpaceInfo[],
+  linkSpaces: SpaceInfo[],
+  isCurrent?: () => boolean,
+) => mutatePathLifecycleInContexts(manager, path, rowSpaces, linkSpaces, { kind: "remove" }, isCurrent);
 
 export const reorderPathsInContext = async (manager: SpaceManager,
   paths: string[],
@@ -698,7 +946,7 @@ export const reorderPathsInContext = async (manager: SpaceManager,
           if (manager.superstate.settings.enhancedLogs) {
             // Reorder path in Context
           }
-          await saveContext(manager, context, newDB, true);}
+          await saveContext(manager, context, newDB, mdb, true);}
         return newDB;
       })
 }
@@ -717,7 +965,7 @@ export const removePathsInContext = async (manager: SpaceManager,
           if (manager.superstate.settings.enhancedLogs) {
             // Remove path in context
           }
-          await saveContext(manager, context, newDB);}
+          await saveContext(manager, context, newDB, mdb);}
         return newDB;
       })
 }

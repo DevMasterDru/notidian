@@ -33,6 +33,7 @@ import { SelectOption, SelectOptionType, Superstate } from "makemd-core";
 import { Anchors, Rect } from "shared/types/Pos";
 import { windowFromDocument } from "shared/utils/dom";
 import { movePath } from "shared/utils/uri";
+import { runBulkAsync } from "shared/utils/asyncContracts";
 import { ConfirmationModal } from "../../Modals/ConfirmationModal";
 import { defaultMenu, menuSeparator } from "../menu/SelectionMenu";
 import { showColorPickerMenu } from "../properties/colorPickerMenu";
@@ -166,11 +167,14 @@ export const triggerMultiPathMenu = (
       superstate.ui.openModal(
         i18n.labels.deleteFiles,
         <ConfirmationModal
-          confirmAction={() => {
-            paths.forEach((f) => {
-              deletePath(superstate, f);
-            });
+          reportError={(error) => {
+            console.error("Failed to delete selected paths:", error);
+            superstate.ui.notify(error instanceof Error ? error.message : String(error));
           }}
+          confirmAction={() => runBulkAsync(
+            paths,
+            path => deletePath(superstate, path),
+          )}
           confirmLabel={i18n.buttons.delete}
           message={i18n.descriptions.deleteFiles.replace(
             "${1}",
@@ -339,8 +343,16 @@ export const showPathContextMenu = (
         windowFromDocument(e.view.document),
         superstate,
         (link) => {
-          const item = superstate.pathsIndex.get(path);
-          superstate.spaceManager.renamePath(path, movePath(path, link));
+          void superstate.spaceManager
+            .renamePath(path, movePath(path, link))
+            .then((renamed) => {
+              if (!renamed) throw new Error("Could not move the file.");
+            })
+            .catch((error) => {
+              superstate.ui.notify(
+                error instanceof Error ? error.message : String(error)
+              );
+            });
         }
       );
     },
@@ -438,7 +450,10 @@ export const showPathContextMenu = (
         superstate,
         rootPath: path,
         subItemsDelete,
+        // Keep the lower operation raw: requestRowDeleteWithSubItems owns both
+        // leaf and parent reporting, including recursive aggregation.
         deleteSelf: () => deletePath(superstate, path),
+        reportError: (message) => superstate.ui.notify(message),
         win:
           e?.view?.document != null
             ? windowFromDocument(e.view.document)

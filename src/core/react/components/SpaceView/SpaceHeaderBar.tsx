@@ -19,6 +19,7 @@ import { Rect } from "shared/types/Pos";
 import { uniqueNameFromString } from "shared/utils/array";
 import { windowFromDocument } from "shared/utils/dom";
 import { sanitizeTableName } from "shared/utils/sanitizers";
+import { dispatchBestEffort } from "shared/utils/asyncContracts";
 import { defaultMenu, menuSeparator } from "../UI/Menus/menu/SelectionMenu";
 import { showApplyItemsMenu } from "../UI/Menus/navigator/showApplyItemsMenu";
 import { showLinkMenu } from "../UI/Menus/properties/linkMenu";
@@ -160,19 +161,24 @@ export const SpaceHeaderBar = (props: {
           name: i18n.buttons.removeBanner,
           icon: "ui//file-minus",
           onClick: (ev: React.MouseEvent) => {
+            const removals: Promise<unknown>[] = [];
             if (props.superstate.spacesIndex.has(pathState.path)) {
-              props.superstate.spaceManager.deleteProperty(
+              removals.push(props.superstate.spaceManager.deleteProperty(
                 metadataPathForSpace(
                   props.superstate,
                   props.superstate.spacesIndex.get(pathState.path).space
                 ),
                 props.superstate.settings.fmKeyBanner
-              );
+              ));
             }
-            props.superstate.spaceManager.deleteProperty(
+            removals.push(props.superstate.spaceManager.deleteProperty(
               pathState.path,
               props.superstate.settings.fmKeyBanner
-            );
+            ));
+            dispatchBestEffort(Promise.all(removals), error => {
+              console.error("Failed to remove banner:", error);
+              props.superstate.ui.notify("Failed to remove banner");
+            });
           },
         });
       } else {

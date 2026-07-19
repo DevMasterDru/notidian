@@ -12,7 +12,8 @@ import { FilesystemSpaceInfo } from "shared/types/spaceInfo";
 import { vaultSchema } from "adapters/obsidian/filesystem/schemas/vaultSchema";
 import i18n from "shared/i18n";
 import { defaultContextDBSchema, defaultContextSchemaID } from "shared/schemas/context";
-import { defaultFieldsForContext } from "shared/schemas/fields";
+import { defaultFieldsForContext, fieldSchema } from "shared/schemas/fields";
+import { PathPropertyName } from "shared/types/context";
 import { quoteIdent, sanitizeSQLStatement } from "shared/utils/sanitizers";
 import { Database, QueryExecResult } from "sql.js";
 import {
@@ -139,12 +140,18 @@ export const getMDBTable = async (
     return null;
   }
 
-  let fieldsTables;
-  let schema;
+  let fieldsTables: DBTable[] = [];
+  let schema: SpaceTableSchema;
   try {
     fieldsTables = dbResultsToDBTables(
       db.exec(`SELECT * FROM ${quoteIdent("m_fields")} WHERE ${quoteIdent("schemaId")} = '${sanitizeSQLStatement(table)}'`)
     );
+  } catch (e) {
+    // A missing m_fields is recoverable for an explicit table mutation: expose
+    // the physical rows with no field metadata so the operation can rebuild it.
+    fieldsTables = [];
+  }
+  try {
     schema = dbResultsToDBTables(
       db.exec(`SELECT * FROM ${quoteIdent("m_schema")} WHERE ${quoteIdent("id")} = '${sanitizeSQLStatement(table)}'`)
     )[0]?.rows[0] as SpaceTableSchema;
@@ -153,7 +160,10 @@ export const getMDBTable = async (
     db.close();
     return null;
   }
-  if (!schema) return null;
+  if (!schema) {
+    db.close();
+    return null;
+  }
   
 
   const fields = (fieldsTables[0]?.rows as SpaceProperty[] ?? []).filter(
@@ -181,6 +191,83 @@ export const getMDBTable = async (
     schema,
     fields
   );
+};
+
+export const getOrReconstructMDBTablePropertiesWithinWriteQueue = async (
+  adapter: MDBFileTypeAdapter,
+  dbPath: string,
+): Promise<SpaceProperty[] | null> => {
+  const sqlJS = await adapter.sqlJS();
+  const { db, status } = await openDBWithStatus(adapter, sqlJS, dbPath);
+  if (status !== "ok") {
+    db.close();
+    return null;
+  }
+
+  try {
+    const fieldsTableExists = db.exec(
+      `SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'm_fields'`
+    )[0]?.values.length > 0;
+    const existingFields = fieldsTableExists
+      ? (dbResultsToDBTables(
+        db.exec(`SELECT * FROM ${quoteIdent("m_fields")} ORDER BY rowid`)
+      )[0]?.rows as SpaceProperty[] | undefined) ?? []
+      : [];
+    const schemas = dbResultsToDBTables(
+      db.exec(
+        `SELECT * FROM ${quoteIdent("m_schema")} WHERE ${quoteIdent("type")} = 'db' ORDER BY rowid`
+      )
+    )[0]?.rows as SpaceTableSchema[] | undefined;
+    const fieldIdentity = (schemaId: unknown, name: unknown) =>
+      JSON.stringify([String(schemaId ?? ""), String(name ?? "")]);
+    const knownFields = new Set(
+      existingFields.map((field) => fieldIdentity(field.schemaId, field.name))
+    );
+    const missingFields = (schemas ?? []).flatMap((schema) => {
+      const columns = dbResultsToDBTables(
+        db.exec(`PRAGMA table_info(${quoteIdent(schema.id)})`)
+      )[0]?.rows ?? [];
+      return columns.flatMap(({ name }) => {
+        const normalizedName = String(name);
+        const identity = fieldIdentity(schema.id, normalizedName);
+        if (knownFields.has(identity)) return [];
+        knownFields.add(identity);
+        return [{
+          name: normalizedName,
+          schemaId: schema.id,
+          type: normalizedName === PathPropertyName ? "file" : "text",
+          value: "",
+          source: normalizedName === PathPropertyName ? "" : "notidian",
+          attrs: "",
+          hidden: "",
+          unique: "",
+          primary: "",
+        } as SpaceProperty];
+      });
+    });
+    const fields = [...existingFields, ...missingFields];
+    if (fieldsTableExists && missingFields.length === 0) {
+      db.close();
+      return fields;
+    }
+    const reconstructed = replaceDB(db, {
+      m_fields: {
+        uniques: fieldSchema.uniques,
+        cols: fieldSchema.cols,
+        rows: fields,
+      },
+    });
+    if (!reconstructed) {
+      db.close();
+      return null;
+    }
+    await saveDBFile(adapter, dbPath, db.export().buffer as ArrayBuffer);
+    db.close();
+    return fields;
+  } catch (e) {
+    db.close();
+    return null;
+  }
 };
 
 export const getMDBTables = async (plugin: MDBFileTypeAdapter, dbPath: string) => {

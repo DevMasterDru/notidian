@@ -83,7 +83,7 @@ export const GlobalTemplateEditor = (props: GlobalTemplateEditorProps) => {
 
   const deleteTemplate = async (templatePath: string) => {
     try {
-      props.superstate.spaceManager.deletePath(templatePath);
+      await props.superstate.spaceManager.deletePath(templatePath);
       await loadTemplates();
       if (selectedTemplate === templatePath) {
         setSelectedTemplate(null);

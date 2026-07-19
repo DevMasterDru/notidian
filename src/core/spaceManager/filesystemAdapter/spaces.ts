@@ -13,12 +13,12 @@ export const onPathCreated = async (
   newPath: string,
 ) => {
   
-  superstate.onPathCreated(newPath)
+  return await superstate.onPathCreated(newPath)
   
 };
 
 export const onPathDeleted = async (superstate: Superstate, oldPath: string) => {
-  superstate.onPathDeleted(oldPath)
+  return await superstate.onPathDeleted(oldPath)
 };
 
 export const onPathChanged = async (
@@ -60,5 +60,3 @@ export const retrieveAllRecursiveChildren = (
       excludeVaultItemPredicate(settings)
     ) as VaultItem[];
 };
-
-

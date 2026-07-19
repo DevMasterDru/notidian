@@ -13,7 +13,7 @@ import { MDBFrame, MDBFrames } from "shared/types/mframe";
 import { URI } from "shared/types/path";
 import { SpaceDefinition, SpaceType } from "shared/types/spaceDef";
 import { SpaceFragmentType } from "shared/types/spaceFragment";
-import { SpaceAdapter, SpaceManagerInterface } from "shared/types/spaceManager";
+import { SpaceAdapter, SpaceManagerInterface, TableMutationOperation } from "shared/types/spaceManager";
 import { ISuperstate } from "shared/types/superstate";
 import { uniq } from "shared/utils/array";
 import { parseURI } from "shared/utils/uri";
@@ -75,15 +75,15 @@ export class SpaceManager implements SpaceManagerInterface {
     }
 
     public onPathCreated = async (path: string) => {
-      this.superstate.onPathCreated(path);
+      return await this.superstate.onPathCreated(path);
     }
 
     public onPathDeleted = async (path: string) => {
-      this.superstate.onPathDeleted(path);
+      return await this.superstate.onPathDeleted(path);
     }
 
     public onPathChanged = async (path: string, oldPath: string) => {
-      this.superstate.onPathRename(oldPath, path);
+      return await this.superstate.onPathRename(oldPath, path);
     }
 
     public onSpaceCreated = async (path: string) => {
@@ -92,24 +92,24 @@ export class SpaceManager implements SpaceManagerInterface {
       const space = await this.superstate.reloadSpace(this.spaceInfoForPath(path), null, true)
       await this.superstate.onSpaceDefinitionChanged(space)
       
-      await this.superstate.onPathCreated(path)
-      await this.superstate.reloadContextByPath(path, {calculate: true, force: true})
+      if (!await this.superstate.onPathCreated(path)) return false;
+      return await this.superstate.reloadContextByPath(path, {calculate: true, force: true})
      
     }
     public onSpaceRenamed = async (path: string, oldPath: string) => {
       await this.superstate.onSpaceRenamed(oldPath, this.spaceInfoForPath(path))
-      await this.superstate.onPathRename(oldPath, path)
+      return await this.superstate.onPathRename(oldPath, path)
     }
 
     public onSpaceDeleted = async (path: string) => {
       this.superstate.onSpaceDeleted(path)
-      this.superstate.onPathDeleted(path)
+      return await this.superstate.onPathDeleted(path)
     }
 
     
 
     public onPathPropertyChanged = async (path: string) => {
-      this.superstate.onMetadataChange(path)
+      return await this.superstate.onMetadataChange(path)
     }
 
     public resolvePath(path: string, source?: string) {
@@ -193,7 +193,7 @@ export class SpaceManager implements SpaceManagerInterface {
      public childrenForSpace (path: string) {
         return this.adapterForPath(path).childrenForSpace(path);
      }
-     public contextForSpace (path: string) {
+     public async contextForSpace (path: string) {
          return this.adapterForPath(path).contextForSpace(path);
       }
       public async tablesForSpace (path: string) {
@@ -205,7 +205,7 @@ export class SpaceManager implements SpaceManagerInterface {
       public contextInitiated (path: string) {
         return this.adapterForPath(path).contextInitiated(path);
       }
-      public readTable (path: string, schema: string) {
+      public async readTable (path: string, schema: string) {
          return this.adapterForPath(path).readTable(path, schema);
       }
 
@@ -223,7 +223,10 @@ export class SpaceManager implements SpaceManagerInterface {
       return f});
     }
     public saveTable (path: string, table: SpaceTable, force?: boolean) {
-      return this.adapterForPath(path).saveTable(path, table, force)
+      return this.adapterForPath(path).saveTable(path, table, force);
+    }
+    public mutateTable(path: string, schemaId: string, operation: TableMutationOperation, force?: boolean) {
+      return this.adapterForPath(path).mutateTable(path, schemaId, operation, force);
     }
     public deleteTable (path: string, name: string) {
       
@@ -355,11 +358,14 @@ export class SpaceManager implements SpaceManagerInterface {
      public addProperty(path: string, property: SpaceProperty) {
         return this.adapterForPath(path).addProperty(path, property);
      }
-     public saveProperties (path: string, properties: {[key:string]: any}) {
+    public saveProperties (path: string, properties: {[key:string]: any}) {
 
       if (!path) return;
         return this.adapterForPath(path).saveProperties(path, properties);
      }
+       public mutateProperties(path: string, mutation: (properties: Record<string, any>) => Record<string, any>, expectedFile?: { path: string; obsidianFile?: unknown }) {
+         return this.adapterForPath(path).mutateProperties(path, mutation, expectedFile);
+       }
        public readProperties (path: string) {
          return this.adapterForPath(path).readProperties(path);
        }
@@ -429,7 +435,10 @@ export class SpaceManager implements SpaceManagerInterface {
     public saveFocuses (focuses: Focus[]) {
       this.superstate.focuses = focuses;
       this.superstate.dispatchEvent("focusesChanged", null)
-        return this.primarySpaceAdapter.saveFocuses(focuses);
+      return this.persistFocuses(focuses);
+    }
+    public persistFocuses (focuses: Focus[]) {
+      return this.primarySpaceAdapter.saveFocuses(focuses);
     }
     public readTemplates (path:string) {
         return this.adapterForPath(path).readTemplates(path);

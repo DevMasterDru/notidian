@@ -17,8 +17,9 @@ export class ObsidianCanvasFiletypeAdapter implements FileTypeAdapter<Record<str
         this.middleware = middleware;
     }
     public middleware: FilesystemMiddleware;
-    public async parseCache (file: AFile, refresh?: boolean) {
+    public async parseCache (file: AFile, refresh?: boolean, generation?: number) {
         if (!file) return;
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
         const label = this.middleware.getFileCache(file.path)?.label
         // const contents = safelyParseJSON(await this.plugin.app.vault.cachedRead(getAbstractFileAtPath(this.plugin.app, file.path)as TFile))
         const updatedCache = { 
@@ -31,8 +32,9 @@ export class ObsidianCanvasFiletypeAdapter implements FileTypeAdapter<Record<str
         }}
         
 
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         this.cache.set(file.path, updatedCache);
-        this.middleware.updateFileCache(file.path, updatedCache, refresh);
+        this.middleware.updateFileCache(file.path, updatedCache, refresh, generation);
     }
     public cache: Map<string, Record<string, any>>;
     public cacheTypes: (file: AFile) => string[];

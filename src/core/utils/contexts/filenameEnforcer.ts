@@ -149,18 +149,22 @@ export class FilenameEnforcer {
     this.renaming.add(newPath);
 
     try {
-      await this.superstate.spaceManager.renamePath(oldPath, newPath);
+      const renamed = await this.superstate.spaceManager.renamePath(
+        oldPath,
+        newPath
+      );
+      if (!renamed) return;
     } catch (e) {
       console.warn(
         `[Notidian] FilenameEnforcer: rename failed ${oldPath} -> ${newPath}:`,
         e
       );
+    } finally {
+      // Clear guards after events settle
+      setTimeout(() => {
+        this.renaming.delete(oldPath);
+        this.renaming.delete(newPath);
+      }, 2000);
     }
-
-    // Clear guards after events settle
-    setTimeout(() => {
-      this.renaming.delete(oldPath);
-      this.renaming.delete(newPath);
-    }, 2000);
   }
 }

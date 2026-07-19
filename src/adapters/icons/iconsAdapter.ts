@@ -21,13 +21,15 @@ export class IconFileTypeAdapter implements FileTypeAdapter<IconTypeCache, IconT
         this.cache = new Map();
     }
     
-    public async parseCache (file: AFile, refresh: boolean) {
+    public async parseCache (file: AFile, refresh: boolean, generation?: number) {
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
         const newCache =  { svg: `@font-face {
             font-family: '${file.name}';
             src: url('${this.middleware.resourcePathForPath(file.path)}');
         }`}
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         this.cache.set(file.path, newCache);
-        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh);
+        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh, generation);
     }
     
     public cacheTypes (file: AFile) { return ['svg'] as Array<keyof IconTypeCache>}

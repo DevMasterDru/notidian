@@ -20,7 +20,7 @@
 //     folding, the renameTag fold would become a redundant no-op and the
 //     "where is normalization owned?" contract would rot unnoticed; and
 //   * it exercises the renameTagSpacePath ELSE branch (pathExists === false ->
-//     deletePath + onPathDeleted), which the in-file ehfz suite never reaches
+//     deletePath only), which the in-file ehfz suite never reaches
 //     (it hard-codes pathExists -> true). renameTagSpacePath's deps
 //     (folderForTagSpace / pathToParentPath are pure; pathExists / renamePath /
 //     deletePath / onTagRenamed / onPathDeleted are the superstate surface) are
@@ -96,7 +96,7 @@ describe("getAllSubtags — the fold is the CALLER's job, not getAllSubtags's (N
 //   * pathsForTag() is CASE-INSENSITIVE on the incoming tag (mirrors the live
 //     getAllFilesForTag/tagExists `a.toLowerCase()==b.toLowerCase()`).
 // `pathExists` is parameterised so we can drive BOTH renameTagSpacePath
-// branches (renamePath when true; deletePath + onPathDeleted when false).
+// branches (renamePath when true; deletePath when false).
 // ---------------------------------------------------------------------------
 type FakeOpts = {
   // lowercased tags as readTags() returns them
@@ -115,8 +115,8 @@ const fakeSuperstate = (opts: FakeOpts) => {
     ),
     renameTag: jest.fn((_path: string, _tag: string, _newTag: string) => {}),
     pathExists: jest.fn(async () => opts.spacePathExists ?? true),
-    renamePath: jest.fn((_from: string, _to: string) => {}),
-    deletePath: jest.fn((_path: string) => {}),
+    renamePath: jest.fn(async (_from: string, to: string) => to),
+    deletePath: jest.fn(async (_path: string) => {}),
     onTagRenamed: jest.fn((_tag: string, _newTag: string) => {}),
     onPathDeleted: jest.fn((_path: string) => {}),
   };
@@ -360,8 +360,9 @@ describe("renameTag — case-fold seam, recording jest.fn spies (Notidian-3dpn)"
 // ---------------------------------------------------------------------------
 // SEAM 3 — renameTagSpacePath, BOTH branches, against the folded tag. The
 // in-file ehfz suite only ever reaches the pathExists -> renamePath branch.
-// Here pathExists is parameterised so the ELSE branch (deletePath +
-// onPathDeleted) is also locked, and onTagRenamed casing is pinned in both.
+// Here pathExists is parameterised so the ELSE branch (deletePath without a
+// duplicate direct lifecycle publication) is locked, and onTagRenamed casing
+// is pinned in both.
 // folderForTagSpace('#foo', {spacesFolder:'Spaces'}) -> 'Spaces/#foo';
 // pathToParentPath('Spaces/#foo') -> 'Spaces'.
 // ---------------------------------------------------------------------------
@@ -383,7 +384,7 @@ describe("renameTagSpacePath via renameTag — both branches, folded tag (Notidi
     expect(spies.onTagRenamed).toHaveBeenCalledWith("#foo", "#bar");
   });
 
-  it("pathExists === false: deletes the (folded) space path + onPathDeleted, still notifies onTagRenamed(folded,newTag)", async () => {
+  it("pathExists === false: deletes the folded space path without directly publishing onPathDeleted, then notifies onTagRenamed(folded,newTag)", async () => {
     const { ss, spies } = fakeSuperstate({
       readTags: ["#foo"],
       pathsByFoldedTag: { "#foo": ["P.md"] },
@@ -391,15 +392,18 @@ describe("renameTagSpacePath via renameTag — both branches, folded tag (Notidi
     });
     await renameTag(ss, "#Foo", "Bar");
     expect(spies.pathExists).toHaveBeenCalledWith("Spaces/#foo");
-    // ELSE branch: deletePath(superstate, 'Spaces/#foo') -> spaceManager
-    // .deletePath('Spaces/#foo') + superstate.onPathDeleted('Spaces/#foo').
+    // ELSE branch: deletePath(superstate, 'Spaces/#foo') delegates filesystem
+    // deletion and its lifecycle to spaceManager as the single owner.
     expect(spies.deletePath).toHaveBeenCalledTimes(1);
     expect(spies.deletePath).toHaveBeenCalledWith("Spaces/#foo");
-    expect(spies.onPathDeleted).toHaveBeenCalledWith("Spaces/#foo");
+    expect(spies.onPathDeleted).not.toHaveBeenCalled();
     // No folder rename on the delete branch.
     expect(spies.renamePath).not.toHaveBeenCalled();
-    // Notification still fires with the FOLDED tag.
+    // Notification still fires with the FOLDED tag after deletion resolves.
     expect(spies.onTagRenamed).toHaveBeenCalledWith("#foo", "#bar");
+    expect(spies.deletePath.mock.invocationCallOrder[0]).toBeLessThan(
+      spies.onTagRenamed.mock.invocationCallOrder[0]
+    );
   });
 });
 

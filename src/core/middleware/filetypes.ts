@@ -23,8 +23,9 @@ export abstract class FileTypeAdapter<T extends FileTypeCache, C extends FileTyp
     public initiate: (middleware: FilesystemMiddleware) => void;
     public middleware: FilesystemMiddleware;
     public loadFile?: (file: AFile) => Promise<void>;
-    public parseCache: (file: AFile, refresh: boolean) => Promise<void>;
+    public parseCache: (file: AFile, refresh: boolean, generation?: number) => Promise<void>;
     public cache: Map<string, T>;
+    public invalidatePath?: (path: string) => void;
     public cacheTypes: (file: AFile) => (keyof T)[];
     public contentTypes: (file: AFile) => (keyof C)[];
     
@@ -39,4 +40,3 @@ export abstract class FileTypeAdapter<T extends FileTypeCache, C extends FileTyp
     public deleteContent: (file: AFile, contentType: keyof C, contentId: any) =>void;
     
 }
-

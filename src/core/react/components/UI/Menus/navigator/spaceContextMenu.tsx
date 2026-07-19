@@ -428,10 +428,16 @@ export const showSpaceContextMenu = (
           win,
           superstate,
           (link) => {
-            superstate.spaceManager.renameSpace(
-              space.path,
-              movePath(space.path, link)
-            );
+            void superstate.spaceManager
+              .renameSpace(space.path, movePath(space.path, link))
+              .then((renamed) => {
+                if (!renamed) throw new Error("Could not move the space.");
+              })
+              .catch((error) => {
+                superstate.ui.notify(
+                  error instanceof Error ? error.message : String(error)
+                );
+              });
           }
         );
       },
@@ -530,6 +536,7 @@ export const showSpaceContextMenu = (
         superstate.ui.openModal(
           i18n.labels.deleteSpace,
           <ConfirmationModal
+            reportError={(error) => superstate.ui.notify(String(error))}
             confirmAction={() => removeSpace(superstate, space.path)}
             confirmLabel={i18n.buttons.delete}
             message={i18n.descriptions.deleteSpace}

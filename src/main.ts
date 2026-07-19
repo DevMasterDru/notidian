@@ -61,6 +61,7 @@ import {
   pluginRepositoryUrl,
   pluginStorageRoot,
 } from "shared/pluginIdentity";
+import { dispatchBestEffort } from "shared/utils/asyncContracts";
 
 import {
   defaultConfigFile,
@@ -780,8 +781,10 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
   //Spaces Listeners
   
   metadataChange = (file: TFile) => {
-
-    this.markdownAdapter.metadataChange(file);
+    dispatchBestEffort(this.markdownAdapter.metadataChange(file), error => {
+      console.error(`Failed to refresh Markdown metadata for ${file.path}:`, error);
+      this.superstate.ui.notify(`Failed to refresh Markdown metadata for ${file.path}`);
+    });
     // Filename template enforcement now runs via the `pathStateUpdated` event
     // listener (registered in onload), so the enforcer reads pathsIndex AFTER
     // the indexer has written fresh metadata — not the stale pre-change state.

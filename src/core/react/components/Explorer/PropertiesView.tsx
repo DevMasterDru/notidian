@@ -18,6 +18,7 @@ import { defaultContextSchemaID } from "shared/schemas/context";
 import { SpaceProperty, SpaceTableColumn } from "shared/types/mdb";
 import { uniqCaseInsensitive } from "shared/utils/array";
 import { windowFromDocument } from "shared/utils/dom";
+import { dispatchBestEffort } from "shared/utils/asyncContracts";
 import { parseProperty } from "utils/parsers";
 import {
   defaultValueForType,
@@ -156,7 +157,13 @@ export const PropertiesView = (props: {
     if (delProperty) {
       if (property) delProperty(property);
     }
-    deleteProperty(props.superstate, pathState.path, property.name);
+    dispatchBestEffort(
+      deleteProperty(props.superstate, pathState.path, property.name),
+      error => {
+        console.error(`Failed to delete property ${property.name}:`, error);
+        props.superstate.ui.notify(`Failed to delete property ${property.name}`);
+      },
+    );
   };
   const saveMetadata = async (property: SpaceProperty, space: string) => {
     const field: SpaceProperty = {

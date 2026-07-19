@@ -16,6 +16,7 @@ import { SPACE_VIEW_TYPE } from "adapters/obsidian/SpaceViewContainer";
 import { isTouchScreen } from "core/utils/ui/screen";
 import { TargetLocation } from "shared/types/path";
 import { selectElementContents } from "shared/utils/dom";
+import { runBulkAsync } from "shared/utils/asyncContracts";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { sanitizeFileName, sanitizeFolderName } from "shared/utils/sanitizers";
 import { folderPathToString } from "utils/path";
@@ -25,7 +26,7 @@ import { EVER_VIEW_TYPE } from "../ui/navigator/EverLeafView";
 export const tFileToAFile = (file: TAbstractFile | TFile) : AFile => {
   if (!file) return null;
   if (file instanceof TFile && file.stat) {
-      return {
+      const converted: AFile = {
         isFolder: false,
           name: file.basename,
           filename: file.name,
@@ -33,7 +34,12 @@ export const tFileToAFile = (file: TAbstractFile | TFile) : AFile => {
           parent: file.parent?.path,
           extension: file.extension,
           ...file.stat
-      }
+      };
+      Object.defineProperty(converted, "obsidianFile", {
+        value: file,
+        enumerable: false,
+      });
+      return converted;
   }
   return {
     isFolder: true,
@@ -103,15 +109,18 @@ const oldName = folderPathToString(oldPath);
 const newName = folderPathToString(newPath);
   if (newPath.startsWith(plugin.superstate.settings.spacesFolder)) {
     const spaceNote = getAbstractFileAtPath(plugin.app, `${newPath}/${oldName}.md`)
-    if (spaceNote)
-    renameFile(plugin, spaceNote, newName)
+    if (spaceNote) {
+      const renamed = await renameFile(plugin, spaceNote, newName)
+      if (!renamed) return;
+    }
   } else if (plugin.superstate.settings.enableFolderNote) {
     const oldSpaceInfo = plugin.superstate.spaceManager.spaceInfoForPath(oldPath);
     const newSpaceInfo = plugin.superstate.spaceManager.spaceInfoForPath(newPath);
-    await plugin.files.renameFile(
+    const renamed = await plugin.files.renameFile(
       oldSpaceInfo.notePath,
       newSpaceInfo.notePath
     );
+    if (!renamed) return;
   }
 }
 
@@ -157,10 +166,8 @@ export const getFolderPathFromString =  (plugin: MakeMDPlugin, file: string) =>
 
 
 
-export const deleteFiles = (plugin: MakeMDPlugin, files: string[]) => {
-  files.forEach((f) => {
-      plugin.files.deleteFile(f);
-  });
+export const deleteFiles = async (plugin: MakeMDPlugin, files: string[]) => {
+  await runBulkAsync(files, file => plugin.files.deleteFile(file));
 };
 
 // Returns all parent folder paths
@@ -395,9 +402,3 @@ export const createNewMarkdownFile = async (
   plugin.superstate.ui.setActivePath(newFile.path)
   return newFile;
 };
-
-
-
-
-
-

@@ -91,6 +91,8 @@ const makeManager = (table: SpaceTable) => {
     readTable,
     contextForSpace,
     saveTable,
+    mutateTable: jest.fn(async (path: string, _schemaId: string, operation: any, force?: boolean) =>
+      saveTable(path, operation.desired, force)),
     superstate: {
       reloadContextByPath,
       settings: { enhancedLogs: false },

@@ -67,7 +67,9 @@ const buildSuperstate = (opts: {
                 ),
             renameSpace:
                 opts.renameSpaceImpl ??
-                jest.fn(() => Promise.resolve(undefined)),
+                jest.fn((_oldPath: string, newPath: string) =>
+                    Promise.resolve(newPath)
+                ),
             deletePath:
                 opts.deletePathImpl ??
                 jest.fn(() => Promise.resolve(undefined)),
@@ -107,6 +109,7 @@ describe("renamePathByName — hub-row cascade", () => {
             HUB_ROW_FOLDER,
             "Knowledge/Gidi Renamed"
         );
+        expect(superstate.ui.notify).not.toHaveBeenCalled();
     });
 
     it("CURRENT BEHAVIOR — flag OFF: renames only the file, folder orphaned (no cascade call at all)", async () => {
@@ -153,6 +156,29 @@ describe("renamePathByName — hub-row cascade", () => {
 
         expect(result).toBe("Knowledge/Gidi Renamed.md");
         expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+        expect(superstate.ui.notify).toHaveBeenCalledWith(
+            i18n.notice.hubRowCascadeRenameFailed
+        );
+    });
+
+    it("a falsy cascade result reports failure once without rolling back the primary rename", async () => {
+        const superstate = buildSuperstate({
+            enableNestedHubRows: true,
+            hubFolder: true,
+            renameSpaceImpl: jest.fn(() => Promise.resolve(null)),
+        });
+
+        const result = await renamePathByName(
+            superstate as any,
+            HUB_ROW_PATH,
+            "Gidi Renamed"
+        );
+
+        expect(result).toBe("Knowledge/Gidi Renamed.md");
+        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+        expect(superstate.ui.notify).toHaveBeenCalledWith(
+            i18n.notice.hubRowCascadeRenameFailed
+        );
     });
 
     it("a failed primary rename (renamePath resolves falsy) never cascades the sibling folder — no desync", async () => {
@@ -234,6 +260,26 @@ describe("movePathToSpace — hub-row cascade", () => {
 
         expect(superstate.spaceManager.renameSpace).not.toHaveBeenCalled();
     });
+
+    it("a falsy folder move result reports the shared cascade failure once", async () => {
+        const superstate = buildSuperstate({
+            enableNestedHubRows: true,
+            hubFolder: true,
+            renameSpaceImpl: jest.fn(() => Promise.resolve(undefined)),
+        });
+
+        const result = await movePathToSpace(
+            superstate as any,
+            HUB_ROW_PATH,
+            "Archive"
+        );
+
+        expect(result).toBe("Archive/Gidi.md");
+        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+        expect(superstate.ui.notify).toHaveBeenCalledWith(
+            i18n.notice.hubRowCascadeRenameFailed
+        );
+    });
 });
 
 describe("deletePath — hub-row cascade", () => {
@@ -251,10 +297,10 @@ describe("deletePath — hub-row cascade", () => {
         expect(superstate.spaceManager.deletePath).toHaveBeenCalledWith(
             HUB_ROW_FOLDER
         );
-        expect(superstate.onPathDeleted).toHaveBeenCalledWith(HUB_ROW_PATH);
+        expect(superstate.onPathDeleted).not.toHaveBeenCalled();
     });
 
-    it("flag ON + hub row: pairs the folder deletePath with onSpaceDeleted, clearing spacesIndex/contextsIndex for the folder", async () => {
+    it("flag ON + hub row: leaves folder lifecycle publication to the filesystem boundary", async () => {
         const superstate = buildSuperstate({
             enableNestedHubRows: true,
             hubFolder: true,
@@ -265,9 +311,9 @@ describe("deletePath — hub-row cascade", () => {
 
         await deletePath(superstate as any, HUB_ROW_PATH);
 
-        expect(superstate.onSpaceDeleted).toHaveBeenCalledWith(HUB_ROW_FOLDER);
-        expect(superstate.spacesIndex.has(HUB_ROW_FOLDER)).toBe(false);
-        expect(superstate.contextsIndex.has(HUB_ROW_FOLDER)).toBe(false);
+        expect(superstate.onSpaceDeleted).not.toHaveBeenCalled();
+        expect(superstate.spacesIndex.has(HUB_ROW_FOLDER)).toBe(true);
+        expect(superstate.contextsIndex.has(HUB_ROW_FOLDER)).toBe(true);
     });
 
     it("CURRENT BEHAVIOR — flag OFF: deletes only the file, folder left behind", async () => {
@@ -298,7 +344,7 @@ describe("deletePath — hub-row cascade", () => {
         );
     });
 
-    it("a cascade failure notifies but does not throw, and never calls onSpaceDeleted (the folder was not actually deleted)", async () => {
+    it("a cascade failure rejects with path context without notifying, and never calls onSpaceDeleted", async () => {
         const superstate = buildSuperstate({
             enableNestedHubRows: true,
             hubFolder: true,
@@ -309,10 +355,12 @@ describe("deletePath — hub-row cascade", () => {
             ),
         });
 
-        await expect(
-            deletePath(superstate as any, HUB_ROW_PATH)
-        ).resolves.toBeUndefined();
-        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
+        await expect(deletePath(superstate as any, HUB_ROW_PATH)).rejects.toMatchObject({
+            name: "PathDeleteError",
+            path: HUB_ROW_FOLDER,
+            phase: "cascade",
+        });
+        expect(superstate.ui.notify).not.toHaveBeenCalled();
         expect(superstate.onSpaceDeleted).not.toHaveBeenCalled();
     });
 
@@ -329,7 +377,7 @@ describe("deletePath — hub-row cascade", () => {
 
         await expect(
             deletePath(superstate as any, HUB_ROW_PATH)
-        ).resolves.toBeUndefined();
+        ).rejects.toThrow("locked");
 
         expect(superstate.spaceManager.deletePath).toHaveBeenCalledTimes(1);
         expect(superstate.spaceManager.deletePath).toHaveBeenCalledWith(
@@ -341,7 +389,7 @@ describe("deletePath — hub-row cascade", () => {
         expect(superstate.onSpaceDeleted).not.toHaveBeenCalled();
     });
 
-    it("a failed primary delete NOTIFIES the user instead of failing silently (Notidian-b0fm — parity with the cascade failure notices)", async () => {
+    it("a failed primary delete rejects with path context and leaves reporting to its caller", async () => {
         const superstate = buildSuperstate({
             enableNestedHubRows: true,
             hubFolder: true,
@@ -352,19 +400,16 @@ describe("deletePath — hub-row cascade", () => {
             ),
         });
 
-        await expect(
-            deletePath(superstate as any, HUB_ROW_PATH)
-        ).resolves.toBeUndefined();
+        await expect(deletePath(superstate as any, HUB_ROW_PATH)).rejects.toMatchObject({
+            name: "PathDeleteError",
+            path: HUB_ROW_PATH,
+            phase: "primary",
+        });
 
-        // Exactly one notice, the primary-delete-failed one — the cascade never
-        // runs (guarded on `deleted`), so its own notice can't also fire here.
-        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
-        expect(superstate.ui.notify).toHaveBeenCalledWith(
-            i18n.notice.deletePathFailed
-        );
+        expect(superstate.ui.notify).not.toHaveBeenCalled();
     });
 
-    it("a plain (non-hub) row's failed primary delete also notifies (the notice is unconditional, not a hub-only path)", async () => {
+    it("a plain row's failed primary delete is also silent below the UI boundary", async () => {
         const superstate = buildSuperstate({
             enableNestedHubRows: false,
             deletePathImpl: jest.fn(() => Promise.reject(new Error("locked"))),
@@ -372,12 +417,9 @@ describe("deletePath — hub-row cascade", () => {
 
         await expect(
             deletePath(superstate as any, "Knowledge/Plain.md")
-        ).resolves.toBeUndefined();
+        ).rejects.toThrow("locked");
 
-        expect(superstate.ui.notify).toHaveBeenCalledTimes(1);
-        expect(superstate.ui.notify).toHaveBeenCalledWith(
-            i18n.notice.deletePathFailed
-        );
+        expect(superstate.ui.notify).not.toHaveBeenCalled();
         expect(superstate.onPathDeleted).not.toHaveBeenCalled();
     });
 
@@ -391,7 +433,7 @@ describe("deletePath — hub-row cascade", () => {
         expect(superstate.ui.notify).not.toHaveBeenCalledWith(
             i18n.notice.deletePathFailed
         );
-        expect(superstate.onPathDeleted).toHaveBeenCalledWith("Knowledge/Plain.md");
+        expect(superstate.onPathDeleted).not.toHaveBeenCalled();
     });
 
     it("a failed primary delete never calls onPathDeleted and never runs the cascade (Notidian-z21a fix)", async () => {
@@ -407,7 +449,7 @@ describe("deletePath — hub-row cascade", () => {
 
         await expect(
             deletePath(superstate as any, HUB_ROW_PATH)
-        ).resolves.toBeUndefined();
+        ).rejects.toThrow("locked");
 
         expect(superstate.onPathDeleted).not.toHaveBeenCalled();
         expect(superstate.spaceManager.deletePath).not.toHaveBeenCalledWith(
@@ -415,7 +457,7 @@ describe("deletePath — hub-row cascade", () => {
         );
     });
 
-    it("a successful primary delete calls onPathDeleted before running the cascade (Notidian-z21a fix)", async () => {
+    it("a successful primary delete relies on the filesystem lifecycle before running the cascade", async () => {
         const callOrder: string[] = [];
         const superstate = buildSuperstate({
             enableNestedHubRows: true,
@@ -433,10 +475,10 @@ describe("deletePath — hub-row cascade", () => {
 
         await deletePath(superstate as any, HUB_ROW_PATH);
 
-        expect(superstate.onPathDeleted).toHaveBeenCalledWith(HUB_ROW_PATH);
+        expect(superstate.onPathDeleted).not.toHaveBeenCalled();
         expect(superstate.spaceManager.deletePath).toHaveBeenCalledWith(
             HUB_ROW_FOLDER
         );
-        expect(callOrder).toEqual(["onPathDeleted", "cascade-delete"]);
+        expect(callOrder).toEqual(["cascade-delete"]);
     });
 });

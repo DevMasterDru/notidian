@@ -46,6 +46,75 @@ type Failed<T extends { ok: boolean }> = Extract<T, { ok: false }>;
 // ---------------------------------------------------------------------------
 
 describe("INVARIANT 1: Bulk rename atomicity", () => {
+  it("does not compensate the original incarnation into an Old path recreated by another file", async () => {
+    const original = { generation: "original" };
+    const outsider = { generation: "outsider" };
+    const occupants = new Map<string, object>([["folder/A.md", original], ["folder/B.md", {}]]);
+    const calls: Array<[string, string]> = [];
+    let call = 0;
+    const superstate = {
+      contextsIndex: new Map([["folder", { contextTable: table(["folder/A.md", "folder/B.md"]) }]]),
+      spaceManager: {
+        pathExists: jest.fn(async (path: string) => occupants.has(path)),
+        getPathInfo: jest.fn(async (path: string) => occupants.has(path)
+          ? { path, obsidianFile: occupants.get(path) }
+          : null),
+        renamePath: jest.fn(async (from: string, to: string) => {
+          calls.push([from, to]);
+          call++;
+          if (call === 2) {
+            occupants.set("folder/A.md", outsider);
+            return null;
+          }
+          const occupant = occupants.get(from);
+          occupants.delete(from);
+          if (occupant) occupants.set(to, occupant);
+          return to;
+        }),
+      },
+      ui: { notify: jest.fn() },
+    } as any;
+
+    await executeBulkPageTitleRename({
+      items: [
+        { row: row("folder/A.md"), value: "X" },
+        { row: row("folder/B.md"), value: "Y" },
+      ],
+      contextPath: "folder", settleDelayMs: 0, superstate,
+    });
+
+    expect(calls.some(([from, to]) => from.includes(".notidian-renaming-") && to === "folder/A.md")).toBe(false);
+    expect(occupants.get("folder/A.md")).toBe(outsider);
+  });
+
+  it("leaves an occupied New path owned by another incarnation untouched during compensation", async () => {
+    const original = { generation: "original" };
+    const outsider = { generation: "outsider" };
+    const occupants = new Map<string, object>([["folder/A.md", original], ["folder/B.md", {}]]);
+    let call = 0;
+    const superstate = {
+      contextsIndex: new Map([["folder", { contextTable: table(["folder/A.md", "folder/B.md"]) }]]),
+      spaceManager: {
+        pathExists: jest.fn(async (path: string) => occupants.has(path)),
+        getPathInfo: jest.fn(async (path: string) => occupants.has(path) ? { path, obsidianFile: occupants.get(path) } : null),
+        renamePath: jest.fn(async (from: string, to: string) => {
+          call++;
+          if (call === 2) { occupants.set("folder/X.md", outsider); return null; }
+          const value = occupants.get(from); occupants.delete(from); if (value) occupants.set(to, value); return to;
+        }),
+      },
+      ui: { notify: jest.fn() },
+    } as any;
+
+    await executeBulkPageTitleRename({
+      items: [{ row: row("folder/A.md"), value: "X" }, { row: row("folder/B.md"), value: "Y" }],
+      contextPath: "folder", settleDelayMs: 0, superstate,
+    });
+
+    expect(occupants.get("folder/X.md")).toBe(outsider);
+    expect(occupants.get("folder/A.md")).toBe(original);
+  });
+
   it("rolls back temp-state files when a later rename in the batch fails", async () => {
     const renameLog: Array<[string, string]> = [];
     let callCount = 0;
@@ -76,7 +145,7 @@ describe("INVARIANT 1: Bulk rename atomicity", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     };
@@ -126,7 +195,7 @@ describe("INVARIANT 1: Bulk rename atomicity", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     };
@@ -190,7 +259,7 @@ describe("INVARIANT 2: Swap rename correctness", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -253,7 +322,7 @@ describe("INVARIANT 2: Swap rename correctness", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -451,7 +520,7 @@ describe("INVARIANT 4: Extension preservation", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -510,7 +579,7 @@ describe("INVARIANT 5: Row position preservation", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any) => (saveTable as any)(path, operation.desired)),
       },
       ui: { notify: jest.fn() },
     };
@@ -560,7 +629,7 @@ describe("INVARIANT 5: Row position preservation", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any) => (saveTable as any)(path, operation.desired)),
       },
       ui: { notify: jest.fn() },
     };
@@ -612,7 +681,7 @@ describe("INVARIANT 6: Duplicate row dedup", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any) => (saveTable as any)(path, operation.desired)),
       },
       ui: { notify: jest.fn() },
     };
@@ -660,7 +729,7 @@ describe("INVARIANT 6: Duplicate row dedup", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any) => (saveTable as any)(path, operation.desired)),
       },
       ui: { notify: jest.fn() },
     };
@@ -716,7 +785,7 @@ describe("INVARIANT 7: Temporary path uniqueness", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -761,7 +830,7 @@ describe("INVARIANT 7: Temporary path uniqueness", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -822,7 +891,7 @@ describe("ADVERSARIAL: Mixed no-op and real renames", () => {
             return next;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     };
@@ -865,7 +934,7 @@ describe("ADVERSARIAL: Mixed no-op and real renames", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     };
@@ -958,7 +1027,7 @@ describe("ADVERSARIAL: unexpected reload rows", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any) => (saveTable as any)(path, operation.desired)),
       },
       ui: { notify: jest.fn() },
     };
@@ -1004,7 +1073,7 @@ describe("ADVERSARIAL: unexpected reload rows", () => {
         renamePath: jest.fn(
           async (_old: string, n: string): Promise<string> => n
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any) => (saveTable as any)(path, operation.desired)),
       },
       ui: { notify: jest.fn() },
     };
@@ -1222,7 +1291,7 @@ describe("ADVERSARIAL: Single-item bulk rename", () => {
       spaceManager: {
         pathExists: jest.fn(async (): Promise<boolean> => false),
         renamePath,
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     };
@@ -1365,7 +1434,7 @@ describe("ADVERSARIAL: renamePath returns null", () => {
             return res;
           }
         ),
-        saveTable: jest.fn(async (): Promise<void> => undefined),
+        mutateTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -1443,7 +1512,7 @@ describe("ADVERSARIAL: Root-level files without folder prefix", () => {
               return next;
             }
           ),
-          saveTable: jest.fn(async (): Promise<void> => undefined),
+          mutateTable: jest.fn(async (): Promise<void> => undefined),
         },
         ui: { notify: jest.fn() },
       } as any,

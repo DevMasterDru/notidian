@@ -100,7 +100,9 @@ export const deleteFrontmatterValue = (
   path: string,
   key: string
 ) => {
-  plugin.superstate.spaceManager.deleteProperty(path, key);
+  void plugin.superstate.spaceManager.deleteProperty(path, key).catch(error => {
+    console.error(`Failed to delete frontmatter property ${key} from ${path}:`, error);
+  });
 }
 
 export const saveFrontmatterValue = (
@@ -116,5 +118,4 @@ export const saveFrontmatterValue = (
   });
   
 };
-
 

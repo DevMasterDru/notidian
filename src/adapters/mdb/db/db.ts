@@ -635,8 +635,20 @@ export const saveDBToPath = async (
   tables: DBTables,
   mdb = true
 ): Promise<boolean> => {
-  return withDBPathWriteQueue(path, async () => {
+  return withDBPathWriteQueue(path, () => saveDBToPathWithinWriteQueue(plugin, path, tables, mdb));
+};
 
+/**
+ * Saves while the caller already owns `withDBPathWriteQueue(path)`.
+ * This is intentionally separate from the public queued wrapper so an atomic
+ * read/modify/write operation cannot recursively acquire the same queue.
+ */
+export const saveDBToPathWithinWriteQueue = async (
+  plugin: MDBFileTypeAdapter,
+  path: string,
+  tables: DBTables,
+  mdb = true
+): Promise<boolean> => {
   const sqlJS = await plugin.sqlJS();
   //rewrite the entire table, useful for storing ranks and col order, not good for performance
   const { db, status } = await openDBWithStatus(plugin, sqlJS, path);
@@ -679,5 +691,4 @@ if (result) {
 
     
   return result;
-  });
 };

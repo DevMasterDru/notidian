@@ -13,6 +13,10 @@ import { SpaceFragmentType } from "./spaceFragment";
 import { SpaceInfo } from "./spaceInfo";
 import { ContextState, ISuperstate, PathState } from "./superstate";
 
+export type TableMutationOperation =
+  | { kind: "transform"; apply: (current: SpaceTable) => SpaceTable }
+  | { kind: "merge"; base: SpaceTable; desired: SpaceTable };
+
 export interface SpaceManagerInterface {
   primarySpaceAdapter: SpaceAdapter;
   spaceAdapters: SpaceAdapter[];
@@ -28,11 +32,11 @@ getContextsIndexMap: () => Map<string, ContextState>
     onFocusesUpdated(): void;
     saveFrameKit(frames: MDBFrame, name: string): Promise<void>;
     saveSpaceTemplate(frames: MDBFrames, name: string): Promise<void>;
-    onPathCreated(path: string): Promise<void>;
+    onPathCreated(path: string): Promise<boolean>;
     onPathDeleted(path: string): Promise<void>;
-    onPathChanged(path: string, oldPath: string): Promise<void>;
-    onSpaceCreated(path: string): Promise<void>;
-    onSpaceRenamed(path: string, oldPath: string): Promise<void>;
+    onPathChanged(path: string, oldPath: string): Promise<boolean>;
+    onSpaceCreated(path: string): Promise<boolean>;
+    onSpaceRenamed(path: string, oldPath: string): Promise<boolean>;
     onSpaceDeleted(path: string): Promise<void>;
     onPathPropertyChanged(path: string): Promise<void>;
     resolvePath(path: string, source?: string): string;
@@ -46,7 +50,7 @@ getContextsIndexMap: () => Map<string, ContextState>
     createSpace(name: string, parentPath: string, definition: SpaceDefinition): void;
     saveSpace(path: string, definition: (def: SpaceDefinition) => SpaceDefinition, properties?: Record<string, any>): void;
     renameSpace(path: string, newPath: string): Promise<string>;
-    deleteSpace(path: string): void;
+    deleteSpace(path: string): Promise<void>;
     childrenForSpace(path: string): string[];
     contextForSpace(path: string): Promise<SpaceTable>;
     tablesForSpace(path: string): Promise<SpaceTableSchema[]>;
@@ -56,6 +60,7 @@ getContextsIndexMap: () => Map<string, ContextState>
     createTable(path: string, schema: SpaceTableSchema): Promise<boolean>;
     saveTableSchema(path: string, schemaId: string, saveSchema: (prev: SpaceTableSchema) => SpaceTableSchema): Promise<boolean>;
     saveTable(path: string, table: SpaceTable, force?: boolean): Promise<boolean>;
+    mutateTable(path: string, schemaId: string, operation: TableMutationOperation, force?: boolean): Promise<boolean>;
     deleteTable(path: string, name: string): Promise<boolean>;
     readAllKits(): Promise<Kit[]>;
     readAllTemplates(): Promise<{ [key: string]: MDBFrames }>;
@@ -77,7 +82,7 @@ getContextsIndexMap: () => Map<string, ContextState>
     renamePath(oldPath: string, newPath: string): Promise<string>;
     copyPath(source: string, destination: string, newName?: string): Promise<string>;
     getPathInfo(path: string): Promise<Record<string, any>>;
-    deletePath(path: string): void;
+    deletePath(path: string): Promise<void>;
     readPath(path: string): Promise<string>;
     writeToPath(path: string, content: any, binary?: boolean): Promise<void>;
     parentPathForPath(path: string): string;
@@ -89,9 +94,10 @@ getContextsIndexMap: () => Map<string, ContextState>
     saveLabel(path: string, key: string, value: any): void;
     addProperty(path: string, property: SpaceProperty): void;
     saveProperties(path: string, properties: { [key: string]: any }): Promise<boolean>;
+    mutateProperties(path: string, mutation: (properties: { [key: string]: any }) => { [key: string]: any }, expectedFile?: { path: string; obsidianFile?: unknown }): Promise<boolean>;
     readProperties(path: string): Promise<{ [key: string]: any }>;
     renameProperty(path: string, property: string, newProperty: string): void;
-    deleteProperty(path: string, property: string): void;
+    deleteProperty(path: string, property: string): Promise<void>;
     addSpaceProperty(path: string, property: SpaceProperty): Promise<boolean>;
     deleteSpaceProperty(path: string, property: SpaceProperty): Promise<boolean>;
     saveSpaceProperty(path: string, property: SpaceProperty, oldProperty: SpaceProperty): Promise<boolean>;
@@ -103,6 +109,7 @@ getContextsIndexMap: () => Map<string, ContextState>
     childrenForPath(path: string, type?: string): Promise<string[]>;
     readFocuses(): Promise<Focus[]>;
     saveFocuses(focuses: Focus[]): Promise<void>;
+    persistFocuses(focuses: Focus[]): Promise<void>;
     readTemplates(path: string): Promise<string[]>;
     saveTemplate(path: string, space: string): Promise<string>;
     deleteTemplate(template: string, space: string): Promise<void>;
@@ -122,7 +129,7 @@ export abstract class SpaceAdapter {
   public createSpace: (name: string, parentPath: string, definition: SpaceDefinition) => void;
   public saveSpace: (path: string, definitionFn: (def: SpaceDefinition) => SpaceDefinition, properties?: Record<string, any>) => void;
   public renameSpace: (path: string, newPath: string) => Promise<string>;
-  public deleteSpace: (path: string) => void;
+  public deleteSpace: (path: string) => Promise<void>;
   public childrenForSpace: (path: string) => string[];
   public allPaths: (type?: string[]) => string[];
   public keysForCacheType: (type: string) => string[];
@@ -139,6 +146,7 @@ export abstract class SpaceAdapter {
   public createTable: (path: string, schema: SpaceTableSchema) => Promise<void>;
   public saveTableSchema: (path: string, schemaId: string, saveSchema: (prev: SpaceTableSchema) => SpaceTableSchema) => Promise<boolean>;
   public saveTable: (path: string, table: SpaceTable, force?: boolean) => Promise<boolean>;
+  public mutateTable: (path: string, schemaId: string, operation: TableMutationOperation, force?: boolean) => Promise<boolean>;
   public deleteTable: (path: string, name: string) => Promise<void>;
 
   //Frames
@@ -166,7 +174,7 @@ export abstract class SpaceAdapter {
   public renamePath: (oldPath: string, newPath: string) => Promise<string>;
   public copyPath: (source: string, destination: string, newName?: string) => Promise<string>;
   public getPathInfo: (path: string) => Promise<Record<string, any>>;
-  public deletePath: (path: string) => void;
+  public deletePath: (path: string) => Promise<void>;
   public readPath: (path: string) => Promise<string>;
 
   public readPathCache: (path: string) => Promise<PathCache>;
@@ -179,8 +187,9 @@ export abstract class SpaceAdapter {
   public addProperty: (path: string, property: SpaceProperty) => void;
   public readProperties: (path: string) => Promise<{ [key: string]: any; }>;
   public saveProperties: (path: string, properties: { [key: string]: any; }) => Promise<boolean>;
+  public mutateProperties: (path: string, mutation: (properties: { [key: string]: any }) => { [key: string]: any }, expectedFile?: { path: string; obsidianFile?: unknown }) => Promise<boolean>;
   public renameProperty: (path: string, property: string, newProperty: string) => void;
-  public deleteProperty: (path: string, property: string) => void;
+  public deleteProperty: (path: string, property: string) => Promise<void>;
 
   public readLabel: (path: string) => Promise<PathLabel>;
   public saveLabel: (path: string, key: string, value: any) => void;
@@ -208,4 +217,3 @@ export abstract class SpaceAdapter {
   public saveTemplate: (path: string, space: string) => Promise<string>;
   public deleteTemplate: (path: string, space: string) => Promise<void>;
 }
-  

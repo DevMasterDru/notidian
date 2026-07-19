@@ -428,8 +428,10 @@ export interface IAssetManager {
   // Icon caching methods
   getCachedIcon(iconId: string, iconsetId?: string): string | null;
   cacheIconFromPath(path: string, content: string): void;
+  invalidateIconPath(path: string): Promise<void>;
   hasIcon(iconName: string): boolean;
   getIcon(key: string): Promise<string | undefined>;
+  loadIconFromPath(path: string, loader?: () => Promise<string | null>): Promise<string | undefined>;
   getIconSync(key: string): string | undefined;
 
   // Cover image management

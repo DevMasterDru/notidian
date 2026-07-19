@@ -57,6 +57,12 @@ beforeAll(async () => {
 const makeAdapter = (files: Map<string, ArrayBuffer>) => {
   const notify = jest.fn();
   const updateFileCache = jest.fn();
+  const pathGenerations = new Map<string, number>();
+  const beginPathGeneration = jest.fn((p: string) => {
+    const generation = (pathGenerations.get(p) ?? 0) + 1;
+    pathGenerations.set(p, generation);
+    return generation;
+  });
   const middleware = {
     fileExists: async (p: string) => files.has(p),
     readBinaryToFile: async (p: string) => files.get(p) ?? null,
@@ -64,6 +70,14 @@ const makeAdapter = (files: Map<string, ArrayBuffer>) => {
       files.set(p, b);
     },
     updateFileCache,
+    beginPathGeneration,
+    capturePathGeneration: jest.fn((p: string) => pathGenerations.get(p) ?? 0),
+    isPathGenerationCurrent: jest.fn(
+      (p: string, generation?: number) =>
+        generation === undefined ||
+        (pathGenerations.get(p) ?? 0) === generation
+    ),
+    invalidatePath: jest.fn((p: string) => beginPathGeneration(p)),
   };
   const adapter = {
     middleware,
@@ -212,6 +226,6 @@ describe("Notidian-jn8p: getMDB with an orphaned m_schema row (real engine)", ()
       "orphan",
     ]);
     expect(cached.tables.intact.rows).toEqual([{ File: "a.md", x: "v" }]);
-    expect(updateFileCache).toHaveBeenCalledWith(dbPath, cached, true);
+    expect(updateFileCache).toHaveBeenCalledWith(dbPath, cached, true, 0);
   });
 });

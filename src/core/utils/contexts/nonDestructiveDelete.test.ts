@@ -84,6 +84,26 @@ beforeEach(() => {
 });
 
 describe("requestRowDeleteWithSubItems — silent-vs-prompt decision (Notidian-vh9t)", () => {
+  it("contains a leaf rejection and reports it exactly once", async () => {
+    const captures: ModalCapture[] = [];
+    const reportError = jest.fn();
+    requestRowDeleteWithSubItems({
+      superstate: makeSuperstate(captures),
+      rootPath: "L",
+      subItemsDelete: { treeNodes: buildTree(), isPrimarySurface: true },
+      deleteSelf: jest.fn().mockRejectedValue(new Error("leaf locked")),
+      reportError,
+      win: {} as Window,
+    });
+
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError.mock.calls[0][0]).toContain("L");
+    expect(reportError.mock.calls[0][0]).toContain("leaf locked");
+    expect(captures).toHaveLength(0);
+  });
+
   it("(1) LEAF row (empty subtree) deletes immediately — openModal is NEVER called", () => {
     const captures: ModalCapture[] = [];
     const deleteSelf = jest.fn();
@@ -273,6 +293,53 @@ describe("requestRowDeleteWithSubItems — recursive branch (Notidian-vh9t)", ()
     }
     expect(deleteSelf).toHaveBeenCalledTimes(1);
   });
+
+  it("returns the recursive deletion promise to its UI owner", async () => {
+    const captures: ModalCapture[] = [];
+    requestRowDeleteWithSubItems({
+      superstate: makeSuperstate(captures),
+      rootPath: "P",
+      subItemsDelete: { treeNodes: buildTree(), isPrimarySurface: true },
+      deleteSelf: jest.fn(async () => {}),
+      win: {} as Window,
+    });
+
+    const deletion = modalProps(captures[0]).deleteRecursive();
+    expect(deletion).toBeInstanceOf(Promise);
+    await deletion;
+  });
+
+  it("attempts every recursive descendant before rejecting once with aggregate failure", async () => {
+    const captures: ModalCapture[] = [];
+    (deletePath as jest.Mock).mockImplementation(
+      async (_superstate: unknown, path: string) => {
+        if (path === "C1" || path === "C2") {
+          throw new Error(`${path} locked`);
+        }
+      }
+    );
+    requestRowDeleteWithSubItems({
+      superstate: makeSuperstate(captures),
+      rootPath: "P",
+      subItemsDelete: { treeNodes: buildTree(), isPrimarySurface: true },
+      deleteSelf: jest.fn(async () => {}),
+      win: {} as Window,
+    });
+
+    await expect(modalProps(captures[0]).deleteRecursive()).rejects.toMatchObject({
+      name: "AggregateError",
+      errors: [
+        expect.objectContaining({ message: "C1 locked" }),
+        expect.objectContaining({ message: "C2 locked" }),
+      ],
+    });
+    expect((deletePath as jest.Mock).mock.calls.map((call) => call[1])).toEqual([
+      "C1",
+      "G",
+      "C2",
+    ]);
+  });
+
 });
 
 describe("requestRowDeleteWithSubItems — deleteOnly / promote-children (Notidian-vh9t)", () => {

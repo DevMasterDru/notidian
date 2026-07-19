@@ -40,6 +40,7 @@ import React, {
 import { createPortal } from "react-dom";
 import { DBRow, SpaceProperty, SpaceTableColumn } from "shared/types/mdb";
 import { uniq } from "shared/utils/array";
+import { isPostPhysicalLifecycleFailure } from "shared/utils/asyncContracts";
 import { ColumnHeader } from "./ColumnHeader";
 
 import classNames from "classnames";
@@ -1553,42 +1554,75 @@ export const TableView = (props: { superstate: Superstate }) => {
 
   const deleteFileBackedPath = async (path: string) => {
     await props.superstate.spaceManager.deletePath(path);
-    props.superstate.onPathDeleted(path);
   };
 
   const snapshotFileBackedRows = async (
     paths: string[]
-  ): Promise<TablePathDeleteSnapshot[]> => {
+  ): Promise<{
+    snapshots: TablePathDeleteSnapshot[];
+    failures: Error[];
+  }> => {
     const snapshots: TablePathDeleteSnapshot[] = [];
+    const failures: Error[] = [];
     for (const path of paths) {
       try {
         const content = await props.superstate.spaceManager.readPath(path);
         if (typeof content == "string") {
           snapshots.push({ path, content });
+        } else {
+          failures.push(new Error(`Could not prepare ${path} for undo: content was unavailable`));
         }
       } catch (error) {
-        props.superstate.ui.notify(`Could not prepare ${path} for undo.`);
+        const detail = error instanceof Error ? `: ${error.message}` : "";
+        const failure = new Error(`Could not prepare ${path} for undo${detail}`);
+        (failure as Error & { cause?: unknown }).cause = error;
+        failures.push(failure);
       }
     }
-    return snapshots;
+    return { snapshots, failures };
   };
 
-  const deletePrimarySelectedRows = async (paths: string[]) => {
+  const deletePrimarySelectedRows = async (
+    paths: string[],
+    onDeleted?: (path: string) => void
+  ) => {
     if (!props.superstate.spaceManager || paths.length == 0) return;
-    const snapshots = await snapshotFileBackedRows(paths);
-    try {
-      for (const path of paths) {
+    const { snapshots, failures } = await snapshotFileBackedRows(paths);
+    const snapshotByPath = new Map(
+      snapshots.map((snapshot) => [snapshot.path, snapshot])
+    );
+    const deletedSnapshots: TablePathDeleteSnapshot[] = [];
+    for (const path of paths) {
+      const snapshot = snapshotByPath.get(path);
+      if (!snapshot) continue;
+      try {
         await deleteFileBackedPath(path);
+        onDeleted?.(path);
+        deletedSnapshots.push(snapshot);
+      } catch (error) {
+        if (isPostPhysicalLifecycleFailure(error)) {
+          onDeleted?.(path);
+          deletedSnapshots.push(snapshot);
+        }
+        const detail = error instanceof Error ? `: ${error.message}` : "";
+        const failure = new Error(`Could not delete ${path}${detail}`);
+        (failure as Error & { cause?: unknown }).cause = error;
+        failures.push(failure);
       }
+    }
+    if (deletedSnapshots.length > 0) {
       pushTableUndo(
         createTablePathDeleteUndoEntry({
-          label: paths.length == 1 ? "Delete row" : "Delete rows",
-          paths: snapshots,
+          label: deletedSnapshots.length == 1 ? "Delete row" : "Delete rows",
+          paths: deletedSnapshots,
         })
       );
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Could not delete all selected rows.");
+    }
+    if (paths.length > 0) {
       clearWholeRowSelection();
-    } catch (error) {
-      props.superstate.ui.notify("Could not delete the selected rows.");
     }
   };
 
@@ -1607,12 +1641,16 @@ export const TableView = (props: { superstate: Superstate }) => {
         )
       );
       if (paths.length == 0) return false;
+      const pendingPaths = new Set(paths);
       props.superstate.ui.openModal(
         i18n.labels.deleteFiles,
         <ConfirmationModal
-          confirmAction={() => {
-            void deletePrimarySelectedRows(paths);
-          }}
+          reportError={(error) => props.superstate.ui.notify(String(error))}
+          confirmAction={() =>
+            deletePrimarySelectedRows(Array.from(pendingPaths), (path) => {
+              pendingPaths.delete(path);
+            })
+          }
           confirmLabel={i18n.buttons.delete}
           message={i18n.descriptions.deleteFiles.replace(
             "${1}",
@@ -1941,7 +1979,7 @@ export const TableView = (props: { superstate: Superstate }) => {
                 snapshot.content,
                 false
               );
-              await props.superstate.onPathCreated(snapshot.path);
+              if (!await props.superstate.onPathCreated(snapshot.path)) continue;
               restoredSnapshots.push(snapshot);
             } catch (error) {
               props.superstate.ui.notify(`Could not restore ${snapshot.path}.`);
@@ -1977,18 +2015,47 @@ export const TableView = (props: { superstate: Superstate }) => {
           return false;
         }
 
-        try {
-          for (const snapshot of entry.pathDelete.paths) {
+        const physicallyDeleted: TablePathDeleteSnapshot[] = [];
+        const retryable: TablePathDeleteSnapshot[] = [];
+        const failures: unknown[] = [];
+        for (const snapshot of entry.pathDelete.paths) {
+          try {
             await deleteFileBackedPath(snapshot.path);
+            physicallyDeleted.push(snapshot);
+          } catch (error) {
+            failures.push(error);
+            if (isPostPhysicalLifecycleFailure(error)) {
+              physicallyDeleted.push(snapshot);
+            } else {
+              retryable.push(snapshot);
+            }
           }
-        } catch (error) {
+        }
+
+        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
+        const completedEntry = physicallyDeleted.length == 0
+          ? undefined
+          : physicallyDeleted.length == entry.pathDelete.paths.length
+            ? entry
+            : { ...entry, pathDelete: { paths: physicallyDeleted } };
+        const retryEntry = retryable.length == 0
+          ? undefined
+          : retryable.length == entry.pathDelete.paths.length
+            ? entry
+            : { ...entry, pathDelete: { paths: retryable } };
+        const nextUndoStack = completedEntry
+          ? pushTableUndoEntry(latestJournal.undo, completedEntry)
+          : latestJournal.undo;
+        const nextRedoStack = retryEntry
+          ? pushTableUndoEntry(latestJournal.redo, retryEntry)
+          : latestJournal.redo;
+        replaceTableUndoJournal(nextUndoStack, nextRedoStack);
+
+        if (failures.length > 0) {
           props.superstate.ui.notify("Could not redo deleted rows.");
           return false;
         }
 
-        const latestJournal = tableUndoJournalForKey(tableUndoJournalKey);
-        const nextUndoStack = pushTableUndoEntry(latestJournal.undo, entry);
-        replaceTableUndoJournal(nextUndoStack, latestJournal.redo);
         props.superstate.ui.notify(`Redid ${entry.label}.`);
         return true;
       }
@@ -2770,11 +2837,12 @@ export const TableView = (props: { superstate: Superstate }) => {
               props.superstate.ui.openModal(
                 "Rename group",
                 <ConfirmationModal
+                  reportError={(error) => props.superstate.ui.notify(String(error))}
                   message={`Rename “${oldValue}” to “${nextValue}” in ${matchingRows.length} row${
                     matchingRows.length == 1 ? "" : "s"
                   }?`}
                   confirmLabel="Rename"
-                  confirmAction={() => void applyRename()}
+                  confirmAction={applyRename}
                 />,
                 anchorWindow
               );

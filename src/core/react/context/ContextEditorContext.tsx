@@ -857,12 +857,9 @@ export const ContextEditorProvider: React.FC<
           )
         )
           return;
+        const desired = { ...f, cols: [...(f.cols ?? []), ...freshDiscovered] };
         return props.superstate.spaceManager
-          .saveTable(
-            contextPath,
-            { ...f, cols: [...(f.cols ?? []), ...freshDiscovered] },
-            true
-          )
+          .mutateTable(contextPath, dbSchema.id, { kind: "merge", base: f, desired }, true)
           .then(() =>
             props.superstate.reloadContextByPath(contextPath, {
               force: true,
@@ -880,7 +877,12 @@ export const ContextEditorProvider: React.FC<
     }
     if (spaceInfo.readOnly) return;
     updateTable(newTable);
-    await props.superstate.spaceManager.saveTable(contextPath, newTable, true);
+    await props.superstate.spaceManager.mutateTable(
+      contextPath,
+      newTable.schema.id,
+      { kind: "merge", base: tableData, desired: newTable },
+      true,
+    );
     // Coalesced trailing read-back (Notidian-oxjk) instead of an immediate
     // per-call reloadContext: a burst of saveDB writes collapses to ONE recompute.
     flushSaveDBReload.current();
@@ -967,7 +969,9 @@ export const ContextEditorProvider: React.FC<
 
   const saveContextDB = async (newTable: SpaceTable, space: string) => {
     if (crossDatabase) return;
-    await spaceManager.saveTable(space, newTable, true).then((f) =>
+    const base = contextTable[space];
+    if (!base) return;
+    await spaceManager.mutateTable(space, newTable.schema.id, { kind: "merge", base, desired: newTable }, true).then((f) =>
       props.superstate.reloadContextByPath(space, {
         force: true,
         calculate: true,

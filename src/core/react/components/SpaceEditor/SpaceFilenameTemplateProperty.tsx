@@ -24,6 +24,7 @@ import { Superstate } from "makemd-core";
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { windowFromDocument } from "shared/utils/dom";
 import { ConfirmationModal } from "../UI/Modals/ConfirmationModal";
+import { renameFilesForTemplate } from "./filenameTemplateBulkRename";
 
 type PreviewRow = {
   path: string;
@@ -153,43 +154,23 @@ export const SpaceFilenameTemplateProperty = (props: {
       props.superstate.ui.openModal(
         "Confirm Bulk Rename",
         <ConfirmationModal
+          reportError={(error) => {
+            console.error("[Notidian] Bulk filename template rename failed:", error);
+            props.superstate.ui.notify(error instanceof Error ? error.message : String(error));
+          }}
           confirmAction={async () => {
             setRenaming(true);
-            let renamed = 0;
-            let failed = 0;
-            const toRename = previewResults.filter((r) => r.changed);
-
-            for (const row of toRename) {
-              const parentDir = row.path.includes("/")
-                ? row.path.slice(0, row.path.lastIndexOf("/"))
-                : "";
-              const newPath = parentDir
-                ? `${parentDir}/${row.newName}.md`
-                : `${row.newName}.md`;
-
-              try {
-                await props.superstate.spaceManager.renamePath(
-                  row.path,
-                  newPath
-                );
-                renamed++;
-              } catch (err) {
-                console.warn(
-                  `[Notidian] Bulk rename failed for ${row.path}:`,
-                  err
-                );
-                failed++;
-              }
+            try {
+              const renamed = await renameFilesForTemplate(
+                previewResults.filter((row) => row.changed),
+                (oldPath, newPath) => props.superstate.spaceManager.renamePath(oldPath, newPath),
+              );
+              props.superstate.ui.notify(`Renamed ${renamed} files to match template.`, "notice");
+              setShowPreview(false);
+              setPreviewResults([]);
+            } finally {
+              setRenaming(false);
             }
-
-            const msg =
-              failed > 0
-                ? `Renamed ${renamed} files (${failed} failed).`
-                : `Renamed ${renamed} files to match template.`;
-            props.superstate.ui.notify(msg, "notice");
-            setRenaming(false);
-            setShowPreview(false);
-            setPreviewResults([]);
           }}
           confirmLabel="Rename All"
           message={`Rename ${changedCount} file${changedCount !== 1 ? "s" : ""} to match the filename template? This cannot be undone.`}

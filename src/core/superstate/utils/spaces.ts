@@ -498,7 +498,9 @@ if (!spaceState) return;
     superstate.addToContextStateQueue(() => reorderPathsInContext(superstate.spaceManager, [path], fixedRank, spaceState.space).then(f => {
       const promises = [...superstate.spacesMap.getInverse(spaceState.path)].map(f => superstate.reloadPath(f));
     return Promise.all(promises);
-    }).then(f => superstate.dispatchEvent("spaceStateUpdated", {path: spaceState.path})))
+    }).then(reloads => {
+      if (reloads.some(Boolean)) superstate.dispatchEvent("spaceStateUpdated", {path: spaceState.path});
+    }))
     
     
 };
@@ -528,7 +530,11 @@ export const movePathToNewSpaceAtIndex = async (
       if (copy) {
         await superstate.spaceManager.copyPath(item.path, newParent)
       } else {
-        await superstate.spaceManager.renamePath(item.path, movePath(item.path, newParent))
+        const renamed = await superstate.spaceManager.renamePath(
+          item.path,
+          movePath(item.path, newParent)
+        );
+        if (!renamed) return;
       }
       updatePathRankInSpace(superstate,newPath, index, newParent)
     
@@ -608,7 +614,7 @@ export const createSpace = async (
 
 
 export const saveSpaceMetadataValue = async (superstate: Superstate, space: string, key: keyof SpaceDefinition, value: any) => {
-  superstate.spaceManager.saveSpace(space, (metadata) => ({...metadata, [key]: value}))
+  await superstate.spaceManager.saveSpace(space, (metadata) => ({...metadata, [key]: value}))
   const spaceCache = superstate.spacesIndex.get(space)
   await superstate.updateSpaceMetadata(space, { ...spaceCache.metadata, [key]: value})
 }
@@ -676,7 +682,9 @@ export const pinPathToSpaceAtIndex = async (
     
   await saveSpaceCache(superstate, space.space, {...space.metadata, links: spaceExists});  
 
-  await superstate.reloadPath(path, true).then(f => superstate.dispatchEvent("pathStateUpdated", {path: path}))
+  await superstate.reloadPath(path, true).then(reloaded => {
+    if (reloaded) superstate.dispatchEvent("pathStateUpdated", {path: path});
+  })
   updatePathRankInSpace(superstate,path, rank, space.path)
 
 };
@@ -943,8 +951,7 @@ export const renameProperty = (superstate: Superstate, path: string, oldName: st
 
 export const deleteProperty = (superstate: Superstate, path: string, name: string) => {
     if (superstate.spacesIndex.has(path)) {
-        superstate.spaceManager.deleteProperty(metadataPathForSpace(superstate, superstate.spacesIndex.get(path).space), name)
-        return;
+        return superstate.spaceManager.deleteProperty(metadataPathForSpace(superstate, superstate.spacesIndex.get(path).space), name)
     }
-  superstate.spaceManager.deleteProperty(path, name);
+  return superstate.spaceManager.deleteProperty(path, name);
 }

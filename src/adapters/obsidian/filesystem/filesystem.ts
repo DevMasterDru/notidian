@@ -14,6 +14,7 @@ import { parsePathState } from "core/utils/superstate/parser";
 import { DBRows } from "shared/types/mdb";
 import { pluginDataPath, pluginDisplayName } from "shared/pluginIdentity";
 import { uniqueCopyName, uniqueNameFromString } from "shared/utils/array";
+import { dispatchBestEffort, postPhysicalLifecycleFailure } from "shared/utils/asyncContracts";
 import { removeTrailingSlashFromFolder } from "shared/utils/paths";
 import { parseURI } from "shared/utils/uri";
 import { excludePathPredicate } from "utils/hide";
@@ -26,6 +27,14 @@ import { getAbstractFileAtPath, getAllAbstractFilesInVault, tFileToAFile } from 
 
 const illegalCharacters = ['/', '\\', '?', '%', '*', ':', '|', '"', '<', '>'];
 
+const appendFlattenedFailures = (target: unknown[], error: unknown) => {
+    if (error instanceof AggregateError) {
+        for (const nested of error.errors) appendFlattenedFailures(target, nested);
+        return;
+    }
+    target.push(error);
+};
+
 export class ObsidianFileSystem implements FileSystemAdapter {
     public middleware: FilesystemMiddleware;
     public vaultDBLoaded : boolean;
@@ -35,21 +44,63 @@ export class ObsidianFileSystem implements FileSystemAdapter {
     public cache: Map<string, FileCache> = new Map();
     public persister: LocalCachePersister;
     public pathLastUpdated: Map<string, number> = new Map();
+    private persistenceQueues: Map<string, Promise<void>> = new Map();
+    private deleteLifecycles: Map<string, {
+        file: TAbstractFile;
+        promise: Promise<void>;
+        started: boolean;
+        physicalComplete: boolean;
+        resolve: () => void;
+        reject: (error: unknown) => void;
+    }> = new Map();
+    private processedDeleteEvents = new WeakSet<object>();
+    private renameLifecycles = new WeakMap<object, Map<string, {
+        file: TAbstractFile;
+        oldPath: string;
+        newPath: string;
+        promise: Promise<void>;
+        started: boolean;
+        resolve: () => void;
+        reject: (error: unknown) => void;
+    }>>();
+    private exactRenameLifecycles = new Map<string, ReturnType<ObsidianFileSystem["createRenameLifecycle"]>>();
+    private renameLifecycleQueue?: Promise<void>;
+    private wakeRenameDrain?: () => void;
+    private pendingRenameCallbacks: Array<{
+        lifecycle: ReturnType<ObsidianFileSystem["createRenameLifecycle"]>;
+        callbackFile: TAbstractFile;
+        newFile: AFile;
+        displayName: string;
+    }> = [];
 
     public fileNameWarnings: Set<string> = new Set();
     
-    public updateFileCache(path: string, cache: FileTypeCache, refresh: boolean) {
+    public updateFileCache(path: string, cache: FileTypeCache, refresh: boolean, generation?: number) {
         
         if (!cache) return;
+        if (generation !== undefined && !this.middleware.isPathGenerationCurrent(path, generation)) return;
         const oldCache = this.cache.get(path);
         const newCache = {...oldCache, ...cache};
         if (oldCache && _.isEqual(newCache, oldCache)) {
             return;
         }
         this.cache.set(path, newCache);
-        this.persister.store(path,JSON.stringify(newCache), 'file');
+        void this.queuePersistence(path, () => this.persister.store(path, JSON.stringify(newCache), 'file')).catch(error => {
+            console.error(`Failed to store persisted file cache for ${path}:`, error);
+        });
         if (refresh)
         this.middleware.eventDispatch.dispatchEvent("onCacheUpdated", {path: path});
+    }
+
+    private queuePersistence<T>(path: string, operation: () => Promise<T>): Promise<T> {
+        const previous = this.persistenceQueues.get(path) ?? Promise.resolve();
+        const queued = previous.catch((): void => undefined).then(operation);
+        const settled = queued.then((): void => undefined, (): void => undefined);
+        this.persistenceQueues.set(path, settled);
+        void settled.then(() => {
+            if (this.persistenceQueues.get(path) === settled) this.persistenceQueues.delete(path);
+        });
+        return queued;
     }
     public constructor (public plugin: MakeMDPlugin, middleware: FilesystemMiddleware, public vaultDBPath: string) {
         this.middleware = middleware
@@ -163,8 +214,8 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         this.middleware.eventDispatch.dispatchEvent("onFilesystemIndexed", null);
         this.plugin.registerEvent(this.plugin.app.vault.on("create", this.onCreate));
         this.plugin.registerEvent(this.plugin.app.vault.on("modify", this.onModify));
-        this.plugin.registerEvent(this.plugin.app.vault.on("delete", this.onDelete));
-        this.plugin.registerEvent(this.plugin.app.vault.on("rename", this.onRename));
+        this.plugin.registerEvent(this.plugin.app.vault.on("delete", this.onVaultDelete));
+        this.plugin.registerEvent(this.plugin.app.vault.on("rename", this.onVaultRename));
         this.plugin.registerEvent(this.plugin.app.vault.on("raw", this.onRaw));
         this.plugin.superstate.initialize();
       }
@@ -263,6 +314,7 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         this.checkIllegalCharacters(file);
         if (excludePathPredicate(this.plugin.superstate.settings, file.path)) return;
         const afile = tFileToAFile(file);
+        const generation = this.middleware.beginPathGeneration(afile.path);
         
     this.cache.set(afile.path, {
         file: afile,
@@ -274,42 +326,272 @@ export class ObsidianFileSystem implements FileSystemAdapter {
         type: afile.isFolder ? "space" : 'file',
         subtype: afile.isFolder ? "folder" : afile.extension
     } as FileCache)
-    await this.middleware.createFileCache(afile.path);
-        this.middleware.onCreate(afile)
+    await this.middleware.createFileCache(afile.path, generation);
+        if (!this.middleware.isPathGenerationCurrent(afile.path, generation)) return;
+        return await this.middleware.onCreate(afile)
       };
     onModify = async (file: TAbstractFile) => {
         if (!file) return;
         if (excludePathPredicate(this.plugin.superstate.settings, file.path)) return;
-        this.middleware.onModify(tFileToAFile(file))
+        if (this.plugin.app.vault.getAbstractFileByPath(file.path) !== file) return;
+        await this.middleware.onModify(tFileToAFile(file))
     }
+      private createDeleteLifecycle(file: TAbstractFile) {
+        let resolve!: () => void;
+        let reject!: (error: unknown) => void;
+        const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+        const lifecycle = { file, promise, started: false, physicalComplete: false, resolve, reject };
+        void promise.catch((): void => undefined);
+        this.deleteLifecycles.set(file.path, lifecycle);
+        return lifecycle;
+      }
+
+      private startDeleteLifecycle(file: TAbstractFile, lifecycle: ReturnType<ObsidianFileSystem["createDeleteLifecycle"]>) {
+        if (lifecycle.started) return lifecycle.promise;
+        lifecycle.started = true;
+        this.processedDeleteEvents.add(file);
+        void this.performDeleteLifecycle(file).then(lifecycle.resolve, lifecycle.reject).finally(() => {
+          if (this.deleteLifecycles.get(file.path) === lifecycle) this.deleteLifecycles.delete(file.path);
+        });
+        return lifecycle.promise;
+      }
+
       onDelete = async (file: TAbstractFile) => {
+        if (!file || this.processedDeleteEvents.has(file)) return;
+        const existing = this.deleteLifecycles.get(file.path);
+        const lifecycle = existing?.file === file ? existing : this.createDeleteLifecycle(file);
+        lifecycle.physicalComplete = true;
+        return await this.startDeleteLifecycle(file, lifecycle);
+      };
+
+      onVaultDelete = (file: TAbstractFile): void => {
+        dispatchBestEffort(this.onDelete(file), error => {
+            console.error(`Failed to process delete event for ${file?.path ?? "unknown path"}:`, error);
+        });
+      };
+
+      private async performDeleteLifecycle(file: TAbstractFile) {
 
         if (!file) return;
+        const currentIncarnation = this.plugin.app.vault.getAbstractFileByPath(file.path);
+        if (currentIncarnation && currentIncarnation !== file) return;
 
         this.fileNameWarnings.delete(file.path);
-        
-        this.middleware.onDelete(tFileToAFile(file))
-      };
+        this.pathLastUpdated.delete(file.path);
+        const generation = this.middleware.invalidatePath(file.path);
+        const invalidationDispatch = this.middleware.onPathInvalidated(file.path);
+        this.cache.delete(file.path);
+        const persistedRemoval = this.queuePersistence(file.path, () => this.persister.remove(file.path, 'file'));
+        const failures: unknown[] = [];
+        try {
+            await invalidationDispatch;
+        } catch (error) {
+            appendFlattenedFailures(failures, error);
+        }
+        try {
+            await persistedRemoval;
+        } catch (error) {
+            appendFlattenedFailures(failures, error);
+        }
+        if (this.middleware.isPathGenerationCurrent(file.path, generation)) {
+            const deletedFile = typeof (file as any).isFolder === "boolean"
+                ? file as unknown as AFile
+                : tFileToAFile(file);
+            try {
+                await this.middleware.onDelete(deletedFile, true);
+            } catch (error) {
+                appendFlattenedFailures(failures, error);
+            }
+        }
+        if (failures.length > 0) {
+            throw new AggregateError(failures, `Delete lifecycle failed for ${file.path}`);
+        }
+      }
       
-      onRename = async (file: TAbstractFile, oldPath: string) => {
-        if (!file) return;
-        this.checkIllegalCharacters(file);
-        this.fileNameWarnings.delete(oldPath);
-        
-    const newFile = tFileToAFile(file);
-const oldCache = this.cache.get(oldPath);
-    this.cache.set(newFile.path, {...this.cache.get(oldPath), 
-        file: newFile, 
-        ctime:  oldCache.ctime > 0 ? oldCache.ctime : newFile.ctime,
-        label: {...oldCache.label, name: (file as TFile).basename ?? file.name} as PathLabel, 
-        parent: newFile.parent, 
-        type: newFile.isFolder ? "space" : 'file',
-        subtype: newFile.isFolder ? "folder" : newFile.extension
-} as FileCache);
-    
-    this.cache.delete(oldPath);
-        this.middleware.onRename(tFileToAFile(file), oldPath)
+      private renameLifecycleKey(oldPath: string, newPath: string) {
+        return `${oldPath}\0${newPath}`;
+      }
+
+      private createRenameLifecycle(file: TAbstractFile, oldPath: string, newPath: string) {
+        let resolve!: () => void;
+        let reject!: (error: unknown) => void;
+        const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+        const lifecycle = { file, oldPath, newPath, promise, started: false, resolve, reject };
+        void promise.catch((): void => undefined);
+        const lifecyclesForFile = this.renameLifecycles.get(file) ?? new Map();
+        const key = this.renameLifecycleKey(oldPath, newPath);
+        lifecyclesForFile.set(key, lifecycle);
+        this.renameLifecycles.set(file, lifecyclesForFile);
+        this.exactRenameLifecycles.set(key, lifecycle);
+        return lifecycle;
+      }
+
+      private renameLifecycleFor(file: TAbstractFile, oldPath: string, newPath: string) {
+        return this.renameLifecycles.get(file)?.get(this.renameLifecycleKey(oldPath, newPath));
+      }
+
+      private removeRenameLifecycle(lifecycle: ReturnType<ObsidianFileSystem["createRenameLifecycle"]>) {
+        const lifecyclesForFile = this.renameLifecycles.get(lifecycle.file);
+        const key = this.renameLifecycleKey(lifecycle.oldPath, lifecycle.newPath);
+        if (lifecyclesForFile?.get(key) !== lifecycle) return;
+        lifecyclesForFile.delete(key);
+        if (lifecyclesForFile.size === 0) this.renameLifecycles.delete(lifecycle.file);
+        if (this.exactRenameLifecycles.get(key) === lifecycle) this.exactRenameLifecycles.delete(key);
+      }
+
+      private startRenameLifecycle(
+        lifecycle: ReturnType<ObsidianFileSystem["createRenameLifecycle"]>,
+        file: TAbstractFile,
+      ) {
+        if (lifecycle.started) return lifecycle.promise;
+        lifecycle.started = true;
+        const converted = tFileToAFile(file);
+        const filename = lifecycle.newPath.split("/").pop() ?? file.name;
+        const newFile = converted?.path === lifecycle.newPath
+            ? converted
+            : {
+                ...converted,
+                path: lifecycle.newPath,
+                filename,
+                name: filename.includes(".") ? filename.substring(0, filename.lastIndexOf(".")) : filename,
+                parent: this.parentPathForPath(lifecycle.newPath),
+            } as AFile;
+        const displayName = (file as TFile).basename ?? newFile.name ?? file.name;
+        this.pendingRenameCallbacks.push({ lifecycle, callbackFile: file, newFile, displayName });
+        this.wakeRenameDrain?.();
+        if (!this.renameLifecycleQueue) {
+            const drain = this.drainRenameLifecycles();
+            this.renameLifecycleQueue = drain.then((): void => undefined, (): void => undefined);
+            void this.renameLifecycleQueue.then(() => {
+                this.renameLifecycleQueue = undefined;
+                if (this.pendingRenameCallbacks.length > 0) void this.onRenameDrainNeeded();
+            });
+        }
+        return lifecycle.promise;
+      }
+
+      onRename = (file: TAbstractFile, oldPath: string) => {
+        if (!file) return Promise.resolve();
+        const lifecycle = this.renameLifecycleFor(file, oldPath, file.path)
+            ?? this.createRenameLifecycle(file, oldPath, file.path);
+        return this.startRenameLifecycle(lifecycle, file);
       };
+
+      onVaultRename = (file: TAbstractFile, oldPath: string): void => {
+        dispatchBestEffort(this.onRename(file, oldPath), error => {
+            console.error(`Failed to process rename event ${oldPath} -> ${file?.path ?? "unknown path"}:`, error);
+        });
+      };
+
+      private onRenameDrainNeeded() {
+        if (this.renameLifecycleQueue || this.pendingRenameCallbacks.length === 0) return;
+        const drain = this.drainRenameLifecycles();
+        this.renameLifecycleQueue = drain.then((): void => undefined, (): void => undefined);
+        void this.renameLifecycleQueue.then(() => {
+            this.renameLifecycleQueue = undefined;
+            if (this.pendingRenameCallbacks.length > 0) this.onRenameDrainNeeded();
+        });
+      }
+
+      private async drainRenameLifecycles() {
+        const activePublications = new Set<Promise<void>>();
+        while (this.pendingRenameCallbacks.length > 0 || activePublications.size > 0) {
+            while (this.pendingRenameCallbacks.length > 0) {
+                const callback = this.pendingRenameCallbacks.shift();
+                const { lifecycle } = callback;
+                if (this.plugin.app.vault.getAbstractFileByPath(lifecycle.newPath) !== callback.callbackFile) {
+                    lifecycle.resolve();
+                    this.removeRenameLifecycle(lifecycle);
+                    continue;
+                }
+                try {
+                    const preparationFailures = await this.prepareRenameLifecycle(
+                        callback.newFile,
+                        lifecycle.oldPath,
+                        callback.displayName,
+                    );
+                    let publication!: Promise<void>;
+                    publication = Promise.resolve(this.middleware.onRename(callback.newFile, lifecycle.oldPath)).then(
+                        () => {
+                            if (preparationFailures.length > 0) {
+                                lifecycle.reject(new AggregateError(
+                                    preparationFailures,
+                                    `Rename lifecycle failed for ${lifecycle.oldPath} -> ${lifecycle.newPath}`,
+                                ));
+                            } else {
+                                lifecycle.resolve();
+                            }
+                        },
+                        error => {
+                            appendFlattenedFailures(preparationFailures, error);
+                            lifecycle.reject(new AggregateError(
+                                preparationFailures,
+                                `Rename lifecycle failed for ${lifecycle.oldPath} -> ${lifecycle.newPath}`,
+                            ));
+                        },
+                    ).finally(() => {
+                        activePublications.delete(publication);
+                        this.removeRenameLifecycle(lifecycle);
+                        this.wakeRenameDrain?.();
+                    });
+                    activePublications.add(publication);
+                } catch (error) {
+                    lifecycle.reject(error);
+                    this.removeRenameLifecycle(lifecycle);
+                }
+            }
+            if (activePublications.size > 0 && this.pendingRenameCallbacks.length === 0) {
+                await new Promise<void>(resolve => { this.wakeRenameDrain = resolve; });
+                this.wakeRenameDrain = undefined;
+            }
+        }
+      }
+
+      private async prepareRenameLifecycle(newFile: AFile, oldPath: string, displayName: string) {
+        const failures: unknown[] = [];
+        this.checkIllegalCharacters(newFile);
+        this.fileNameWarnings.delete(oldPath);
+        this.pathLastUpdated.delete(oldPath);
+
+        const oldCache = this.cache.get(oldPath);
+        this.middleware.invalidatePath(oldPath);
+        const invalidationDispatch = this.middleware.onPathInvalidated(oldPath);
+        const destinationGeneration = this.middleware.beginPathGeneration(newFile.path);
+        const destinationCache = {
+            ...oldCache,
+            file: newFile,
+            ctime: (oldCache?.ctime ?? 0) > 0 ? oldCache.ctime : newFile.ctime,
+            metadata: oldCache?.metadata ?? {},
+            label: {
+                ...(oldCache?.label ?? {}),
+                name: displayName,
+            } as PathLabel,
+            tags: oldCache?.tags ?? [],
+            contentTypes: oldCache?.contentTypes ?? [],
+            parent: newFile.parent,
+            type: newFile.isFolder ? "space" : 'file',
+            subtype: newFile.isFolder ? "folder" : newFile.extension,
+        } as FileCache;
+
+        this.cache.delete(oldPath);
+        this.cache.set(newFile.path, destinationCache);
+
+        await invalidationDispatch;
+        try {
+            await this.queuePersistence(oldPath, () => this.persister.remove(oldPath, 'file'));
+        } catch (error) {
+            appendFlattenedFailures(failures, error);
+        }
+        if (!this.middleware.isPathGenerationCurrent(newFile.path, destinationGeneration)) return failures;
+        try {
+            await this.queuePersistence(newFile.path, () =>
+                this.persister.store(newFile.path, JSON.stringify(destinationCache), 'file')
+            );
+        } catch (error) {
+            appendFlattenedFailures(failures, error);
+        }
+        return failures;
+      }
 
     public async getRoot() {
         return tFileToAFile(this.plugin.app.vault.getRoot());
@@ -419,20 +701,32 @@ return (this.plugin.app.vault.adapter as ObsidianFileSystemAdapter).readBinary(p
     
     public async renameFile (path: string, newPath: string) {
 
+        const exactLifecycle = this.exactRenameLifecycles.get(this.renameLifecycleKey(path, newPath));
         const file = this.plugin.app.vault.getAbstractFileByPath(path);
-        
-            let finalPath = newPath;
-            try {
-                if (file) {
-                await this.plugin.app.fileManager.renameFile(file,
-                    newPath)
-                } else {
-                    await this.plugin.app.vault.adapter.rename(path, newPath)
-                }
-            } catch {
-                finalPath = null;
+        if (exactLifecycle && (!file || exactLifecycle.file === file)) {
+            await exactLifecycle.promise;
+            return newPath;
+        }
+        if (file) {
+            const existingLifecycle = this.renameLifecycleFor(file, path, newPath);
+            if (existingLifecycle) {
+                await existingLifecycle.promise;
+                return newPath;
             }
-            return finalPath
+            const lifecycle = this.createRenameLifecycle(file, path, newPath);
+            try {
+                await this.plugin.app.fileManager.renameFile(file, newPath);
+            } catch (error) {
+                this.removeRenameLifecycle(lifecycle);
+                if (!lifecycle.started) lifecycle.resolve();
+                throw error;
+            }
+            if (!lifecycle.started) this.startRenameLifecycle(lifecycle, file);
+            await lifecycle.promise;
+        } else {
+            await this.plugin.app.vault.adapter.rename(path, newPath)
+        }
+        return newPath
     }
 
     
@@ -486,22 +780,68 @@ public async createFolder (path: string) {
             if (!file) {
                 const fileExists = await this.fileExists(path);
                 if (fileExists) {
+                    const detached = await this.getFile(path);
                     const stat = await this.plugin.app.vault.adapter.stat(path);
                     if (stat.type == 'folder') {
-                        return this.plugin.app.vault.adapter.rmdir(path, true);
+                        await this.plugin.app.vault.adapter.rmdir(path, true);
                     } else {
-                    return this.plugin.app.vault.adapter.remove(path);
+                        await this.plugin.app.vault.adapter.remove(path);
+                    }
+                    if (detached) {
+                        try {
+                            await this.performDeleteLifecycle(detached as unknown as TAbstractFile);
+                        } catch (error) {
+                            throw postPhysicalLifecycleFailure(
+                                `Delete lifecycle failed after physically removing ${path}`,
+                                error,
+                            );
+                        }
                     }
                 }
+                return;
             }
+            const activeLifecycle = this.deleteLifecycles.get(path);
+            if (activeLifecycle?.file === file) {
+                try {
+                    await activeLifecycle.promise;
+                } catch (error) {
+                    if (activeLifecycle.physicalComplete) {
+                        throw postPhysicalLifecycleFailure(
+                            `Delete lifecycle failed after physically removing ${path}`,
+                            error,
+                        );
+                    }
+                    throw error;
+                }
+                return;
+            }
+            const lifecycle = this.createDeleteLifecycle(file);
             const deleteOption = this.plugin.superstate.settings.deleteFileOption;
-            if (!file) return;
-            if (deleteOption === "permanent") {
-                return this.plugin.app.vault.delete(file, true);
-            } else if (deleteOption === "system-trash") {
-                return this.plugin.app.vault.trash(file, true);
-            } else if (deleteOption === "trash") {
-                return this.plugin.app.vault.trash(file, false);
+            try {
+                if (deleteOption === "permanent") {
+                    await this.plugin.app.vault.delete(file, true);
+                } else if (deleteOption === "system-trash") {
+                    await this.plugin.app.vault.trash(file, true);
+                } else if (deleteOption === "trash") {
+                    await this.plugin.app.vault.trash(file, false);
+                } else {
+                    this.deleteLifecycles.delete(path);
+                    return;
+                }
+            } catch (error) {
+                if (this.deleteLifecycles.get(path) === lifecycle) this.deleteLifecycles.delete(path);
+                if (!lifecycle.started) lifecycle.resolve();
+                throw error;
+            }
+            lifecycle.physicalComplete = true;
+            if (!lifecycle.started) this.startDeleteLifecycle(file, lifecycle);
+            try {
+                await lifecycle.promise;
+            } catch (error) {
+                throw postPhysicalLifecycleFailure(
+                    `Delete lifecycle failed after physically removing ${path}`,
+                    error,
+                );
             }
         }
         public filesForTag (tag: string) {

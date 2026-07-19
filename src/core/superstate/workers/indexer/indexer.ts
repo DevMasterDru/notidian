@@ -16,6 +16,7 @@ import {
 } from "./impl";
 
 type FileCallback = (p: any) => void;
+type Callback = [FileCallback, FileCallback, number];
 
 let _runContext: math.MathJsInstance | null = null;
 function getRunContext(): math.MathJsInstance {
@@ -42,10 +43,11 @@ function getRunContext(): math.MathJsInstance {
 export class Indexer {
   reloadQueue: WorkerJobType[];
   reloadSet: Set<string>;
-  callbacks: Map<string, [FileCallback, FileCallback][]>;
+  callbacks: Map<string, Callback[]>;
   private draining: boolean;
   private activeJobs: Set<string>;
   private trailingJobs: Map<string, WorkerJobType>;
+  private pathGenerations: Map<string, number>;
 
   public constructor(public numWorkers: number, public cache: Superstate) {
     this.reloadQueue = [];
@@ -54,13 +56,27 @@ export class Indexer {
     this.draining = false;
     this.activeJobs = new Set();
     this.trailingJobs = new Map();
+    this.pathGenerations = new Map();
+  }
+
+  public invalidatePath(path: string): void {
+    this.pathGenerations.set(path, (this.pathGenerations.get(path) ?? 0) + 1);
+  }
+
+  public pathGeneration(path: string): number {
+    return this.pathGenerations.get(path) ?? 0;
+  }
+
+  public isPathGenerationCurrent(path: string, generation: number): boolean {
+    return this.pathGeneration(path) === generation;
   }
 
   public reload<T>(jerb: WorkerJobType): Promise<T> {
     const jobKey = stringifyJob(jerb);
+    const generation = jerb.type === "path" ? (this.pathGenerations.get(jerb.path) ?? 0) : 0;
     const promise: Promise<T> = new Promise((resolve, reject) => {
-      if (this.callbacks.has(jobKey)) this.callbacks.get(jobKey)?.push([resolve, reject]);
-      else this.callbacks.set(jobKey, [[resolve, reject]]);
+      if (this.callbacks.has(jobKey)) this.callbacks.get(jobKey)?.push([resolve, reject, generation]);
+      else this.callbacks.set(jobKey, [[resolve, reject, generation]]);
     });
 
     if (this.reloadSet.has(jobKey)) {
@@ -94,7 +110,7 @@ export class Indexer {
     // Freeze the callback generation before execute() starts reading. Reloads
     // arriving during that read collect in a new callback batch for the
     // trailing job.
-    const calls = ([] as [FileCallback, FileCallback][]).concat(
+    const calls = ([] as Callback[]).concat(
       this.callbacks.get(jobKey) ?? []
     );
     this.callbacks.delete(jobKey);
@@ -106,7 +122,7 @@ export class Indexer {
     } catch (error) {
       data = { $error: `Failed to index ${job.type} ${job.path}: ${error}` };
     }
-    this.finish(calls, data);
+    this.finish(job, calls, data);
     this.activeJobs.delete(jobKey);
 
     const trailingJob = this.trailingJobs.get(jobKey);
@@ -272,11 +288,18 @@ export class Indexer {
     };
   }
 
-  private finish(calls: [FileCallback, FileCallback][], data: any) {
-    if (data && typeof data === "object" && "$error" in data) {
-      for (const [_, reject] of calls) reject(data["$error"]);
-    } else {
-      for (const [callback, _] of calls) callback(data);
+  private finish(job: WorkerJobType, calls: Callback[], data: any) {
+    const currentGeneration = job.type === "path"
+      ? (this.pathGenerations.get(job.path) ?? 0)
+      : 0;
+    for (const [resolve, reject, generation] of calls) {
+      if (job.type === "path" && generation !== currentGeneration) {
+        resolve(undefined);
+      } else if (data && typeof data === "object" && "$error" in data) {
+        reject(data["$error"]);
+      } else {
+        resolve(data);
+      }
     }
   }
 }

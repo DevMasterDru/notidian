@@ -538,10 +538,9 @@ export class ObsidianUI implements UIAdapter {
           this.openModal(
             i18n.labels.deleteSpace,
             <ConfirmationModal
-              confirmAction={() => {
-                removeSpace(this.manager.superstate, path);
-              }}
+              confirmAction={() => removeSpace(this.manager.superstate, path)}
               confirmLabel={i18n.buttons.delete}
+              reportError={(error) => this.plugin.superstate.ui.notify(String(error))}
               message={i18n.descriptions.deleteSpace}
             ></ConfirmationModal>,
             window

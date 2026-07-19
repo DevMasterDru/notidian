@@ -121,6 +121,12 @@ const makeManager = (
     readTable,
     contextForSpace,
     saveTable,
+    mutateTable: jest.fn(async (
+      path: string,
+      _schemaId: string,
+      operation: { desired: SpaceTable },
+      force?: boolean,
+    ) => saveTable(path, operation.desired, force)),
     saveProperties,
     readProperties,
     // identity resolver: paths are already canonical in these fixtures.

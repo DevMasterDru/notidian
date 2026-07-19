@@ -22,7 +22,7 @@ import { PathState } from "shared/types/PathState";
 import { MakeMDSettings } from "shared/types/settings";
 import { SpaceDefinition } from "shared/types/spaceDef";
 import { SpaceInfo } from "shared/types/spaceInfo";
-import { SpaceManagerInterface } from "shared/types/spaceManager";
+import { SpaceManagerInterface, TableMutationOperation } from "shared/types/spaceManager";
 import { ContextState } from "shared/types/superstate";
 
 // The dead MKit-preview runtime was fully removed (bd Notidian-rzv, post the
@@ -40,6 +40,7 @@ interface SpaceManagerContextType extends APISpaceManager {
   // Core data operations
   readTable(path: string, schema: string): Promise<SpaceTable | null>;
   saveTable(path: string, table: SpaceTable, force?: boolean): Promise<boolean>;
+  mutateTable(path: string, schemaId: string, operation: TableMutationOperation, force?: boolean): Promise<boolean>;
   readFrame(path: string, schema: string): Promise<MDBFrame | null>;
   saveFrame(path: string, frame: MDBFrame): Promise<void>;
 
@@ -58,7 +59,7 @@ interface SpaceManagerContextType extends APISpaceManager {
     parentPath: string,
     definition: SpaceDefinition
   ): void;
-  deleteSpace(path: string): void;
+  deleteSpace(path: string): Promise<void>;
   spaceInfoForPath(path: string): SpaceInfo;
   contextForSpace(path: string): Promise<SpaceTable>;
 
@@ -68,7 +69,7 @@ interface SpaceManagerContextType extends APISpaceManager {
     path: string,
     properties: Record<string, any>
   ): Promise<boolean>;
-  deleteProperty(path: string, property: string): void;
+  deleteProperty(path: string, property: string): Promise<void>;
   renameProperty(path: string, property: string, newProperty: string): void;
 
   // File operations
@@ -78,7 +79,7 @@ interface SpaceManagerContextType extends APISpaceManager {
     name: string,
     content?: any
   ): Promise<string>;
-  deletePath(path: string): void;
+  deletePath(path: string): Promise<void>;
   readPath(path: string): Promise<string>;
   writeToPath(path: string, content: any, binary?: boolean): Promise<void>;
   parentPathForPath(path: string): string;
@@ -237,6 +238,16 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
     [superstate]
   );
 
+  const mutateTable = useCallback(
+    async (path: string, schemaId: string, operation: TableMutationOperation, force?: boolean): Promise<boolean> => {
+      if (superstate?.spaceManager) {
+        return await superstate.spaceManager.mutateTable(path, schemaId, operation, force);
+      }
+      return false;
+    },
+    [superstate]
+  );
+
   const readFrame = useCallback(
     async (path: string, schema: string): Promise<MDBFrame | null> => {
       if (superstate?.spaceManager) {
@@ -337,9 +348,9 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
   );
 
   const deleteSpace = useCallback(
-    (path: string): void => {
+    async (path: string): Promise<void> => {
       if (superstate?.spaceManager) {
-        superstate.spaceManager.deleteSpace(path);
+        await superstate.spaceManager.deleteSpace(path);
       }
     },
     [superstate]
@@ -395,9 +406,9 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
   );
 
   const deleteProperty = useCallback(
-    (path: string, property: string): void => {
+    async (path: string, property: string): Promise<void> => {
       if (superstate?.spaceManager) {
-        superstate.spaceManager.deleteProperty(path, property);
+        await superstate.spaceManager.deleteProperty(path, property);
       }
     },
     [superstate]
@@ -445,9 +456,9 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
   );
 
   const deletePath = useCallback(
-    (path: string): void => {
+    async (path: string): Promise<void> => {
       if (superstate?.spaceManager) {
-        superstate.spaceManager.deletePath(path);
+        await superstate.spaceManager.deletePath(path);
       }
     },
     [superstate]
@@ -685,6 +696,7 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
       // Core data operations
       readTable,
       saveTable,
+      mutateTable,
       readFrame,
       saveFrame,
 
@@ -759,6 +771,7 @@ export const SpaceManagerProvider: React.FC<SpaceManagerProviderProps> = ({
     [
       readTable,
       saveTable,
+      mutateTable,
       readFrame,
       saveFrame,
       tablesForSpace,

@@ -24,8 +24,9 @@ export class JSONFiletypeAdapter implements FileTypeAdapter<Record<string, any>,
         this.middleware = middleware;
     }
     public middleware: FilesystemMiddleware;
-    public async parseCache (file: AFile, refresh?: boolean) {
+    public async parseCache (file: AFile, refresh?: boolean, generation?: number) {
         if (!file) return;
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
         const cache = safelyParseJSON(await this.middleware.readTextFromFile(file.path)) ?? {};
         const label = cache.label ?? {}
         const property = cache.property ?? {}
@@ -50,8 +51,9 @@ export class JSONFiletypeAdapter implements FileTypeAdapter<Record<string, any>,
         }
         
 
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         this.cache.set(file.path, updatedCache);
-        this.middleware.updateFileCache(file.path, updatedCache, refresh);
+        this.middleware.updateFileCache(file.path, updatedCache, refresh, generation);
     }
     public cache: Map<string, Record<string, any>>;
     public cacheTypes: (file: AFile) => string[];

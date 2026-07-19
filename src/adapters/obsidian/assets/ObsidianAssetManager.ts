@@ -57,6 +57,9 @@ export class ObsidianAssetManager implements IAssetManager {
   public iconsetCaches: Map<string, Map<string, string>> = new Map(); // iconsetId -> Map<iconId, svg/content>
   private iconPathMetadata: Map<string, { iconsetId: string; iconId: string }> = new Map();
   public iconPathMapping: Map<string, string> = new Map(); // iconName -> full path to icon file
+  private iconAliasOwners: Map<string, string> = new Map();
+  private iconSourceGenerations: Map<string, number> = new Map();
+  private iconPersistenceQueues: Map<string, Promise<void>> = new Map();
   
   // Cover images mapping
   public coverImages: Map<string, CoverImage> = new Map();
@@ -106,37 +109,10 @@ export class ObsidianAssetManager implements IAssetManager {
   
   // Load cached icons from persister
   private async loadCachedIcons(): Promise<void> {
-    if (!this.persister) return;
-    
-    try {
-      const cachedIcons = await this.persister.loadAll('icon');
-      for (const row of cachedIcons) {
-        if (row.path && row.cache) {
-          this.iconsCache.set(row.path, row.cache);
-          
-          // Extract icon name and cache with various keys
-          const fileName = row.path.split('/').pop();
-          let nameWithoutExt = '';
-          
-          if (fileName) {
-            nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
-            this.iconsCache.set(nameWithoutExt, row.cache);
-          }
-          
-          // If the path looks like an iconset path (folder/file.ext), also cache with iconset format
-          const pathParts = row.path.split('/');
-          if (pathParts.length >= 2 && fileName && nameWithoutExt && !row.path.startsWith('http')) {
-            // Extract iconset ID (first part of path) and icon name
-            const iconsetId = pathParts[0];
-            const iconName = nameWithoutExt;
-            const iconsetKey = `${iconsetId}//${iconName}`;
-            this.iconsCache.set(iconsetKey, row.cache);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('[ObsidianAssetManager] Failed to load cached icons:', error);
-    }
+    // Persisted icon rows do not carry source provenance. A same-path SVG can
+    // therefore be a different incarnation after restart. Leave persisted
+    // bytes cold and let source loading regenerate/cache the current content.
+    return;
   }
 
   // Initialize asset system by discovering existing assets
@@ -809,17 +785,10 @@ export class ObsidianAssetManager implements IAssetManager {
       // Try to load from path
       const path = this.iconPathMapping.get(key);
       if (path) {
+        const generation = this.iconSourceGeneration(path);
         const content = await this.readPath(path);
         if (content && typeof content === 'string') {
-          // Cache in memory
-          this.cacheIconFromPath(path, content);
-          
-          // Cache in persister if available
-          if (this.persister) {
-            await this.persister.store(path, content, 'icon');
-          }
-          
-          return content;
+          return await this.commitLoadedIcon(path, content, generation);
         }
       }
     } catch (error) {
@@ -834,27 +803,91 @@ export class ObsidianAssetManager implements IAssetManager {
   }
 
   public cacheIconFromPath(path: string, content: string): void {
-    this.iconsCache.set(path, content);
-    
-    // Extract icon name and cache with various keys
-    const fileName = path.split('/').pop();
-    if (fileName) {
-      const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'));
-      this.iconsCache.set(nameWithoutExt, content);
+    for (const alias of this.iconAliasesForPath(path)) {
+      this.iconsCache.set(alias, content);
+      this.iconAliasOwners.set(alias, path);
     }
-    
-    // If this path has metadata, also cache with iconset key
+
     const metadata = this.iconPathMetadata.get(path);
     if (metadata) {
-      const iconsetKey = `${metadata.iconsetId}//${metadata.iconId}`;
-      this.iconsCache.set(iconsetKey, content);
-      
-      // Also add to iconset cache
       const iconsetCache = this.iconsetCaches.get(metadata.iconsetId);
       if (iconsetCache) {
         iconsetCache.set(metadata.iconId, content);
       }
     }
+  }
+
+  public invalidateIconPath(path: string): Promise<void> {
+    this.iconSourceGenerations.set(path, this.iconSourceGeneration(path) + 1);
+    this.removeOwnedIconAliases(path);
+    return this.queueIconPersistence(path, async () => {
+      if (this.persister) await this.persister.remove(path, 'icon');
+    });
+  }
+
+  private iconAliasesForPath(path: string): Set<string> {
+    const aliases = new Set<string>([path]);
+    const fileName = path.split('/').pop();
+    if (fileName) {
+      const extensionIndex = fileName.lastIndexOf('.');
+      const basename = extensionIndex >= 0 ? fileName.substring(0, extensionIndex) : fileName;
+      if (basename) aliases.add(basename);
+    }
+    for (const [alias, sourcePath] of this.iconPathMapping) {
+      if (sourcePath === path) aliases.add(alias);
+    }
+    const metadata = this.iconPathMetadata.get(path);
+    if (metadata) {
+      aliases.add(metadata.iconId);
+      aliases.add(`${metadata.iconsetId}//${metadata.iconId}`);
+    }
+    return aliases;
+  }
+
+  private removeOwnedIconAliases(path: string): void {
+    const metadata = this.iconPathMetadata.get(path);
+    const ownsIconsetEntry = metadata
+      ? this.iconAliasOwners.get(`${metadata.iconsetId}//${metadata.iconId}`) === path
+      : false;
+    for (const alias of this.iconAliasesForPath(path)) {
+      if (this.iconAliasOwners.get(alias) !== path) continue;
+      this.iconsCache.delete(alias);
+      this.iconAliasOwners.delete(alias);
+    }
+    if (metadata && ownsIconsetEntry) this.iconsetCaches.get(metadata.iconsetId)?.delete(metadata.iconId);
+  }
+
+  private iconSourceGeneration(path: string): number {
+    return this.iconSourceGenerations.get(path) ?? 0;
+  }
+
+  private isIconSourceCurrent(path: string, generation: number): boolean {
+    return this.iconSourceGeneration(path) === generation;
+  }
+
+  private async commitLoadedIcon(path: string, content: string, generation: number): Promise<string | undefined> {
+    if (!this.isIconSourceCurrent(path, generation)) return undefined;
+    return await this.queueIconPersistence(path, async () => {
+      if (!this.isIconSourceCurrent(path, generation)) return undefined;
+      this.cacheIconFromPath(path, content);
+      if (this.persister) await this.persister.store(path, content, 'icon');
+      if (!this.isIconSourceCurrent(path, generation)) {
+        this.removeOwnedIconAliases(path);
+        return undefined;
+      }
+      return content;
+    });
+  }
+
+  private queueIconPersistence<T>(path: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.iconPersistenceQueues.get(path) ?? Promise.resolve();
+    const queued = previous.catch((): void => undefined).then(operation);
+    const settled = queued.then((): void => undefined, (): void => undefined);
+    this.iconPersistenceQueues.set(path, settled);
+    void settled.then(() => {
+      if (this.iconPersistenceQueues.get(path) === settled) this.iconPersistenceQueues.delete(path);
+    });
+    return queued;
   }
 
   public hasIcon(iconName: string): boolean {
@@ -1299,24 +1332,20 @@ export class ObsidianAssetManager implements IAssetManager {
   }
 
   // Load icon from path
-  public async loadIconFromPath(path: string): Promise<string | undefined> {
+  public async loadIconFromPath(
+    path: string,
+    loader: () => Promise<string | null> = () => this.readPath(path),
+  ): Promise<string | undefined> {
     try {
       // Check if already cached
       const cached = this.iconsCache.get(path);
       if (cached) return cached;
       
       // Load from file using Obsidian adapter
-      const content = await this.readPath(path);
+      const generation = this.iconSourceGeneration(path);
+      const content = await loader();
       if (content && typeof content === 'string') {
-        // Cache in memory
-        this.cacheIconFromPath(path, content);
-        
-        // Cache in persister if available
-        if (this.persister) {
-          await this.persister.store(path, content, 'icon');
-        }
-        
-        return content;
+        return await this.commitLoadedIcon(path, content, generation);
       }
     } catch (error) {
       console.error(`[ObsidianAssetManager] Failed to load icon from path ${path}:`, error);

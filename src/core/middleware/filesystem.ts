@@ -9,11 +9,34 @@ export type FileCache = PathCache & {
     [key: string] : FileTypeCache,
 }
 
+const derivedThumbnailRoot = ".notidian/thumbnails";
+
+const canonicalDerivedThumbnailPath = (path: string): string => {
+    if (typeof path !== "string" || path.length === 0 || path.startsWith("/") || path.includes("\\") || path.includes("\0")) {
+        throw new Error(`Refusing to delete non-thumbnail cache path: ${path}`);
+    }
+    const segments = path.split("/");
+    if (
+        segments.length < 3 ||
+        segments.some(segment => segment.length === 0 || segment === "." || segment === "..") ||
+        segments[0] !== ".notidian" ||
+        segments[1] !== "thumbnails"
+    ) {
+        throw new Error(`Refusing to delete non-thumbnail cache path: ${path}`);
+    }
+    const canonicalPath = segments.join("/");
+    if (!canonicalPath.startsWith(`${derivedThumbnailRoot}/`)) {
+        throw new Error(`Refusing to delete non-thumbnail cache path: ${path}`);
+    }
+    return canonicalPath;
+};
+
 export interface FileSystemEventTypes extends EventTypeToPayload {
     "onCreate": { file: AFile },
     "onRename": { file: AFile, oldPath: string},
     "onModified": { file: AFile },
     "onDelete": { file: AFile },
+    "onPathInvalidated": { path: string },
     "onSpaceUpdated": { path: string, type: string },
     "onCacheUpdated": { path: string },
     "onFocusesUpdated": null,
@@ -32,7 +55,7 @@ export abstract class FileSystemAdapter {
     public resourcePathForPath: (path: string) => string;
     public copyFile: (folder: string, path: string, newName?: string) => Promise<string>;
     public parentPathForPath: (path: string) => string;
-    public updateFileCache: (path: string, cache: FileTypeCache, refresh: boolean) => void;
+    public updateFileCache: (path: string, cache: FileTypeCache, refresh: boolean, generation?: number) => void;
     public writeTextToFile: (path: string, content: string) => Promise<void>
     public readTextFromFile:  (path: string) => Promise<string>;
     public writeBinaryToFile: (path: string, buffer: ArrayBuffer) => Promise<void>;
@@ -59,6 +82,8 @@ export class FilesystemMiddleware {
     public primary: FileSystemAdapter;
     public filesystems: FileSystemAdapter[] = []
     public filetypes: FileTypeAdapter<FileTypeCache, FileTypeContent>[] = []
+    private pathGenerations: Map<string, number> = new Map();
+    private derivedPersistenceQueues: Map<string, Promise<void>> = new Map();
     public static create(): FilesystemMiddleware {
         return new FilesystemMiddleware();
     }
@@ -108,6 +133,64 @@ export class FilesystemMiddleware {
         this.filetypes.push(adapter);
     }
 
+    public beginPathGeneration(path: string) {
+        const generation = (this.pathGenerations.get(path) ?? 0) + 1;
+        this.pathGenerations.set(path, generation);
+        return generation;
+    }
+
+    public capturePathGeneration(path: string) {
+        return this.pathGenerations.get(path) ?? 0;
+    }
+
+    public isPathGenerationCurrent(path: string, generation?: number) {
+        return generation === undefined || (this.pathGenerations.get(path) ?? 0) === generation;
+    }
+
+    public invalidatePath(path: string) {
+        const generation = this.beginPathGeneration(path);
+        for (const adapter of this.filetypes) {
+            adapter.cache?.delete(path);
+            adapter.invalidatePath?.(path);
+        }
+        return generation;
+    }
+
+    public async deleteDerivedCacheFile(path: string) {
+        const canonicalPath = canonicalDerivedThumbnailPath(path);
+        return await this.queueDerivedPersistence(canonicalPath, () =>
+            this.adapterForPath(canonicalPath).deleteFile(canonicalPath)
+        );
+    }
+
+    public writeDerivedCacheFile(path: string, buffer: ArrayBuffer, sourcePath?: string, generation?: number) {
+        const canonicalPath = canonicalDerivedThumbnailPath(path);
+        return this.queueDerivedPersistence(canonicalPath, async () => {
+            if (sourcePath && !this.isPathGenerationCurrent(sourcePath, generation)) return;
+            await this.adapterForPath(canonicalPath).writeBinaryToFile(canonicalPath, buffer);
+        });
+    }
+
+    public derivedCacheFileExists(path: string) {
+        const canonicalPath = canonicalDerivedThumbnailPath(path);
+        return this.queueDerivedPersistence(canonicalPath, () =>
+            this.adapterForPath(canonicalPath).fileExists(canonicalPath)
+        );
+    }
+
+    private queueDerivedPersistence<T>(path: string, operation: () => Promise<T>): Promise<T> {
+        const previous = this.derivedPersistenceQueues.get(path) ?? Promise.resolve();
+        const queued = previous.catch((): void => undefined).then(operation);
+        const settled = queued.then((): void => undefined, (): void => undefined);
+        this.derivedPersistenceQueues.set(path, settled);
+        void settled.then(() => {
+            if (this.derivedPersistenceQueues.get(path) === settled) {
+                this.derivedPersistenceQueues.delete(path);
+            }
+        });
+        return queued;
+    }
+
     public filetypeAdaptersForFile (file: AFile) {
         if (!file) return [];
         return this.filetypes.filter(f => f.supportedFileTypes.includes(file.extension));
@@ -141,11 +224,16 @@ export class FilesystemMiddleware {
         return this.adapterForPath(path).parentPathForPath(path);
     }
     
-    public async createFileCache (path: string) {
+    public async createFileCache (path: string, generation?: number) {
+        generation = generation ?? (this.pathGenerations.get(path) ?? 0);
         const file = await this.getFile(path);
+        if (!file || !this.isPathGenerationCurrent(path, generation)) return;
         for (const adapter of this.filetypeAdaptersForFile(file)) {
             if (adapter.parseCache)
-            await adapter.parseCache(file, false);
+            await adapter.parseCache(file, false, generation);
+            if (!this.isPathGenerationCurrent(path, generation)) {
+                return;
+            }
         }
 
         
@@ -163,8 +251,9 @@ export class FilesystemMiddleware {
         }
     }
 
-    public updateFileCache (path: string, cache: FileTypeCache, refresh: boolean) {
-        this.adapterForPath(path).updateFileCache(path, cache, refresh);
+    public updateFileCache (path: string, cache: FileTypeCache, refresh: boolean, generation?: number) {
+        if (!this.isPathGenerationCurrent(path, generation)) return;
+        this.adapterForPath(path).updateFileCache(path, cache, refresh, generation);
     }
     
 
@@ -221,19 +310,25 @@ export class FilesystemMiddleware {
     }
 
     public onCreate (file: AFile) {
-        this.eventDispatch.dispatchEvent("onCreate", { file })
+        return this.eventDispatch.dispatchEvent("onCreate", { file })
     }
 
     public onModify (file: AFile) {
-        this.eventDispatch.dispatchEvent("onModify", { file })
+        return this.eventDispatch.dispatchEvent("onModify", { file })
     }
 
     public onRename (file: AFile, oldPath: string) {
-        this.eventDispatch.dispatchEvent("onRename", { file, oldPath })
+        return this.eventDispatch.dispatchEventPropagating("onRename", { file, oldPath })
     }
 
-    public onDelete (file: AFile) {
-        this.eventDispatch.dispatchEvent("onDelete", { file })
+    public onDelete (file: AFile, propagateErrors = false) {
+        return propagateErrors
+            ? this.eventDispatch.dispatchEventPropagating("onDelete", { file })
+            : this.eventDispatch.dispatchEvent("onDelete", { file })
+    }
+
+    public onPathInvalidated (path: string) {
+        return this.eventDispatch.dispatchEventPropagating("onPathInvalidated", { path })
     }
 
     public onSpaceUpdated (path: string, type: string) {

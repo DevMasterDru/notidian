@@ -10,6 +10,8 @@ export type AFile = {
     ctime?: number;
     mtime?: number;
     size?: number;
+    /** Transient, non-enumerable exact Obsidian object used for incarnation guards. */
+    obsidianFile?: unknown;
 }
 
 export type VaultItem = {
@@ -19,5 +21,4 @@ export type VaultItem = {
   folder: string;
   rank?: string;
 } & PathLabel;
-
 

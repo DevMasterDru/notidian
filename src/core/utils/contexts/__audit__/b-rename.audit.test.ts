@@ -1,9 +1,30 @@
 import { PathPropertyName } from "shared/types/context";
 import { SpaceTable } from "shared/types/mdb";
+import { TableMutationOperation } from "shared/types/spaceManager";
+import { applyTableMutation } from "../tableMutation";
 import {
   executeBulkPageTitleRename,
   renamePageTitleForRowWithResult,
 } from "../pageTitleRename";
+
+const makeMutateTable = (initialTable: SpaceTable) => {
+  let currentTable = structuredClone(initialTable);
+  return jest.fn(
+    async (
+      _path: string,
+      schemaId: string,
+      operation: TableMutationOperation
+    ): Promise<boolean> => {
+      if (schemaId !== currentTable.schema.id) {
+        throw new Error(`unexpected schema ${schemaId}`);
+      }
+      currentTable = structuredClone(
+        applyTableMutation(structuredClone(currentTable), operation)
+      );
+      return true;
+    }
+  );
+};
 
 describe("rename audit repros", () => {
   it("B1 reports rename-failed when persistence resolves null for a failed single rename", async () => {
@@ -80,6 +101,7 @@ describe("rename audit repros", () => {
           async (path: string): Promise<boolean> => existingPaths.has(path)
         ),
         renamePath,
+        mutateTable: makeMutateTable(contextTable),
         saveTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },
@@ -155,6 +177,7 @@ describe("rename audit repros", () => {
           async (path: string): Promise<boolean> => existingPaths.has(path)
         ),
         renamePath,
+        mutateTable: makeMutateTable(contextTable),
         saveTable: jest.fn(async (): Promise<void> => undefined),
       },
       ui: { notify: jest.fn() },

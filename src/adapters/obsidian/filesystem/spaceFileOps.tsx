@@ -4,6 +4,7 @@ import MakeMDPlugin from "main";
 import i18n from "shared/i18n";
 import React from "react";
 import { FilesystemSpaceInfo } from "shared/types/spaceInfo";
+import { runBulkAsync } from "shared/utils/asyncContracts";
 import { windowFromDocument } from "shared/utils/dom";
 
 export const moveSpaceFiles = async (
@@ -20,14 +21,19 @@ export const moveSpaceFiles = async (
         (f.space as FilesystemSpaceInfo)?.folderPath + "/" + oldString
       )
     ) {
-      await plugin.superstate.spaceManager.renamePath(
+      const renamed = await plugin.superstate.spaceManager.renamePath(
         (f.space as FilesystemSpaceInfo)?.folderPath + "/" + oldString,
         (f.space as FilesystemSpaceInfo)?.folderPath + "/" + newString
       );
+      if (!renamed) return;
     }
   }
   if (await plugin.superstate.spaceManager.pathExists(oldString)) {
-    await plugin.superstate.spaceManager.renamePath(oldString, newString);
+    const renamed = await plugin.superstate.spaceManager.renamePath(
+      oldString,
+      newString
+    );
+    if (!renamed) return;
   }
   await plugin.superstate.initializeSpaces();
   plugin.superstate.ui.notify("All space files have been move.");
@@ -38,7 +44,8 @@ export const deleteSpaceFiles = async (plugin: MakeMDPlugin, doc: Document) => {
     "Delete Space Files",
 
     <ConfirmationModal
-      confirmAction={() => {
+      reportError={(error) => plugin.superstate.ui.notify(String(error))}
+      confirmAction={async () => {
         const settings = plugin.superstate.settings;
         const spaceSubFolder = settings.spaceSubFolder;
 
@@ -47,11 +54,12 @@ export const deleteSpaceFiles = async (plugin: MakeMDPlugin, doc: Document) => {
           settings,
           settings.spacesFolder
         );
-        allChildren.forEach((f) => {
-          if (f.name == spaceSubFolder && f.folder == "true") {
-            plugin.superstate.spaceManager.deletePath(f.path);
-          }
-        });
+        await runBulkAsync(
+          allChildren.filter(
+            (f) => f.name == spaceSubFolder && f.folder == "true"
+          ),
+          (file) => plugin.superstate.spaceManager.deletePath(file.path)
+        );
         plugin.superstate.ui.notify("All space files have been deleted.");
       }}
       confirmLabel={i18n.buttons.delete}

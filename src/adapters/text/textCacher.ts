@@ -50,9 +50,10 @@ export class TextCacher implements FileTypeAdapter<Record<string, any>, Record<s
             this.parseCache(payload.file, true);
     }
     public middleware: FilesystemMiddleware;
-    public async parseCache (file: AFile, refresh?: boolean) {
+    public async parseCache (file: AFile, refresh?: boolean, generation?: number) {
         // const text = await this.middleware.readTextFromFile(file.path);
         if (!file) return;
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
         const contents = await this.plugin.app.vault.cachedRead(getAbstractFileAtPath(this.plugin.app, file.path)as TFile)
         const updatedCache : Record<string, any> = {}
         Object.keys(textCacheExperimental).forEach(key => {
@@ -60,8 +61,9 @@ export class TextCacher implements FileTypeAdapter<Record<string, any>, Record<s
             updatedCache[key] = runner(contents);
         });
 
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         this.cache.set(file.path, updatedCache);
-        this.middleware.updateFileCache(file.path, updatedCache, refresh);
+        this.middleware.updateFileCache(file.path, updatedCache, refresh, generation);
     }
     public cache: Map<string, Record<string, any>>;
     public cacheTypes: (file: AFile) => string[];

@@ -76,10 +76,39 @@ export const requestRowDeleteWithSubItems = (params: {
   subItemsDelete?: SubItemsDeleteConfig;
   // Removes JUST the parent row (surface-specific). Children are never rewritten.
   deleteSelf: () => void | Promise<void>;
+  // Optional surface adapter for the single user-facing reporting boundary.
+  // When omitted, the request reports through the Superstate UI directly.
+  reportError?: (message: string) => void;
   // The window the modal should open in.
   win: Window;
 }): void => {
-  const { superstate, rootPath, subItemsDelete, deleteSelf, win } = params;
+  const {
+    superstate,
+    rootPath,
+    subItemsDelete,
+    deleteSelf,
+    reportError,
+    win,
+  } = params;
+
+  const reportFailure = (error: unknown) => {
+    const detail =
+      error instanceof AggregateError
+        ? `${error.errors.length} operations failed: ${error.errors
+            .map((failure) =>
+              failure instanceof Error ? failure.message : String(failure)
+            )
+            .join("; ")}`
+        : error instanceof Error
+        ? error.message
+        : String(error);
+    const message = `Could not delete "${rootPath}": ${detail}`;
+    if (reportError) {
+      reportError(message);
+    } else {
+      superstate.ui.notify(message);
+    }
+  };
 
   // Descendants are sliced from the FULL buildRowTree output (collapse-/limit-/
   // display-independent), so a parent with hidden descendants is never mistaken
@@ -97,7 +126,11 @@ export const requestRowDeleteWithSubItems = (params: {
 
   // Leaf row (or sub-items off): keep the silent, unprompted delete.
   if (subtree.length === 0) {
-    void deleteSelf();
+    try {
+      void Promise.resolve(deleteSelf()).catch(reportFailure);
+    } catch (error) {
+      reportFailure(error);
+    }
     return;
   }
 
@@ -121,22 +154,36 @@ export const requestRowDeleteWithSubItems = (params: {
     i18n.menu.deleteRow,
     React.createElement(SubItemDeleteModal, {
       subItemCount: subtree.length,
+      reportError: reportFailure,
       // (1) Default: delete only this item; children promote to roots.
-      deleteOnly: () => {
-        void deleteSelf();
-      },
+      deleteOnly: deleteSelf,
       // (2) Delete this item AND every descendant.
       deleteRecursive: () => {
-        void (async () => {
+        return (async () => {
           // Remove the parent FIRST, then the descendants. Order matters for the
           // MDB surface: deleteSelf there is deleteRowInTable(index), and removing
           // a descendant first re-indexes the table — a stale index would then nuke
           // the WRONG row. The parent index is only valid right now, so spend it
           // before any descendant removal shifts it. For the path surface the order
           // is immaterial.
-          await deleteSelf();
+          const failures: unknown[] = [];
+          try {
+            await deleteSelf();
+          } catch (error) {
+            failures.push(error);
+          }
           for (const path of subtree) {
-            await removeDescendant(path);
+            try {
+              await removeDescendant(path);
+            } catch (error) {
+              failures.push(error);
+            }
+          }
+          if (failures.length > 0) {
+            throw new AggregateError(
+              failures,
+              "Could not delete every requested item."
+            );
           }
         })();
       },

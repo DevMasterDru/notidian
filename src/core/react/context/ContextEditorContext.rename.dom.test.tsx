@@ -137,6 +137,10 @@ describe("frontmatter property rename", () => {
           persistedTable = nextTable;
           return true;
         }),
+        mutateTable: jest.fn(async (_path: string, _schemaId: string, operation: any) => {
+          persistedTable = operation.desired;
+          return true;
+        }),
         saveProperties: jest.fn().mockResolvedValue(true),
         deleteProperty: jest.fn().mockResolvedValue(undefined),
         resolvePath: (path: string) => path,
@@ -292,6 +296,7 @@ describe("frontmatter property rename", () => {
       spaceManager: {
         readTable: jest.fn(async () => table),
         saveTable: jest.fn().mockResolvedValue(true),
+        mutateTable: jest.fn().mockResolvedValue(true),
         saveProperties,
         deleteProperty,
         resolvePath: (path: string) => path,

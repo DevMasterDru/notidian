@@ -221,7 +221,7 @@ describe("renamePageTitleForRow", () => {
         renamePath: jest.fn(
           async (_oldPath: string, newPath: string): Promise<string> => newPath
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any, force?: boolean) => (saveTable as any)(path, operation.desired, force)),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -245,6 +245,48 @@ describe("renamePageTitleForRow", () => {
       },
       true
     );
+  });
+
+  it("rejects a false single-row reconciliation write before post-write reload", async () => {
+    const contextPath = "Relays & Devices";
+    const contextTable: SpaceTable = {
+      schema: { id: "files", name: "Items", type: "db" },
+      cols: [],
+      rows: [
+        { [PathPropertyName]: "Relays & Devices/Old.md" },
+        { [PathPropertyName]: "Relays & Devices/Other.md" },
+      ],
+    };
+    const superstate = {
+      contextsIndex: new Map([[contextPath, { contextTable }]]),
+      reloadContextByPath: jest.fn(async (): Promise<void> => {
+        superstate.contextsIndex.set(contextPath, {
+          contextTable: {
+            ...contextTable,
+            rows: [
+              { [PathPropertyName]: "Relays & Devices/Other.md" },
+              { [PathPropertyName]: "Relays & Devices/New.md" },
+            ],
+          },
+        });
+      }),
+      spaceManager: {
+        pathExists: jest.fn(async (): Promise<boolean> => false),
+        renamePath: jest.fn(async (_old: string, next: string): Promise<string> => next),
+        mutateTable: jest.fn(async (): Promise<boolean> => false),
+      },
+      ui: { notify: jest.fn() },
+    } as any;
+
+    await expect(renamePageTitleForRow({
+      row: { [PathPropertyName]: "Relays & Devices/Old.md" },
+      value: "New",
+      contextPath,
+      settleDelayMs: 0,
+      superstate,
+    })).rejects.toThrow("Could not persist page-title row position");
+
+    expect(superstate.reloadContextByPath).toHaveBeenCalledTimes(1);
   });
 
   it("removes duplicate renamed rows while preserving the original row position", async () => {
@@ -277,7 +319,7 @@ describe("renamePageTitleForRow", () => {
         renamePath: jest.fn(
           async (_oldPath: string, newPath: string): Promise<string> => newPath
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any, force?: boolean) => (saveTable as any)(path, operation.desired, force)),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -434,7 +476,7 @@ describe("bulk page title rename transactions", () => {
             ["Relays & Devices/A.md", "Relays & Devices/B.md"].includes(path)
           ),
           renamePath,
-          saveTable: jest.fn(async (): Promise<void> => undefined),
+          mutateTable: jest.fn(async (): Promise<void> => undefined),
         },
         ui: { notify: jest.fn() },
       } as any,
@@ -482,7 +524,7 @@ describe("bulk page title rename transactions", () => {
         renamePath: jest.fn(
           async (_oldPath: string, newPath: string): Promise<string> => newPath
         ),
-        saveTable,
+        mutateTable: jest.fn(async (path: string, _schema: string, operation: any, force?: boolean) => (saveTable as any)(path, operation.desired, force)),
       },
       ui: { notify: jest.fn() },
     } as any;
@@ -510,5 +552,49 @@ describe("bulk page title rename transactions", () => {
       },
       true
     );
+  });
+
+  it("rejects a false bulk reconciliation write before post-write reload", async () => {
+    const contextPath = "Relays & Devices";
+    const originalTable: SpaceTable = {
+      schema: { id: "files", name: "Items", type: "db" },
+      cols: [],
+      rows: [
+        { [PathPropertyName]: "Relays & Devices/A.md" },
+        { [PathPropertyName]: "Relays & Devices/B.md" },
+      ],
+    };
+    const superstate = {
+      contextsIndex: new Map([[contextPath, { contextTable: originalTable }]]),
+      reloadContextByPath: jest.fn(async (): Promise<void> => {
+        superstate.contextsIndex.set(contextPath, {
+          contextTable: {
+            ...originalTable,
+            rows: [
+              { [PathPropertyName]: "Relays & Devices/Y.md" },
+              { [PathPropertyName]: "Relays & Devices/X.md" },
+            ],
+          },
+        });
+      }),
+      spaceManager: {
+        pathExists: jest.fn(async (): Promise<boolean> => false),
+        renamePath: jest.fn(async (_old: string, next: string): Promise<string> => next),
+        mutateTable: jest.fn(async (): Promise<boolean> => false),
+      },
+      ui: { notify: jest.fn() },
+    } as any;
+
+    await expect(executeBulkPageTitleRename({
+      items: [
+        { row: { [PathPropertyName]: "Relays & Devices/A.md" }, value: "X" },
+        { row: { [PathPropertyName]: "Relays & Devices/B.md" }, value: "Y" },
+      ],
+      contextPath,
+      settleDelayMs: 0,
+      superstate,
+    })).rejects.toThrow("Could not persist bulk page-title reconciliation");
+
+    expect(superstate.reloadContextByPath).toHaveBeenCalledTimes(1);
   });
 });

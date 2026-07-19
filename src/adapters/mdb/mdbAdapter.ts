@@ -1,6 +1,6 @@
 
-import { mdbTablesToDBTables, saveDBToPath } from 'adapters/mdb/db/db';
-import { deleteMDBTable, getMDB, getMDBTable, getMDBTableProperties, getMDBTableSchemas, getMDBTables } from 'adapters/mdb/utils/mdb';
+import { mdbTablesToDBTables, saveDBToPath, saveDBToPathWithinWriteQueue, withDBPathWriteQueue } from 'adapters/mdb/db/db';
+import { deleteMDBTable, getMDB, getMDBTable, getMDBTableProperties, getMDBTableSchemas, getMDBTables, getOrReconstructMDBTablePropertiesWithinWriteQueue } from 'adapters/mdb/utils/mdb';
 import { commandToDBTables, mdbSchemaToCommandSchema } from 'core/utils/commands/commands';
 import { mdbFrameToDBTables, mergeFrameFields } from "core/utils/frames/frame";
 import _ from 'lodash';
@@ -54,22 +54,16 @@ export class MDBFileTypeAdapter implements FileTypeAdapter<MDB, MDBContent> {
         this.cache = new Map();
     }
     
-    public async parseCache (file: AFile, refresh: boolean) {    
-        await getMDB(this, file.path).then(mdb => {
-            if (!mdb) {
-                return false;
-            }
-            this.cache.set(file.path, {
-                schemas: mdb.schemas ?? [],
-                fields: mdb.fields,
-                tables: mdb.tables
-            })
-            return true;
-        }).then(f => {
-            if (f)
-            this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh);
-        })
-        
+    public async parseCache (file: AFile, refresh: boolean, generation?: number) {
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
+        const mdb = await getMDB(this, file.path);
+        if (!mdb || !this.middleware.isPathGenerationCurrent(file.path, generation)) return;
+        this.cache.set(file.path, {
+            schemas: mdb.schemas ?? [],
+            fields: mdb.fields,
+            tables: mdb.tables
+        });
+        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh, generation);
     }
     
     public contentTypes (file: AFile) {
@@ -102,7 +96,7 @@ export class MDBFileTypeAdapter implements FileTypeAdapter<MDB, MDBContent> {
         // return this.cache.get(file.path)[fragmentType]
         }
         if (fragmentType == 'fields') {
-        return getMDBTableProperties(this, file.path) ?? [];
+        return (await getMDBTableProperties(this, file.path)) ?? [];
         }
         
         if (fragmentType == 'mdbTables') {
@@ -199,17 +193,25 @@ export class MDBFileTypeAdapter implements FileTypeAdapter<MDB, MDBContent> {
             return saveDBToPath(this, file.path, { [fragmentId]: content(this.cache.get(file.path)['tables'][fragmentId])})
         }
         if (fragmentType == 'mdbTable') {
-            const mdbTable = await this.readContent(file, 'mdbTable', fragmentId);
-            const oldFields = await this.readContent(file, 'fields', null) as SpaceProperty[]
-            const tables = { [fragmentId]: content(mdbTable) };
-            const newFields = {
-                m_fields: {
-                    uniques: fieldSchema.uniques,
-                    cols: fieldSchema.cols,
-                    rows: [...oldFields.filter(f => f.schemaId != fragmentId), ...Object.values(tables).flatMap(f => f.cols)],
-                  }
-            }
-            return saveDBToPath(this, file.path,{...mdbTablesToDBTables(tables), ...newFields})
+            return withDBPathWriteQueue(file.path, async () => {
+                const oldFields = await getOrReconstructMDBTablePropertiesWithinWriteQueue(this, file.path);
+                if (!oldFields) return false;
+                const mdbTable = await this.readContent(file, 'mdbTable', fragmentId);
+                if (!mdbTable) return false;
+                const tables = { [fragmentId]: content(mdbTable) };
+                const newFields = {
+                    m_fields: {
+                        uniques: fieldSchema.uniques,
+                        cols: fieldSchema.cols,
+                        rows: [...oldFields.filter(f => f.schemaId != fragmentId), ...Object.values(tables).flatMap(f => f.cols)],
+                    }
+                };
+                return saveDBToPathWithinWriteQueue(
+                    this,
+                    file.path,
+                    {...mdbTablesToDBTables(tables), ...newFields},
+                );
+            });
         }
         if (fragmentType == 'mdbFrame') {
             // Notidian-2y21 — DURABILITY OF VIEW CUSTOMIZATIONS. The lone destructive

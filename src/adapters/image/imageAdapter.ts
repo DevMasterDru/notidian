@@ -9,6 +9,8 @@ type ImageTypeCache = Record<never, never>
 
 type ImageTypeContent = Record<never, never>
 export class ImageFileTypeAdapter implements FileTypeAdapter<ImageTypeCache, ImageTypeContent> {
+    private invalidatedSources = new Set<string>();
+    private freshThumbnails = new Set<string>();
 private picaInstance;
     public constructor (public plugin: MakeMDPlugin) {
         this.plugin = plugin;
@@ -23,9 +25,22 @@ this.picaInstance = pica();
     public initiate (middleware: FilesystemMiddleware) {
         this.middleware = middleware;
         this.cache = new Map();
+        this.freshThumbnails = new Set();
     }
-    public async generateThumbnail (file: AFile, thumbnail: string, size=256) {
+    public invalidatePath(path: string) {
+        this.cache.delete(path);
+        this.invalidatedSources.add(path);
+        this.freshThumbnails.delete(path);
+        const extension = path.split('.').pop()?.toLowerCase();
+        if (!extension || !this.supportedFileTypes.includes(extension)) return;
+        const thumbnailPath = `${this.cacheDirectory}/${hashCode(path)}.${extension}`;
+        void this.middleware.deleteDerivedCacheFile(thumbnailPath).catch(error => {
+            console.error(`Failed to delete derived image thumbnail ${thumbnailPath}:`, error);
+        });
+    }
+    public async generateThumbnail (file: AFile, thumbnail: string, size=256, generation = this.middleware.capturePathGeneration(file.path)) {
         const binary = await this.middleware.readBinaryToFile(file.path);
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
             if (!binary) return false;
             const srcImage = new Image();
             srcImage.src = this.middleware.resourcePathForPath(file.path);
@@ -44,26 +59,35 @@ this.picaInstance = pica();
             await this.picaInstance.resize(srcCanvas, resize)
             const resizedBlob = await this.picaInstance.toBlob(resize, 'image/jpeg', 0.8);
             const resizedBinary = await resizedBlob.arrayBuffer();
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
             if (!(await this.middleware.fileExists(this.cacheDirectory))) {
                 await this.middleware.createFolder(this.cacheDirectory);
             }
-            await this.middleware.writeBinaryToFile(thumbnail, resizedBinary);
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
+            await this.middleware.writeDerivedCacheFile(thumbnail, resizedBinary, file.path, generation);
+            if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return false;
             return true;
 }
 public loadFile: (file: AFile) => Promise<void>;
-    public async parseCache (file: AFile, refresh: boolean) {
+    public async parseCache (file: AFile, refresh: boolean, generation?: number) {
         
         
         if (!file) return;
+        generation = generation ?? this.middleware.capturePathGeneration(file.path);
         const thumbnailPath = `${this.cacheDirectory}/${hashCode(file.path)}.${file.extension}`;
         let thumbnail = file.path
         if (this.plugin.superstate.settings.imageThumbnails) {
-            if (!(await this.middleware.fileExists(thumbnailPath)))
+            if (!this.freshThumbnails.has(file.path)
+                || this.invalidatedSources.has(file.path)
+                || !(await this.middleware.derivedCacheFileExists(thumbnailPath)))
             {
                 if (!Platform.isMobile) {
-                const thumbnailResult = await this.generateThumbnail(file, thumbnailPath);
+                const thumbnailResult = await this.generateThumbnail(file, thumbnailPath, 256, generation);
+                    if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
                     if (thumbnailResult) {
                         thumbnail = thumbnailPath
+                        this.invalidatedSources.delete(file.path);
+                        this.freshThumbnails.add(file.path);
                     }
                 }
             } else {
@@ -84,8 +108,9 @@ public loadFile: (file: AFile) => Promise<void>;
             thumbnail: thumbnail,
         }
     }
+        if (!this.middleware.isPathGenerationCurrent(file.path, generation)) return;
         this.cache.set(file.path, updatedCache);
-        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh);
+        this.middleware.updateFileCache(file.path, this.cache.get(file.path), refresh, generation);
     }
     
     public cacheTypes (file: AFile) { return [] as Array<keyof ImageTypeCache>}

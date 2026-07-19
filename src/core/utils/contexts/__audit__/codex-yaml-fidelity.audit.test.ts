@@ -51,7 +51,7 @@ describe("codex audit repros for YAML fidelity findings", () => {
     ).toBe(JSON.stringify(["Keep.md"]));
   });
 
-  it("F1 (FIXED): link maintenance writes only frontmatter-backed columns; Notidian-owned columns stay out of YAML", () => {
+  it("F1 (FIXED): link maintenance writes only frontmatter-backed columns; Notidian-owned columns stay out of YAML", async () => {
     const manager = { saveProperties: jest.fn() };
     const row = {
       [PathPropertyName]: "Rows/A.md",
@@ -59,7 +59,7 @@ describe("codex audit repros for YAML fidelity findings", () => {
       relation: JSON.stringify(["Old.md"]),
     };
 
-    const nextRow = renameLinksInRow(
+    const nextRow = await renameLinksInRow(
       manager as any,
       row,
       "Old.md",
