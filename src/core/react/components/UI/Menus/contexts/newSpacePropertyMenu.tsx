@@ -6,7 +6,7 @@ import {
   propertyTypeOptionsForField,
   shouldShowMultiToggleForPropertyType,
 } from "core/utils/contexts/propertyTypeMenu";
-import { RepeatTemplate } from "core/utils/contexts/fields/presets";
+import { repeatTemplateForSettings } from "core/utils/contexts/fields/presets";
 import { nameForField } from "core/utils/frames/frames";
 import {
   discoverFrontmatterPropertiesFromPathStates,
@@ -175,7 +175,7 @@ const NewPropertyMenuComponent = (
 
   const selectType = (e: React.MouseEvent) => {
     const specialMenu = (rect: Rect, onHide: () => void) => {
-      const specialTypes = [RepeatTemplate];
+      const specialTypes = [repeatTemplateForSettings(props.superstate.settings)];
       const options: SelectOption[] = specialTypes.map((f, i) => ({
         name: nameForField(f),
         value: f.name,

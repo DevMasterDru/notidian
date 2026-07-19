@@ -1219,6 +1219,10 @@ export const en = {
       "name": "Date Reminders",
       "desc": "Deliver due reminders while Obsidian is open, including an at-most-once seven-day catch-up after reopening. Reminder schedules stay in Markdown frontmatter. Off by default."
     },
+    "dateScheduleAuthoring": {
+      "name": "Date Schedule Authoring",
+      "desc": "Author due dates, recurrence, and reminders as portable Markdown frontmatter mappings. Turn off to restore the legacy recurrence editor and calendar rendering."
+    },
     "renderPathViewOverlays": {
       "name": "Embed View Overlays",
       "desc": "Let a Notidian embed's \"where:\" clauses filter the embedded view at render time, so a topic/hub page can show a narrowed slice of a shared database. Read-only: overlays never change the underlying view or its saved filters. Turn off to render embedded views unfiltered (legacy behavior)."

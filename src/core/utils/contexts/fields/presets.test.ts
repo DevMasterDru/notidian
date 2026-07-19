@@ -17,7 +17,7 @@
  */
 import i18n from "shared/i18n";
 import { safelyParseJSON } from "shared/utils/json";
-import { RepeatTemplate } from "./presets";
+import { LegacyRepeatTemplate, RepeatTemplate } from "./presets";
 
 /** Allowed inner field property types for an embedded ObjectType schema. */
 const ALLOWED_FIELD_TYPES = new Set([
@@ -140,10 +140,26 @@ describe("RepeatTemplate — embedded ObjectType schema", () => {
     }
   });
 
-  it("freq options are exactly the seven RRULE frequencies", () => {
+  it("freq options are exactly the five ADR-0020 supported frequencies", () => {
     const freq = (schema.type as Record<string, EmbeddedField>).freq;
     const values = (freq.value?.options ?? []).map((o) => o.value);
     expect(new Set(values)).toEqual(
+      new Set([
+        "YEARLY",
+        "MONTHLY",
+        "WEEKLY",
+        "DAILY",
+        "HOURLY",
+      ])
+    );
+  });
+
+  it("keeps the seven historical choices only in the kill-switch OFF template", () => {
+    const legacy = safelyParseJSON(
+      LegacyRepeatTemplate.value as string
+    ) as EmbeddedSchema;
+    const freq = (legacy.type as Record<string, EmbeddedField>).freq;
+    expect(new Set((freq.value?.options ?? []).map((option) => option.value))).toEqual(
       new Set([
         "YEARLY",
         "MONTHLY",

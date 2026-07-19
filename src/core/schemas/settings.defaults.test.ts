@@ -69,6 +69,7 @@ const REQUIRED_SETTING_KEYS = {
   enableDataHealthSurfaces: true,
   selectToComment: true,
   dateReminders: true,
+  dateScheduleAuthoring: true,
   spaceViewShowNoteBody: true,
   collapsibleNoteBody: true,
   spaceNoteBodyFullCollapse: true,
@@ -192,6 +193,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "enableNestedHubRows", // Notidian-z21a / Atlas Method ADR-0042 D1
   "enableDataHealthSurfaces", // Notidian-loan.5 / ADR-0057
   "selectToComment", // Notidian-tluq.2 / ADR 0019
+  "dateScheduleAuthoring", // Notidian-tluq.8 / ADR 0020
   "enableNavigatorTextFilter", // Notidian-nrjb
 ];
 

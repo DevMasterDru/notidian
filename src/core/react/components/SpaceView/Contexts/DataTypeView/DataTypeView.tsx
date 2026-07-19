@@ -76,6 +76,7 @@ export const DataTypeView: React.FC<DataTypeViewProps> = (
     path: props.source ?? row?.[PathPropertyName],
     property: column,
     compactMode: props.compactMode,
+    row,
   };
 
   const fieldType = fieldTypeForType(column.type, column.name);

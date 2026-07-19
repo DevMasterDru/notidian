@@ -1,5 +1,12 @@
 import { formatDate, isValidDate, parseDate } from "core/utils/date";
-import { add, addDays, startOfDay, startOfWeek } from "date-fns";
+import {
+  calendarDueValue,
+  calendarRepeatValue,
+  calendarScheduleMetadataSignature,
+  expandCalendarEventSchedule,
+  usesStrictDateSchedule,
+} from "core/utils/date-reminders/schedule";
+import { add, addDays, addHours, startOfDay, startOfWeek } from "date-fns";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React, { useMemo, useState } from "react";
@@ -10,12 +17,17 @@ import { DayGutter } from "../DayView/DayGutter";
 import { DayView } from "../DayView/DayView";
 import { AllDayCell } from "./AllDayCell";
 import { AllDayItem } from "./AllDayItem";
+import { strictCalendarScheduleEditor } from "../calendarScheduleEditor";
 
 type AllDayLayout = {
   index: number;
+  occurrenceId?: string;
   startDay: number;
   endDay: number;
   topOffset: number;
+  repeat?: boolean;
+  scheduleError?: string;
+  scheduleTruncated?: boolean;
 };
 
 export const WeekView = (props: {
@@ -42,31 +54,104 @@ export const WeekView = (props: {
 
   const startHour = props.startHour ?? 0;
   const endHour = props.endHour ?? 24;
+  const strictSchedule = usesStrictDateSchedule(props.superstate.settings);
 
   const [maxOffset, setMaxOffset] = useState(0);
+  const scheduleMetadataSignature = strictSchedule
+    ? calendarScheduleMetadataSignature(
+        props.data ?? [],
+        PathPropertyName,
+        props.superstate.pathsIndex,
+      )
+    : "";
 
   const allDayRows = useMemo(() => {
     const rows: AllDayLayout[] = [];
     props.data.forEach((row, index) => {
-      const rowDate = parseDate(row[props.field]);
-      const endDate = parseDate(row[props.fieldEnd]) ?? rowDate;
-      if (
-        endDate >= date &&
-        rowDate <= add(date, { days: 7 }) &&
-        (props.showHours === false ||
-          (startOfDay(rowDate).getTime() == rowDate.getTime() &&
-            startOfDay(endDate).getTime() == endDate.getTime()))
-      )
+      if (!strictSchedule) {
+        const rowDate = parseDate(row[props.field]);
+        const endDate = parseDate(row[props.fieldEnd]) ?? rowDate;
+        if (
+          endDate >= date &&
+          rowDate <= add(date, { days: 7 }) &&
+          (props.showHours === false ||
+            (startOfDay(rowDate).getTime() == rowDate.getTime() &&
+              startOfDay(endDate).getTime() == endDate.getTime()))
+        ) {
+          rows.push({
+            index,
+            startDay: new Date(
+              Math.max(date.getTime(), rowDate.getTime())
+            ).getDay(),
+            endDay: new Date(
+              Math.min(add(date, { days: 7 }).getTime(), endDate.getTime())
+            ).getDay(),
+            topOffset: 0,
+          });
+        }
+        return;
+      }
+
+      const eventPath = row[PathPropertyName];
+      const canonicalState = typeof eventPath === "string"
+        ? props.superstate.pathsIndex?.get(eventPath)
+        : undefined;
+      const hasCanonicalSnapshot = canonicalState !== undefined;
+      const canonicalProperty = canonicalState?.metadata?.property;
+      const dueValue = calendarDueValue(
+        row,
+        props.field,
+        canonicalProperty,
+        hasCanonicalSnapshot,
+      );
+      const canonicalDue = parseDate(dueValue);
+      if (!isValidDate(canonicalDue)) return;
+      const repeatValue = calendarRepeatValue(
+        row,
+        props.fieldRepeat,
+        true,
+        canonicalProperty,
+        hasCanonicalSnapshot,
+      );
+      const selectedStart = parseDate(row[props.field]);
+      const selectedEnd = parseDate(row[props.fieldEnd]);
+      const hasSelectedDuration =
+        isValidDate(selectedStart) && isValidDate(selectedEnd);
+      const expansion = expandCalendarEventSchedule({
+        due: dueValue,
+        repeat: repeatValue,
+        selectedStart: hasSelectedDuration ? selectedStart : canonicalDue,
+        selectedEnd: hasSelectedDuration
+          ? selectedEnd
+          : addHours(canonicalDue, 1),
+        windowStart: date,
+        windowEnd: new Date(add(date, { days: 7 }).getTime() - 1),
+      });
+      const hasRepeat =
+        repeatValue !== undefined && repeatValue !== null && repeatValue !== "";
+      expansion.instances.forEach(({ start, end }, occurrenceIndex) => {
+        if (
+          props.showHours !== false &&
+          (startOfDay(start).getTime() !== start.getTime() ||
+            startOfDay(end).getTime() !== end.getTime())
+        ) {
+          return;
+        }
         rows.push({
           index,
+          occurrenceId: `${index}:${start.getTime()}`,
           startDay: new Date(
-            Math.max(date.getTime(), rowDate.getTime())
+            Math.max(date.getTime(), start.getTime())
           ).getDay(),
           endDay: new Date(
-            Math.min(add(date, { days: 7 }).getTime(), endDate.getTime())
+            Math.min(add(date, { days: 7 }).getTime() - 1, end.getTime())
           ).getDay(),
           topOffset: 0,
+          repeat: hasRepeat,
+          scheduleError: expansion.error ?? undefined,
+          scheduleTruncated: expansion.truncated && occurrenceIndex === 0,
         });
+      });
     });
     let _maxOffset = 0;
     rows.forEach((row, index) => {
@@ -83,7 +168,16 @@ export const WeekView = (props: {
     });
     setMaxOffset(_maxOffset);
     return rows;
-  }, [props.data, date, props.field, props.weekStart]);
+  }, [
+    props.data,
+    date,
+    props.field,
+    props.fieldEnd,
+    props.fieldRepeat,
+    props.showHours,
+    props.superstate.settings?.dateScheduleAuthoring,
+    scheduleMetadataSignature,
+  ]);
   return (
     <div
       className="mk-week-view"
@@ -157,11 +251,24 @@ export const WeekView = (props: {
                   <AllDayItem
                     superstate={props.superstate}
                     data={props.data[row.index]}
+                    occurrenceId={row.occurrenceId}
+                    interactionDisabled={strictSchedule}
                     index={row.index}
                     startDay={row.startDay}
                     endDay={row.endDay}
                     topOffset={row.topOffset}
-                    key={i}
+                    repeat={row.repeat}
+                    scheduleError={row.scheduleError}
+                    scheduleTruncated={row.scheduleTruncated}
+                    editRepeat={strictSchedule
+                      ? strictCalendarScheduleEditor({
+                          superstate: props.superstate,
+                          row: props.data[row.index],
+                          dueField: props.field,
+                          repeatField: props.fieldRepeat,
+                        })
+                      : undefined}
+                    key={row.occurrenceId ?? i}
                   ></AllDayItem>
                 ))}
             </AllDayCell>
@@ -179,14 +286,15 @@ export const WeekView = (props: {
             return (
               <DayView
                 superstate={props.superstate}
-                key={formatDate(
-                  props.superstate.settings,
-                  add(date, { days: day })
-                )}
+                key={add(date, { days: day }).getTime()}
                 field={props.field}
                 fieldEnd={props.fieldEnd}
                 fieldRepeat={props.fieldRepeat}
                 date={add(date, { days: day })}
+                scheduleWindowStart={date}
+                scheduleWindowEnd={new Date(
+                  add(date, { days: 7 }).getTime() - 1,
+                )}
                 data={props.data}
                 hourHeight={hourHeight}
                 startHour={startHour}

@@ -14,10 +14,17 @@ export const AllDayItem = (props: {
   endDay: number;
   topOffset: number;
   style?: React.CSSProperties;
+  repeat?: boolean;
+  editRepeat?: (e: React.MouseEvent) => void;
+  scheduleError?: string;
+  scheduleTruncated?: boolean;
+  occurrenceId?: string;
+  interactionDisabled?: boolean;
 }) => {
   const {spaceState} = useContext(SpaceContext)
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: "event-" + props.index,
+    id: `event-${props.occurrenceId ?? props.index}`,
+    disabled: props.interactionDisabled === true,
     data: {
       type: "event",
       index: props.index,
@@ -41,6 +48,41 @@ export const AllDayItem = (props: {
         path={props.data[PathPropertyName]}
         source={spaceState.path}
       />
+      {props.scheduleError && (
+        <span
+          role="img"
+          className="mk-date-schedule-warning"
+          aria-label={`Invalid recurrence: ${props.scheduleError}`}
+          title={props.scheduleError}
+        >
+          !
+        </span>
+      )}
+      {props.scheduleTruncated && !props.scheduleError && (
+        <span role="status" className="mk-date-schedule-warning">
+          Showing the first 100 occurrences.
+        </span>
+      )}
+      {(props.repeat || props.editRepeat) && (props.editRepeat ? (
+        <button
+          type="button"
+          aria-label="Edit recurrence and reminder"
+          onClick={props.editRepeat}
+          className="mk-icon-xsmall mk-day-block-repeat"
+          dangerouslySetInnerHTML={{
+            __html: props.superstate.ui.getSticker("ui//sync"),
+          }}
+        />
+      ) : (
+        <span
+          aria-label="Recurring event"
+          role="img"
+          className="mk-icon-xsmall mk-day-block-repeat"
+          dangerouslySetInnerHTML={{
+            __html: props.superstate.ui.getSticker("ui//sync"),
+          }}
+        />
+      ))}
     </div>
   );
 };

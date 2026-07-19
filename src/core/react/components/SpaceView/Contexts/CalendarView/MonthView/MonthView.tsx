@@ -1,6 +1,12 @@
 import { useDndMonitor } from "@dnd-kit/core";
 import { isValidDate } from "core/utils/date";
-import { addWeeks, endOfMonth, startOfMonth } from "date-fns";
+import {
+  addWeeks,
+  endOfMonth,
+  endOfWeek,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 import { Superstate } from "makemd-core";
 import React, { useMemo, useState } from "react";
 import { DBRow, DBRows } from "shared/types/mdb";
@@ -34,6 +40,8 @@ export const MonthView = (props: {
     return weeks;
   }, [date]);
   const [active, setActive] = useState(null);
+  const scheduleWindowStart = startOfWeek(monthWeeks[0]);
+  const scheduleWindowEnd = endOfWeek(monthWeeks[monthWeeks.length - 1]);
   useDndMonitor({
     onDragStart: (event) => {
       setActive(event.active.id);
@@ -72,6 +80,8 @@ export const MonthView = (props: {
           fieldRepeat={props.fieldRepeat}
           insertItem={props.insertItem}
           updateItem={props.updateItem}
+          scheduleWindowStart={scheduleWindowStart}
+          scheduleWindowEnd={scheduleWindowEnd}
         ></MonthWeekRow>
       ))}
     </div>

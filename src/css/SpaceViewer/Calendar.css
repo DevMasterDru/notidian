@@ -12,7 +12,6 @@
     width: 50px;
     max-width: 50px;
   }
-  
   .mk-day-view-container {
     display: flex;
     flex: 1;
@@ -242,6 +241,9 @@ gap: 1px;
   .mk-day-block-repeat {
     padding: 2px;
     color: var(--mk-ui-active);
+    border: 0;
+    box-shadow: none;
+    background: transparent;
   }
   .mk-day-block-repeat:hover {
     background: var(--mk-ui-background-hover);
@@ -252,6 +254,10 @@ gap: 1px;
   }
   .mk-day-block-inner:hover .mk-day-block-repeat-hover {
     visibility: visible;
+  }
+  .mk-date-schedule-warning {
+    font-weight: 700;
+    padding: 0 3px;
   }
   .mk-day-block-time {
     display: flex;
@@ -366,4 +372,3 @@ gap: 1px;
     height: 4px;
     cursor: ns-resize;
   }
-  

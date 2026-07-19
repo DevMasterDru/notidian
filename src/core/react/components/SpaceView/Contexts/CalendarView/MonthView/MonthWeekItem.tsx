@@ -17,10 +17,15 @@ export const MonthWeekItem = (props: {
   allDay: boolean;
   repeat?: boolean;
   editRepeat?: (e: React.MouseEvent) => void;
+  scheduleError?: string;
+  scheduleTruncated?: boolean;
+  occurrenceId?: string;
+  interactionDisabled?: boolean;
   style: React.CSSProperties;
 }) => {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: "event-" + props.index,
+    id: `event-${props.occurrenceId ?? props.index}`,
+    disabled: props.interactionDisabled === true,
     data: {
       type: "event",
       index: props.index,
@@ -51,17 +56,43 @@ export const MonthWeekItem = (props: {
         hideIcon
       />
       <div className="mk-day-block-time">{timeString}</div>
-      {(props.repeat || props.editRepeat) && (
-        <div
-          onClick={(e) => props.editRepeat(e)}
+      {props.scheduleError && (
+        <span
+          className="mk-date-schedule-warning"
+          role="img"
+          aria-label={`Invalid recurrence: ${props.scheduleError}`}
+          title={props.scheduleError}
+        >
+          !
+        </span>
+      )}
+      {props.scheduleTruncated && !props.scheduleError && (
+        <span role="status" className="mk-date-schedule-warning">
+          Showing the first 100 occurrences.
+        </span>
+      )}
+      {(props.repeat || props.editRepeat) && (props.editRepeat ? (
+        <button
+          type="button"
+          aria-label="Edit recurrence and reminder"
+          onClick={props.editRepeat}
           className={`mk-icon-xsmall mk-day-block-repeat ${
             !props.repeat && "mk-day-block-repeat-hover"
           }`}
           dangerouslySetInnerHTML={{
             __html: props.superstate.ui.getSticker("ui//sync"),
           }}
-        ></div>
-      )}
+        ></button>
+      ) : (
+        <span
+          aria-label="Recurring event"
+          role="img"
+          className="mk-icon-xsmall mk-day-block-repeat"
+          dangerouslySetInnerHTML={{
+            __html: props.superstate.ui.getSticker("ui//sync"),
+          }}
+        />
+      ))}
     </div>
   );
 };

@@ -12,6 +12,13 @@ import {
   isValidDate,
   parseDate,
 } from "core/utils/date";
+import {
+  calendarDueValue,
+  calendarRepeatValue,
+  calendarScheduleMetadataSignature,
+  expandCalendarEventSchedule,
+  usesStrictDateSchedule,
+} from "core/utils/date-reminders/schedule";
 import { isPhone } from "core/utils/ui/screen";
 import {
   add,
@@ -30,11 +37,15 @@ import { BlinkMode } from "shared/types/blink";
 import { PathPropertyName } from "shared/types/context";
 import { DBRow, DBRows } from "shared/types/mdb";
 import { safelyParseJSON } from "shared/utils/json";
+import { strictCalendarScheduleEditor } from "../calendarScheduleEditor";
 import { MonthDayCell } from "./MonthDayCell";
 import { MonthWeekItem } from "./MonthWeekItem";
 
+const scheduleOccurrenceIndex = Symbol("scheduleOccurrenceIndex");
+
 type MonthEventLayout = {
   index: number;
+  occurrenceId?: string;
   startDay: number;
   endDay: number;
   allDay: boolean;
@@ -42,6 +53,8 @@ type MonthEventLayout = {
   startTime: number;
   endTime: number;
   repeat: boolean;
+  scheduleError?: string;
+  scheduleTruncated?: boolean;
 };
 
 export const MonthWeekRow = (props: {
@@ -52,66 +65,144 @@ export const MonthWeekRow = (props: {
   fieldEnd: string;
   fieldRepeat?: string;
   insertItem: (row: DBRow) => void;
-  updateItem: (row: DBRow) => void;
+  updateItem?: (row: DBRow) => void;
+  scheduleWindowStart?: Date;
+  scheduleWindowEnd?: Date;
 }) => {
   const weekStart = startOfWeek(props.date);
   const weekEnd = endOfWeek(weekStart);
+  const scheduleWindowStart = props.scheduleWindowStart ?? startOfDay(weekStart);
+  const scheduleWindowEnd = props.scheduleWindowEnd ?? endOfDay(weekEnd);
+  const strictSchedule = usesStrictDateSchedule(props.superstate.settings);
+  const scheduleMetadataSignature = strictSchedule
+    ? calendarScheduleMetadataSignature(
+        props.events ?? [],
+        PathPropertyName,
+        props.superstate.pathsIndex,
+      )
+    : "";
   const { source } = useContext(ContextEditorContext);
   const weekEvents: MonthEventLayout[] = useMemo(() => {
     const events: MonthEventLayout[] = [];
     if (!props.fieldEnd || !props.field) return events;
     props.events.forEach((event, index) => {
       const instances = [];
-      const repeatDef = safelyParseJSON(event[props.fieldRepeat] as any);
+      const eventPath = strictSchedule ? event[PathPropertyName] : undefined;
+      const canonicalState = strictSchedule && typeof eventPath === "string"
+        ? props.superstate.pathsIndex?.get(eventPath)
+        : undefined;
+      const hasCanonicalSnapshot = canonicalState !== undefined;
+      const canonicalProperty = canonicalState?.metadata?.property;
+      const repeatValue = calendarRepeatValue(
+        event,
+        props.fieldRepeat,
+        strictSchedule,
+        canonicalProperty,
+        hasCanonicalSnapshot,
+      );
+      const repeatDef = safelyParseJSON(repeatValue as any);
       const rowDate = parseDate(event[props.field]);
-      if (!isValidDate(rowDate)) return;
       let rowEndDate = parseDate(event[props.fieldEnd]);
-      if (!isValidDate(rowEndDate)) {
-        rowEndDate = rowDate;
-      }
-      if (rowDate <= endOfDay(weekEnd) && rowEndDate >= startOfDay(weekStart)) {
-        instances.push(event);
-      }
-
-      if (repeatDef && repeatDef.freq) {
-        const duration = rowEndDate.getTime() - rowDate.getTime();
-        const rruleOptions = buildRepeatRRuleOptions(repeatDef, {
-          dtstart: rowDate,
-          until: parseDate(repeatDef.until),
+      let scheduleError: string | null = null;
+      let scheduleTruncated = false;
+      const hasRepeat = strictSchedule
+        ? repeatValue !== undefined && repeatValue !== null && repeatValue !== ""
+        : !!repeatDef;
+      if (strictSchedule) {
+        const dueValue = calendarDueValue(
+          event,
+          props.field,
+          canonicalProperty,
+          hasCanonicalSnapshot,
+        );
+        const canonicalDue = parseDate(dueValue);
+        if (!isValidDate(canonicalDue)) return;
+        const hasSelectedDuration =
+          isValidDate(rowDate) && isValidDate(rowEndDate);
+        const selectedStart = hasSelectedDuration ? rowDate : canonicalDue;
+        const selectedEnd = hasSelectedDuration
+          ? rowEndDate
+          : addHours(selectedStart, 1);
+        const expansion = expandCalendarEventSchedule({
+          due: dueValue,
+          repeat: repeatValue,
+          selectedStart,
+          selectedEnd,
+          windowStart: scheduleWindowStart,
+          windowEnd: scheduleWindowEnd,
         });
-        // Unknown/missing freq token (or unknown weekday tokens) yields a null
-        // / pruned options object; only generate recurrences when buildable.
-        // The base event was already pushed above, so skipping here preserves
-        // the prior no-recurrence-rendering behavior without crashing rrule.
-        if (rruleOptions) {
-          const rule = new RRule(rruleOptions);
-
-          const starts: Date[] = rule.between(
-            startOfDay(weekStart),
-            endOfDay(weekEnd),
-            true
-          );
-
-          starts.forEach((startDate) => {
-            if (startDate.getTime() == rowDate.getTime()) return;
-            instances.push({
-              ...event,
-              [props.field]: formatDate(
-                props.superstate.settings,
-                startDate,
-                isoDateFormat
-              ),
-              [props.fieldEnd]: formatDate(
-                props.superstate.settings,
-                addMilliseconds(startDate, duration),
-                isoDateFormat
-              ),
-            });
+        scheduleError = expansion.error;
+        scheduleTruncated = expansion.truncated;
+        expansion.instances.forEach(({ start: startDate, end: instanceEnd }, occurrenceIndex) => {
+          if (
+            instanceEnd < startOfDay(weekStart) ||
+            startDate > endOfDay(weekEnd)
+          ) {
+            return;
+          }
+          instances.push({
+            ...event,
+            [scheduleOccurrenceIndex]: occurrenceIndex,
+            [props.field]: formatDate(
+              props.superstate.settings,
+              startDate,
+              isoDateFormat
+            ),
+            [props.fieldEnd]: formatDate(
+              props.superstate.settings,
+              instanceEnd,
+              isoDateFormat
+            ),
           });
+        });
+      } else {
+        if (!isValidDate(rowDate)) return;
+        if (!isValidDate(rowEndDate)) {
+          rowEndDate = rowDate;
+        }
+        if (rowDate <= endOfDay(weekEnd) && rowEndDate >= startOfDay(weekStart)) {
+          instances.push(event);
+        }
+        if (repeatDef && repeatDef.freq) {
+          const duration = rowEndDate.getTime() - rowDate.getTime();
+          const rruleOptions = buildRepeatRRuleOptions(repeatDef, {
+            dtstart: rowDate,
+            until: parseDate(repeatDef.until),
+          });
+          // Unknown/missing freq token (or unknown weekday tokens) yields a null
+          // / pruned options object; only generate recurrences when buildable.
+          // The base event was already pushed above, so skipping here preserves
+          // the prior no-recurrence-rendering behavior without crashing rrule.
+          if (rruleOptions) {
+            const rule = new RRule(rruleOptions);
+
+            const starts: Date[] = rule.between(
+              startOfDay(weekStart),
+              endOfDay(weekEnd),
+              true
+            );
+
+            starts.forEach((startDate) => {
+              if (startDate.getTime() == rowDate.getTime()) return;
+              instances.push({
+                ...event,
+                [props.field]: formatDate(
+                  props.superstate.settings,
+                  startDate,
+                  isoDateFormat
+                ),
+                [props.fieldEnd]: formatDate(
+                  props.superstate.settings,
+                  addMilliseconds(startDate, duration),
+                  isoDateFormat
+                ),
+              });
+            });
+          }
         }
       }
 
-      instances.forEach((instance) => {
+      instances.forEach((instance, occurrenceIndex) => {
         const start = parseDate(instance[props.field]);
         const parsedEnd = parseDate(instance[props.fieldEnd]);
         const end = parsedEnd
@@ -125,11 +216,18 @@ export const MonthWeekRow = (props: {
         const endDay = layoutEnd.getDay();
         events.push({
           index,
+          occurrenceId: strictSchedule ? `${index}:${start.getTime()}` : undefined,
           startDay,
           endDay,
           startTime: start.getTime(),
           endTime: end.getTime(),
-          repeat: !!repeatDef,
+          repeat: hasRepeat,
+          scheduleError: scheduleError ?? undefined,
+          scheduleTruncated:
+            scheduleTruncated &&
+            (strictSchedule
+              ? (instance as any)[scheduleOccurrenceIndex] === 0
+              : occurrenceIndex === 0),
           allDay:
             (startOfDay(start).getTime() == start.getTime() &&
               startOfDay(end).getTime() == end.getTime()) ||
@@ -164,8 +262,12 @@ export const MonthWeekRow = (props: {
     props.fieldRepeat,
     props.field,
     props.fieldEnd,
-    weekStart,
-    weekEnd,
+    props.superstate.settings?.dateScheduleAuthoring,
+    scheduleMetadataSignature,
+    weekStart.getTime(),
+    weekEnd.getTime(),
+    scheduleWindowStart.getTime(),
+    scheduleWindowEnd.getTime(),
   ]);
 
   const weekItemHeight = !isPhone(props.superstate.ui) ? 30 : 22;
@@ -347,12 +449,24 @@ export const MonthWeekRow = (props: {
                 return (
                   <MonthWeekItem
                     superstate={props.superstate}
-                    key={i}
+                    key={event.occurrenceId ?? i}
                     index={event.index}
+                    occurrenceId={event.occurrenceId}
+                    interactionDisabled={strictSchedule}
                     startEvent={event.startTime}
                     endEvent={event.endTime}
                     allDay={event.allDay}
                     repeat={event.repeat}
+                    scheduleError={event.scheduleError}
+                    scheduleTruncated={event.scheduleTruncated}
+                    editRepeat={strictSchedule
+                      ? strictCalendarScheduleEditor({
+                          superstate: props.superstate,
+                          row: props.events[event.index],
+                          dueField: props.field,
+                          repeatField: props.fieldRepeat,
+                        })
+                      : undefined}
                     style={
                       {
                         "--block-bg-color": event.allDay

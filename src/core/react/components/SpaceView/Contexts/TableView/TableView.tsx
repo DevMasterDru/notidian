@@ -433,6 +433,7 @@ export type TableCellProp = {
   superstate: Superstate;
   propertyValue?: string;
   path?: string;
+  row?: DBRow;
 };
 
 export type TableCellMultiProp = TableCellProp & {

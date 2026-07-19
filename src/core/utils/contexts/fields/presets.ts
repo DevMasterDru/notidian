@@ -15,8 +15,6 @@ const repeatType: ObjectType = {
         { name: i18n.labels.weekly, value: 'WEEKLY' },
         { name: i18n.labels.daily, value: 'DAILY' },
         { name: i18n.labels.hourly, value: 'HOURLY' },
-        { name: i18n.labels.minutely, value: 'MINUTELY' },
-        { name: i18n.labels.secondly, value: 'SECONDLY' },
       ],
     },
   },
@@ -76,3 +74,38 @@ export const RepeatTemplate: SpaceProperty = {
     type: repeatType,
   }),
 };
+
+// The dateScheduleAuthoring OFF branch preserves the complete pre-ADR-0020
+// object editor, including its historical MINUTELY/SECONDLY choices. The ON
+// branch uses RepeatTemplate/the shared editor and never offers those unsupported
+// tokens.
+const legacyRepeatType: ObjectType = {
+  ...repeatType,
+  freq: {
+    ...repeatType.freq,
+    value: {
+      ...(repeatType.freq.value as Record<string, unknown>),
+      options: [
+        ...((repeatType.freq.value as any).options ?? []),
+        { name: i18n.labels.minutely, value: 'MINUTELY' },
+        { name: i18n.labels.secondly, value: 'SECONDLY' },
+      ],
+    },
+  },
+};
+
+export const LegacyRepeatTemplate: SpaceProperty = {
+  name: i18n.labels.repeat,
+  type: 'object',
+  value: JSON.stringify({
+    typeName: i18n.labels.repeat,
+    type: legacyRepeatType,
+  }),
+};
+
+export const repeatTemplateForSettings = (
+  settings: { dateScheduleAuthoring?: boolean } | null | undefined,
+): SpaceProperty =>
+  settings?.dateScheduleAuthoring === false
+    ? LegacyRepeatTemplate
+    : RepeatTemplate;

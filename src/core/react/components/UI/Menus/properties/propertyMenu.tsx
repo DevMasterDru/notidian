@@ -1,7 +1,7 @@
 import { ObjectCell } from "core/react/components/SpaceView/Contexts/DataTypeView/ObjectCell";
 import { parseSourceOptions } from "core/schemas/fieldValueUtils";
 import { parseFieldValue } from "core/schemas/parseFieldValue";
-import { RepeatTemplate } from "core/utils/contexts/fields/presets";
+import { repeatTemplateForSettings } from "core/utils/contexts/fields/presets";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
 import React from "react";
@@ -65,9 +65,10 @@ export const showSetValueMenu = (
           placeholder: "Select or Add Property",
           saveOptions: (options: string[], value: string[], isNew: boolean) => {
             if (isNew) {
+              const repeatTemplate = repeatTemplateForSettings(superstate.settings);
               const newProperty: SpaceProperty = propertyValue.sourceProps
                 .typeName
-                ? [RepeatTemplate].find(
+                ? [repeatTemplate].find(
                     (f) => f.name == propertyValue.sourceProps.typeName
                   )
                 : {

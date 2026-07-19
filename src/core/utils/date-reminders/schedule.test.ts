@@ -1,4 +1,5 @@
 import {
+  expandCalendarEventSchedule,
   expandDueReminderOccurrences,
   parseReminderSchedule,
 } from "./schedule";
@@ -279,6 +280,83 @@ describe("date reminder schedule core", () => {
 
       expect(local.due.getTime()).toBe(absolute.due.getTime());
       expect(local.fingerprint).not.toBe(absolute.fingerprint);
+    });
+  });
+});
+
+describe("calendar event duration semantics", () => {
+  it("includes a base event that starts before and overlaps the window", () => {
+    const result = expandCalendarEventSchedule({
+      due: "2026-07-18T23:00:00",
+      repeat: null,
+      selectedStart: new Date(2026, 6, 18, 23),
+      selectedEnd: new Date(2026, 6, 19, 1),
+      windowStart: new Date(2026, 6, 19),
+      windowEnd: new Date(2026, 6, 19, 23, 59, 59, 999),
+    });
+
+    expect(result.instances).toEqual([
+      {
+        start: new Date(2026, 6, 18, 23),
+        end: new Date(2026, 6, 19, 1),
+      },
+    ]);
+  });
+
+  it("includes the prior recurring occurrence when its duration overlaps the window", () => {
+    const result = expandCalendarEventSchedule({
+      due: "2026-07-17T23:00:00",
+      repeat: { freq: "DAILY", interval: 1 },
+      selectedStart: new Date(2026, 6, 17, 23),
+      selectedEnd: new Date(2026, 6, 18, 1),
+      windowStart: new Date(2026, 6, 19),
+      windowEnd: new Date(2026, 6, 19, 23, 59, 59, 999),
+    });
+
+    expect(result.instances.map(({ start, end }) => [start, end])).toEqual([
+      [new Date(2026, 6, 18, 23), new Date(2026, 6, 19, 1)],
+      [new Date(2026, 6, 19, 23), new Date(2026, 6, 20, 1)],
+    ]);
+  });
+
+  it("preserves an all-day calendar-day span across Asia/Jerusalem DST", () => {
+    withTimeZone("Asia/Jerusalem", () => {
+      const result = expandCalendarEventSchedule({
+        due: "2026-04-01",
+        repeat: null,
+        selectedStart: new Date(2026, 2, 26),
+        selectedEnd: new Date(2026, 2, 28),
+        windowStart: new Date(2026, 3, 1),
+        windowEnd: new Date(2026, 3, 2),
+      });
+
+      expect(result.instances).toEqual([
+        {
+          start: new Date(2026, 3, 1),
+          end: new Date(2026, 3, 3),
+        },
+      ]);
+    });
+  });
+
+  it("retains the exact millisecond duration for a timed event across DST", () => {
+    withTimeZone("Asia/Jerusalem", () => {
+      const selectedStart = new Date(2026, 2, 26, 9);
+      const selectedEnd = new Date(2026, 2, 28, 9);
+      const duration = selectedEnd.getTime() - selectedStart.getTime();
+      const result = expandCalendarEventSchedule({
+        due: "2026-04-01T09:00:00",
+        repeat: null,
+        selectedStart,
+        selectedEnd,
+        windowStart: new Date(2026, 3, 1),
+        windowEnd: new Date(2026, 3, 2),
+      });
+
+      expect(result.instances[0].end.getTime()).toBe(
+        result.instances[0].start.getTime() + duration,
+      );
+      expect(result.instances[0].end).toEqual(new Date(2026, 3, 3, 8));
     });
   });
 });

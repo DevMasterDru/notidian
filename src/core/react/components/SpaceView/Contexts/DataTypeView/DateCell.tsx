@@ -1,5 +1,7 @@
 import {
   DatePickerTimeMode,
+  dateScheduleBindingForRow,
+  datePickerDefaultDate,
   showDatePickerMenu,
 } from "core/react/components/UI/Menus/properties/datePickerMenu";
 import {
@@ -8,6 +10,7 @@ import {
   isValidDate,
   parseDate,
 } from "core/utils/date";
+import { usesStrictDateSchedule } from "core/utils/date-reminders/schedule";
 
 import classNames from "classnames";
 import React, {
@@ -20,7 +23,6 @@ import React, {
 import { windowFromDocument } from "shared/utils/dom";
 import { safelyParseJSON } from "shared/utils/json";
 
-import { startOfDay } from "date-fns";
 import { CellEditMode, TableCellProp } from "../TableView/TableView";
 
 export const DateCell = (props: TableCellProp) => {
@@ -56,10 +58,10 @@ export const DateCell = (props: TableCellProp) => {
       }
     }
   }, [props.editMode]);
-  const defaultDate =
-    date ?? props.superstate.settings.datePickerTime
-      ? new Date()
-      : startOfDay(new Date());
+  const defaultDate = datePickerDefaultDate(
+    date,
+    props.superstate.settings.datePickerTime,
+  );
   const showPicker = useCallback(
     (e?: React.MouseEvent) => {
       if (props.editMode <= CellEditMode.EditModeNone) {
@@ -80,10 +82,34 @@ export const DateCell = (props: TableCellProp) => {
         saveValue,
         DatePickerTimeMode.Toggle,
         null,
-        "bottom"
+        "bottom",
+        usesStrictDateSchedule(props.superstate.settings) &&
+          props.property?.name === "due" &&
+          props.path &&
+          props.row
+          ? dateScheduleBindingForRow({
+              superstate: props.superstate,
+              row: props.row,
+              path: props.path,
+              due: props.row.due ?? value,
+              onSaved: (next) => {
+                const savedDue = next.due instanceof Date
+                  ? formatDate(
+                      props.superstate.settings,
+                      next.due,
+                      next.due.getHours() || next.due.getMinutes() || next.due.getSeconds()
+                        ? isoDateFormat
+                        : "yyyy-MM-dd",
+                    )
+                  : String(next.due);
+                setValue(savedDue);
+                props.setEditMode(null);
+              },
+            })
+          : undefined,
       );
     },
-    [date]
+    [date, value, props.row, props.path, props.property?.name]
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {

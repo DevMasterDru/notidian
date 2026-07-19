@@ -7,6 +7,58 @@
     flex-direction: column;
 }
 
+.mk-date-picker-container--schedule {
+    width: 420px;
+    max-height: 720px;
+    overflow-y: auto;
+    align-items: stretch;
+}
+
+.mk-date-schedule-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.mk-date-schedule-editor fieldset {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border: 1px solid var(--mk-ui-border);
+    border-radius: 6px;
+    padding: 8px;
+}
+
+.mk-date-schedule-editor label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.mk-date-schedule-editor input,
+.mk-date-schedule-editor select {
+    min-width: 72px;
+}
+
+.mk-date-schedule-frequencies,
+.mk-date-schedule-editor [role="group"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    width: 100%;
+}
+
+.mk-date-schedule-editor button[aria-pressed="true"] {
+    background: var(--mk-ui-background-active);
+    color: var(--mk-ui-text-primary);
+}
+
+.mk-date-schedule-editor [role="alert"],
+.mk-date-schedule-warning {
+    color: var(--text-error);
+}
+
 .mk-date-picker {
     display: flex;
     gap: 8px;

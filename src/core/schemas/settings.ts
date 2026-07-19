@@ -76,6 +76,9 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // ADR 0020 / Notidian-tluq.7: delivery is explicitly opt-in and independent
   // from schedule authoring. OFF starts no scanner and sends no reminders.
   dateReminders: false,
+  // ADR 0020 / Notidian-tluq.8: owner-requested file-canonical schedule
+  // authoring ships ON. False is the full legacy authoring/render kill switch.
+  dateScheduleAuthoring: true,
   spaceViewShowNoteBody: true,
   // Notidian-8sl: default ON — the owner explicitly requested a collapsible +
   // shrink-to-fit space-note body, so it ships enabled; the owner verifies it by
@@ -272,6 +275,9 @@ export const sanitizeNotidianSettings = (data: unknown): MakeMDSettings => {
   // reminder delivery. Only an actual boolean can override the OFF default.
   if (typeof settings.dateReminders !== "boolean") {
     settings.dateReminders = false;
+  }
+  if (typeof settings.dateScheduleAuthoring !== "boolean") {
+    settings.dateScheduleAuthoring = true;
   }
 
   return settings as unknown as MakeMDSettings;

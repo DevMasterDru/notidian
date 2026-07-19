@@ -7,6 +7,13 @@ import {
   isValidDate,
   parseDate,
 } from "core/utils/date";
+import {
+  calendarDueValue,
+  calendarRepeatValue,
+  calendarScheduleMetadataSignature,
+  expandCalendarEventSchedule,
+  usesStrictDateSchedule,
+} from "core/utils/date-reminders/schedule";
 import { add, addMilliseconds, startOfDay } from "date-fns";
 import { Superstate } from "makemd-core";
 import i18n from "shared/i18n";
@@ -17,23 +24,27 @@ import { DBRow, DBRows } from "shared/types/mdb";
 
 import { showSetValueMenu } from "core/react/components/UI/Menus/properties/propertyMenu";
 import { ContextEditorContext } from "core/react/context/ContextEditorContext";
-import { RepeatTemplate } from "core/utils/contexts/fields/presets";
+import { LegacyRepeatTemplate } from "core/utils/contexts/fields/presets";
 import React from "react";
 import { BlinkMode } from "shared/types/blink";
 import { windowFromDocument } from "shared/utils/dom";
 import { safelyParseJSON } from "shared/utils/json";
 import { CalendarHeaderView } from "../CalendarHeaderView";
+import { strictCalendarScheduleEditor } from "../calendarScheduleEditor";
 import { AllDayItem } from "../WeekView/AllDayItem";
 import { DayGutter } from "./DayGutter";
 import { DayItem } from "./DayItem";
 
 type EventBlock = {
   index: number;
+  occurrenceId?: string;
   start?: Date;
   end?: Date;
   startOffset: number;
   endOffset: number;
   repeat?: boolean;
+  scheduleError?: string;
+  scheduleTruncated?: boolean;
 };
 
 export type EventLayout = EventBlock & {
@@ -59,8 +70,11 @@ export const DayView = (props: {
   showHours?: boolean;
   insertItem?: (row: DBRow) => void;
   updateItem?: (row: DBRow) => void;
+  scheduleWindowStart?: Date;
+  scheduleWindowEnd?: Date;
 }) => {
   const { hourHeight } = props;
+  const strictSchedule = usesStrictDateSchedule(props.superstate.settings);
   const [date, setDate] = useState<Date>(
     isValidDate(props.date) ? startOfDay(props.date) : startOfDay(new Date())
   );
@@ -83,66 +97,128 @@ export const DayView = (props: {
 
     const eventLayout: EventLayout[] = [];
     events.forEach((event, index) => {
-      const repeatDef = safelyParseJSON(event[repeat]) as Record<string, any>;
+      const eventPath = strictSchedule ? event[PathPropertyName] : undefined;
+      const canonicalState = strictSchedule && typeof eventPath === "string"
+        ? props.superstate.pathsIndex?.get(eventPath)
+        : undefined;
+      const hasCanonicalSnapshot = canonicalState !== undefined;
+      const canonicalProperty = canonicalState?.metadata?.property;
+      const repeatValue = calendarRepeatValue(
+        event,
+        repeat,
+        strictSchedule,
+        canonicalProperty,
+        hasCanonicalSnapshot,
+      );
+      const repeatDef = safelyParseJSON(repeatValue as any) as Record<string, any>;
       const instances = [];
       const rowDate = parseDate(event[start]);
-      if (!isValidDate(rowDate)) return;
-      if (rowDate >= blockDate && rowDate <= add(blockDate, { days: 1 })) {
-        instances.push(event);
-      }
       let endDate = parseDate(event[end]);
-      if (!isValidDate(endDate)) {
-        endDate = add(rowDate, { hours: 1 });
-      }
 
-      if (repeatDef && repeatDef.freq) {
-        const duration = endDate.getTime() - rowDate.getTime();
-        // until is clamped to the end of this day's window (caller-owned).
-        const windowEnd = add(blockDate, { days: 1 });
-        const clampedUntil = repeatDef.until
-          ? new Date(
-              Math.min(
-                (parseDate(repeatDef.until) ?? windowEnd).getTime(),
-                windowEnd.getTime()
-              )
-            )
-          : null;
-        const rruleOptions = buildRepeatRRuleOptions(repeatDef, {
-          dtstart: rowDate,
-          until: clampedUntil,
+      let scheduleError: string | null = null;
+      let scheduleTruncated = false;
+      const hasRepeat = strictSchedule
+        ? repeatValue !== undefined && repeatValue !== null && repeatValue !== ""
+        : !!repeatDef;
+      if (strictSchedule) {
+        const dueValue = calendarDueValue(
+          event,
+          start,
+          canonicalProperty,
+          hasCanonicalSnapshot,
+        );
+        const canonicalDue = parseDate(dueValue);
+        if (!isValidDate(canonicalDue)) return;
+        const hasSelectedDuration =
+          isValidDate(rowDate) && isValidDate(endDate);
+        const selectedStart = hasSelectedDuration ? rowDate : canonicalDue;
+        const selectedEnd = hasSelectedDuration
+          ? endDate
+          : add(selectedStart, { hours: 1 });
+        const expansion = expandCalendarEventSchedule({
+          due: dueValue,
+          repeat: repeatValue,
+          selectedStart,
+          selectedEnd,
+          windowStart: props.scheduleWindowStart ?? blockDate,
+          windowEnd:
+            props.scheduleWindowEnd ??
+            new Date(add(blockDate, { days: 1 }).getTime() - 1),
         });
-        // Unknown/missing freq token (or unknown weekday tokens) yields a null
-        // / pruned options object; only generate recurrences when buildable.
-        // The base event was already pushed above, so skipping here preserves
-        // the prior no-recurrence-rendering behavior without crashing rrule.
-        if (rruleOptions) {
-          const rule = new RRule(rruleOptions);
-
-          const starts: Date[] = rule.between(
-            blockDate,
-            add(blockDate, { days: 1 }),
-            true
-          );
-          starts.forEach((startDate) => {
-            if (startDate.getTime() == rowDate.getTime()) return;
-            instances.push({
-              ...event,
-              [start]: formatDate(
-                props.superstate.settings,
-                startDate,
-                isoDateFormat
-              ),
-              [end]: formatDate(
-                props.superstate.settings,
-                addMilliseconds(startDate, duration),
-                isoDateFormat
-              ),
-            });
+        scheduleError = expansion.error;
+        scheduleTruncated = expansion.truncated;
+        expansion.instances.forEach(({ start: startDate, end: instanceEnd }) => {
+          instances.push({
+            ...event,
+            [start]: formatDate(
+              props.superstate.settings,
+              startDate,
+              isoDateFormat
+            ),
+            [end]: formatDate(
+              props.superstate.settings,
+              instanceEnd,
+              isoDateFormat
+            ),
           });
+        });
+      } else {
+        if (!isValidDate(rowDate)) return;
+        if (!isValidDate(endDate)) {
+          endDate = add(rowDate, { hours: 1 });
+        }
+        if (rowDate >= blockDate && rowDate <= add(blockDate, { days: 1 })) {
+          instances.push(event);
+        }
+        if (repeatDef && repeatDef.freq) {
+          const duration = endDate.getTime() - rowDate.getTime();
+          // until is clamped to the end of this day's window (caller-owned).
+          const windowEnd = add(blockDate, { days: 1 });
+          const clampedUntil = repeatDef.until
+            ? new Date(
+                Math.min(
+                  (parseDate(repeatDef.until) ?? windowEnd).getTime(),
+                  windowEnd.getTime()
+                )
+              )
+            : null;
+          const rruleOptions = buildRepeatRRuleOptions(repeatDef, {
+            dtstart: rowDate,
+            until: clampedUntil,
+          });
+          // Unknown/missing freq token (or unknown weekday tokens) yields a null
+          // / pruned options object; only generate recurrences when buildable.
+          // The base event was already pushed above, so skipping here preserves
+          // the prior no-recurrence-rendering behavior without crashing rrule.
+          if (rruleOptions) {
+            const rule = new RRule(rruleOptions);
+
+            const starts: Date[] = rule.between(
+              blockDate,
+              add(blockDate, { days: 1 }),
+              true
+            );
+            starts.forEach((startDate) => {
+              if (startDate.getTime() == rowDate.getTime()) return;
+              instances.push({
+                ...event,
+                [start]: formatDate(
+                  props.superstate.settings,
+                  startDate,
+                  isoDateFormat
+                ),
+                [end]: formatDate(
+                  props.superstate.settings,
+                  addMilliseconds(startDate, duration),
+                  isoDateFormat
+                ),
+              });
+            });
+          }
         }
       }
 
-      instances.forEach((event) => {
+      instances.forEach((event, occurrenceIndex) => {
         const dayStart = startOfDay(date).getTime();
         const dayEnd = add(date, { days: 1 }).getTime();
         const startDate = parseDate(event[start]);
@@ -155,16 +231,28 @@ export const DayView = (props: {
               ? startDate
               : add(startDate, { hours: 1 });
         }
+        if (
+          strictSchedule &&
+          (startDate.getTime() > dayEnd - 1 || endDate.getTime() < dayStart)
+        ) {
+          return;
+        }
+        const occurrenceId = strictSchedule
+          ? `${index}:${startDate.getTime()}`
+          : undefined;
         const startOffset = Math.max(
           startHour * 60,
           (startDate.getTime() - dayStart) / 60000
         );
         const endOffset =
           Math.min(endDate.getTime() - dayStart, dayEnd - dayStart) / 60000;
-        const allDay = startDate.getTime() == startOfDay(startDate).getTime();
+        const allDay =
+          startDate.getTime() === startOfDay(startDate).getTime() &&
+          endDate.getTime() === startOfDay(endDate).getTime();
         if (allDay) {
           eventLayout.push({
             index,
+            occurrenceId,
             start: startDate,
             end: endDate,
             startOffset: startHour * 60,
@@ -174,6 +262,9 @@ export const DayView = (props: {
             column: 0,
             columnTotal: 1,
             allDay: true,
+            repeat: hasRepeat,
+            scheduleError: scheduleError ?? undefined,
+            scheduleTruncated: scheduleTruncated && occurrenceIndex === 0,
           });
           return;
         }
@@ -188,9 +279,12 @@ export const DayView = (props: {
           ) {
             group.push({
               index,
+              occurrenceId,
               start: startDate,
               end: endDate,
-              repeat: !!repeatDef,
+              repeat: hasRepeat,
+              scheduleError: scheduleError ?? undefined,
+              scheduleTruncated: scheduleTruncated && occurrenceIndex === 0,
               startOffset,
               endOffset,
             });
@@ -203,7 +297,10 @@ export const DayView = (props: {
           columnGroups.push([
             {
               index,
-              repeat: !!repeatDef,
+              occurrenceId,
+              repeat: hasRepeat,
+              scheduleError: scheduleError ?? undefined,
+              scheduleTruncated: scheduleTruncated && occurrenceIndex === 0,
               start: startDate,
               end: endDate,
               startOffset,
@@ -245,6 +342,13 @@ export const DayView = (props: {
   };
 
   const endHour = Math.min(props.endHour ? props.endHour + 1 : 24, 24);
+  const scheduleMetadataSignature = strictSchedule
+    ? calendarScheduleMetadataSignature(
+        props.data ?? [],
+        PathPropertyName,
+        props.superstate.pathsIndex,
+      )
+    : "";
 
   const eventBlocks: EventLayout[] = useMemo(
     () =>
@@ -255,7 +359,17 @@ export const DayView = (props: {
         props.fieldEnd,
         props.fieldRepeat
       ),
-    [props.data, date, props.field, props.fieldEnd, props.fieldRepeat]
+    [
+      props.data,
+      date,
+      props.field,
+      props.fieldEnd,
+      props.fieldRepeat,
+      props.superstate.settings?.dateScheduleAuthoring,
+      props.scheduleWindowStart?.getTime(),
+      props.scheduleWindowEnd?.getTime(),
+      scheduleMetadataSignature,
+    ]
   );
 
   const [active, setActive] = useState<number | null>(null);
@@ -378,6 +492,34 @@ export const DayView = (props: {
   const isToday = new Date().toDateString() === date.toDateString();
   const [nowOffset, setNowOffset] = useState(0);
   const activeEvent = eventBlocks.find((f) => f.index == active);
+  const editScheduleForEvent = (event: EventLayout) => {
+    const row = props.data[event.index];
+    const strictSchedule = usesStrictDateSchedule(props.superstate.settings);
+    if (strictSchedule) {
+      return strictCalendarScheduleEditor({
+        superstate: props.superstate,
+        row,
+        dueField: props.field,
+        repeatField: props.fieldRepeat,
+      });
+    }
+    if (!props.fieldRepeat) return undefined;
+    return (click: React.MouseEvent) =>
+      showSetValueMenu(
+        click.currentTarget.getBoundingClientRect(),
+        windowFromDocument(click.view.document),
+        props.superstate,
+        row?.[props.fieldRepeat],
+        LegacyRepeatTemplate,
+        (value) =>
+          props.updateItem({
+            ...row,
+            [props.fieldRepeat]: value,
+          }),
+        source,
+        dbSchema?.id,
+      );
+  };
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isToday) {
@@ -423,22 +565,37 @@ export const DayView = (props: {
             {eventBlocks
               .filter((f) => props.showHours === false ? true : f.allDay)
               .map((event, i) => (
-                <AllDayItem
-                  superstate={props.superstate}
-                  key={i}
-                  index={event.index}
-                  startDay={0}
-                  endDay={0}
-                  topOffset={0}
-                  data={props.data[event.index]}
-                  style={
-                    {
-                      position: "relative",
-                      "--block-bg-color": applySat(40, "#0098FF"),
-                      "--block-color": "#0098FF",
-                    } as React.CSSProperties
-                  }
-                ></AllDayItem>
+                <React.Fragment key={event.occurrenceId ?? i}>
+                  <AllDayItem
+                    superstate={props.superstate}
+                    index={event.index}
+                    startDay={0}
+                    endDay={0}
+                    topOffset={0}
+                    data={props.data[event.index]}
+                    occurrenceId={event.occurrenceId}
+                    interactionDisabled={strictSchedule}
+                    repeat={
+                      usesStrictDateSchedule(props.superstate.settings)
+                        ? event.repeat
+                        : undefined
+                    }
+                    scheduleError={event.scheduleError}
+                    scheduleTruncated={event.scheduleTruncated}
+                    editRepeat={
+                      usesStrictDateSchedule(props.superstate.settings)
+                        ? editScheduleForEvent(event)
+                        : undefined
+                    }
+                    style={
+                      {
+                        position: "relative",
+                        "--block-bg-color": applySat(40, "#0098FF"),
+                        "--block-color": "#0098FF",
+                      } as React.CSSProperties
+                    }
+                  ></AllDayItem>
+                </React.Fragment>
               ))}
           </div>
         </div>
@@ -556,12 +713,15 @@ export const DayView = (props: {
             .map((event, i) => (
               <DayItem
                 superstate={props.superstate}
-                key={i}
+                key={event.occurrenceId ?? i}
                 event={event}
                 item={props.data[event.index]}
                 hourHeight={hourHeight}
                 startHour={startHour}
                 endHour={endHour}
+                scheduleError={event.scheduleError}
+                scheduleTruncated={event.scheduleTruncated}
+                interactionDisabled={strictSchedule}
                 updateStartEnd={(startOffset, endOffset) => {
                   const newStart = add(date, {
                     minutes: startOffset,
@@ -583,25 +743,7 @@ export const DayView = (props: {
                     ),
                   });
                 }}
-                editRepeat={
-                  props.fieldRepeat
-                    ? (e) =>
-                        showSetValueMenu(
-                          e.currentTarget.getBoundingClientRect(),
-                          windowFromDocument(e.view.document),
-                          props.superstate,
-                          props.data[event.index][props.fieldRepeat],
-                          RepeatTemplate,
-                          (value) =>
-                            props.updateItem({
-                              ...props.data[event.index],
-                              [props.fieldRepeat]: value,
-                            }),
-                          source,
-                          dbSchema?.id
-                        )
-                    : null
-                }
+                editRepeat={editScheduleForEvent(event)}
               ></DayItem>
             ))}
           {placeholderEvent &&

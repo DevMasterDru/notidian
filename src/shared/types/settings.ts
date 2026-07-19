@@ -111,6 +111,11 @@ export interface MakeMDSettings {
   // candidate-indexed delivery service scans file-canonical due/repeat/reminder
   // metadata while Obsidian is open. Default OFF; authoring is independent.
   dateReminders: boolean;
+  // ADR 0020 / Notidian-tluq.8 (default ON, kill-switch): strict
+  // frontmatter-canonical due/repeat/reminder authoring and shared calendar
+  // recurrence expansion. OFF restores the complete legacy JSON-object editor
+  // and duplicated Day/Month recurrence render paths.
+  dateScheduleAuthoring: boolean;
   folderIndentationLines: boolean;
   revealActiveFile: boolean;
   hiddenFiles: string[];
