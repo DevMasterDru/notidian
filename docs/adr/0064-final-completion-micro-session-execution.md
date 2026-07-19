@@ -2,15 +2,96 @@
 
 ## Status
 
-**Accepted — owner-directed 2026-07-18.** The owner stopped Run 21 and asked
-for an optimality re-evaluation followed by realignment of the remaining
-Notidian completion process. The exact model split remains unchanged:
+**Accepted — owner-directed 2026-07-18; recovery-first amendment accepted
+2026-07-19.** The owner stopped Run 21 and asked for an optimality
+re-evaluation followed by realignment of the remaining Notidian completion
+process, then requested a second stop and re-evaluation after observing the
+direct process. The exact model split remains unchanged:
 `gpt-5.6-sol` at `xhigh` owns orchestration and gates; `gpt-5.6-sol` at
 `medium` owns implementation and code fixes.
 
 ## Date
 
 2026-07-18
+
+## 2026-07-19 Evidence
+
+The direct design produced five accepted local checkpoints after this ADR,
+including bounded filter, reminder, calendar, and CSV units. It therefore
+fixed the old transport problem: implementation workers were reached and useful
+work was committed.
+
+It did not constrain scope strongly enough once a small stale-index bug exposed
+cross-cutting lifecycle defects. The resulting recovery patch reached 60 tracked
+and 22 untracked source or test files, with roughly 2,100 tracked additions and
+3,700 lines in new source or test files. Two independent reviews reduced the
+remaining defects to three bounded findings, but the patch remained dirty and
+made the shared checkout's full suite fail on its unfinished test doubles.
+
+The review lane also repeatedly attempted Jest inside a read-only sandbox. Jest
+could not create its haste-map or temporary files, so those reviews could inspect
+code and run TypeScript but could not supply executable test evidence. Finally,
+three Beads remained `in_progress` even though two were fully implemented and
+waiting for live approval and the third had not started, making cold-start
+selection ambiguous.
+
+## Recovery-First Amendment
+
+### Admit a session before dispatch
+
+The controller admits a normal implementation micro-session only when its
+binding brief owns one primary invariant, at most two coupled seams, and an
+expected working set of no more than twelve source and test files. The complete
+focused test plus repository-gate path must fit one worker context with
+headroom. These are stop triggers, not targets: if grounding shows a broader
+working set, the controller sessionizes the bead before dispatch.
+
+If a worker's actual diff crosses a third subsystem, exceeds the admitted file
+set by more than half, or discovers that the Definition of Done requires a new
+architectural prerequisite, it stops and reports the evidence. The controller
+does not silently widen the brief.
+
+### Recover a failed dirty patch before unrelated work
+
+Two failed gate or correction cycles still stop that loop. If the bead owns no
+uncommitted changes, the controller may select another safe leaf. If it owns a
+dirty patch, that patch becomes the repository's recovery lane and blocks
+unrelated shared-worktree implementation.
+
+The controller freezes the accepted surface, converts each remaining review
+finding into a bounded dependency-ordered recovery session, and runs one
+Sol-medium writer per session. A final integrated judgment session reviews the
+whole patch, runs the full pre-commit chain, and creates the local commit. The
+recovery sessions may share that final commit when splitting the already-coupled
+patch into independent green commits would itself add risk. No per-run branch is
+created; detached temporary worktrees may be used only for clean verification.
+
+### Make review executable and overlap read-only gates
+
+After the implementation worker stops, the root full-gate run and the
+independent Sol-medium adversarial review may run concurrently because neither
+is a product writer. The reviewer receives either a clean detached verification
+worktree or a workspace-writable sandbox with an explicit no-source-edit rule,
+so Jest and its temporary cache can run. A read-only sandbox failure is no
+longer treated as test evidence.
+
+The worker runs focused RED/GREEN tests, TypeScript, and diff checks. The root
+runs the full repository pre-commit chain once on the candidate. The reviewer
+runs the targeted suites or mutations needed to refute the candidate rather
+than duplicating the entire full suite.
+
+### Separate implementation, owner decisions, and live verification
+
+Beads in active code work use `in_progress`. Fully implemented work awaiting a
+fresh deploy approval is blocked by an explicit live-verification tranche.
+Owner-value choices are blocked by an explicit decision tranche with a concrete
+recommendation. Neither class remains `in_progress`.
+
+Graph selection discounts a dependency edge whose next node cannot run without
+owner authority. It still prepares that path, but it does not call the path an
+offline unlock or repeatedly interrupt the owner. Ready live checks are batched
+into the smallest safe deploy tranche; independent offline work continues after
+the shared worktree is clean.
 
 ## Context
 
@@ -77,6 +158,12 @@ checkpoint; it never replays a static wave list. A transport failure leaves the
 Bead and worktree recoverable and does not substitute another model for the
 owner-ratified Sol routing.
 
+Cold start now distinguishes active implementation from gates: resume only an
+`in_progress` implementation or recovery session. Approval-gated and
+owner-decision items resolve through their tranche Beads. If a dirty recovery
+lane exists, its first unblocked remediation session outranks every unrelated
+ready leaf.
+
 ### Offline, live, and cross-repo lanes
 
 Offline-provable implementation continues without a vault deploy. A render or
@@ -119,6 +206,10 @@ deployment occurs without the corresponding explicit owner authority.
   as a reason to defer all implementation.
 - Live-verification authority remains explicit and cannot be hidden by an
   offline green build.
+- A broad dirty patch is now an explicit recovery phase, not background noise
+  contaminating unrelated tests and commits.
+- Reviewer independence no longer implies an environment that prevents the
+  reviewer from executing the focused tests it cites.
 
 ## Related
 

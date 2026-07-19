@@ -7,6 +7,11 @@ For the owner-commissioned all-product completion mission, load
 selecting work. The explicit mission routing and no-push boundary live on the
 epic and its launch packet.
 
+ADR 0064 recovery mode is binding when a failed bead owns uncommitted changes:
+decompose and clear or safely isolate that patch before unrelated implementation
+resumes. Approval-gated live and owner-decision items are not active
+implementation sessions; resolve their explicit gate tranche from Beads.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 

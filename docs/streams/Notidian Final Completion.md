@@ -48,7 +48,7 @@ refs:
   - ../adr/README.md
 provenance:
   created: 2026-07-18
-  updated: 2026-07-18
+  updated: 2026-07-19
   by: Codex final-completion commission
 ---
 
@@ -72,9 +72,16 @@ Those remain pointers or owner surfaces outside the completion manifest.
   explicit Notidian fields and view behavior — `docs/current-state.md`.
 - Work status and dependency order live only in epic `Notidian-4qjx` and its
   live Beads graph; this packet never copies their volatile state.
-- Final completion runs as direct dependency-critical one-Bead micro-sessions:
+- Final completion runs as recovery-first, dependency-critical micro-sessions:
   xhigh orchestration and gates around one explicit Sol-medium implementation
-  worker, with a local commit checkpoint after each accepted unit — ADR 0064.
+  worker, with a size-admission check before dispatch and a local commit
+  checkpoint after each accepted unit — ADR 0064.
+- A failed bead that owns a dirty patch blocks unrelated shared-worktree work.
+  Its remaining findings are split into bounded recovery sessions and cleared
+  through one integrated gate before normal graph selection resumes — ADR 0064.
+- Owner decisions and live verification use explicit gate tranches in Beads;
+  they are not left `in_progress` where a cold agent can mistake them for active
+  implementation.
 - Existing Feature Finalization, Topic Hub, and Data Integrity packets retain
   their local architecture and decision boundaries.
 - Commits are local and pushes are prohibited until a later explicit owner
@@ -92,6 +99,9 @@ Those remain pointers or owner surfaces outside the completion manifest.
   uses separate medium implementation and xhigh orchestration and gates.
 - Broad plan-all-before-build runs, unrelated multi-Bead waves, and hcom or
   Claude transport proxies — ADR 0064.
+- Letting a micro-session expand across subsystems without re-sessionizing, or
+  running Jest-capable reviewers in a read-only sandbox that cannot create its
+  own temporary files — ADR 0064.
 
 ## Links
 

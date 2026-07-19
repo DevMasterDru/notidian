@@ -22,8 +22,13 @@ Gates: the standard pre-commit chain below. Doctrine: the `long-autonomous-mode`
   + `docs/AUTONOMOUS-REVIEW-QUEUE.md` if not. Never ship an untested core-render
   change that isn't flagged. If a bead truly can't be done safely and can't be
   flagged, leave it open with a `bd` note and move on.
-- If a bead fails its gates twice, stop on it, `bd update` a note (or `bd human`),
-  and move to the next — do not thrash.
+- If a bead fails its gates twice, stop the correction loop and `bd update` its
+  evidence (or `bd human`). Move to unrelated work only from a clean worktree.
+  When the failed bead owns an uncommitted patch, enter ADR-0064 recovery mode:
+  freeze its scope, split the remaining findings into bounded dependency-ordered
+  sessions, and clear or safely isolate that patch before selecting another bead.
+  Do not leave a failed broad patch in the shared worktree while unrelated work
+  continues.
 
 ## Stream Packets
 
