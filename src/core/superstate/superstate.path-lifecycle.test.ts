@@ -283,3 +283,200 @@ describe("Superstate path lifecycle serialization", () => {
     expect((superstate as any).renameLineages.size).toBe(0);
   });
 });
+
+// Notidian-4qjx.9.20 (R20): the test above ("does not let queued deletion
+// remove a same-path recreation") exercises a DIFFERENT race -- onPathDeleted
+// IS invoked there, and its own generation guard (isCurrent(), superstate.ts:
+// 923-938) is what protects the recreation. The production race this bead is
+// about is stricter: the filesystem-layer guard at filesystem.ts:376-377 means
+// superstate.onPathDeleted (superstate.ts:897-945) is NEVER CALLED AT ALL for
+// the old identity -- only the replacement's own onPathCreated (superstate.ts:
+// 834-867) runs. This suite drives the REAL onPathCreated -> reloadPath ->
+// pathReloaded -> updateContextWithProperties chain (only indexer.execute and
+// the space adapter's persistence entry points are stubbed) to discover,
+// store by store, whether that alone reconciles what onPathDeleted's skipped
+// cross-context sweep (allContextsWithFile/allContextsWithLink,
+// removePathLifecycleInContexts) would have done.
+describe("Superstate reconciliation when delete never fires for a same-path recreation", () => {
+  const buildRaceHarness = () => {
+    const superstate = Object.create(Superstate.prototype) as Superstate;
+    const tables = new Map<string, any>([
+      ["Space", {
+        schema: { id: "context" },
+        cols: [
+          { name: PathPropertyName, type: "file" },
+          { name: "status", type: "text" },
+        ],
+        rows: [{ [PathPropertyName]: "Old.md", status: "old-value" }],
+      }],
+      // A space the OLD identity was a member of that the REPLACEMENT is not
+      // (e.g. its recreated frontmatter no longer carries a tag that put it
+      // here). Old.md's row here is never touched by either side.
+      ["StaleSpace", {
+        schema: { id: "context" },
+        cols: [
+          { name: PathPropertyName, type: "file" },
+          { name: "status", type: "text" },
+        ],
+        rows: [{ [PathPropertyName]: "Old.md", status: "old-value" }],
+      }],
+      // A space where some OTHER row links to Old.md (allContextsWithLink
+      // coverage) -- Old.md is not itself a row here.
+      ["LinkSpace", {
+        schema: { id: "context" },
+        cols: [
+          { name: PathPropertyName, type: "file" },
+          { name: "relation", type: "link-multi", source: "frontmatter" },
+        ],
+        rows: [{ [PathPropertyName]: "Ref.md", relation: '["Old.md"]' }],
+      }],
+    ]);
+    const frontmatter = new Map<string, Record<string, unknown>>([
+      ["Old.md", { status: "new-value" }],
+    ]);
+    const oldCache = {
+      path: "Old.md",
+      type: "file",
+      subtype: "md",
+      tags: [] as string[],
+      spaces: ["Space", "StaleSpace"],
+      outlinks: [] as string[],
+      metadata: { file: { extension: "md", filename: "Old.md", path: "Old.md" } },
+    };
+    const newCache = { ...oldCache, spaces: ["Space"] };
+
+    superstate.pathsIndex = new Map([["Old.md", oldCache as any]]);
+    superstate.spacesIndex = new Map([
+      ["Space", { path: "Space", space: { path: "Space" }, metadata: { links: [] } } as any],
+      ["StaleSpace", { path: "StaleSpace", space: { path: "StaleSpace" }, metadata: { links: [] } } as any],
+      ["LinkSpace", { path: "LinkSpace", space: { path: "LinkSpace" }, metadata: { links: [] } } as any],
+    ]);
+    superstate.contextsIndex = new Map([
+      ["Space", { path: "Space", outlinks: [] as string[] } as any],
+      ["StaleSpace", { path: "StaleSpace", outlinks: [] as string[] } as any],
+      ["LinkSpace", { path: "LinkSpace", outlinks: ["Old.md"] } as any],
+    ]);
+    superstate.tagsMap = new IndexMap();
+    superstate.linksMap = new IndexMap();
+    superstate.spacesMap = new IndexMap();
+    superstate.spacesMap.set("Old.md", new Set(["Space", "StaleSpace"]));
+    superstate.imagesCache = new Map();
+    superstate.focuses = [];
+    superstate.settings = {
+      enhancedLogs: false,
+      indexSVG: false,
+      // Isolate the assertions below from the auto-import-from-frontmatter
+      // materialization path (allProperties.ts materializeFrontmatterBackedContextTable)
+      // -- irrelevant to what this suite is discovering.
+      autoImportObsidianPropertiesToContexts: false,
+    } as any;
+    superstate.eventsDispatcher = new EventDispatcher();
+    superstate.assets = null;
+    superstate.ui = { viewsByPath: jest.fn((): any[] => []) } as any;
+    superstate.persister = {
+      remove: jest.fn().mockResolvedValue(undefined),
+      store: jest.fn().mockResolvedValue(undefined),
+    } as any;
+    const manager = new SpaceManager();
+    manager.superstate = superstate;
+    Object.assign(manager, {
+      contextForSpace: jest.fn(async (spacePath: string) => structuredClone(tables.get(spacePath))),
+      mutateTable: jest.fn(async (spacePath: string, schemaId: string, operation: TableMutationOperation) => {
+        const current = tables.get(spacePath);
+        if (!current || schemaId !== current.schema.id) {
+          throw new Error(`unexpected schema ${schemaId} for ${spacePath}`);
+        }
+        tables.set(spacePath, structuredClone(applyTableMutation(structuredClone(current), operation)));
+        return true;
+      }),
+      saveTable: jest.fn(async (spacePath: string, next: any) => {
+        tables.set(spacePath, structuredClone(next));
+        return true;
+      }),
+      readProperties: jest.fn(async (path: string) => frontmatter.get(path) ?? {}),
+      reloadContextByPath: jest.fn().mockResolvedValue(true),
+      getPathInfo: jest.fn(async (path: string) => ({ path, obsidianFile: { path } })),
+      resolvePath: jest.fn((path: string) => path),
+      spaceInfoForPath: jest.fn((path: string) => ({ path })),
+    });
+    superstate.spaceManager = manager;
+    superstate.reloadContext = jest.fn().mockResolvedValue(true);
+    const dispatched: Array<[string, unknown]> = [];
+    superstate.dispatchEvent = jest.fn((event: string, payload: unknown) => {
+      dispatched.push([event, payload]);
+    }) as any;
+    (superstate as any).contextStateQueue = Promise.resolve();
+    (superstate as any).indexer = new Indexer(1, superstate);
+    (superstate as any).indexer.execute = jest.fn().mockResolvedValue({ cache: newCache, changed: true });
+    return { superstate, tables, dispatched };
+  };
+
+  it("reconciles pathsIndex, spacesMap, and the replacement's own context row via onPathCreated alone", async () => {
+    const { superstate, tables, dispatched } = buildRaceHarness();
+
+    await expect(superstate.onPathCreated("Old.md")).resolves.toBe(true);
+    await (superstate as any).contextStateQueue;
+
+    // pathsIndex: fully replaced by the recreation's own state (superstate.ts:1192).
+    expect(superstate.pathsIndex.get("Old.md")?.spaces).toEqual(["Space"]);
+
+    // spacesMap forward + inverse: IndexMap.set's own diff (indexMap.ts:29-48),
+    // driven only by the replacement's onCreate (superstate.ts:1202-1203),
+    // drops the stale "StaleSpace" membership and keeps "Space" current -- no
+    // old-identity cleanup call is involved in either direction.
+    expect([...superstate.spacesMap.get("Old.md")]).toEqual(["Space"]);
+    expect([...superstate.spacesMap.getInverse("Space")]).toEqual(["Old.md"]);
+    expect([...superstate.spacesMap.getInverse("StaleSpace")]).toEqual([]);
+
+    // Context row in a space the replacement is STILL a member of: upserted in
+    // place with the replacement's fresh properties (context.ts
+    // updateContextWithProperties, queued unconditionally by pathReloaded's
+    // force branch at superstate.ts:1224-1239 for onCreate's force=true reload) --
+    // functionally equivalent to (and, since the row is never actually removed,
+    // BETTER positioned than) a correctly-ordered remove-then-add.
+    const spaceRow = tables.get("Space").rows.find((r: any) => r[PathPropertyName] === "Old.md");
+    expect(spaceRow).toEqual({ [PathPropertyName]: "Old.md", status: "new-value" });
+
+    // Link index in an unrelated context: per the design ruling, a link to a
+    // path STRING stays valid once a replacement occupies that path, so
+    // onPathCreated correctly never touches it -- and neither would a correctly
+    // fired onPathDeleted have (allContextsWithLink cleanup only strips a link
+    // when the target path no longer resolves to anything, per
+    // context.ts:928-934/mutatePathLifecycleInContexts's "remove" mode).
+    expect(tables.get("LinkSpace").rows).toEqual([
+      { [PathPropertyName]: "Ref.md", relation: '["Old.md"]' },
+    ]);
+    expect(superstate.spaceManager.mutateTable).not.toHaveBeenCalledWith(
+      "LinkSpace", expect.anything(), expect.anything(),
+    );
+
+    // Terminal dispatches: pathDeleted for the old identity never fires
+    // (onPathDeleted was never invoked -- the filesystem-layer guard
+    // short-circuited before middleware.onDelete), but pathCreated does --
+    // the signal every downstream path-scoped consumer (Reconciler,
+    // NavigatorContentSearchService, ReminderDeliveryService) keys its own
+    // path-scoped refresh on instead of pathDeleted specifically.
+    expect(dispatched.some(([event]) => event === "pathDeleted")).toBe(false);
+    expect(dispatched.some(([event]) => event === "pathCreated")).toBe(true);
+  });
+
+  it("does NOT clean up a context row in a space the replacement left -- a pre-existing gap identical to ordinary onMetadataChange (superstate.ts:648-674), not introduced by this race", async () => {
+    const { superstate, tables } = buildRaceHarness();
+
+    await expect(superstate.onPathCreated("Old.md")).resolves.toBe(true);
+    await (superstate as any).contextStateQueue;
+
+    // "StaleSpace" is not in the replacement's cache.spaces, so pathReloaded's
+    // force branch (superstate.ts:1224-1239) never includes it in
+    // allContextsWithFile, and its row for Old.md is left exactly as it was.
+    // This is NOT specific to the delete/create race: onMetadataChange
+    // (superstate.ts:648-674, e.g. an ordinary frontmatter edit that drops a
+    // tag) drives the identical updateContextWithProperties call against only
+    // the CURRENT spaces list, with no diff against the previous membership
+    // either -- so an in-place edit leaving a space leaks the same stale row.
+    // Documented here as evidence for a separate, general-scope bead; out of
+    // this bounded fix's reach.
+    const staleRow = tables.get("StaleSpace").rows.find((r: any) => r[PathPropertyName] === "Old.md");
+    expect(staleRow).toEqual({ [PathPropertyName]: "Old.md", status: "old-value" });
+  });
+});

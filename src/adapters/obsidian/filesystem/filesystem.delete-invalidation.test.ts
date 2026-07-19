@@ -282,6 +282,40 @@ describe("ObsidianFileSystem deletion invalidation", () => {
     expect(filesystem.cache.get("Race.md")?.label.name).toBe("recreated");
     expect(lifecycle).not.toHaveBeenCalled();
   });
+
+  // Notidian-4qjx.9.20 (R20): the sibling half of the test above. That test
+  // proves the replacement's *primary* cache entry survives; this proves the
+  // guard at filesystem.ts:376-377 short-circuits performDeleteLifecycle
+  // (filesystem.ts:373-409) before ANY of its stages run for the old identity
+  // -- not just the final onDelete dispatch, but also the persisted file-cache
+  // removal (persister.remove) and the onPathInvalidated dispatch that feeds
+  // superstate.invalidatePath (superstate.ts:871-895, which itself drives
+  // spacesMap/tagsMap/linksMap/pathsIndex/icon-cache cleanup). All of that
+  // machinery is path-keyed, not identity-keyed, so running any of it here
+  // would risk clobbering state the replacement's own onCreate lifecycle
+  // already (or will still) own.
+  it("protects every filesystem-layer replacement store -- cache, persisted file-cache, onDelete, onPathInvalidated -- when delete joins a same-path recreation", async () => {
+    const { deletedFile, filesystem, middleware, plugin } = harness();
+    const recreated = file("Recreated", "Race.md");
+    const onDeleteListener = jest.fn().mockResolvedValue(undefined);
+    const onPathInvalidatedListener = jest.fn().mockResolvedValue(undefined);
+    middleware.eventDispatch.addListener("onDelete", onDeleteListener);
+    middleware.eventDispatch.addListener("onPathInvalidated", onPathInvalidatedListener);
+    (plugin.app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(deletedFile);
+    filesystem.cache.set("Race.md", { file: deletedFile, label: { name: "original" } } as any);
+    (plugin.app.vault.delete as jest.Mock).mockImplementationOnce(async () => {
+      (plugin.app.vault.getAbstractFileByPath as jest.Mock).mockReturnValue(recreated);
+      filesystem.cache.set("Race.md", { file: recreated, label: { name: "recreated" } } as any);
+      await filesystem.onDelete(deletedFile as any);
+    });
+
+    await filesystem.deleteFile("Race.md");
+
+    expect(filesystem.cache.get("Race.md")?.label.name).toBe("recreated");
+    expect(filesystem.persister.remove).not.toHaveBeenCalled();
+    expect(onDeleteListener).not.toHaveBeenCalled();
+    expect(onPathInvalidatedListener).not.toHaveBeenCalled();
+  });
   it("awaits the production create listener before settling", async () => {
     const { deletedFile, filesystem, middleware } = harness();
     const listenerGate = deferred();
