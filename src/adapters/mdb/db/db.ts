@@ -248,13 +248,39 @@ const writeBinaryToFileWithTempReplace = async (
 
     const renameFile = (plugin.middleware as any).renameFile;
     if (typeof renameFile === "function") {
-      const finalPath = await renameFile.call(plugin.middleware, tempPath, path);
-      if (finalPath === path) {
-        return;
+      // Notidian-euqe: real Obsidian's fileManager.renameFile THROWS
+      // "Destination file already exists!" when `path` is already present
+      // (src/adapters/obsidian/filesystem/filesystem.ts renameFile lets that
+      // rejection propagate uncaught through the middleware) -- so the
+      // atomic rename fast-path only ever makes sense for a first-time
+      // write. Probe first rather than attempt-and-catch on every save: it
+      // avoids matching the rename failure's exact text, and it means an
+      // existing destination never even attempts (and never risks) the
+      // rename.
+      const destinationExists = await plugin.middleware.fileExists(path);
+      if (!destinationExists) {
+        try {
+          const finalPath = await renameFile.call(plugin.middleware, tempPath, path);
+          if (finalPath === path) {
+            return;
+          }
+          // A rename that resolved without throwing but didn't return the
+          // expected destination path is not a success -- fall through to
+          // the fallback below rather than trusting it.
+        } catch {
+          // ANY rename failure -- Obsidian's "Destination file already
+          // exists!" (e.g. a destination created in a probe/attempt race),
+          // or any other reason -- must fall through to the non-atomic
+          // fallback below, never escape from here.
+        }
       }
     }
 
-    // Without a usable rename primitive, the fallback target write is non-atomic.
+    // Without a usable rename primitive, an already-existing destination, or
+    // a rename that failed/returned an unexpected path: fall back to a
+    // direct (non-atomic) write. A genuine failure here -- including
+    // verifyTempDBReadable's refusal -- is a real persistence failure and
+    // MUST propagate to the caller.
     await verifyTempDBReadable(plugin, tempPath, isZipped);
     await plugin.middleware.writeBinaryToFile(path, binary);
   } finally {

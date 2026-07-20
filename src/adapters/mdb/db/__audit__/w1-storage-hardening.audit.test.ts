@@ -260,7 +260,11 @@ describe("W1: MDB storage hardening", () => {
     const events: Array<{ op: string; path: string; to?: string }> = [];
     const plugin = {
       middleware: {
-        fileExists: jest.fn(async () => true),
+        // Notidian-euqe: the parent folder exists but the DB target itself
+        // does not (a first-time write) -- the rename fast-path is only
+        // attempted for an absent destination, so this must distinguish the
+        // two rather than answering `true` for every path.
+        fileExists: jest.fn(async (p: string) => p !== "folder/ctx.mdb"),
         createFolder: jest.fn(async () => {}),
         writeBinaryToFile: jest.fn(async (path: string) => {
           events.push({ op: "write", path });
@@ -470,31 +474,47 @@ describe("W1: MDB storage hardening", () => {
     ).resolves.toBeNull();
   });
 
-  it("cleans up a temporary DB file when atomic rename fails", async () => {
-    const temps = new Set<string>();
+  // Notidian-euqe: rewritten from "cleans up a temporary DB file when atomic
+  // rename fails" (which asserted the OLD, buggy contract: any rename
+  // failure -- even for an absent destination -- escaped saveDBFile
+  // uncaught, and the non-atomic fallback at db.ts:257-259 was never
+  // reached). The binding design is that ANY rename throw (not just
+  // Obsidian's specific "Destination file already exists!") falls through
+  // to the fallback rather than escaping, so a generic rename failure
+  // (destination absent) must still be RESCUED by the fallback, not just
+  // cleaned up after a rejection.
+  it("rescues the save via the fallback when the atomic rename throws for a reason other than an existing destination, and still cleans up the temp file", async () => {
+    const files = new Map<string, ArrayBuffer>();
+    const writeLog: string[] = [];
     const plugin = {
+      sqlJS: async () => fakeSqlJS,
       middleware: {
-        fileExists: jest.fn(async (path: string) => path === "folder" || temps.has(path)),
+        fileExists: jest.fn(async (path: string) => path === "folder" || files.has(path)),
         createFolder: jest.fn(async () => {}),
-        writeBinaryToFile: jest.fn(async (path: string) => {
-          if (path.includes(".tmp-")) {
-            temps.add(path);
-          }
+        readBinaryToFile: jest.fn(async (path: string) => files.get(path)),
+        writeBinaryToFile: jest.fn(async (path: string, bytes: ArrayBuffer) => {
+          writeLog.push(path);
+          files.set(path, bytes);
         }),
         renameFile: jest.fn(async () => {
           throw new Error("rename failed");
         }),
         deleteFile: jest.fn(async (path: string) => {
-          temps.delete(path);
+          files.delete(path);
         }),
       },
     } as any;
 
-    await expect(saveDBFile(plugin, "folder/ctx.mdb", encodeState(emptyState()))).rejects.toThrow(
-      "rename failed"
-    );
+    await expect(
+      saveDBFile(plugin, "folder/ctx.mdb", encodeState(emptyState()))
+    ).resolves.toBeUndefined();
 
+    // The rename fast-path WAS attempted (destination was absent) and threw,
+    // but that failure never escaped -- the fallback rescued the write.
+    expect(plugin.middleware.renameFile).toHaveBeenCalledTimes(1);
     expect(plugin.middleware.deleteFile).toHaveBeenCalledTimes(1);
-    expect([...temps]).toHaveLength(0);
+    expect(writeLog.some((p) => p.includes(".tmp-"))).toBe(true);
+    expect(files.has("folder/ctx.mdb")).toBe(true);
+    expect([...files.keys()].some((p) => p.includes(".tmp-"))).toBe(false);
   });
 });
