@@ -38,10 +38,15 @@ jest.mock("../properties/selectSpaceMenu", () => ({ showSpacesMenu: jest.fn() })
 jest.mock("./spaceContextMenu", () => ({ showSpaceContextMenu: jest.fn() }));
 
 import i18n from "shared/i18n";
-import { deletePath } from "core/superstate/utils/path";
+import { deletePath, renamePathByName } from "core/superstate/utils/path";
 import { requestRowDeleteWithSubItems } from "core/utils/contexts/nonDestructiveDelete";
 import { showSpacesMenu } from "../properties/selectSpaceMenu";
 import { showPathContextMenu } from "./pathContextMenu";
+
+const flushPromises = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
 
 describe("showPathContextMenu rename result boundary", () => {
   it("contains a detached move failure and reports it once when renamePath resolves falsy", async () => {
@@ -179,5 +184,105 @@ describe("showPathContextMenu delete reporting boundary", () => {
     expect(notify).toHaveBeenCalledWith(
       "Could not delete Source/Note.md: locked"
     );
+  });
+});
+
+// Notidian-1mh0: the plain "Rename" menu item passes renamePathByName straight
+// into InputModal.saveValue with no .then/.catch. InputModal.save() (see
+// InputModal.tsx) calls saveValue(value) and immediately hides the modal --
+// it never awaits or inspects the returned promise. A genuine physical-rename
+// rejection was therefore an unhandled promise rejection with zero user
+// notice, and a falsy (swallowed-failure) result was silently dropped too.
+describe("showPathContextMenu plain rename result boundary", () => {
+  const buildSuperstate = (notify: jest.Mock) =>
+    ({
+      pathsIndex: new Map([
+        [
+          "Source/Note.md",
+          {
+            path: "Source/Note.md",
+            name: "Note",
+            parent: "Source",
+            type: "file",
+            subtype: "md",
+          },
+        ],
+      ]),
+      spacesIndex: new Map(),
+      settings: { spacesStickers: false },
+      spaceManager: { renamePath: jest.fn(), copyPath: jest.fn() },
+      ui: {
+        openMenu: jest.fn(),
+        openModal: jest.fn(),
+        hasNativePathMenu: jest.fn(() => false),
+        getOS: jest.fn(() => "mac"),
+        notify,
+      },
+    } as any);
+
+  const getRenameSaveValue = (superstate: any) => {
+    const menuCalls: any[] = [];
+    (superstate.ui.openMenu as jest.Mock).mockImplementation(
+      (_rect: unknown, menu: unknown) => menuCalls.push(menu)
+    );
+    showPathContextMenu(
+      superstate,
+      "Source/Note.md",
+      "Source",
+      {} as any,
+      {} as Window
+    );
+    const renameOption = menuCalls[0].options.find(
+      (option: any) => option.name === i18n.menu.rename
+    );
+    renameOption.onClick({ view: { document: {} } });
+    const modalElement = (superstate.ui.openModal as jest.Mock).mock
+      .calls[0][1];
+    return modalElement.props.saveValue as (
+      value: string
+    ) => Promise<unknown> | void;
+  };
+
+  it("notifies once when renamePathByName resolves falsy", async () => {
+    const notify = jest.fn();
+    const superstate = buildSuperstate(notify);
+    (renamePathByName as jest.Mock).mockResolvedValueOnce(null);
+
+    const saveValue = getRenameSaveValue(superstate);
+    saveValue("Renamed");
+    await flushPromises();
+
+    expect(renamePathByName).toHaveBeenCalledWith(
+      superstate,
+      "Source/Note.md",
+      "Renamed"
+    );
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(i18n.notice.renamePathFailed);
+  });
+
+  it("notifies once and leaves no unhandled rejection when renamePathByName rejects", async () => {
+    const notify = jest.fn();
+    const superstate = buildSuperstate(notify);
+    (renamePathByName as jest.Mock).mockRejectedValueOnce(new Error("locked"));
+
+    const saveValue = getRenameSaveValue(superstate);
+    saveValue("Renamed");
+    await flushPromises();
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(i18n.notice.renamePathFailed);
+  });
+
+  it("does not notify on a successful rename", async () => {
+    const notify = jest.fn();
+    const superstate = buildSuperstate(notify);
+    (renamePathByName as jest.Mock).mockResolvedValueOnce("Source/Renamed.md");
+
+    const saveValue = getRenameSaveValue(superstate);
+    saveValue("Renamed");
+    await flushPromises();
+
+    expect(notify).not.toHaveBeenCalled();
   });
 });

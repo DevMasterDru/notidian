@@ -382,7 +382,17 @@ export const showSpaceContextMenu = (
           <InputModal
             saveLabel={i18n.buttons.rename}
             value={space.type == "tag" ? stringFromTag(space.name) : space.name}
-            saveValue={(v) => renamePathByName(superstate, space.path, v)}
+            saveValue={(v) =>
+              renamePathByName(superstate, space.path, v)
+                .then((renamed) => {
+                  if (!renamed) {
+                    superstate.ui.notify(i18n.notice.renamePathFailed);
+                  }
+                })
+                .catch(() => {
+                  superstate.ui.notify(i18n.notice.renamePathFailed);
+                })
+            }
           ></InputModal>,
           win
         );

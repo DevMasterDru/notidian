@@ -85,9 +85,13 @@ export const TitleComponent = (
       } else {
         const sanitizedName = sanitizeFileName(newValue);
 
-        renamePathByName(props.superstate, pathState.path, sanitizedName).then(
-          (f) => {
-            if (f && sanitizedName != newValue) {
+        renamePathByName(props.superstate, pathState.path, sanitizedName)
+          .then((f) => {
+            if (!f) {
+              props.superstate.ui.notify(i18n.notice.renamePathFailed);
+              return;
+            }
+            if (sanitizedName != newValue) {
               updatePrimaryAlias(
                 props.superstate,
                 f,
@@ -95,8 +99,10 @@ export const TitleComponent = (
                 newValue
               );
             }
-          }
-        );
+          })
+          .catch(() => {
+            props.superstate.ui.notify(i18n.notice.renamePathFailed);
+          });
       }
     }
   };

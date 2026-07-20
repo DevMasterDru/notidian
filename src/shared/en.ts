@@ -1077,7 +1077,8 @@ export const en = {
     "redoDeleteRowsFailed": "Could not re-delete the rows. The change was kept so you can try again.",
     "hubRowCascadeRenameFailed": "Renamed the row, but could not move its nested database folder to match. Rename the folder manually to keep them in sync.",
     "hubRowCascadeDeleteFailed": "Deleted the row, but could not delete its nested database folder. Remove the folder manually if it should not remain.",
-    "deletePathFailed": "Could not delete this item. It may still exist — try again."
+    "deletePathFailed": "Could not delete this item. It may still exist — try again.",
+    "renamePathFailed": "Could not rename this item. It may still exist under its original name — try again."
   },
   "settings": {
     "importUrls": "Import Urls",

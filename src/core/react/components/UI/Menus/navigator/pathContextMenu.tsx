@@ -305,7 +305,17 @@ export const showPathContextMenu = (
         <InputModal
           saveLabel={i18n.buttons.rename}
           value={cache.name}
-          saveValue={(v) => renamePathByName(superstate, path, v)}
+          saveValue={(v) =>
+            renamePathByName(superstate, path, v)
+              .then((renamed) => {
+                if (!renamed) {
+                  superstate.ui.notify(i18n.notice.renamePathFailed);
+                }
+              })
+              .catch(() => {
+                superstate.ui.notify(i18n.notice.renamePathFailed);
+              })
+          }
         ></InputModal>,
         windowFromDocument(e.view.document)
       );
