@@ -110,7 +110,16 @@ export class ObsidianFileSystem implements FileSystemAdapter {
     } else {
         this.persister = new LocalStorageCache(".notidian/fileCache.mdc", this.plugin.mdbFileAdapter, ['file']);
     }
-        
+
+    }
+    // Notidian-043x: plugin:reload previously left this instance's persister
+    // undisposed -- main.ts's onunload() tore down this.superstate.persister
+    // but never this.obsidianAdapter's own persister, so its debounced flush
+    // kept firing after reload against a closed/replaced db, colliding with
+    // the freshly reloaded instance's writes to the same
+    // .notidian/fileCache.mdc path. Called from MakeMDPlugin.onunload().
+    public unload(): void {
+        this.persister.unload();
     }
     public readAllTags () {
         return loadTags(this.plugin.app, this.plugin.superstate.settings);

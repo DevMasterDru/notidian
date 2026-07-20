@@ -12,14 +12,29 @@ import { LocalCachePersister } from "../../../shared/types/persister";
 export class LocalStorageCache implements LocalCachePersister {
     public db: Database;
     private initialized: boolean;
+    // Notidian-043x: guards unload() so a plugin:reload teardown call is safe
+    // to make exactly once and idempotent if invoked again -- see unload().
+    private disposed = false;
     public indexVersion = Date.now().toString();
     private defaultTables : DBTables;
     public constructor( public storageDBPath: string, private mdbAdapter: MDBFileTypeAdapter, types: string[]) {
         this.defaultTables = types.reduce((acc, type) => ({...acc, [type]: CacheDBSchema}), {})
     }
 
+    // Notidian-043x: without cancelling the pending debounced flush here, a
+    // LocalStorageCache instance from a previous plugin load kept firing its
+    // ~5s debounced saveZippedDBFile flush against a closed db after
+    // plugin:reload discarded it, racing the freshly reloaded instance's own
+    // writes to the same .notidian/*.mdc path ("Destination file already
+    // exists!"). unload() must be safe to call exactly once at plugin
+    // teardown and idempotent if invoked again; once disposed, store()/
+    // remove()/cleanType() already no-op via the initialized check, so no
+    // successor flush can ever be scheduled.
     public async unload() {
+        if (this.disposed) return;
+        this.disposed = true;
         this.initialized = false;
+        this.debounceSaveSpaceDatabase.cancel();
         this.db?.close();
     }
     public async initialize () {

@@ -927,6 +927,13 @@ this.markdownAdapter = new ObsidianMarkdownFiletypeAdapter(this);
     this.reconciler?.stop();
     this.superstate.reconciler = null;
     this.superstate.persister.unload();
+    // Notidian-043x: this.obsidianAdapter owns its own LocalStorageCache
+    // persister (.notidian/fileCache.mdc, constructed in ObsidianFileSystem's
+    // constructor) -- distinct from this.superstate.persister above. Without
+    // this call its debounced flush survived plugin:reload and kept firing
+    // against a closed/replaced db, racing the freshly reloaded instance's
+    // writes to the same path.
+    this.obsidianAdapter?.unload();
 
     this.detachFileTreeLeafs();
   }
