@@ -11,6 +11,9 @@ import { LocalCachePersister } from "../../../shared/types/persister";
 export class MobileCachePersister implements LocalCachePersister {
     public indexVersion = Date.now().toString();
     private initialized = false;
+    // Notidian-b6lv: guards unload() so a plugin:reload teardown call is safe
+    // to make exactly once and idempotent if invoked again -- see unload().
+    private disposed = false;
     private maps : Record<string, Map<string, DBRow>>;
     public constructor( public storageDBPath: string, private mdbAdapter: MDBFileTypeAdapter, private types: string[]) {
 
@@ -58,8 +61,21 @@ export class MobileCachePersister implements LocalCachePersister {
         this.initialized = true;
         
     }
+    // Notidian-b6lv: same leak shape as 043x (localCache.ts's
+    // LocalStorageCache.unload()), but for this class's own hand-rolled
+    // debounce. Without cancelling the pending debounced flush here, a
+    // MobileCachePersister instance from a previous plugin load kept firing
+    // its ~2s debounced saveZippedDBToPath flush after plugin:reload
+    // discarded it, racing the freshly reloaded instance's own writes to the
+    // same .notidian/*.mdc path. unload() must be safe to call exactly once
+    // at plugin teardown and idempotent if invoked again; once disposed,
+    // store()/remove()/cleanType() already no-op via the initialized check,
+    // so no successor flush can ever be scheduled.
     public unload () {
+        if (this.disposed) return;
+        this.disposed = true;
         this.initialized = false;
+        this.debounceSaveSpaceDatabase.cancel();
     }
     public isInitialized() {
         return this.initialized;
