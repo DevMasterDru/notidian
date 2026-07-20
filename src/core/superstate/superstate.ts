@@ -921,6 +921,8 @@ public api: API;
             }
         }
         const isCurrent = () => this.indexer.isPathGenerationCurrent(path, generation);
+        let cleanupError: unknown;
+        let cleanupFailed = false;
         try {
             await this.addToContextStateQueue(async () => {
                 if (!isCurrent()) return;
@@ -933,8 +935,16 @@ public api: API;
                 );
             });
         } catch (error) {
-            if (isCurrent()) throw error;
+            cleanupError = error;
+            cleanupFailed = true;
         }
+        // isCurrent() -- not the presence/absence of a cleanup error -- is the
+        // sole authority on whether this incarnation still owns the path (see
+        // ba22a3e5). A cleanup failure does not by itself mean the path was
+        // abandoned to a newer incarnation, so it must not skip the terminal
+        // dispatches below; conversely, if generation is no longer current
+        // (stale/abandoned, regardless of whether cleanup also threw), no
+        // dispatch fires here at all, exactly as before.
         if (!isCurrent()) return;
         this.invalidatedPathStates?.delete(path);
 
@@ -942,6 +952,12 @@ public api: API;
             this.dispatchEvent('spaceStateUpdated',{ path: f});
         });
         this.dispatchEvent('pathDeleted', {path});
+
+        // Dispatch before propagating: callers (including
+        // performDeleteLifecycle's failure aggregation) must still observe
+        // the cleanup error, but only after downstream consumers have been
+        // told the path is gone.
+        if (cleanupFailed) throw cleanupError;
     }
     
 

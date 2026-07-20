@@ -284,6 +284,49 @@ describe("Superstate path lifecycle serialization", () => {
   });
 });
 
+// Notidian-4gjx: onPathDeleted's terminal spaceStateUpdated/pathDeleted
+// dispatches (superstate.ts:941-944) must still fire when an earlier cleanup
+// step (removePathLifecycleInContexts) throws, as long as this generation is
+// still current -- otherwise a post-physical lifecycle failure leaves the
+// TableView's journaled-deleted row stuck until an unrelated refresh, because
+// ContextEditorContext.refreshMDB never runs. The fix must not weaken
+// isCurrent() gating (ba22a3e5's incarnation-safety contract): a cleanup
+// failure that lands after this incarnation was superseded (stale generation)
+// must still dispatch nothing and swallow the error exactly as before.
+describe("Superstate terminal path-delete dispatch despite cleanup failure", () => {
+  it("still dispatches spaceStateUpdated and pathDeleted when cleanup fails for a still-current generation, while still propagating the failure to the caller", async () => {
+    const { superstate } = harness();
+    const cleanupFailure = new Error("table write failed");
+    (superstate.spaceManager.mutateTable as jest.Mock).mockRejectedValue(cleanupFailure);
+    const error = jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(superstate.onPathDeleted("Old.md")).rejects.toBe(cleanupFailure);
+
+    expect((superstate.dispatchEvent as jest.Mock).mock.calls).toEqual([
+      ["spaceStateUpdated", { path: "Space" }],
+      ["pathDeleted", { path: "Old.md" }],
+    ]);
+    error.mockRestore();
+  });
+
+  it("does not dispatch terminal events and swallows the cleanup failure when the path's generation is no longer current (a different incarnation now owns it)", async () => {
+    const { superstate } = harness();
+    (superstate.spaceManager.mutateTable as jest.Mock).mockImplementationOnce(async () => {
+      // Simulates a concurrent recreation/rename bumping the path's
+      // generation mid-cleanup -- isCurrent() must govern here, not the
+      // mere presence of a cleanup failure.
+      (superstate as any).indexer.invalidatePath("Old.md");
+      throw new Error("table write failed after concurrent invalidation");
+    });
+    const error = jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(superstate.onPathDeleted("Old.md")).resolves.toBeUndefined();
+
+    expect((superstate.dispatchEvent as jest.Mock).mock.calls).toEqual([]);
+    error.mockRestore();
+  });
+});
+
 // Notidian-4qjx.9.20 (R20): the test above ("does not let queued deletion
 // remove a same-path recreation") exercises a DIFFERENT race -- onPathDeleted
 // IS invoked there, and its own generation guard (isCurrent(), superstate.ts:
