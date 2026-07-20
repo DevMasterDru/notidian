@@ -1,3 +1,4 @@
+import { displayPropertyForPredicate } from "core/utils/contexts/rowDisplayLabel";
 import { Predicate } from "shared/types/predicate";
 
 // ---------------------------------------------------------------------------
@@ -32,13 +33,28 @@ import { Predicate } from "shared/types/predicate";
 // Filter and Sort (the prior duplication). So `false` restores byte-for-byte
 // legacy IA — markup AND visual. The pure logic here is exercised only on the
 // ON branch.
+//
+// bd Notidian-4qjx.6 (owner-ratified 2026-07-20, gate Notidian-4qjx.12):
+// Limit and Display Property are promoted from the overflow menu into this
+// same inline bar. Unlike Filter/Sort/Group-By, neither ever had a LEGACY
+// inline form to fall back to — their kill-switch behavior is therefore
+// simpler: OFF means their sole home is (once again) the 3-knobs overflow
+// menu, and they render nothing inline at all (no bare-button fallback is
+// invented, because none existed before this promotion).
 // ---------------------------------------------------------------------------
 
 // The canonical inline controls whose single home is the toolbar bar beside the
 // 3-knobs button. Search is included because it, too, lives inline (the
 // magnifier toggle, ADR 0041) and carries an active state, but its active flag
-// is driven by transient UI state rather than the predicate.
-export type InlineControlId = "filter" | "sort" | "groupBy" | "search";
+// is driven by transient UI state rather than the predicate. Limit and
+// Display Property (bd Notidian-4qjx.6) are the next promoted pair.
+export type InlineControlId =
+  | "filter"
+  | "sort"
+  | "groupBy"
+  | "search"
+  | "limit"
+  | "displayProperty";
 
 // Per-control active flags for the inline settings bar. Each is true exactly
 // when that setting is currently APPLIED to the view, so the render can light
@@ -48,6 +64,8 @@ export type InlineControlActiveState = {
   sort: boolean;
   groupBy: boolean;
   search: boolean;
+  limit: boolean;
+  displayProperty: boolean;
 };
 
 // Derive the per-control active state from the predicate + the transient search
@@ -56,8 +74,11 @@ export type InlineControlActiveState = {
 // expressions so the decision is unit-testable and uniform across controls.
 //
 // Pure + total: a null/undefined/partial predicate yields all-false (nothing is
-// applied), never throws, and never reads anything but the four view-config
-// fields it owns.
+// applied), never throws, and never reads anything but the view-config fields
+// it owns. `limit` lights exactly when a positive row limit is set (matching
+// the overflow menu's own `predicate?.limit > 0` check); `displayProperty`
+// reuses the existing `displayPropertyForPredicate` accessor so the two call
+// sites can never diverge on what counts as "a display property is chosen".
 export const deriveInlineControlActiveState = (
   predicate: Partial<Predicate> | null | undefined,
   searchActive: boolean | null | undefined
@@ -66,6 +87,8 @@ export const deriveInlineControlActiveState = (
   sort: (predicate?.sort?.length ?? 0) > 0,
   groupBy: (predicate?.groupBy?.length ?? 0) > 0,
   search: searchActive === true,
+  limit: (predicate?.limit ?? 0) > 0,
+  displayProperty: displayPropertyForPredicate(predicate) !== null,
 });
 
 // Convenience single-control accessor (same derivation, one control). Kept so a
@@ -93,8 +116,12 @@ export type ControlHome = "inline" | "menu";
 // The canonical home of every view-settings control that this IA governs.
 // Filter / Sort / Group-By are the de-duped trio — their single home is INLINE
 // (the toolbar), so they are intentionally ABSENT from the 3-knobs menu when
-// the flag is ON. Search is inline-only (the magnifier toggle). The remaining
-// controls are overflow settings whose single home is the 3-knobs menu.
+// the flag is ON. Search is inline-only (the magnifier toggle). Limit and
+// Display Property (bd Notidian-4qjx.6, owner-ratified 2026-07-20 via gate
+// Notidian-4qjx.12) are the next promoted pair — high-frequency, clear active
+// state, one control home. The remaining controls are overflow settings whose
+// single home is the 3-knobs menu; do not extend the inline set without a new
+// owner ruling.
 //
 // This manifest is the source of truth for the de-dup test; FilterBar's render
 // + menu construction must match it on the ON branch.
@@ -107,17 +134,20 @@ export const VIEW_SETTINGS_CONTROL_HOME: Record<string, ControlHome> = {
   // Inline-only search (ADR 0041 single view search).
   search: "inline",
   layout: "inline",
+  // Promoted inline pair (bd Notidian-4qjx.6): each keeps exactly one home
+  // (inline) and falls back to its sole overflow-menu home when the
+  // `viewSettingsInlineBar` kill-switch is OFF (see FilterBar.tsx).
+  limit: "inline",
+  displayProperty: "inline",
   // Overflow settings whose single home is the 3-knobs menu.
   properties: "menu",
   chart: "menu",
   subItems: "menu",
   importCsv: "menu",
   exportCsv: "menu",
-  limit: "menu",
   tableDirection: "menu",
   source: "menu",
   list: "menu",
-  displayProperty: "menu",
   itemProperties: "menu",
 };
 

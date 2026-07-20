@@ -34,7 +34,39 @@ describe("deriveInlineControlActiveState (active-state derivation)", () => {
       sort: false,
       groupBy: false,
       search: false,
+      limit: false,
+      displayProperty: false,
     });
+  });
+
+  it("lights limit exactly when a positive limit is set (bd Notidian-4qjx.6)", () => {
+    expect(
+      deriveInlineControlActiveState(predicate({ limit: 25 }), false).limit
+    ).toBe(true);
+    expect(
+      deriveInlineControlActiveState(predicate({ limit: 0 }), false).limit
+    ).toBe(false);
+    expect(
+      deriveInlineControlActiveState(predicate({}), false).limit
+    ).toBe(false);
+  });
+
+  it("lights displayProperty exactly when listViewProps.displayProperty is a non-empty string (bd Notidian-4qjx.6)", () => {
+    expect(
+      deriveInlineControlActiveState(
+        predicate({ listViewProps: { displayProperty: "Status" } }),
+        false
+      ).displayProperty
+    ).toBe(true);
+    expect(
+      deriveInlineControlActiveState(
+        predicate({ listViewProps: { displayProperty: "" } }),
+        false
+      ).displayProperty
+    ).toBe(false);
+    expect(
+      deriveInlineControlActiveState(predicate({}), false).displayProperty
+    ).toBe(false);
   });
 
   it("lights filter exactly when filters is non-empty", () => {
@@ -78,10 +110,22 @@ describe("deriveInlineControlActiveState (active-state derivation)", () => {
   it("derives every control independently when several are applied", () => {
     expect(
       deriveInlineControlActiveState(
-        predicate({ filters: [aFilter], groupBy: ["Status"] }),
+        predicate({
+          filters: [aFilter],
+          groupBy: ["Status"],
+          limit: 10,
+          listViewProps: { displayProperty: "Status" },
+        }),
         true
       )
-    ).toEqual({ filter: true, sort: false, groupBy: true, search: true });
+    ).toEqual({
+      filter: true,
+      sort: false,
+      groupBy: true,
+      search: true,
+      limit: true,
+      displayProperty: true,
+    });
   });
 
   it("is pure + total: null/undefined/partial predicate yields all-false, never throws", () => {
@@ -90,19 +134,30 @@ describe("deriveInlineControlActiveState (active-state derivation)", () => {
       sort: false,
       groupBy: false,
       search: false,
+      limit: false,
+      displayProperty: false,
     });
     expect(deriveInlineControlActiveState(undefined, undefined)).toEqual({
       filter: false,
       sort: false,
       groupBy: false,
       search: false,
+      limit: false,
+      displayProperty: false,
     });
     // A predicate missing the arrays entirely must not throw.
     expect(() =>
       deriveInlineControlActiveState({} as Partial<Predicate>, null)
     ).not.toThrow();
     expect(deriveInlineControlActiveState({} as Partial<Predicate>, null)).toEqual(
-      { filter: false, sort: false, groupBy: false, search: false }
+      {
+        filter: false,
+        sort: false,
+        groupBy: false,
+        search: false,
+        limit: false,
+        displayProperty: false,
+      }
     );
   });
 
@@ -116,9 +171,21 @@ describe("deriveInlineControlActiveState (active-state derivation)", () => {
 
 describe("isInlineControlActive (single-control accessor)", () => {
   it("matches the corresponding field of the full state", () => {
-    const p = predicate({ filters: [aFilter], sort: [aSort] });
+    const p = predicate({
+      filters: [aFilter],
+      sort: [aSort],
+      limit: 25,
+      listViewProps: { displayProperty: "Status" },
+    });
     const full = deriveInlineControlActiveState(p, true);
-    for (const id of ["filter", "sort", "groupBy", "search"] as const) {
+    for (const id of [
+      "filter",
+      "sort",
+      "groupBy",
+      "search",
+      "limit",
+      "displayProperty",
+    ] as const) {
       expect(isInlineControlActive(id, p, true)).toBe(full[id]);
     }
   });
@@ -131,16 +198,22 @@ describe("single-home invariant (de-dup decision)", () => {
     expect(VIEW_SETTINGS_CONTROL_HOME.groupBy).toBe("inline");
   });
 
-  it("overflow settings (properties/limit/source/etc.) live in the menu", () => {
+  // Owner ratification 2026-07-20 (gate Notidian-4qjx.12): promote exactly
+  // Limit and Display Property inline; every other view setting stays in the
+  // overflow menu (bd Notidian-4qjx.6).
+  it("Limit and Display Property are promoted inline, NOT in the menu", () => {
+    expect(VIEW_SETTINGS_CONTROL_HOME.limit).toBe("inline");
+    expect(VIEW_SETTINGS_CONTROL_HOME.displayProperty).toBe("inline");
+  });
+
+  it("overflow settings (properties/source/etc.) live in the menu", () => {
     for (const id of [
       "properties",
       "chart",
       "subItems",
-      "limit",
       "tableDirection",
       "source",
       "list",
-      "displayProperty",
     ]) {
       expect(VIEW_SETTINGS_CONTROL_HOME[id]).toBe("menu");
     }

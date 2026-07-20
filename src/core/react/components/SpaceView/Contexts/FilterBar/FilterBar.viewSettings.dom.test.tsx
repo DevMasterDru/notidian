@@ -150,6 +150,12 @@ const basePredicate = {
   listItemProps: {},
   colsHidden: [],
   colsOrder: [],
+  // Matches the real defaultPredicate shape (shared/schemas/predicate.tsx):
+  // validatePredicate always normalizes limit to a number, so production
+  // never hands FilterBar an undefined predicate.limit. Included here so the
+  // inline Limit control's editor menu (bd Notidian-4qjx.6) exercises the
+  // same shape real callers provide.
+  limit: 0,
 } as any;
 
 let openMenuCalls: OpenMenuCall[];
@@ -162,6 +168,8 @@ const mount = (opts: {
   viewSettingsInlineBar: boolean;
   predicate?: any;
   cols?: any[];
+  savePredicate?: (next: any) => void;
+  dbSchema?: any;
 }) => {
   openMenuCalls = [];
   const superstate = makeSuperstate(openMenuCalls, opts.viewSettingsInlineBar);
@@ -173,11 +181,16 @@ const mount = (opts: {
   } as any;
   const contextEditorValue = {
     source: "Some Space",
-    dbSchema: { id: "files", name: "Files", type: "db", primary: "true" },
+    dbSchema: opts.dbSchema ?? {
+      id: "files",
+      name: "Files",
+      type: "db",
+      primary: "true",
+    },
     cols: opts.cols ?? plainCols,
     filteredData: [],
     predicate: opts.predicate ?? basePredicate,
-    savePredicate: () => {},
+    savePredicate: opts.savePredicate ?? (() => {}),
     setSearchString: () => {},
     setEditMode: () => {},
     hideColumn: () => {},
@@ -303,8 +316,10 @@ describe("FilterBar inline view-settings bar (Notidian-vrmf)", () => {
     // Their single home is inline; the overflow menu must not duplicate them.
     expect(names).not.toContain(i18n.menu.sortBy);
     expect(names).not.toContain(i18n.menu.filters);
-    // Sanity: the menu still carries genuine overflow settings.
-    expect(names).toContain(i18n.labels.limit);
+    // Sanity: the menu still carries genuine overflow settings. (Limit itself
+    // is no longer one of them as of bd Notidian-4qjx.6 — see the dedicated
+    // "promoted inline controls" describe block below for its coverage.)
+    expect(names).toContain(i18n.labels.source);
   });
 
   it("flag OFF (kill-switch): restores byte-for-byte legacy IA — no net-new wrapper/classes/attrs", () => {
@@ -360,5 +375,142 @@ describe("FilterBar inline view-settings bar (Notidian-vrmf)", () => {
     expect(sort.hasAttribute("data-mk-active")).toBe(false);
     const filter = legacyControl("Filter")!;
     expect(filter.classList.contains("mk-active")).toBe(false);
+  });
+});
+
+// Click an inline control button and capture the resulting openMenu call
+// (anchored to the button, exactly the house idiom the Filter/Sort/Group-By
+// trio's own onClick handlers use).
+const clickControl = async (btn: HTMLButtonElement) => {
+  stubRect(btn);
+  openMenuCalls.length = 0;
+  await act(async () => {
+    btn.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, view: window })
+    );
+    await Promise.resolve();
+  });
+};
+
+describe("FilterBar promoted inline controls: Limit + Display Property (bd Notidian-4qjx.6)", () => {
+  it("flag ON: Limit and Display Property render inline with i18n-derived labels", () => {
+    mount({ viewSettingsInlineBar: true });
+    const limit = inlineControl("limit");
+    const displayProperty = inlineControl("displayProperty");
+    expect(limit).toBeTruthy();
+    expect(displayProperty).toBeTruthy();
+    expect(limit!.getAttribute("aria-label")).toBe(i18n.labels.limit);
+    expect(displayProperty!.getAttribute("aria-label")).toBe(
+      i18n.menu.displayProperty
+    );
+  });
+
+  it("flag ON (de-dup): the 3-knobs menu does NOT list Limit or Display Property (single home: inline)", async () => {
+    mount({ viewSettingsInlineBar: true });
+    const names = await openViewOptionsMenuNames();
+    expect(names).not.toContain(i18n.labels.limit);
+    expect(names).not.toContain(i18n.menu.displayProperty);
+    // Sanity: the menu still carries genuine overflow settings.
+    expect(names).toContain(i18n.labels.source);
+  });
+
+  it("flag ON: Limit's active indicator reflects a positive predicate.limit", () => {
+    mount({ viewSettingsInlineBar: true, predicate: { ...basePredicate, limit: 25 } });
+    const limit = inlineControl("limit")!;
+    expect(limit.getAttribute("data-mk-active")).toBe("true");
+    expect(limit.classList.contains("mk-active")).toBe(true);
+    expect(limit.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("flag ON: Limit's active indicator is off when the predicate has no limit", () => {
+    mount({ viewSettingsInlineBar: true });
+    const limit = inlineControl("limit")!;
+    expect(limit.getAttribute("data-mk-active")).toBe("false");
+    expect(limit.classList.contains("mk-active")).toBe(false);
+    expect(limit.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("flag ON: Display Property's active indicator reflects a chosen listViewProps.displayProperty", () => {
+    mount({
+      viewSettingsInlineBar: true,
+      predicate: {
+        ...basePredicate,
+        listViewProps: { displayProperty: "Status" },
+      },
+    });
+    const displayProperty = inlineControl("displayProperty")!;
+    expect(displayProperty.getAttribute("data-mk-active")).toBe("true");
+    expect(displayProperty.classList.contains("mk-active")).toBe(true);
+    expect(displayProperty.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("flag ON: Display Property's active indicator is off when none is chosen", () => {
+    mount({ viewSettingsInlineBar: true });
+    const displayProperty = inlineControl("displayProperty")!;
+    expect(displayProperty.getAttribute("data-mk-active")).toBe("false");
+    expect(displayProperty.classList.contains("mk-active")).toBe(false);
+  });
+
+  it("flag ON: clicking Limit opens the limit editor (numeric options, editable, correct placeholder)", async () => {
+    mount({ viewSettingsInlineBar: true });
+    await clickControl(inlineControl("limit")!);
+    expect(openMenuCalls.length).toBeGreaterThan(0);
+    const menuProps = openMenuCalls[openMenuCalls.length - 1].props;
+    expect(menuProps.editable).toBe(true);
+    expect(menuProps.placeholder).toBe("Enter a number or select");
+    const optionNames = menuProps.options.map((o: any) => o.name);
+    expect(optionNames).toContain(i18n.labels.showAll);
+    expect(optionNames).toContain("25");
+  });
+
+  it("flag ON: clicking Display Property opens the property picker (None + column options)", async () => {
+    mount({ viewSettingsInlineBar: true });
+    await clickControl(inlineControl("displayProperty")!);
+    expect(openMenuCalls.length).toBeGreaterThan(0);
+    const menuProps = openMenuCalls[openMenuCalls.length - 1].props;
+    const optionNames = menuProps.options.map((o: any) => o.name);
+    expect(optionNames).toContain(i18n.menu.none);
+    expect(optionNames).toContain("Status");
+  });
+
+  it("flag ON: choosing a Limit value round-trips through savePredicate", async () => {
+    const savePredicateCalls: any[] = [];
+    mount({
+      viewSettingsInlineBar: true,
+      savePredicate: (next) => savePredicateCalls.push(next),
+    });
+    await clickControl(inlineControl("limit")!);
+    const menuProps = openMenuCalls[openMenuCalls.length - 1].props;
+    menuProps.saveOptions([], ["50"]);
+    expect(savePredicateCalls).toContainEqual({ limit: 50 });
+  });
+
+  it("flag ON: choosing a Display Property value round-trips through savePredicate", async () => {
+    const savePredicateCalls: any[] = [];
+    mount({
+      viewSettingsInlineBar: true,
+      savePredicate: (next) => savePredicateCalls.push(next),
+    });
+    await clickControl(inlineControl("displayProperty")!);
+    const menuProps = openMenuCalls[openMenuCalls.length - 1].props;
+    menuProps.saveOptions([], ["Status"]);
+    expect(savePredicateCalls).toContainEqual({
+      listViewProps: { displayProperty: "Status" },
+    });
+  });
+
+  it("flag OFF (kill-switch): Limit and Display Property render nothing inline (no legacy inline form ever existed for them)", () => {
+    mount({ viewSettingsInlineBar: false });
+    expect(container.querySelector('[data-mk-control="limit"]')).toBeNull();
+    expect(
+      container.querySelector('[data-mk-control="displayProperty"]')
+    ).toBeNull();
+  });
+
+  it("flag OFF (kill-switch): Limit and Display Property fall back to their sole home in the 3-knobs menu", async () => {
+    mount({ viewSettingsInlineBar: false });
+    const names = await openViewOptionsMenuNames();
+    expect(names).toContain(i18n.labels.limit);
+    expect(names).toContain(i18n.menu.displayProperty);
   });
 });

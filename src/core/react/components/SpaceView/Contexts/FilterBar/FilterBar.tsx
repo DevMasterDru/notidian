@@ -738,6 +738,109 @@ export const FilterBar = (props: {
     );
   };
 
+  // Hoisted to component scope (was previously local to showViewOptionsMenu)
+  // so the inline Display Property control (bd Notidian-4qjx.6) can reuse it
+  // via showDisplayPropertyMenu below without duplicating the write path.
+  const savePropValue = (
+    type: "listGroupProps" | "listViewProps" | "listItemProps",
+    prop: string,
+    value: string
+  ) => {
+    savePredicate({
+      [type]: {
+        ...predicate[type],
+        [prop]: value,
+      },
+    });
+  };
+
+  // Limit (bd Notidian-4qjx.6, owner-ratified 2026-07-20 via gate
+  // Notidian-4qjx.12): extracted so the inline control and the kill-switch
+  // overflow fallback open the IDENTICAL editor menu (same options, same
+  // saveOptions write path) — one implementation, two anchor points.
+  const showLimitMenu = (offset: Rect, win: Window) => {
+    const limitOptions = [0, 10, 25, 50, 100, 200, 500];
+    const currentLimit = predicate?.limit?.toString() ?? "0";
+
+    // Include current limit in options if it's not already there
+    const allOptions = limitOptions.includes(predicate?.limit)
+      ? limitOptions
+      : [...limitOptions, predicate?.limit].sort((a, b) => a - b);
+
+    return props.superstate.ui.openMenu(
+      offset,
+      {
+        ui: props.superstate.ui,
+        multi: false,
+        editable: true,
+        value: [currentLimit],
+        options: allOptions.map((limit) => ({
+          name: limit === 0 ? i18n.labels.showAll : limit.toString(),
+          value: limit.toString(),
+        })),
+        saveOptions: (_: string[], value: string[]) => {
+          const limitValue = parseInt(value[0]) || 0;
+          savePredicate({
+            limit: limitValue >= 0 ? limitValue : 0,
+          });
+        },
+        placeholder: "Enter a number or select",
+        searchable: true,
+        showAll: true,
+      },
+      win
+    );
+  };
+
+  // Display Property (bd Notidian-4qjx.6): same extraction rationale as
+  // showLimitMenu above. Only meaningful on the primary files schema (mirrors
+  // the `dbSchema?.primary == "true"` gate both call sites already respect).
+  const showDisplayPropertyMenu = (offset: Rect, win: Window) => {
+    const displayProperty = displayPropertyForPredicate(predicate);
+    const persistedDisplayOptions = filteredCols.filter(
+      (f) => f.primary != "true" && !f.table
+    );
+    // Frontmatter keys that were never persisted as columns are equally
+    // valid display properties (labels resolve from the frontmatter cache).
+    const displayPropertyOptions = [
+      ...persistedDisplayOptions,
+      ...discoverFrontmatterPropertiesFromPathStates(
+        props.superstate.pathsIndex,
+        [...(props.superstate.spacesMap.getInverse(spaceCache.path) ?? [])],
+        props.superstate.settings,
+        [...filteredCols, ...persistedDisplayOptions]
+      ),
+    ];
+    return props.superstate.ui.openMenu(
+      offset,
+      {
+        ui: props.superstate.ui,
+        multi: false,
+        editable: false,
+        value: [displayProperty ?? ""],
+        options: [
+          {
+            name: i18n.menu.none,
+            value: "",
+            icon: "ui//file",
+          },
+          ...displayPropertyOptions.map((f) => ({
+            name: f.name,
+            value: f.name,
+            icon: stickerForField(f),
+          })),
+        ],
+        saveOptions: (_: string[], value: string[]) => {
+          savePropValue("listViewProps", "displayProperty", value[0] ?? "");
+        },
+        placeholder: i18n.labels.propertyItemSelectPlaceholder,
+        searchable: true,
+        showAll: true,
+      },
+      win
+    );
+  };
+
   const showViewOptionsMenu = async (
     e?: React.MouseEvent,
     update?: boolean
@@ -1086,49 +1189,28 @@ export const FilterBar = (props: {
       },
     });
 
-    menuOptions.push({
-      name: i18n.labels.limit,
-      icon: "ui//hash",
-      type: SelectOptionType.Disclosure,
-      value:
-        predicate?.limit > 0 ? predicate.limit.toString() : i18n.labels.showAll,
-      onClick: (e) => {
-        // Anchor the submenu to the menu row (currentTarget), not the clicked
-        // glyph within it (Notidian-i23).
-        const offset = e.currentTarget.getBoundingClientRect();
-        const limitOptions = [0, 10, 25, 50, 100, 200, 500];
-        const currentLimit = predicate?.limit?.toString() ?? "0";
-
-        // Include current limit in options if it's not already there
-        const allOptions = limitOptions.includes(predicate?.limit)
-          ? limitOptions
-          : [...limitOptions, predicate?.limit].sort((a, b) => a - b);
-
-        props.superstate.ui.openMenu(
-          offset,
-          {
-            ui: props.superstate.ui,
-            multi: false,
-            editable: true,
-            value: [currentLimit],
-            options: allOptions.map((limit) => ({
-              name: limit === 0 ? i18n.labels.showAll : limit.toString(),
-              value: limit.toString(),
-            })),
-            saveOptions: (_: string[], value: string[]) => {
-              const limitValue = parseInt(value[0]) || 0;
-              savePredicate({
-                limit: limitValue >= 0 ? limitValue : 0,
-              });
-            },
-            placeholder: "Enter a number or select",
-            searchable: true,
-            showAll: true,
-          },
-          windowFromDocument(e.view.document)
-        );
-      },
-    });
+    // Limit (bd Notidian-4qjx.6, owner-ratified 2026-07-20 via gate
+    // Notidian-4qjx.12): single home is now INLINE — this overflow entry is
+    // the kill-switch fallback only (viewSettingsInlineBar OFF restores its
+    // sole pre-promotion home here; no bare inline form is invented for it,
+    // since none ever existed — see viewSettings.ts).
+    if (!inlineBarEnabled) {
+      menuOptions.push({
+        name: i18n.labels.limit,
+        icon: "ui//hash",
+        type: SelectOptionType.Disclosure,
+        value:
+          predicate?.limit > 0
+            ? predicate.limit.toString()
+            : i18n.labels.showAll,
+        onClick: (e) => {
+          // Anchor the submenu to the menu row (currentTarget), not the
+          // clicked glyph within it (Notidian-i23).
+          const offset = e.currentTarget.getBoundingClientRect();
+          showLimitMenu(offset, windowFromDocument(e.view.document));
+        },
+      });
+    }
 
     menuOptions.push({
       name: "",
@@ -1191,77 +1273,28 @@ export const FilterBar = (props: {
 
     menuOptions.push(menuSeparator);
 
-    const savePropValue = (
-      type: "listGroupProps" | "listViewProps" | "listItemProps",
-      prop: string,
-      value: string
-    ) => {
-      savePredicate({
-        [type]: {
-          ...predicate[type],
-          [prop]: value,
-        },
-      });
-    };
     if (dbSchema?.primary == "true") {
-      const displayProperty = displayPropertyForPredicate(predicate);
-      const persistedDisplayOptions = filteredCols.filter(
-        (f) => f.primary != "true" && !f.table
-      );
-      // Frontmatter keys that were never persisted as columns are equally
-      // valid display properties (labels resolve from the frontmatter cache).
-      const displayPropertyOptions = [
-        ...persistedDisplayOptions,
-        ...discoverFrontmatterPropertiesFromPathStates(
-          props.superstate.pathsIndex,
-          [...(props.superstate.spacesMap.getInverse(spaceCache.path) ?? [])],
-          props.superstate.settings,
-          [...filteredCols, ...persistedDisplayOptions]
-        ),
-      ];
-      menuOptions.push({
-        name: i18n.menu.displayProperty,
-        icon: "ui//type",
-        type: SelectOptionType.Disclosure,
-        value: displayProperty ?? i18n.menu.none,
-        onClick: (e) => {
-          // Anchor the submenu to the menu row (currentTarget), not the clicked
-          // glyph within it (Notidian-i23).
-          const offset = e.currentTarget.getBoundingClientRect();
-          props.superstate.ui.openMenu(
-            offset,
-            {
-              ui: props.superstate.ui,
-              multi: false,
-              editable: false,
-              value: [displayProperty ?? ""],
-              options: [
-                {
-                  name: i18n.menu.none,
-                  value: "",
-                  icon: "ui//file",
-                },
-                ...displayPropertyOptions.map((f) => ({
-                  name: f.name,
-                  value: f.name,
-                  icon: stickerForField(f),
-                })),
-              ],
-              saveOptions: (_: string[], value: string[]) => {
-                savePropValue(
-                  "listViewProps",
-                  "displayProperty",
-                  value[0] ?? ""
-                );
-              },
-              placeholder: i18n.labels.propertyItemSelectPlaceholder,
-              searchable: true,
-              showAll: true,
-            },
-            windowFromDocument(e.view.document)
-          );
-        },
-      });
+      // Display Property (bd Notidian-4qjx.6, owner-ratified 2026-07-20 via
+      // gate Notidian-4qjx.12): single home is now INLINE — this overflow
+      // entry is the kill-switch fallback only (viewSettingsInlineBar OFF
+      // restores its sole pre-promotion home here; see viewSettings.ts).
+      // Item Properties below is a DIFFERENT control, not promoted, and
+      // stays in the overflow menu regardless of the flag.
+      if (!inlineBarEnabled) {
+        const displayProperty = displayPropertyForPredicate(predicate);
+        menuOptions.push({
+          name: i18n.menu.displayProperty,
+          icon: "ui//type",
+          type: SelectOptionType.Disclosure,
+          value: displayProperty ?? i18n.menu.none,
+          onClick: (e) => {
+            // Anchor the submenu to the menu row (currentTarget), not the
+            // clicked glyph within it (Notidian-i23).
+            const offset = e.currentTarget.getBoundingClientRect();
+            showDisplayPropertyMenu(offset, windowFromDocument(e.view.document));
+          },
+        });
+      }
       // bd Notidian-543/sxs1: per-item display-property picker (Notion
       // "Properties" parity). Surface it on EVERY fieldsView-based layout that
       // actually renders the full `_properties` array — Cards, Board, and
@@ -2049,6 +2082,12 @@ export const FilterBar = (props: {
   const searchInlineActive = inlineBarEnabled
     ? inlineActive.search
     : searchActive;
+  // Limit + Display Property (bd Notidian-4qjx.6): unlike the trio above,
+  // these have no legacy inline form to fall back to when OFF — they render
+  // inline ONLY when the bar is enabled (see the inlineBarEnabled branch
+  // below), so no OFF-branch expression is needed here.
+  const limitInlineActive = inlineActive.limit;
+  const displayPropertyInlineActive = inlineActive.displayProperty;
   return (
     <>
       {props.minMode ? (
@@ -2301,6 +2340,70 @@ export const FilterBar = (props: {
                         __html: props.superstate.ui.getSticker("ui//columns"),
                       }}
                     ></button>
+                    {/* Limit + Display Property (bd Notidian-4qjx.6,
+                        owner-ratified 2026-07-20 via gate Notidian-4qjx.12):
+                        the next promoted pair. Same single-home pattern as
+                        the trio above — the overflow entry is dropped (see
+                        showViewOptionsMenu's `!inlineBarEnabled` gates) and
+                        the editor menu is opened via the SAME extracted
+                        showLimitMenu / showDisplayPropertyMenu the kill-switch
+                        fallback also calls, so there is exactly one
+                        implementation of each editor regardless of home. */}
+                    <button
+                      className={classNames(
+                        "mk-toolbar-button",
+                        "mk-view-setting",
+                        "mk-view-setting--limit",
+                        limitInlineActive && "mk-active"
+                      )}
+                      data-mk-control="limit"
+                      data-mk-active={limitInlineActive ? "true" : "false"}
+                      aria-label={i18n.labels.limit}
+                      aria-pressed={limitInlineActive ? "true" : "false"}
+                      title={i18n.labels.limit}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        showLimitMenu(
+                          e.currentTarget.getBoundingClientRect(),
+                          windowFromDocument(e.view.document)
+                        );
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//hash"),
+                      }}
+                    ></button>
+                    {/* Display Property only applies to the primary files
+                        schema — same gate the overflow entry uses (mirrors
+                        the itemProperties gate a few lines below it). */}
+                    {dbSchema?.primary == "true" && (
+                      <button
+                        className={classNames(
+                          "mk-toolbar-button",
+                          "mk-view-setting",
+                          "mk-view-setting--display-property",
+                          displayPropertyInlineActive && "mk-active"
+                        )}
+                        data-mk-control="displayProperty"
+                        data-mk-active={
+                          displayPropertyInlineActive ? "true" : "false"
+                        }
+                        aria-label={i18n.menu.displayProperty}
+                        aria-pressed={
+                          displayPropertyInlineActive ? "true" : "false"
+                        }
+                        title={i18n.menu.displayProperty}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          showDisplayPropertyMenu(
+                            e.currentTarget.getBoundingClientRect(),
+                            windowFromDocument(e.view.document)
+                          );
+                        }}
+                        dangerouslySetInnerHTML={{
+                          __html: props.superstate.ui.getSticker("ui//type"),
+                        }}
+                      ></button>
+                    )}
                   </div>
                 ) : (
                   <>
