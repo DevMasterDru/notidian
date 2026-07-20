@@ -126,6 +126,17 @@ const notifyOrphanedSchemas = (
 
 
 
+// Notidian-m3t8: the sql.js/sqlite error shape for "the table doesn't exist"
+// is a fixed string, "no such table: <name>" -- optionally schema-qualified
+// (e.g. "no such table: main.<name>") when the miss comes from resolving a
+// VIEW's own defining query rather than a direct FROM. Used to narrow
+// getMDBTable's m_fields catch to ONLY this specific case, instead of ANY
+// exception on that SELECT.
+const isMissingTableError = (e: unknown, tableName: string): boolean =>
+  e instanceof Error &&
+  (e.message === `no such table: ${tableName}` ||
+    e.message === `no such table: main.${tableName}`);
+
 export const getMDBTable = async (
   adapter: MDBFileTypeAdapter,
   dbPath: string,
@@ -147,8 +158,25 @@ export const getMDBTable = async (
       db.exec(`SELECT * FROM ${quoteIdent("m_fields")} WHERE ${quoteIdent("schemaId")} = '${sanitizeSQLStatement(table)}'`)
     );
   } catch (e) {
-    // A missing m_fields is recoverable for an explicit table mutation: expose
-    // the physical rows with no field metadata so the operation can rebuild it.
+    // Notidian-m3t8: this used to catch ANY exception here and treat it as
+    // "m_fields is missing" -- collapsing a genuinely different SQL error
+    // (corrupt schema, disk-image errors, etc.) into a silent empty field
+    // set. Narrow the recovery to the specific missing-table shape, mirroring
+    // the explicit sqlite_schema existence check
+    // getOrReconstructMDBTablePropertiesWithinWriteQueue runs below (a
+    // pre-flight probe isn't worth a second query here since the thrown error
+    // already tells us the answer). A missing m_fields IS recoverable for an
+    // explicit table mutation: expose the physical rows with no field
+    // metadata so the operation can rebuild it. Anything else surfaces to the
+    // user and yields an unusable table, exactly as the m_schema read below
+    // already does -- callers of this function handle null, but nothing here
+    // catches a rejection, so throwing would turn a read failure into an
+    // unhandled rejection.
+    if (!isMissingTableError(e, "m_fields")) {
+      adapter.plugin.superstate.ui.error(e);
+      db.close();
+      return null;
+    }
     fieldsTables = [];
   }
   try {
