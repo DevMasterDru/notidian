@@ -398,6 +398,8 @@ export const HeaderPropertiesView = (props: PropsWithChildren<{
               superstate={props.superstate}
               collapsed={collapsed}
               onToggle={(c) => toggleCollapsed()}
+              ariaLabel={i18n.labels.hideProperties}
+              className="mk-collapse-properties"
             ></CollapseToggle>
           </div>
         </div>

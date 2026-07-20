@@ -315,6 +315,47 @@ describe("full collapse — collapsing hides 100% of note text (Notidian-50hn)",
   });
 });
 
+// --- Notidian-ul4t: label + visual distinction from the mk-space-header ----
+//     property fold (ratified via Notidian-4qjx.12). Scope is labeling +
+//     visual distinction ONLY — the toggle/persistence behavior asserted above
+//     (Notidian-8sl) must be unchanged; these tests only add the new
+//     aria-label/title contract and a distinguishing class.
+
+describe("note-body collapse chevron — label + visual distinction (Notidian-ul4t)", () => {
+  it("labels the chevron 'Collapse Note' via aria-label and title", async () => {
+    await render(makeSuperstate(true), makeSpaceState());
+    const chevron = container.querySelector("button.mk-collapse");
+    expect(chevron).not.toBeNull();
+    expect(chevron!.getAttribute("aria-label")).toBe("Collapse Note");
+    expect(chevron!.getAttribute("title")).toBe("Collapse Note");
+  });
+
+  it("carries a distinguishing class not shared with the property-fold chevron", async () => {
+    await render(makeSuperstate(true), makeSpaceState());
+    const chevron = container.querySelector("button.mk-collapse");
+    expect(chevron!.classList.contains("mk-collapse-note")).toBe(true);
+    expect(chevron!.classList.contains("mk-collapse-properties")).toBe(false);
+  });
+
+  it("still toggles and persists noteBodyCollapsed after the label/class change (no behavior change)", async () => {
+    await render(makeSuperstate(true), makeSpaceState());
+    const chevron = container.querySelector(
+      "button.mk-collapse"
+    ) as HTMLButtonElement;
+    await act(async () => {
+      chevron.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true })
+      );
+    });
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0]).toEqual({
+      path: "Projects/Atlas",
+      key: "noteBodyCollapsed",
+      value: true,
+    });
+  });
+});
+
 // --- Flag ON: resize + scroll (Notidian-egoh) ------------------------------
 
 describe("flag ON — resizeable + scrollable note body (Notidian-egoh)", () => {

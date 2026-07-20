@@ -97,3 +97,19 @@ opacity: 1 !important;
     left: -24px;
     top: 6px;
   }
+
+/* Notidian-ul4t: distinguish this property-fold chevron from the visually
+   identical mk-space-note-header collapse chevron (src/css/SpaceViewer/
+   SpaceView.css .mk-collapse-note) — same icon glyph, adjacent placement, the
+   owner mistook one for the other (bd Notidian-ul4t). Purely visual: slightly
+   smaller and more muted at rest, since this fold only affects the space's
+   property/context row, never page content. No behavior change. */
+.mk-fold .mk-collapse-properties {
+    width: 14px !important;
+    min-width: 14px !important;
+    height: 14px !important;
+    opacity: 0.35;
+}
+.mk-fold .mk-collapse-properties:hover {
+    opacity: 0.9;
+}

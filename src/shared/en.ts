@@ -621,6 +621,8 @@ export const en = {
     "base100": "Base100",
     "installSpaceKit": "Install Space Kit",
     "hubRowIndicator": "This row is the hub of a nested database — open it",
+    "hideProperties": "Hide Properties",
+    "collapseNote": "Collapse Note",
     "rowHealthBadge": "This row has data issues — click to repair",
     "lockBadge": "This row is locked",
     "rowHealthRowNotFound": "Could not locate this row to apply the fix.",

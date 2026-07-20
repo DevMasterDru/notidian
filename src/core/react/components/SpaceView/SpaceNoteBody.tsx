@@ -24,6 +24,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import i18n from "shared/i18n";
 
 // Renders the space's folder note (hub note) body above the space body so a
 // database's legend/definitions live on its own page (Notidian-7oj).
@@ -215,6 +216,8 @@ export const SpaceNoteBody = (props: { superstate: Superstate }) => {
         <UICollapse
           collapsed={collapsed}
           onToggle={(next) => toggleCollapsed(next)}
+          ariaLabel={i18n.labels.collapseNote}
+          className="mk-collapse-note"
         ></UICollapse>
         <span className="mk-space-note-header-label">{spaceState.name}</span>
       </div>

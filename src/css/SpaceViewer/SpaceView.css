@@ -397,6 +397,19 @@ margin-left: calc((max(100%, var(--max-width)) - var(--max-width)) /2) !importan
   white-space: nowrap;
 }
 
+/* Notidian-ul4t: distinguish this note-body collapse chevron from the
+   visually identical mk-space-header property-fold chevron (see the paired
+   rule at src/css/Editor/Flow/Properties.css .mk-fold .mk-collapse-properties)
+   — same icon glyph, adjacent placement, easily mistaken for one another (bd
+   Notidian-ul4t). This chevron collapses page content, so it stays a shade
+   more visible at rest than the auxiliary property fold. No behavior change. */
+.mk-collapse-note {
+  opacity: 0.55;
+}
+.mk-collapse-note:hover {
+  opacity: 1;
+}
+
 .mk-space-note--collapsed .mk-flowspace-editor {
   display: none;
 }
