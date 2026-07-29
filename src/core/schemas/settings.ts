@@ -164,6 +164,11 @@ export const DEFAULT_SETTINGS: MakeMDSettings = {
   // KILL-SWITCH: set it false and the merge seam ignores the overlay so the base
   // view renders unfiltered — byte-for-byte legacy behavior.
   renderPathViewOverlays: true,
+  // Default-ON tabbed hub views (Notidian-pb7p.1 / ADR 0065, Atlas ADR-0096
+  // H1). Opt-in per space via a folder-note frontmatter `tabs:` declaration.
+  // KILL-SWITCH: false renders every space as the legacy page regardless of
+  // declarations, byte-for-byte.
+  hubTabbedViews: true,
   // Default-ON cross-database saved-view projection (Notidian-42tx / ADR 0059).
   // Owner-requested F1; retained as a kill-switch. OFF ignores def.sources and
   // restores the singular context/database read path byte-for-byte.

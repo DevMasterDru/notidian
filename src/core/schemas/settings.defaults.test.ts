@@ -128,6 +128,7 @@ const REQUIRED_SETTING_KEYS = {
   basics: true,
   hardenFrameExecution: true,
   renderPathViewOverlays: true,
+  hubTabbedViews: true,
   crossDatabaseSavedViews: true,
   periodScopedRollups: true,
   recurrenceAwareFilters: true,
@@ -180,6 +181,7 @@ const DOCUMENTED_KILL_SWITCHES: ReadonlyArray<keyof MakeMDSettings> = [
   "rowVirtualization", // Notidian-8h9 / ADR 0049
   "hardenFrameExecution", // Notidian-vke / ADR 0018
   "renderPathViewOverlays", // Notidian-ioxi / ADR-0066 (owner-requested default-ON)
+  "hubTabbedViews", // Notidian-pb7p.1 / ADR 0065 (Atlas ADR-0096 H1, owner-ratified default-ON)
   "crossDatabaseSavedViews", // Notidian-42tx / ADR 0059 (owner-requested default-ON)
   "periodScopedRollups", // Notidian-x7pn / ADR 0060 (owner-requested default-ON)
   "recurrenceAwareFilters", // Notidian-1ceb / ADR 0061 (owner-requested default-ON)

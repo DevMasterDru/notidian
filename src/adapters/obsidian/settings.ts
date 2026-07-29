@@ -414,6 +414,14 @@ export class NotidianPluginSettingsTab extends PluginSettingTab {
         type: 'boolean',
       },
       {
+        // bd Notidian-pb7p.1 / ADR 0065 (Atlas ADR-0096 H1) — tabbed hub view
+        // kill-switch. The SpaceInner mount seam reads it live; false renders
+        // every space as the legacy page regardless of `tabs:` declarations.
+        name: 'hubTabbedViews',
+        category: 'advanced',
+        type: 'boolean',
+      },
+      {
         // Notidian-42tx / ADR 0059 — owner-requested F1 projection kill-switch.
         // The provider reads this live; false ignores saved source sets and
         // restores singular source rendering.

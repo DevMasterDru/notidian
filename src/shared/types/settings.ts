@@ -187,6 +187,12 @@ export interface MakeMDSettings {
   // never enters savePredicate/saveSchema, so toggling this flag can never touch
   // stored data.
   renderPathViewOverlays: boolean;
+  // Tabbed hub views (ADR 0065 / Atlas ADR-0096 H1). When true (default), a
+  // folder note declaring a structurally valid frontmatter `tabs:` list
+  // renders the space as a persistent tab bar over authored composition
+  // pages. False is the kill-switch: every space renders the legacy page
+  // regardless of declarations, byte-for-byte.
+  hubTabbedViews: boolean;
   // Cross-database saved views (Notidian-42tx / ADR 0059). When true, a saved
   // frame whose def.sources contains at least two database sources renders the
   // pure mapped union of those source rows. F1 is deliberately read-only: the

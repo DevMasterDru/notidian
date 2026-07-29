@@ -485,3 +485,62 @@ margin-left: calc((max(100%, var(--max-width)) - var(--max-width)) /2) !importan
   
   margin: 0 !important;
 }
+/* Tabbed hub view (ADR 0065 / Atlas ADR-0096 H1, bd Notidian-pb7p.1).
+   The bar lists EVERY declared tab, wrapping onto additional rows on
+   overflow — never a dropdown (the no-spatial-memory ruling) — and stays
+   pinned to the top of the space scroller while the composition scrolls. */
+.mk-hub-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.mk-hub-tabs-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--layer-popover, 30);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--mk-ui-background, var(--background-primary));
+  border-bottom: 1px solid var(--mk-ui-divider, var(--background-modifier-border));
+}
+.mk-hub-tab {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: var(--font-ui-small);
+  color: var(--mk-ui-text-secondary);
+  cursor: var(--cursor);
+}
+.mk-hub-tab:hover {
+  background: var(--mk-ui-background-hover, var(--background-modifier-hover));
+  color: var(--mk-ui-text-primary);
+}
+.mk-hub-tab.mk-active {
+  background: var(--mk-ui-background-active, var(--background-modifier-hover));
+  color: var(--mk-ui-text-primary);
+  font-weight: var(--bold-weight, 600);
+}
+.mk-hub-tab-page {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* Invalid-declaration banner (fail visible, never fail-brick): renders above
+   the legacy page, styled like the embed error surface. */
+.mk-hub-tabs-error {
+  margin: 8px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--mk-ui-border, var(--background-modifier-border));
+  border-left: 3px solid var(--text-error, #e93147);
+  border-radius: 4px;
+  font-size: var(--font-ui-small);
+  color: var(--mk-ui-text-secondary);
+}
+.mk-hub-tabs-error strong {
+  display: block;
+  color: var(--mk-ui-text-primary);
+}

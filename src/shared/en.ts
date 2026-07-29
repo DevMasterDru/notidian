@@ -1230,6 +1230,10 @@ export const en = {
       "name": "Embed View Overlays",
       "desc": "Let a Notidian embed's \"where:\" clauses filter the embedded view at render time, so a topic/hub page can show a narrowed slice of a shared database. Read-only: overlays never change the underlying view or its saved filters. Turn off to render embedded views unfiltered (legacy behavior)."
     },
+    "hubTabbedViews": {
+      "name": "Tabbed Hub Views",
+      "desc": "Render a folder as a tabbed hub when its folder note declares a frontmatter \"tabs:\" list — a persistent top tab bar over full-page authored compositions. Turn off to render every space as the legacy page regardless of declarations."
+    },
     "crossDatabaseSavedViews": {
       "name": "Cross-Database Saved Views",
       "desc": "Let a saved Notidian view combine rows from multiple folder databases through shared-field mappings. F1 projections are read-only; edit each canonical source database. Turn off to ignore source sets and use the legacy single-database view path."
