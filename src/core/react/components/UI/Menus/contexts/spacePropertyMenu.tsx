@@ -30,7 +30,11 @@ import {
 import { windowFromDocument } from "shared/utils/dom";
 import { PropertyWrapTextMenuComponent } from "./PropertyWrapTextMenu";
 import StickerModal from "../../../../../../shared/components/StickerModal";
-import { defaultMenu, menuSeparator } from "../menu/SelectionMenu";
+import { defaultMenu, menuInput, menuSeparator } from "../menu/SelectionMenu";
+import {
+  attrsWithPropertyDescription,
+  propertyDescriptionFromAttrs,
+} from "core/utils/contexts/propertyDescription";
 import { PropertyDataAnchorMenuComponent } from "./PropertyDataAnchorMenu";
 import { PropertyHeaderDisplayModeMenuComponent } from "./PropertyHeaderDisplayModeMenu";
 import { PropertyValueComponent } from "./PropertyValue";
@@ -346,6 +350,24 @@ export const showPropertyMenu = (
 
   if (!flex) {
     menuOptions.push(menuSeparator);
+    // H3 (Notidian-pb7p.3 / Atlas ADR-0096 D1): the column's authored
+    // elaboration, surfaced by the header hover tooltip instead of body prose.
+    // Persisted in the `attrs` envelope, so it rides the existing saveField
+    // write path with no schema change (propertyDescription.ts).
+    if (editable) {
+      menuOptions.push(
+        menuInput(
+          propertyDescriptionFromAttrs(field.attrs) ?? "",
+          (value) =>
+            saveField({
+              ...field,
+              attrs: attrsWithPropertyDescription(field.attrs, value),
+            }),
+          i18n.labels.propertyDescriptionPlaceholder
+        )
+      );
+      menuOptions.push(menuSeparator);
+    }
     if (setHeaderDisplayMode) {
       menuOptions.push({
         name: "",

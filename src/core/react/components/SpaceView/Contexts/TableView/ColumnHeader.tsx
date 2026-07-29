@@ -16,6 +16,7 @@ import {
 } from "core/utils/contexts/tableFreeze";
 import { isFrontmatterBackedProperty } from "core/utils/properties/allProperties";
 import { propertyHeaderNameInfo } from "core/utils/contexts/propertyHeaderName";
+import { propertyDescriptionFromAttrs } from "core/utils/contexts/propertyDescription";
 import {
   propertyHeaderTooltipPosition,
   PropertyHeaderTooltipPosition,
@@ -88,6 +89,10 @@ export const filePropTypes = [
 ];
 type PropertyHeaderTooltipState = {
   title: string;
+  // H3 (Notidian-pb7p.3 / Atlas ADR-0096 D1): authored elaboration for the
+  // column, carried by the tooltip instead of body prose. Absent when the
+  // property has no description.
+  description?: string;
   anchorRect: PropertyHeaderTooltipRect;
   position: PropertyHeaderTooltipPosition;
 };
@@ -95,6 +100,13 @@ type PropertyHeaderTooltipState = {
 const defaultPropertyHeaderTooltipSize = {
   width: 140,
   height: 34,
+};
+
+// A described column needs a taller/wider tooltip box so the positioner keeps
+// it fully on-screen; the pure positioner is fed this instead of guessing.
+const describedPropertyHeaderTooltipSize = {
+  width: 240,
+  height: 72,
 };
 
 const rectForPropertyHeaderTooltip = (
@@ -304,6 +316,7 @@ export const ColumnHeader = (props: {
     mode: props.headerDisplayMode ?? defaultPropertyHeaderDisplayMode,
     columnWidth: props.columnWidth,
   });
+  const headerDescription = propertyDescriptionFromAttrs(field?.attrs);
 
   const showPropertyHeaderTooltip = useCallback(() => {
     if (!propertyHeaderRef.current || !headerName) return;
@@ -315,14 +328,17 @@ export const ColumnHeader = (props: {
     );
     setPropertyHeaderTooltip({
       title: headerNameInfo?.tooltipName ?? headerName,
+      description: headerDescription,
       anchorRect,
       position: propertyHeaderTooltipPosition({
         anchorRect,
-        tooltipSize: defaultPropertyHeaderTooltipSize,
+        tooltipSize: headerDescription
+          ? describedPropertyHeaderTooltipSize
+          : defaultPropertyHeaderTooltipSize,
         viewportWidth: win.innerWidth,
       }),
     });
-  }, [headerName, headerNameInfo?.tooltipName]);
+  }, [headerName, headerNameInfo?.tooltipName, headerDescription]);
 
   const hidePropertyHeaderTooltip = useCallback(() => {
     setPropertyHeaderTooltip(null);
@@ -489,6 +505,11 @@ export const ColumnHeader = (props: {
               <div className="mk-property-header-tooltip-title">
                 {propertyHeaderTooltip.title}
               </div>
+              {propertyHeaderTooltip.description ? (
+                <div className="mk-property-header-tooltip-description">
+                  {propertyHeaderTooltip.description}
+                </div>
+              ) : null}
             </div>,
             propertyHeaderTooltipPortalTarget
           )

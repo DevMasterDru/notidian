@@ -82,6 +82,7 @@ import {
   DatabaseHealthPanel,
   formatIssueCount,
 } from "core/react/components/Navigator/DatabaseHealthPanel";
+import { tableRowDensityForValue } from "core/utils/contexts/tableRowDensity";
 import { ContextTitle } from "./ContextTitle";
 import { ListSelector } from "./ListSelector";
 import { SearchBar } from "./SearchBar";
@@ -905,6 +906,47 @@ export const FilterBar = (props: {
       });
 
       menuOptions.push(menuSeparator);
+    }
+    // H3 row density (bd Notidian-pb7p.3 / ADR-0096 D1: hub tabs are dense,
+    // mission-focused pages). Per view, persisted through savePredicate like
+    // every other view-shape knob; "normal" is dropped on save so an untouched
+    // view stays byte-identical.
+    {
+      const density = tableRowDensityForValue(predicate?.rowDensity);
+      const densityLabel: Record<string, string> = {
+        normal: i18n.menu.rowDensityNormal,
+        compact: i18n.menu.rowDensityCompact,
+      };
+      menuOptions.push({
+        name: i18n.menu.rowDensity,
+        icon: "ui//rows",
+        type: SelectOptionType.Disclosure,
+        value: densityLabel[density],
+        onClick: (e) => {
+          const offset = e.currentTarget.getBoundingClientRect();
+          props.superstate.ui.openMenu(
+            offset,
+            {
+              ui: props.superstate.ui,
+              multi: false,
+              editable: false,
+              searchable: false,
+              showAll: true,
+              value: [density],
+              options: [
+                { name: i18n.menu.rowDensityNormal, value: "normal" },
+                { name: i18n.menu.rowDensityCompact, value: "compact" },
+              ],
+              saveOptions: (_: string[], value: string[]) => {
+                savePredicate({
+                  rowDensity: tableRowDensityForValue(value[0]),
+                });
+              },
+            },
+            windowFromDocument(e.view.document)
+          );
+        },
+      });
     }
     menuOptions.push({
       name: predicate?.chart?.visible ? "Hide chart" : "Show chart",

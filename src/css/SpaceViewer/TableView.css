@@ -186,6 +186,17 @@
   line-height: 1.25;
 }
 
+/* H3 (Notidian-pb7p.3 / Atlas ADR-0096 D1): authored elaboration under the
+   property name — hubs carry explanation in hover tooltips, not body prose. */
+.mk-property-header-tooltip-description {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: var(--font-normal);
+  line-height: 1.35;
+  color: var(--mk-ui-text-secondary);
+  max-width: 240px;
+}
+
 body.mk-property-header-tooltip-visible > .tooltip {
   display: none !important;
 }
@@ -1245,6 +1256,25 @@ body.mk-property-header-tooltip-visible > .tooltip {
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+
+/* H3 title-cell wrap (Notidian-pb7p.3): the File / page-title cell renders a
+   PathCrumb, whose .mk-path (and its inner span) carry their own
+   nowrap + overflow:hidden + ellipsis from FileContext.css. Those beat the
+   .mk-cell-text rule above, so "wrap" silently did nothing on the one column
+   a dense hub most needs to read in full. Scoped strictly to a wrap-mode cell,
+   so clip columns and every non-table .mk-path are untouched. */
+.mk-td.mk-td-wrap-wrap .mk-path,
+.mk-td.mk-td-wrap-wrap .mk-path span {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.mk-td.mk-td-wrap-wrap .mk-path {
+  align-items: flex-start;
+}
 .mk-cell-number {
   padding: 4px;
   text-align: right;
@@ -2138,4 +2168,32 @@ width: 24px;
   color: var(--text-faint);
   cursor: help;
   flex-shrink: 0;
+}
+
+/* H3 compact row density (Notidian-pb7p.3 / Atlas ADR-0096 D1 — hub tabs are
+   dense, mission-focused pages). Opt-in per view via predicate.rowDensity;
+   the class is emitted only for "compact", so a normal-density table renders
+   the exact legacy metrics. Tightens the three stacked contributors to row
+   height — the cell padding, the cell's min-height floor, and the inner
+   content floor — rather than forcing a fixed row height, so multi-line wrap
+   cells still grow. */
+.mk-table--compact .mk-td {
+  padding: 0.2rem 0.4rem;
+}
+
+.mk-table--compact .mk-td > div {
+  min-height: 20px;
+}
+
+.mk-table--compact .mk-cell-text {
+  min-height: 18px;
+  padding: 1px 4px;
+}
+
+.mk-table--compact .mk-cell-number {
+  padding: 1px 4px;
+}
+
+.mk-table--compact .mk-path {
+  padding: 0 4px;
 }

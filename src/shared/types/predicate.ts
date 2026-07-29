@@ -8,6 +8,11 @@ export type ColumnDataAnchorMode = "auto" | ColumnDataAnchor;
 // lines. Stored per column in Predicate.colsWrap; the default ("clip") is
 // dropped on save so only opted-in columns carry a value.
 export type ColumnWrapMode = "clip" | "wrap";
+// Per-view row density (Notidian-pb7p.3 / Atlas ADR-0096 H3). "compact"
+// tightens row height and cell padding so a dense hub tab fits more rows above
+// the fold; "normal" is the default and is dropped on save, so an untouched
+// view stays byte-identical.
+export type TableRowDensity = "normal" | "compact";
 export type TableDirection = "ltr" | "rtl";
 
 export type Filter = {
@@ -42,6 +47,7 @@ export type Filter = {
     colsHeaderDisplay: Record<string, ColumnHeaderDisplayMode>;
     colsDataAnchor: Record<string, ColumnDataAnchor>;
     colsWrap?: Record<string, ColumnWrapMode>;
+    rowDensity?: TableRowDensity;
     tableDirection: TableDirection;
     frozenColumnCount: number;
     limit: number;

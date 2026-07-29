@@ -164,6 +164,7 @@ import {
   columnDataAnchorModeForValue,
 } from "core/utils/contexts/propertyDataAnchor";
 import { columnWrapModeForValue } from "core/utils/contexts/propertyColumnWrap";
+import { tableRowDensityClass } from "core/utils/contexts/tableRowDensity";
 import {
   isRowDndId,
   resolveDragOverId,
@@ -3894,7 +3895,13 @@ export const TableView = (props: { superstate: Superstate }) => {
         />
       )}
       <div
-        className={classNames("mk-table", isRTLTable && "mk-table-rtl")}
+        className={classNames(
+          "mk-table",
+          isRTLTable && "mk-table-rtl",
+          // H3 density (Notidian-pb7p.3): null for the default density, so an
+          // untouched view emits exactly the legacy class list.
+          tableRowDensityClass(predicate?.rowDensity)
+        )}
         dir={tableDirection}
         ref={ref}
         tabIndex={1}
