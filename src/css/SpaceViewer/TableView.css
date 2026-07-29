@@ -2169,31 +2169,3 @@ width: 24px;
   cursor: help;
   flex-shrink: 0;
 }
-
-/* H3 compact row density (Notidian-pb7p.3 / Atlas ADR-0096 D1 — hub tabs are
-   dense, mission-focused pages). Opt-in per view via predicate.rowDensity;
-   the class is emitted only for "compact", so a normal-density table renders
-   the exact legacy metrics. Tightens the three stacked contributors to row
-   height — the cell padding, the cell's min-height floor, and the inner
-   content floor — rather than forcing a fixed row height, so multi-line wrap
-   cells still grow. */
-.mk-table--compact .mk-td {
-  padding: 0.2rem 0.4rem;
-}
-
-.mk-table--compact .mk-td > div {
-  min-height: 20px;
-}
-
-.mk-table--compact .mk-cell-text {
-  min-height: 18px;
-  padding: 1px 4px;
-}
-
-.mk-table--compact .mk-cell-number {
-  padding: 1px 4px;
-}
-
-.mk-table--compact .mk-path {
-  padding: 0 4px;
-}

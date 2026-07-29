@@ -4,7 +4,6 @@ import { Filter, Predicate, Sort } from "shared/types/predicate";
 import { defaultPredicate } from "../../../../shared/schemas/predicate";
 import { columnDataAnchorModeForValue } from "../propertyDataAnchor";
 import { columnWrapModeForValue } from "../propertyColumnWrap";
-import { tableRowDensityForValue } from "../tableRowDensity";
 import { propertyHeaderDisplayModeForValue } from "../propertyHeaderDisplayMode";
 import { FilterFunctionType } from "./filter";
 import { filterFnTypes } from "./filterFns/filterFnTypes";
@@ -258,12 +257,6 @@ export const validatePredicate = (
     prevPredicate.tableDirection == "rtl"
       ? "rtl"
       : defaultPredicate.tableDirection;
-  // Per-view row density (Notidian-pb7p.3). The default ("normal") is dropped
-  // so an untouched view's saved predicate is byte-identical to today's.
-  const rowDensity =
-    tableRowDensityForValue(prevPredicate.rowDensity) == "compact"
-      ? ("compact" as const)
-      : undefined;
 
   return {
     ...defaultPredicate,
@@ -306,7 +299,6 @@ export const validatePredicate = (
     colsDataAnchor,
     colsWrap,
     tableDirection,
-    ...(rowDensity ? { rowDensity } : {}),
     frozenColumnCount:
       typeof prevPredicate.frozenColumnCount === "number" &&
       prevPredicate.frozenColumnCount >= 0
