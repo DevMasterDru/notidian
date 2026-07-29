@@ -8,6 +8,9 @@ import {
   parseHubTabsDeclaration,
   resolveActiveHubTab,
 } from "./hubTabs";
+import { spaceDefinitionFrontmatter } from "core/types/space";
+import { parseSpaceMetadata } from "core/superstate/utils/spaces";
+import { MakeMDSettings } from "shared/types/settings";
 
 describe("parseHubTabsDeclaration — classification", () => {
   it("treats absent, scalar, empty, and string-list values as no declaration", () => {
@@ -156,6 +159,29 @@ describe("hubTabLabel", () => {
 
   it("falls back to the id when the page has no usable basename", () => {
     expect(hubTabLabel({ id: "next", page: ".md" })).toBe("next");
+  });
+});
+
+// The def-file write allowlist and read parser must both carry activeHubTab —
+// allowlist/parser drift is exactly how noteBodyCollapsed was silently dropped
+// from disk (Notidian-8sl; see spaceDefinitionFrontmatter's doc contract).
+// LIVE-CAUGHT: the first vault verification of H1 lost the persisted tab for
+// this reason.
+describe("activeHubTab definition disk round-trip (REAL write/read path)", () => {
+  it("a selected tab survives serialize -> frontmatter -> parse", () => {
+    const parsed = parseSpaceMetadata(
+      spaceDefinitionFrontmatter({ activeHubTab: "dense" }),
+      {} as MakeMDSettings
+    );
+    expect(parsed.activeHubTab).toBe("dense");
+  });
+
+  it("a never-selected space round-trips with no activeHubTab", () => {
+    const parsed = parseSpaceMetadata(
+      spaceDefinitionFrontmatter({}),
+      {} as MakeMDSettings
+    );
+    expect(parsed.activeHubTab).toBeUndefined();
   });
 });
 

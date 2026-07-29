@@ -211,6 +211,49 @@ describe("HubTabsView (ADR 0065 H1)", () => {
     expect(error.textContent).toContain("Tabs/Next.md");
   });
 
+  it("adopts a persisted tab that arrives AFTER mount (async space cache)", async () => {
+    // LIVE-CAUGHT (Notidian-pb7p.1 vault verification): SpaceContext delivers
+    // spaceState asynchronously; capturing metadata.activeHubTab in a useState
+    // initializer at mount silently discarded the persisted tab. The active id
+    // must DERIVE from the latest metadata until the user explicitly selects.
+    const superstate = makeSuperstate([
+      "Life HQ/Tabs/Next.md",
+      "Life HQ/Tabs/State.md",
+    ]);
+    await render(superstate, makeSpaceState({}));
+    expect(
+      container
+        .querySelector('[data-testid="note-view"]')
+        .getAttribute("data-path")
+    ).toBe("Life HQ/Tabs/Next.md");
+
+    await render(superstate, makeSpaceState({ activeHubTab: "state" }));
+
+    expect(
+      container
+        .querySelector('[data-testid="note-view"]')
+        .getAttribute("data-path")
+    ).toBe("Life HQ/Tabs/State.md");
+  });
+
+  it("keeps the user's explicit selection over later metadata refreshes", async () => {
+    const superstate = makeSuperstate([
+      "Life HQ/Tabs/Next.md",
+      "Life HQ/Tabs/State.md",
+      "Life HQ/Tabs/Review.md",
+    ]);
+    await render(superstate, makeSpaceState({}));
+    await clickTab("Review");
+
+    await render(superstate, makeSpaceState({ activeHubTab: "state" }));
+
+    expect(
+      container
+        .querySelector('[data-testid="note-view"]')
+        .getAttribute("data-path")
+    ).toBe("Life HQ/Tabs/Review.md");
+  });
+
   it("passes the space read mode through to the composition", async () => {
     const superstate = makeSuperstate(["Life HQ/Tabs/Next.md"]);
     await render(superstate, makeSpaceState(), TABS, true);

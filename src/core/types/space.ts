@@ -97,6 +97,7 @@ export const spaceDefinitionFrontmatter = (
   fullWidth: metadata.fullWidth,
   noteBodyCollapsed: metadata.noteBodyCollapsed,
   noteBodyHeight: metadata.noteBodyHeight,
+  activeHubTab: metadata.activeHubTab,
   [spaceFilenameTemplateKey]: metadata.filenameTemplate,
 });
 

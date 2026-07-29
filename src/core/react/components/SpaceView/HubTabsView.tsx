@@ -8,7 +8,7 @@ import {
   resolveActiveHubTab,
 } from "core/utils/spaces/hubTabs";
 import { Superstate } from "makemd-core";
-import React, { useContext, useEffect, useMemo, useState } from "react";
+import React, { useContext, useMemo, useState } from "react";
 
 // Tabbed hub view (ADR 0065 / Atlas ADR-0096 H1, bd Notidian-pb7p.1):
 // persistent top tab bar over the active tab's authored composition note.
@@ -25,14 +25,17 @@ export const HubTabsView = (props: {
   const { spaceState, readMode } = useContext(SpaceContext);
   const tabs = props.tabs;
 
-  const [activeId, setActiveId] = useState<string>(() =>
-    resolveActiveHubTab(tabs, spaceState?.metadata?.activeHubTab)
+  // The active id DERIVES from the latest persisted metadata until the user
+  // explicitly selects a tab this mount — SpaceContext delivers spaceState
+  // asynchronously, so capturing metadata.activeHubTab in a useState
+  // initializer would silently discard the persisted tab (live-caught in the
+  // first vault verification). resolveActiveHubTab also revalidates a
+  // dangling id after a declaration edit.
+  const [userSelectedId, setUserSelectedId] = useState<string>(null);
+  const activeId = resolveActiveHubTab(
+    tabs,
+    userSelectedId ?? spaceState?.metadata?.activeHubTab
   );
-  // A declaration edit (tab removed/renamed) revalidates the current
-  // selection instead of leaving a dangling id mounted.
-  useEffect(() => {
-    setActiveId((current) => resolveActiveHubTab(tabs, current));
-  }, [tabs]);
 
   const activeTab =
     tabs.find((tab) => tab.id == activeId) ?? tabs[0] ?? null;
@@ -56,7 +59,7 @@ export const HubTabsView = (props: {
 
   const selectTab = (id: string) => {
     if (id == activeTab.id) return;
-    setActiveId(id);
+    setUserSelectedId(id);
     if (spaceState) {
       void saveSpaceMetadataValue(
         props.superstate,

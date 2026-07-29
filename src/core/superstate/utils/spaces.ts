@@ -75,6 +75,7 @@ export const parseSpaceMetadata = (metadata: Record<string, any>, settings: Make
       fullWidth: ensureBoolean(metadata.fullWidth),
       noteBodyCollapsed: ensureBoolean(metadata.noteBodyCollapsed),
       noteBodyHeight: ensureNumber(metadata.noteBodyHeight),
+      activeHubTab: ensureString(metadata.activeHubTab) || undefined,
       filenameTemplate: ensureString(metadata[spaceFilenameTemplateKey]),
     }
 }
