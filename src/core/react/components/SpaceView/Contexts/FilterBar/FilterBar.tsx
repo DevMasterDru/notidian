@@ -2098,50 +2098,57 @@ export const FilterBar = (props: {
             closeSearch={() => setSearchActive(false)}
           ></SearchBar>
 
-          <button
-            className="mk-toolbar-button"
-            onClick={(e) => {
-              // Anchor to the button, not the clicked SVG child (Notidian-i23).
-              const rect = e.currentTarget.getBoundingClientRect();
+          {/* H2 read-mode gate (Notidian-pb7p.2 / Atlas ADR-0096): the trio
+              are write affordances into the saved view — hidden on hard
+              read-only surfaces. Search stays (local read operation). */}
+          {!readMode && (
+            <>
+              <button
+                className="mk-toolbar-button"
+                onClick={(e) => {
+                  // Anchor to the button, not the clicked SVG child (Notidian-i23).
+                  const rect = e.currentTarget.getBoundingClientRect();
 
-              showSortMenu(rect, windowFromDocument(e.view.document), null);
-            }}
-            dangerouslySetInnerHTML={{
-              __html: props.superstate.ui.getSticker("ui//sort-desc"),
-            }}
-          ></button>
-          {/* Group-By toolbar button in minMode too (Notidian-nmr), so the
-              Filter/Sort/Group-By trio stays consistent across modes. */}
-          <button
-            className="mk-toolbar-button"
-            aria-label="Group By"
-            title="Group By"
-            onClick={(e) => {
-              // Anchor to the button, not the clicked SVG child (Notidian-i23).
-              const rect = e.currentTarget.getBoundingClientRect();
+                  showSortMenu(rect, windowFromDocument(e.view.document), null);
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: props.superstate.ui.getSticker("ui//sort-desc"),
+                }}
+              ></button>
+              {/* Group-By toolbar button in minMode too (Notidian-nmr), so the
+                  Filter/Sort/Group-By trio stays consistent across modes. */}
+              <button
+                className="mk-toolbar-button"
+                aria-label="Group By"
+                title="Group By"
+                onClick={(e) => {
+                  // Anchor to the button, not the clicked SVG child (Notidian-i23).
+                  const rect = e.currentTarget.getBoundingClientRect();
 
-              showGroupByMenu(rect, windowFromDocument(e.view.document), null);
-            }}
-            dangerouslySetInnerHTML={{
-              __html: props.superstate.ui.getSticker("ui//columns"),
-            }}
-          ></button>
-          <button
-            className="mk-toolbar-button"
-            onClick={(e) => {
-              // Anchor to the button, not the clicked SVG child (Notidian-i23).
-              const rect = e.currentTarget.getBoundingClientRect();
+                  showGroupByMenu(rect, windowFromDocument(e.view.document), null);
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: props.superstate.ui.getSticker("ui//columns"),
+                }}
+              ></button>
+              <button
+                className="mk-toolbar-button"
+                onClick={(e) => {
+                  // Anchor to the button, not the clicked SVG child (Notidian-i23).
+                  const rect = e.currentTarget.getBoundingClientRect();
 
-              showAddFilterMenu(
-                rect,
-                windowFromDocument(e.view.document),
-                null
-              );
-            }}
-            dangerouslySetInnerHTML={{
-              __html: props.superstate.ui.getSticker("ui//filter"),
-            }}
-          ></button>
+                  showAddFilterMenu(
+                    rect,
+                    windowFromDocument(e.view.document),
+                    null
+                  );
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: props.superstate.ui.getSticker("ui//filter"),
+                }}
+              ></button>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -2263,7 +2270,11 @@ export const FilterBar = (props: {
                     wrapper, no net-new markup or visual), so viewSettingsInlineBar
                     =false restores byte-for-byte the prior Notidian-ddk/-nmr IA
                     (and the menu de-dup above reverts too). */}
-                {inlineBarEnabled ? (
+                {/* H2 read-mode gate (Notidian-pb7p.2 / Atlas ADR-0096): the
+                    whole settings bar (both IA variants) is a write surface
+                    into the saved view — hidden on hard read-only surfaces. */}
+                {!readMode &&
+                  (inlineBarEnabled ? (
                   <div
                     className="mk-view-settings-bar"
                     data-mk-inline-bar="on"
@@ -2472,7 +2483,7 @@ export const FilterBar = (props: {
                       }}
                     ></button>
                   </>
-                )}
+                ))}
                 {healthSurfacesEnabled && (
                   <button
                     type="button"
@@ -2507,20 +2518,27 @@ export const FilterBar = (props: {
                     )}
                   </button>
                 )}
-                <button
-                  className="mk-toolbar-button"
-                  onClick={(e) => showLayoutMenu(e)}
-                  dangerouslySetInnerHTML={{
-                    __html: props.superstate.ui.getSticker("ui//layout"),
-                  }}
-                ></button>
-                <button
-                  className="mk-toolbar-button"
-                  onClick={(e) => showViewOptionsMenu(e)}
-                  dangerouslySetInnerHTML={{
-                    __html: props.superstate.ui.getSticker("ui//view-options"),
-                  }}
-                ></button>
+                {/* H2 read-mode gate (Notidian-pb7p.2 / Atlas ADR-0096):
+                    layout and the 3-knobs view-options menu are pure write
+                    affordances — hidden on hard read-only surfaces. */}
+                {!readMode && (
+                  <>
+                    <button
+                      className="mk-toolbar-button"
+                      onClick={(e) => showLayoutMenu(e)}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//layout"),
+                      }}
+                    ></button>
+                    <button
+                      className="mk-toolbar-button"
+                      onClick={(e) => showViewOptionsMenu(e)}
+                      dangerouslySetInnerHTML={{
+                        __html: props.superstate.ui.getSticker("ui//view-options"),
+                      }}
+                    ></button>
+                  </>
+                )}
               </div>
             }
           </div>
@@ -2541,9 +2559,14 @@ export const FilterBar = (props: {
         </div>
       )}
 
-      {(predicate?.filters.length > 0 ||
-        predicate?.sort.length > 0 ||
-        predicate?.groupBy.length > 0) && (
+      {/* H2 read-mode gate (Notidian-pb7p.2 / Atlas ADR-0096): the chip rows
+          are click-to-edit affordances into the saved view (each chip opens an
+          edit menu; + Add Filter is a direct write path) — the S3A-verified
+          friction. Hidden entirely on hard read-only surfaces. */}
+      {!readMode &&
+        (predicate?.filters.length > 0 ||
+          predicate?.sort.length > 0 ||
+          predicate?.groupBy.length > 0) && (
         <div className="mk-filter-bar">
           {predicate.groupBy.length > 0 && (
             <div className="mk-filter">

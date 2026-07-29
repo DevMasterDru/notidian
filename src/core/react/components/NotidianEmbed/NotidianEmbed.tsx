@@ -63,12 +63,18 @@ const NotidianEmbedContent = (
       ? { filters: descriptor.where }
       : undefined);
 
+  // H2 embed hygiene (Notidian-pb7p.2 / Atlas ADR-0096): `bar: false` mounts
+  // the fragment in minMode, which suppresses the whole view-config bar
+  // (title row, toolbar, filter/sort chips) — the zero-chrome hub-tab mode.
+  const barSuppressed = descriptor.bar === false;
+
   return (
     <div
       className="mk-notidian-embed"
       data-host={props.host}
       data-kind={descriptor.kind}
       data-editable={descriptor.editable === true ? "true" : "false"}
+      data-bar={barSuppressed ? "false" : "true"}
       style={heightStyle}
     >
       <SpaceManagerProvider superstate={props.superstate}>
@@ -79,6 +85,7 @@ const NotidianEmbedContent = (
           superstate={props.superstate}
           showTitle={descriptor.title !== false}
           readMode={descriptor.editable !== true}
+          minMode={barSuppressed}
           predicate={overlay}
         />
       </SpaceManagerProvider>

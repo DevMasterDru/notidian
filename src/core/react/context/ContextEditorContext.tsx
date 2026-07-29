@@ -431,7 +431,11 @@ export const ContextEditorProvider: React.FC<
     useContext(FramesMDBContext);
 
     const {
-      pathState
+      pathState,
+      // The embed-level hard read-only (SpaceFragmentView -> PathProvider,
+      // set by a notidian embed's editable:false). Distinct from SpaceContext's
+      // space-level readMode below — the embed flag never reaches SpaceContext.
+      readMode: pathReadMode
     } = useContext(PathContext)
   const {
     spaceInfo,
@@ -1760,6 +1764,17 @@ export const ContextEditorProvider: React.FC<
     // save (bd Notidian-sas8) — closes the "unclearable off-primary" gap left by
     // the primary-only FilterBar Sub-items menu gate.
     const cleanedPredicate = validatePredicate(pred, defPredicate, dbSchema?.id);
+
+    // H2 hard read-only (Notidian-pb7p.2 / Atlas ADR-0096): a read-mode
+    // surface (embed editable:false, read-only path) must never persist
+    // view-predicate/config changes into the saved view. The change still
+    // applies to LOCAL state so ephemeral interactions (collapse toggles,
+    // local sorts) work for this mount, but the saved schema is frozen.
+    // Row-edit policy is explicitly out of scope (ADR-0095 edit-as-capture).
+    if (pathReadMode) {
+      setPredicate(cleanedPredicate);
+      return;
+    }
 
     const optimistic = options?.optimistic !== false;
     if (optimistic) setPredicate(cleanedPredicate);

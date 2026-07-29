@@ -9,6 +9,12 @@ export type NotidianEmbedDescriptor = {
   height?: number;
   title?: boolean;
   editable?: boolean;
+  // H2 embed hygiene (Notidian-pb7p.2 / Atlas ADR-0096): `bar: false`
+  // suppresses the view-config bar (title row, toolbar, filter/sort chips)
+  // entirely — the zero-chrome mode every ADR-0096 hub tab uses. Attached only
+  // when explicitly false, so a bar-less block stays byte-identical to the
+  // legacy descriptor shape; absent means the bar renders as before.
+  bar?: boolean;
   // ADR-0066 (Topic Hub) v1 view mechanism / Notidian-ioxi: an optional
   // conjunctive (AND) filter overlay declared by `where:` lines in the embed
   // block. READ-PATH ONLY — these filters narrow which rows the referenced base
@@ -25,6 +31,7 @@ export type NotidianEmbedDescriptorInput = {
   height?: unknown;
   title?: unknown;
   editable?: unknown;
+  bar?: unknown;
   table?: unknown;
   view?: unknown;
   // Raw `where:` clause text. Multiple `where:` lines accumulate here as a
@@ -319,6 +326,7 @@ export const normalizeNotidianEmbedDescriptor = (
   const height = parseHeightField(input.height, errors);
   const title = parseBooleanField(input.title, "title", errors);
   const editable = parseBooleanField(input.editable, "editable", errors);
+  const bar = parseBooleanField(input.bar, "bar", errors);
   const where = parseWhereFilters(input.where, errors);
 
   if (errors.length > 0 || target == null || kind == null || id == null) {
@@ -335,6 +343,12 @@ export const normalizeNotidianEmbedDescriptor = (
 
   if (height != null) {
     descriptor.height = height;
+  }
+
+  // Only attach `bar` when explicitly false — absent and `bar: true` both
+  // normalize to the legacy descriptor shape (bar shown).
+  if (bar === false) {
+    descriptor.bar = false;
   }
 
   // Only attach `where` when clauses were actually declared, so a where-less
@@ -391,6 +405,10 @@ export const serializeNotidianEmbedBlock = (
 
   if (descriptor.height != null) {
     lines.push(`height: ${descriptor.height}`);
+  }
+
+  if (descriptor.bar === false) {
+    lines.push(`bar: false`);
   }
 
   lines.push(

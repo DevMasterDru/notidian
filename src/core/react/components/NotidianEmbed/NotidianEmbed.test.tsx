@@ -103,6 +103,32 @@ describe("NotidianEmbed", () => {
     expect(markup).toContain('data-read-mode="true"');
     expect(markup).toContain('data-show-title="false"');
     expect(markup).toContain("height:420px");
+    // Legacy descriptors keep the config bar (H2 — Notidian-pb7p.2).
+    expect(markup).toContain('data-bar="true"');
+    expect(mockFragmentProps.minMode).toBeFalsy();
+  });
+
+  // H2 embed hygiene (Notidian-pb7p.2 / Atlas ADR-0096): `bar: false`
+  // suppresses the view-config bar by mounting the fragment in minMode.
+  it("suppresses the view-config bar when the descriptor sets bar: false", () => {
+    const markup = renderToStaticMarkup(
+      <NotidianEmbed
+        superstate={superstate}
+        sourcePath="Dashboard.md"
+        host="markdown"
+        descriptor={{
+          target: "Projects",
+          kind: "view",
+          id: "active",
+          title: false,
+          editable: false,
+          bar: false,
+        }}
+      />
+    );
+
+    expect(markup).toContain('data-bar="false"');
+    expect(mockFragmentProps.minMode).toBe(true);
   });
 
   it("resolves a folder-note declaration to its explicit base and ordered overlays", async () => {
