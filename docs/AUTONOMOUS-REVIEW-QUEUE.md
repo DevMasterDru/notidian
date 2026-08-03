@@ -1,5 +1,9 @@
 # Autonomous Review Queue
 
+> **Retired 2026-08-03 by ADR 0066.** This is a historical verification record,
+> not an active queue. Current work comes only from the owner request and current
+> architecture documents.
+
 This file is the owner's review surface for the autonomous implementation drive
 (see [AGENTS.md](../AGENTS.md) → "Autonomous Implementation Mode"). The autonomous
 loop appends here so nothing it could not fully verify itself drifts unseen.

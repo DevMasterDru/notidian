@@ -6,11 +6,15 @@ when the owner asks for it**. The linked ADR is the grounding (context, options,
 and a recommendation already worked out) so that, when pulled, the build starts
 from a settled design rather than a blank page.
 
+Historical `Notidian-*` identifiers below are provenance only. The former Beads
+graph is archived and does not carry current status; no repository-wide task
+tracker is active (ADR 0066).
+
 ## Pulled into build (active stream)
 
 The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs are
-**Accepted** and they are scheduled as window-sized session issues. See epic
-**`Notidian-f0pj`** and packet `docs/streams/notion-parity-ux.md`.
+**Accepted**. The statuses below and the linked ADRs are authoritative; the
+historical stream packet is design context only.
 
 - **Sub-items + back-relations creation UX** (ADR 0024 → bd `Notidian-f0pj.1`). ✓ Shipped.
 - **Frontmatter-link relations + rollups UX polish** (ADR 0029 → bd `Notidian-f0pj.2`). ✓ Shipped.
@@ -25,10 +29,9 @@ The owner pulled these on 2026-06-20 — they are no longer "parked"; their ADRs
 
 Six features across five delivery waves, ratified via
 [docs/superpowers/specs/2026-07-02-data-integrity-program-design.md](superpowers/specs/2026-07-02-data-integrity-program-design.md).
-Wave 0 (bd epic `Notidian-vonm`, correctness-audit fixes) is in flight and
-gates everything below it. Waves 1a/1b and the cross-cutting derived-field
-authority decision have ratified ADRs; none are sessionized into bd session
-issues yet.
+The former tracker status for Wave 0 and later waves was retired with ADR 0066.
+Waves 1a/1b and the cross-cutting derived-field authority decision have ratified
+ADRs, but remaining implementation must be explicitly pulled by the owner.
 
 - **Wave 1a — Type Profile v3 schema registry** (ADR 0056). Enum-as-law, required/unique/pattern/title-binding, empty-encoding policy, declared references, derived-field declarations, per-database invariants, schema adoption command. Awaiting sessionized build.
 - **Wave 1b — Pure validation core + read-only reconciler & health surfaces** (ADR 0057). `validateRowPatch`, incremental/full-sweep revalidation, row badges, health chip, Database Health panel, broken-row rendering, repair-tier taxonomy. Read-only this wave — no write-path change. Awaiting sessionized build.

@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
+**Superseded by ADR 0066 on 2026-08-03.** Retained only as a historical record
+of the former tracker; it creates no current Notidian work or upstream watch.
+
+Originally accepted. Auto-resolved per realignment (AGENTS.md use-driven doctrine, cb2d74c).
 This is an **owner/upstream
 action item, not an in-repo code change** — there is no Notidian source to edit.
 The autonomous loop refused to fabricate a passive `.beads/issues.jsonl` mirror

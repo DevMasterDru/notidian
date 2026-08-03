@@ -7,7 +7,7 @@ description: Notidian's outward interface for cross-repo consultation (ADR-0041)
 
 > Per Atlas Method ADR-0041 (cross-repo consultation ladder): read this file inline
 > before spawning a subagent or cold-exploring this repo. Resolve volatile state
-> live through `bd` or the cited source; this page holds stable facts and pointers.
+> through the cited canonical source; this page holds stable facts and pointers.
 
 ## 1. Identity
 
@@ -15,8 +15,8 @@ Notidian is an independent Make.md fork: a Notion-style database engine over
 canonical Obsidian files, bundled as one plugin (`main.js`). It is the sole
 Atlas Vault database engine; native Obsidian Bases is out of scope (ADR 0014).
 
-- Repo: `~/Projects/Notidian` · bd prefix: `Notidian-` · Portfolio row:
-  `Portfolio/Notidian.md` (`kind: product`, serves `[[Atlas]]`).
+- Repo: `~/Projects/Notidian` · Portfolio row: `Portfolio/Notidian.md`
+  (`kind: product`, serves `[[Atlas]]`).
 - Build: `npm run build` (typecheck + bundle); `npm run deploy:vault` (build →
   install → reload, the only path that updates a running vault; ADR 0051).
 
@@ -47,9 +47,8 @@ Atlas Vault database engine; native Obsidian Bases is out of scope (ADR 0014).
   `recurrence` expose Occurs today / Occurs this ISO week predicates over
   canonical frontmatter. They create no occurrence rows or reset daemon ([ADR
   0061](adr/0061-recurrence-aware-occurs-on-filters.md)).
-- **In-flight (Data Integrity Program, `Notidian-loan`)**: Type Profile v3
-  schema registry, pure validation core, and read-only reconciler/health surface
-  — ADRs 0056–0058.
+- **Data Integrity Program design**: Type Profile v3 schema registry, pure
+  validation core, and read-only reconciler/health surface — ADRs 0056–0058.
 
 ## 3. Concepts & vocabulary
 
@@ -73,9 +72,6 @@ Atlas Vault database engine; native Obsidian Bases is out of scope (ADR 0014).
 - **Live-verify contract** (ADR 0051): committed + gates-green ≠ deployed; a
   render-path change needs `npm run deploy:vault` + `obsidian dev:dom`/
   `dev:errors`/`dev:screenshot` before it's considered shipped.
-- **Final-completion execution** (ADR 0064): one xhigh root resolves the live
-  Beads graph and gates one direct Sol-medium implementation worker at a time on
-  `autonomous/notion-parity-2026-06-12`; no hcom or Claude transport proxy.
 - **AI operating guidance**: the `notidian` skill (canonical source in the
   *Atlasidian* repo, `.agents/skills/notidian/`) is the routing skill for any
   Obsidian-database task, in this repo or the vault.
@@ -93,9 +89,8 @@ Atlas Vault database engine; native Obsidian Bases is out of scope (ADR 0014).
   recursively regardless of ignore filters (V8 OOM risk).
 - `.worktrees/` holds ignored local worktree snapshots — not active source,
   do not inspect/summarize unless explicitly asked.
-- Autonomous completion state lives in this repo's Beads graph, packet, ADRs,
-  and git history; model and invocation details resolve live from the Atlas
-  Vault Model Routing registry (ADR 0064).
+- No repository-wide task tracker is active. Historical issue identifiers are
+  provenance only and must not be treated as live work state (ADR 0066).
 
 ## 6. Consultation pointers
 
@@ -105,14 +100,12 @@ Atlas Vault database engine; native Obsidian Bases is out of scope (ADR 0014).
 - Practical table workflows/troubleshooting: `docs/table-database-workflows.md`.
 - Parked/speculative product direction (never built until pulled):
   `docs/ROADMAP.md`.
-- Live work state (never mirrored here): `bd ready` / `bd show <id>` with
-  prefix `Notidian-`.
+- Work selection comes from the current owner request. Use `docs/ROADMAP.md`
+  only when the owner asks for broad planning.
 
 ## 7. Provenance
 
 Minted 2026-07-05 per Atlas Method ADR-0041 D2 ("next active session, not
-big-bang"), during a session that also filed `Notidian-7v4c` (ADR-0040
-Database Boundary Test → `Notidian-loan.3`) and `Atlasidian-9me` (notidian
-skill citation gap). Maintain per `docs/conventions/capabilities-doc.md`: an
+big-bang"). Maintain per `docs/conventions/capabilities-doc.md`: an
 ADR that changes this repo's outward interface names the edit to this file in
 the same change-set.

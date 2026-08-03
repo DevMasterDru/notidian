@@ -2,8 +2,9 @@
 
 ## Status
 
-**Accepted — owner-directed 2026-07-18; recovery-first amendment accepted
-2026-07-19.** The owner stopped Run 21 and asked for an optimality
+**Superseded by ADR 0066 on 2026-08-03.** This file is historical evidence, not
+an active execution contract. The former model was owner-directed 2026-07-18;
+its recovery-first amendment was accepted 2026-07-19. The owner stopped Run 21 and asked for an optimality
 re-evaluation followed by realignment of the remaining Notidian completion
 process, then requested a second stop and re-evaluation after observing the
 direct process. The exact model split remains unchanged:

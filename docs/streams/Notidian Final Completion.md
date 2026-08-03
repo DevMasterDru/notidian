@@ -5,7 +5,7 @@ context_class: truth
 stream: final-completion
 title: Notidian Final Completion
 slug: notidian-final-completion
-status: active
+status: retired
 pointers:
   - type: repo-doc
     key: docs/current-state.md
@@ -13,7 +13,7 @@ pointers:
     why: defines what the product already guarantees and what still prevents finality
   - type: repo-doc
     key: docs/ROADMAP.md
-    resolver: read Pulled into build and Parked, then resolve status from Beads
+    resolver: read Pulled into build and Parked as historical design context
     why: names owner-pulled and previously parked product work without owning live status
   - type: repo-doc
     key: docs/adr/README.md
@@ -53,6 +53,9 @@ provenance:
 ---
 
 # Notidian Final Completion
+
+> **Retired 2026-08-03 by ADR 0066.** This packet and its issue identifiers are
+> historical evidence only; they do not authorize work or describe current status.
 
 ## Scope
 
